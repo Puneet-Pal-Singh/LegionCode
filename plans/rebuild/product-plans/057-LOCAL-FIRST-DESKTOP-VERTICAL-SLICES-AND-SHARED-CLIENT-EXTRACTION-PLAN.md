@@ -8,6 +8,25 @@ Owner: Desktop shell + local LegionCode App Server + shared client surfaces
 Execution-level design:
 `LLD/057-local-first-desktop-golden-loop.md`
 
+Local capability expansion, proposed 2026-11-10:
+[Plan 062 — local environments, shells, worktrees and inference](062-LOCAL-EXECUTION-ENVIRONMENTS-SHELLS-WORKTREES-AND-INFERENCE-PLAN.md)
+defines general subprocess execution, in-app terminals, managed workspaces,
+optional local containers and offline model acceptance. It preserves this
+plan's LLD as the sole Desktop completion authority and does not replace the
+current restricted executable policy without a proven backend. External
+harness integration remains independently owned by 048/061.
+
+Delivery clarification, 2026-11-10: Desktop selects Local or Cloud, then
+LegionCode/BYOK, Codex, Claude Agent or OpenCode v2, then that harness's supported
+model/account. Both environments have the same initial harness scope; advertise
+only independently proven driver/placement combinations. Continue 057 alongside
+048 local integration, 061 cloud integration and 062 local environment work.
+Full 061 completion is not a prerequisite; a particular Desktop cloud feature
+consumes that driver's ready hosted path. Generic ACP/custom agents and registry
+installation are later 048.L6 scope, not a 057 beta/completion gate. The shared
+work ownership and rollout sequence are recorded in
+[062 section 12](062-LOCAL-EXECUTION-ENVIRONMENTS-SHELLS-WORKTREES-AND-INFERENCE-PLAN.md#12-implementation-slices-and-dependency-rules).
+
 Corrective status as of 2026-09-27: 057.1 and 057.4 are complete for their
 scoped responsibilities. 057.2 and 057.5 are functionally useful but remain
 architecturally partial. Their shared workspace/sidebar correction is open in
@@ -551,6 +570,15 @@ Extract shared review UI only as Desktop consumes each real path.
 Exit gate: completed review remains identical after additional unrelated local
 Git changes and after app restart.
 
+Research planning addendum (2026-11-08, Asia/Kolkata): the
+[057.7B Git safety proposal](LLD/057-local-first-desktop-golden-loop.md#0577b-git-safety-proposal--2026-11-08)
+records fresh Codex, OpenCode and T3 Code source findings, the required namespace
+policy decision, and staged implementation through existing owners. It is an
+implementation plan with contract A approved by the user on 2026-11-08. Stock
+Git retains a trusted-host namespace assumption; guarded filesystem FD safeguards
+remain unchanged. This authorizes no replacement Git engine or capture/commit
+capability before its actual acceptance gates pass.
+
 ### 057.8 — Desktop local golden loop and distributable beta
 
 Harden the complete local-only path:
@@ -574,6 +602,60 @@ Run security, performance, accessibility, packaging, and clean-machine tests.
 Exit gate: a new user on the primary OS can download LegionCode Desktop and
 complete the golden loop without an account or cloud service.
 
+### 057.9 — Shared responsive Desktop and Web layouts
+
+User-requested milestone added on 2026-11-08 (Asia/Kolkata). Finish Desktop
+integration first, then complete the responsive checklist through the existing
+shared UI owners. Coordinate Web delivery with Plan 056; do not build a second
+responsive implementation or a competing checklist there.
+
+Required research before building the responsive checklist:
+
+- inspect the responsive source and running UI of the OSS
+  [T3 Code](https://github.com/pingdotgg/t3code) and
+  [OpenCode](https://github.com/anomalyco/opencode) repositories;
+- compare breakpoint handling, navigation/drawers, right panels, chat/composer,
+  model selection, settings/provider dialogs, and review/diff behavior;
+- record exact commit/file references and the reason each useful pattern fits
+  LegionCode in the implementation PR; record rejected patterns when relevant;
+- adapt interaction and layout ideas to LegionCode's existing design and shared
+  components. Do not copy entire screens, introduce a new visual design, or
+  import another product's runtime, persistence, or state authority.
+
+Responsive checklist:
+
+- **057.9A Desktop:** preserve a usable, polished layout from the supported
+  minimum window (currently 640 × 480) through medium and maximized/wide windows.
+  Check representative 640, 900, 1280 and 1600 px widths, resizing in both
+  directions, and zoom up to 200%.
+- **057.9B Web:** complete tablet and mobile layouts in portrait and landscape.
+  Check representative 320, 360, 390, 420, 768, 820 and 1024 px widths, plus the
+  existing desktop layout. Include the mobile keyboard and viewport/safe-area
+  behavior of the composer and dialogs.
+- Check sidebar navigation and pinning, top actions/summary, the right panel,
+  chat history and composer, attachments, model/permission menus, settings,
+  provider/model dialogs, approvals, file browsing, saved diffs and commit UI.
+- Every visible action remains reachable. Drawers/panels must not cover another
+  visible control without an explicit close/back interaction. Preserve focus,
+  keyboard navigation, scroll position, selected thread and unsent drafts across
+  resize/orientation changes.
+- Prevent clipped controls, zero-width text columns and horizontal page overflow.
+  Keep intentional code/diff scrolling inside its own surface. Use the same
+  shared components, tokens and typed client adapters for both clients.
+- Include the observed `f54905f0f` reproduction: a native 640 px content window
+  at 200% zoom produces a 320 px CSS viewport. The menu/navigation interactions
+  work, but the full-window capture shows clipped hero and composer-toolbar
+  text. Fix their shared reflow/compact behavior; zero document overflow alone
+  does not prove that nested content is visible. Verify full native captures
+  alongside measurements and pointer/keyboard checks.
+
+Exit gate: actual Desktop window checks and Web tablet/mobile checks demonstrate
+usable layouts and preserved workflows at the agreed sizes. Keep before/after
+screenshots and measurements in PR evidence, rerun the relevant existing checks,
+and verify the wide Web layout remains healthy. Do not add test files or test
+registrations for this milestone; use existing checks and direct UI verification.
+Responsive acceptance must be complete before Plan 057 is declared complete.
+
 ## 8. Relationship To Plan 056
 
 Plan 057 changes the execution order, not Plan 056's desired ownership.
@@ -588,7 +670,9 @@ Required order, with the 2026-11-06 subscription parallelization addendum:
    narrowed by the user's 2026-11-06 request: Mac work may proceed in parallel,
    waiting for the exact shared boundary it consumes rather than all of 058.
 5. Plan 057 completes its accountless local golden loop over those shared
-   boundaries. Plan 056 retains broader responsive Web acceptance.
+   boundaries. The user's 2026-11-08 addendum adds explicit Desktop and Web
+   tablet/mobile acceptance in 057.9; coordinate the same shared implementation
+   with Plan 056's broader responsive Web work rather than duplicate it.
 6. Plans 048/061 independently integrate Codex, Claude Agent and OpenCode v2
    locally and in cloud. Neither waits for 057, 058, the Native golden loop or
    another driver. Each slice wires and proves its required canonical services;
@@ -755,4 +839,7 @@ Plan 057 is complete only when:
    worker, relay, billing service, or public endpoint; network access to the
    user's chosen inference provider is allowed;
 8. every intermediate PR remains demoable and every replaced duplicate owner
-    is deleted only after its replacement is proven.
+    is deleted only after its replacement is proven;
+9. milestone 057.9 demonstrates responsive Desktop window layouts and Web
+   tablet/mobile layouts, with the required T3 Code/OpenCode source comparison,
+   shared-component implementation and actual viewport/workflow evidence.

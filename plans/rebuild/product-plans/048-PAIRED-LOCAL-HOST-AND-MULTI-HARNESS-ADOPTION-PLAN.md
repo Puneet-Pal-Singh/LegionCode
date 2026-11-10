@@ -16,6 +16,31 @@ serial dependency on completing Desktop or Web extraction.
 Updated: 2026-11-06 (Asia/Kolkata): independent local/cloud harness delivery,
 including OpenCode v2 in the initial scope alongside Codex and Claude.
 
+Related local environment expansion, proposed 2026-11-10:
+[Plan 062](062-LOCAL-EXECUTION-ENVIRONMENTS-SHELLS-WORKTREES-AND-INFERENCE-PLAN.md)
+owns general Native subprocesses, PTYs, managed workspaces, optional containers
+and local-model product acceptance. It consumes this plan's driver contracts;
+048.L1/L3/L4 do not wait for it, and a working external harness does not establish
+Native shell or sandbox capability.
+
+Release priority, clarified 2026-11-10: initial product scope is LegionCode/BYOK
+plus native Codex, Claude Agent and OpenCode v2 in Local and Cloud. Users choose
+environment first, then harness, then the harness's supported model/account.
+048 owns the external local integrations and shares their driver packages with
+061; it does not wait for full 061, 057 or 062 completion. The first real local
+or cloud consumer seeds a missing shared contract, with one implementation
+owner per driver and coordinated shared-file changes. See
+[062 section 12](062-LOCAL-EXECUTION-ENVIRONMENTS-SHELLS-WORKTREES-AND-INFERENCE-PLAN.md#12-implementation-slices-and-dependency-rules).
+
+048.L6 is follow-on scope: custom installed ACP command first, registry discovery
+and managed local installation second, curated cloud registry execution third.
+Its target placement needs proven built-in acceptance and the shared host
+contract; it does not require unrelated cloud usage/telemetry work or full 061
+closure. Prioritize the four built-ins now; ACP is not a prerequisite for any
+built-in release and does not replace their native drivers. The LLD records the
+subscopes and exact acceptance boundaries. No measured market-share claim is
+used to justify this priority.
+
 GitHub execution tracking (2026-10-19):
 [#526 — External agent hosting with OpenCode v2 over ACP](https://github.com/Puneet-Pal-Singh/LegionCode/issues/526).
 The previous execution order targeted dev after
@@ -292,14 +317,38 @@ defines independent tracks; the list is not a serial order:
    matching T3's integration instead of the earlier ACP proposal.
    It does not wait for Codex or Claude. Retain the existing slice identifiers.
 5. 048.L5: Cursor through its supported SDK, after capability/auth validation.
-6. 048.L6: later generic ACP registry/custom-agent support with its own
-   protocol/conformance scope, independent of native OpenCode.
+6. 048.L6: later generic ACP support, in order: installed custom command,
+   registry discovery/managed local installation, then curated cloud registry
+   execution. Use one generic driver behind the existing harness contract;
+   independent of native OpenCode, with its own protocol/conformance gates.
 
 Every adapter proves prompt, approval, edit, cancellation, immutable review,
 and restart/replay through the same SDK and runtime. Implement only the
 selected transport per harness; additional native transports need a measured
 capability gap. Do not expose LegionCode's own ACP server as a prerequisite;
 that outward-facing capability belongs to Plan 026.
+
+### Harness setup and installation experience — clarified 2026-11-10
+
+Each initial harness slice includes usable onboarding, not only an adapter.
+Settings → Agents → Add agent selects the execution environment, then harness,
+runtime installation, supported account route and host-confirmed readiness.
+The composer selects environment → harness instance/account → model. Keep
+LegionCode Native/BYOK distinct from the three external agent loops; an OpenAI
+or Anthropic API connection must not implicitly select a harness.
+
+For This Mac, offer explicit app-managed installation or an explicitly selected,
+compatible existing runtime. Do not silently alter global CLI installations,
+shell profiles or provider homes. For Cloud, provision the runtime in the
+execution environment; neither Web nor Mac cloud requires a local CLI.
+Installation, authentication and execution readiness are separate facts.
+
+The setup UI, installation/update/removal ownership, account-store distinctions,
+reference-product evidence and acceptance matrix are specified in
+[LLD 048 section 13](LLD/048-local-harness-integration-and-chatgpt-plan-usage.md#13-harness-onboarding-and-runtime-installation--2026-11-10).
+These requirements belong to each L1/L2/L3/L4 acceptance path; they do not create
+a new serial prerequisite or advertise installed Mac support before its proof.
+Existing L6a/L6b/L6c sequencing and the native transport decisions are unchanged.
 
 ### Connected Phase 0 — prove canonical session-host conformance
 

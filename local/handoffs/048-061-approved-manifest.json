@@ -1,7 +1,7 @@
 {
   "base_sha": "b7169c36c6ee83da68c3fee9a0a109c0576fb71d",
   "repository": "Puneet-Pal-Singh/LegionCode",
-  "approved_at": "2026-11-07",
+  "approved_at": "2026-11-10",
   "files": {
     "architecture/HARNESS-INTEGRATION.md": {
       "sha256": "d882293acb546e2c153b7feaef1bc3fd0e8d297b36f2603bed39a8396788c3d7",
@@ -12,24 +12,24 @@
       "bytes": 25514
     },
     "plans/rebuild/product-plans/048-PAIRED-LOCAL-HOST-AND-MULTI-HARNESS-ADOPTION-PLAN.md": {
-      "sha256": "e31138a440ab17f190d63f65ee2946c2686d777e39877033b041db27a54ae4c5",
-      "bytes": 19887
+      "sha256": "08e510aca9c218577bb62f4eb1f3ee2970b4d50dbdcdcad27ee05af4eac9b43b",
+      "bytes": 23166
     },
     "plans/rebuild/product-plans/LLD/048-local-harness-integration-and-chatgpt-plan-usage.md": {
-      "sha256": "46f4a96400788fdfeb4caf45218ca5af4a3293eb3e3778e30c76bfd155cc9860",
-      "bytes": 36629
+      "sha256": "01d33670c8a7a6c6727efb827ecf5ea04adbb39ed1bb37824de9b34a70b20070",
+      "bytes": 52476
     },
     "plans/rebuild/product-plans/061-CLOUD-HARNESS-INTEGRATION-PLAN.md": {
-      "sha256": "5a1265189db3a7761c24a33131cbcf81e0a634108035a3f709255841778b4f7b",
-      "bytes": 25311
+      "sha256": "004ac61cfc61b305a75afadd3088476c89b807ff7aee5e956851aadc194e93d7",
+      "bytes": 28608
     },
     "plans/rebuild/product-plans/057-LOCAL-FIRST-DESKTOP-VERTICAL-SLICES-AND-SHARED-CLIENT-EXTRACTION-PLAN.md": {
-      "sha256": "114ea01b73f098cdbdab95cddaa853a5a77208b0e9ab981aa9f288e1e82daff0",
-      "bytes": 31814
+      "sha256": "7fbea89dd5cd6061947a6d791cedcffa83664fac9ab36afa11828a496b4968bf",
+      "bytes": 37546
     },
     "plans/rebuild/product-plans/LLD/057-local-first-desktop-golden-loop.md": {
-      "sha256": "03bfd087d6c4eafbf1dbab1455d7797833c977c1f276e14448aeb435690a37f5",
-      "bytes": 46542
+      "sha256": "9d64e10cf5ede2fe41da7bb626f47dc711decbe2d27d53a335b70114ec3813f4",
+      "bytes": 68320
     },
     "plans/rebuild/product-plans/058-WEB-FIRST-THIN-CLIENT-EXTRACTION-PLAN.md": {
       "sha256": "4543ddc715593e3d9dfd5470ea1bcb4de097d5031354b98c0cb338c8c0337cdd",
@@ -68,19 +68,28 @@
       "bytes": 2051
     },
     "architecture/CAPABILITY-OWNERSHIP.md": {
-      "sha256": "f267d8c440ab9bd38fb9aa683aca9704a30446691320beabd3d9bba5ddd7c055",
-      "bytes": 115373
+      "sha256": "a7d2bca750716539074cfa745980ade355279b3843c8ee1028c5429c334ac89b",
+      "bytes": 136463
     },
     "architecture/RUNTIME-ARCHITECTURE.md": {
       "sha256": "cb908caf4a0a8ac14cc6740fb3e7da8e14971134ef2fc69dd85f9423e97b62c5",
       "bytes": 16128
+    },
+    "plans/rebuild/product-plans/062-LOCAL-EXECUTION-ENVIRONMENTS-SHELLS-WORKTREES-AND-INFERENCE-PLAN.md": {
+      "sha256": "c8211a6d5f3f1fd00195d84e3925a0000b7853b6799d277e440a80e486e45ec9",
+      "bytes": 40803
     }
   },
   "source_changes": [],
   "excluded": "All unrelated dirty/untracked source changes and provider homes/credentials. Current dev capability ledger retained.",
   "runtime_architecture": "Current dev still lacks tracked authority. Exact reconciled tracked architecture from implementation checkpoint 01e10d92 is included with unchanged local provenance. Recheck current code/ledger before affected edits.",
   "instructions": "Current reviewed dev plus approved independent harness decisions; AGENTS differs from current dev only by approved Desktop cloud/local and independent-harness paragraphs. Updated 057 nofork policy has no filesystem/network claim and cannot satisfy full 048/061 host boundary. 058 accepted completion is scoped; no inherited harness acceptance. Keep current dev ledger; implementation owner reconciles harness rows with actual wiring. No dirty source, secrets or provider homes included.",
-  "integration_base_sha": "798ff8d2870c199a0315bd0899fec2ed05bbf516",
-  "implementation_checkpoint_sha": "01e10d9228319d4048ea96d271fa4d2ddad3b71e",
-  "handoff_predecessor_sha": "748cd663c95032470bd842e6658c4d39586b6716"
+  "integration_base_sha": "467c5a610eac6ed5aaba663a140d4ce843292b0d",
+  "implementation_checkpoint_sha": "cc4403149a908fee8135a766ddd0c595363e6657",
+  "handoff_predecessor_sha": "b1071aa57e0200d2cfb4e9d6293ed89d9d9f76d6",
+  "priority": [
+    "codex",
+    "opencode"
+  ],
+  "scope_note": "Codex and OpenCode first, cloud acceptance061 plus independent048Mac work. Claude preserved, not critical path. This commit carries approved local planning updates only; source checkpoint still requires reviewed-dev reconciliation. Primary dirty source and primary capability ledger are excluded. Reviewed integration instructions and tracked architecture authority retained; current primary AGENTS has stale pre-SDK wording overridden by user fixed construction."
 }

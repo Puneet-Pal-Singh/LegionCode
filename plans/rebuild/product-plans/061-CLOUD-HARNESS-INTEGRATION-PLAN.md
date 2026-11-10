@@ -23,6 +23,27 @@ official Claude Agent SDK streaming query and OpenCode v2 private native
 server/typed client/SSE. ACP remains a valid independent extension path behind
 the shared contract; it is not a cloud restriction or a recovery fallback.
 
+Release and parallel-work clarification, 2026-11-10: the initial product offers
+LegionCode/BYOK plus Codex, Claude Agent and OpenCode v2. The user selects Local
+or Cloud before selecting the harness and its supported model/account. This
+plan owns the three external cloud integrations; Native BYOK retains its
+existing runtime/provider owner. Cloud is an execution placement, not a
+separate harness category.
+
+Continue this plan alongside 048 local harness integration, 057 Desktop delivery
+and 062 local environment expansion. Local engineering does not wait for full
+061 closure. A Desktop cloud feature depends only on its corresponding ready
+hosted slice and packaged acceptance. Each native driver package has one owner
+across placements; local/cloud host compositions must not implement parallel
+driver copies. The detailed coordination rules are in
+[062 section 12](062-LOCAL-EXECUTION-ENVIRONMENTS-SHELLS-WORKTREES-AND-INFERENCE-PLAN.md#12-implementation-slices-and-dependency-rules).
+
+Generic ACP custom commands and registry installation remain later 048.L6
+extension scope. They are excluded from 061's current implementation and
+completion criteria. A future cloud ACP slice consumes the same generic driver
+but requires explicit managed installation, credential/isolation and product
+conformance; an installed local ACP agent is not cloud-release proof.
+
 ## 1. Product decision
 
 Let a user select Codex, Claude Agent or OpenCode v2, connect its supported
@@ -257,6 +278,36 @@ Stop; cap cloud waiting time under the duration/compute policy. If it ends,
 settle the attempt and retain partial work. Continuation after reset is explicit
 unless a still-live provider turn resumes under the selected policy. Never
 rotate accounts, switch harnesses or charge a paid API key automatically.
+
+### 7.1 Cloud onboarding and runtime distribution — clarified 2026-11-10
+
+Use the shared onboarding contract in
+[LLD 048 section 13](LLD/048-local-harness-integration-and-chatgpt-plan-usage.md#13-harness-onboarding-and-runtime-installation--2026-11-10).
+Settings first selects the hosted environment, then Codex, Claude Agent or
+OpenCode v2, then an explicitly supported account/provider route. Display
+runtime version/health, account, billing route, model freshness and the concrete
+reason for an unavailable capability. A configured instance is not execution
+readiness, and a successful login is not subscription-release approval.
+
+Install the pinned runtime/SDK graph in the managed execution environment,
+through the existing build/distribution and supervisor owners. Web and Mac cloud
+must not ask users to install a CLI on the Mac, import local provider homes or
+copy local login material into cloud. Provider sign-in can open on the client;
+callback, token custody and runtime authentication belong to the selected cloud
+authority. Handle callback failure, cancellation, expiry and restart truthfully.
+
+An update creates a new compatible runtime/process generation for future
+attempts. Preserve frozen versions and account/payer bindings for active work;
+retain leases when process closure is unknown. Do not apply an upstream auto
+update, new active login or server restart to an active attempt. Reproducible
+packaging, the existing image budget and real isolation remain release gates.
+
+Each C1/C3/C6 slice proves clean setup and its real selected-account
+edit/test/approval/Stop/review path. C2 additionally proves the supported Codex
+subscription route. Show the same hosted instance and Thread from Web and Mac
+cloud. L6 registry discovery/installation remains independent follow-on scope;
+an arbitrary client command or a locally installed registry entry is not a
+managed-cloud runtime or provider authorization.
 
 ## 8. Delivery slices and parallel dependencies
 

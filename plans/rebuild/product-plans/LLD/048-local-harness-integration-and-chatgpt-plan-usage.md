@@ -329,7 +329,7 @@ does not count as integration. Slice numbers identify scope, not serial order.
 | 048.L3 | Independent native OpenCode v2 slice in harness-opencode. Verify supported 2.x binary/client compatibility, reject v1/unknown, supervise an authenticated private server, verify server.info and subscribe to native events before prompting. Map supported permissions/questions, interruption, session attachment/recovery and review through the common contract without requiring L1/L4 completion. |
 | 048.L4 | Claude Agent SDK through the same port; selected local subscription login after provider release gate, with explicit API-key route available independently. Map query events, permissions/questions, session continuation and abort. Prove billing source and no API-key precedence leak. |
 | 048.L5 | Cursor through supported official SDK. Pin the dependency and verify account/auth and approval/resume coverage before enabling capabilities. |
-| 048.L6 | Later generic ACP agents/registry. Independently scope a shared ACP transport and its conformance; L3's native OpenCode adapter is not an ACP prerequisite. Pin manifests/executables/versions, validate commands and environment, require explicit enable and report capability limits. |
+| 048.L6 | Follow-on generic ACP extension: L6a installed custom command, L6b registry discovery/managed local installation, L6c curated cloud registry execution. One generic driver and shared host contract; preserve native built-ins and require each placement's own conformance. |
 | 048.R | Optional pairing/relay and Web/mobile local control. Require Plan 047 Gate C plus enrollment, revocation, authorization, reconnect, origin/network and artifact-access proof. |
 
 The native event feed is volatile. Establish its subscription before work,
@@ -352,6 +352,33 @@ L1/L2 (Codex), L3 (OpenCode v2) and L4 (Claude) are independent implementation
 and release tracks. Any first working track may seed the shared contract.
 Provider access gates only the affected authentication route; another driver
 does not wait for it. L5/L6 and remote pairing remain later scope.
+
+### 7.1 Initial scope and ACP follow-on, 2026-11-10
+
+Prioritize LegionCode/BYOK, Codex, Claude Agent and OpenCode v2 in both execution
+placements. 048/061 driver work, 057 Desktop delivery and 062 local environment
+work proceed in parallel through their concrete dependencies; none requires
+full Plan 061 completion. Use one owner per shared driver and one contract,
+introduced with the first real consumer. Follow
+[062 section 12](../062-LOCAL-EXECUTION-ENVIRONMENTS-SHELLS-WORKTREES-AND-INFERENCE-PLAN.md#12-implementation-slices-and-dependency-rules)
+for lane ownership and shared-file coordination.
+
+048.L6 implementation follows the built-in acceptance milestone for its target
+placement and the proven shared host contract. It is not part of the current
+built-in release gate and does not wait for unrelated 061 telemetry/UI closure.
+Keep the existing L6 identifier, with these ordered subscopes:
+
+| Subscope | Concrete result and acceptance |
+| --- | --- |
+| 048.L6a | Advanced settings can launch an already installed custom ACP executable with literal argv on Local. Negotiate the pinned supported protocol; expose agent-reported models/auth/capabilities; prove prompt, permissions/questions, Stop, immutable review and restart through canonical owners. No registry downloader required. |
+| 048.L6b | Browse the official ACP registry and install an explicitly selected, pinned version on the local execution host. Validate platform, distribution metadata and available integrity evidence; own install/update/removal lifecycle and preserve agent-owned account data. Registry discovery is not a feature-parity guarantee. |
+| 048.L6c | Run a curated set of registry agents inside managed Cloud using the same generic driver. Prove supported runtime dependencies/auth, reproducible installation, isolation, tenancy, resource limits, recovery and immutable review. Never forward arbitrary client executables or local credential directories to cloud. |
+
+ACP is a transport/integration contract; the registry is discovery/distribution.
+Neither supplies LegionCode lifecycle, storage or sandbox ownership. Keep one
+generic ACP driver rather than agent-id branches; expose unsupported controls
+truthfully. Native Codex/Claude/OpenCode integrations are not replaced or retried
+through ACP. Local/cloud support is enabled only after that placement's proof.
 
 ## 8. Conformance and completion
 
@@ -524,3 +551,142 @@ them here. Inspect the actual implementation base before coding. The mandated
 that reference and trace owners before architecture-sensitive implementation.
 This planning revision fixes target construction without claiming an
 implemented capability; update CAPABILITY-OWNERSHIP.md with actual wiring PRs.
+
+## 13. Harness onboarding and runtime installation — 2026-11-10
+
+This section adds setup and acceptance detail to L1/L2/L3/L4 and 061.C1/C2/C3/C6.
+It does not claim implementation, change transport choices, enable a provider
+route or expand the initial release to ACP registry agents. Preserve the L6
+subscopes in section 7.1. Runtime installation and account authentication are
+different responsibilities; neither alone establishes execution readiness.
+
+### 13.1 Reference-product review and provenance
+
+T3 Code was inspected at `4c924ff4e6d0828e0a5810336ec7d7827d752645`.
+OpenCode upstream was inspected at `d4aeee551ebf554f37803b57618926c828a70b39`.
+These are dated research revisions, not new LegionCode runtime pins. In
+particular, revalidate current OpenCode behavior against the selected executable
+and typed client before implementation; this review does not prove that the
+existing 2.2.5 pin supports every current upstream feature.
+
+| Verified reference behavior | LegionCode decision |
+| --- | --- |
+| T3's environment-specific add-provider wizard separates built-ins from ACP search. Configuration can exist before authentication. | Use one shared Add agent flow with separate runtime, account and readiness facts. Keep built-ins and later registry discovery distinct. |
+| T3 managed ChatGPT setup installs Codex; manual setup can select an existing CLI/login. Managed installation verifies bytes/hash/version, stages a versioned directory and changes the active pointer atomically. | Offer explicit managed installation or an explicitly selected compatible existing runtime. Preserve external installation ownership; verify and stage before activation. |
+| T3 registry tools install on the server host, including isolated versioned package runners. Checksums are verified when supplied, not promised for every registry entry. | L6 discovery is not installation or conformance. Record exact distribution and integrity evidence; apply reviewed distribution policy when evidence is insufficient. Do not imply every registry item is verified or cloud-supported. |
+| T3 browser login opens on the client while auth/agent execution stays on the chosen host. Terminal login requires a host terminal. | Scope the auth attempt to host/instance/generation, render only safe instructions and wait for authoritative account confirmation. |
+| T3 supports OpenCode v1/v2 compatibility and shared/shadow Codex homes. | Do not copy either policy: LegionCode remains native OpenCode v2-only and preserves explicit account/host isolation. |
+| OpenCode's desktop, TUI and web UI use its server; provider/model setup belongs to that harness. | Supervise the selected private native server through harness-opencode. Do not embed its public UI or silently attach to a user's shared service. OpenCode plus an Anthropic model remains the OpenCode loop. |
+| Current OpenCode stores accounts in its server SQLite database; saved accounts can override environment credentials and the newest login becomes active. Legacy auth.json is migration input. | Verify the selected account/payer instead of trusting a supplied environment key. Use isolated provider-owned storage through typed external references; never copy a real provider home/database, directly mutate its credential tables or silently import legacy auth. |
+| Current OpenCode native permissions are not OS confinement. Reject can close all pending permissions in a session; Always persists project-scoped rules. | Enforce restrictions at the real host boundary. Reconcile the exact native rejection cascade; never relabel project-wide permission as matching-in-chat or offer a scope the product cannot enforce. |
+| OpenCode update notification, installed binary and running server version are separate facts. | Activation uses an explicit new process generation; no update mutates an admitted attempt or implies supported resume. |
+
+Pinned evidence:
+
+- T3 [setup wizard](https://github.com/pingdotgg/t3code/blob/4c924ff4e6d0828e0a5810336ec7d7827d752645/apps/web/src/components/settings/AddProviderInstanceDialog.tsx), [managed Codex installation](https://github.com/pingdotgg/t3code/blob/4c924ff4e6d0828e0a5810336ec7d7827d752645/apps/server/src/provider/CodexInstallation.ts) and [installation ownership](https://github.com/pingdotgg/t3code/blob/4c924ff4e6d0828e0a5810336ec7d7827d752645/apps/server/src/provider/providerInstallation.ts).
+- T3 [Codex accounts](https://github.com/pingdotgg/t3code/blob/4c924ff4e6d0828e0a5810336ec7d7827d752645/docs/user/providers-codex.md), [Claude setup](https://github.com/pingdotgg/t3code/blob/4c924ff4e6d0828e0a5810336ec7d7827d752645/docs/user/providers-claude.md), [OpenCode setup](https://github.com/pingdotgg/t3code/blob/4c924ff4e6d0828e0a5810336ec7d7827d752645/docs/user/providers-opencode.md) and [ACP registry/auth/distribution](https://github.com/pingdotgg/t3code/blob/4c924ff4e6d0828e0a5810336ec7d7827d752645/docs/user/providers-acp.md).
+- OpenCode [installation](https://github.com/anomalyco/opencode/blob/d4aeee551ebf554f37803b57618926c828a70b39/services/site/src/docs/content/index.mdx), [provider accounts and storage precedence](https://github.com/anomalyco/opencode/blob/d4aeee551ebf554f37803b57618926c828a70b39/services/site/src/docs/content/cli/providers.mdx), [server/web clients](https://github.com/anomalyco/opencode/blob/d4aeee551ebf554f37803b57618926c828a70b39/services/site/src/docs/content/cli/web.mdx), [updates/configuration](https://github.com/anomalyco/opencode/blob/d4aeee551ebf554f37803b57618926c828a70b39/services/site/src/docs/content/config.mdx), [permission scope](https://github.com/anomalyco/opencode/blob/d4aeee551ebf554f37803b57618926c828a70b39/services/site/src/docs/content/permissions.mdx) and [ACP interface](https://github.com/anomalyco/opencode/blob/d4aeee551ebf554f37803b57618926c828a70b39/services/site/src/docs/content/cli/acp.mdx).
+
+### 13.2 Shared user flow
+
+Settings → Agents → Add agent is shared client-ui using the existing SDK/App
+Server operations. It is a presentation flow, not a new credential service or
+parallel public API. Use these steps:
+
+1. **Environment:** This Mac or a specific hosted environment. State where files,
+   processes, runtime installation and credentials live. Cloud needs no local
+   runtime. Changing environments does not transfer credentials or active work.
+2. **Harness:** choose Codex, Claude Agent or OpenCode v2. Keep LegionCode
+   Native/BYOK a separate execution choice. A provider key must not choose the
+   harness implicitly; OpenCode's supported provider choice comes after it.
+3. **Runtime:** show exact detected/managed version, compatibility, installation
+   owner and actionable health. Offer Install runtime when supported or an
+   advanced existing-executable choice validated by the host. Do not ask users
+   to edit PATH, run global npm commands or paste shell strings as the default UX.
+4. **Account:** choose an existing provider-owned login or a supported guided
+   route; show its account label and actual billing route. Keep API keys,
+   app-managed OAuth and external credential references typed and distinct.
+   Preserve provider approval gates even when a competitor exposes a route.
+5. **Verify:** read runtime/account/model/capability state back from the selected
+   host. Configuration saved, runtime installed, account connected and execution
+   ready are separate facts with freshness and a specific failure reason.
+6. **Use:** the composer selects environment → harness instance/account → model
+   from that instance's advertised catalog. Freeze the full binding per attempt.
+
+Connection cards show label, environment, runtime health/version, account/auth
+state, billing route, model freshness and unavailable capabilities. Offer the
+applicable Install, Connect, Reconnect, Update or Remove action. Quota may remain
+unknown on an otherwise usable connection; show it separately from measured run
+activity and cloud compute. Do not derive Ready from installation, UI selection,
+stored configuration, model discovery alone or an auth callback alone.
+
+The saved-API-key-first setup in the reviewed implementation checkpoint does
+not fulfill this flow. Migrate every mounted setup/selection consumer through
+the canonical owners; do not declare onboarding complete because a new wizard
+renders or a setup request returns an instance ID.
+
+### 13.3 Runtime, account and process ownership
+
+Host-side installation services own executable resolution, platform checks,
+integrity, version probing, staging and removal. Drivers own native protocol,
+account and usage translation; harness-core owns configured instances/process
+generations. Existing encrypted custody owns app-managed credentials; provider
+stores remain provider-owned behind typed references. SDK/client-ui receive
+redacted state and opaque identifiers. Introduce any missing operation with its
+first actual consumer through the fixed owners, not an empty installer package.
+
+For managed local runtimes, stage an explicitly selected pinned distribution in
+an app-owned versioned directory, validate archive paths/integrity and executable
+compatibility, then atomically activate. Interrupted/corrupt installs must not
+replace a working version. Never overwrite a user's CLI, modify shell profiles,
+repurpose OS HOME or make a global package manager an implicit dependency.
+Claude's supported configuration directory and each provider's own documented
+configuration controls do not replace real isolation or the OS credential store.
+
+For Cloud, stage the frozen runtime graph during approved environment/image
+distribution and retain the current sandbox backend and image-size gate. The
+renderer/browser neither installs executables nor chooses arbitrary server URLs.
+Provider authorization and actual tenant/execution isolation remain required.
+
+Active attempts and sign-in/install operations retain ownership of their runtime
+version and generation. Stage upgrades separately; refuse deletion while those
+owners or unknown cleanup remain. Do not blindly restart or migrate a provider
+session after installing an update. Validate persisted transport/resume
+compatibility on restart and report unsupported recovery without resending an
+ambiguously accepted prompt. Uninstalling app-owned binaries, removing an
+instance, disconnecting app-managed credentials and signing out of a shared CLI
+are separate explicit actions; preserve workspace/history/artifacts and do not
+delete provider-owned account data as a side effect.
+
+Auth runs on the selected host even when its browser page opens on the client.
+Handle URL/loopback/device/terminal methods only when supported, bind callbacks
+to the original instance/auth attempt, and fence cancellation, expiry, account
+switches and stale completion. Wait for verified account identity and refreshed
+models; never accept a redirected page alone as success. Host-local private
+terminal responses and tokens must not enter chat, events, snapshots or logs.
+An environment credential cannot override a different saved OpenCode account
+by assumption. Verify actual selected-account precedence on the pinned runtime;
+logout must not claim removal of an environment credential that still exists.
+
+### 13.4 Required onboarding and lifecycle proof
+
+Reuse and strengthen existing checks; add no test files or registrations.
+Each driver/placement records exact runtime/client/schema and account-route
+evidence in its implementation PR. These are product acceptance requirements:
+
+| Scenario | Required result |
+| --- | --- |
+| Clean installed Mac without runtimes | Explicit install → verified runtime → supported account connection → real edit/test/approval/Stop → immutable review → restart/replay. Check actual Keychain, packaging and OS behavior locally. |
+| Web and Mac cloud | No Mac CLI requirement; both select the same hosted instance/Thread and replay the same approvals/history/review. Client loss does not end execution. |
+| Wrong binary/platform/version or corrupt/interrupted install | Actionable setup failure; no v1, ambient-binary or transport fallback; preserve the prior verified version. |
+| Auth cancel/expiry/restart and environment switch | Stale callback cannot bind another host/account; no prompt is sent during setup; retry follows the supported auth semantics. |
+| Saved account A plus selected environment credential B | Verify the actual payer or reject; no hidden saved-account precedence or silent API-key/subscription switch. |
+| Account change/update/removal during a Turn | Freeze existing authority/version, reject stale replies and retain process/lease ownership until safe settlement. No forced runtime migration. |
+| Multiple native OpenCode approvals and broader Always scope | Settle the actual rejection cascade and prohibit a misleading chat-scoped label for project-wide permission. Unknown closure stays unknown. |
+| Out-of-root filesystem/shell/network/control-endpoint access | Enforced boundary blocks it independently of prompt instructions and native approval strings. |
+| Authenticated but stale/missing models/quota | Refresh bounded host observations; display honest freshness/unknown telemetry without inventing readiness, quota or payer. |
+
+L6 later adds generic ACP custom-command/registry proof through the same owners.
+Registry discovery, agent authentication, native permission defaults and
+OpenCode's own client-pairing link are not substitutes for LegionCode's
+authorization, confinement, durable lifecycle or immutable review acceptance.

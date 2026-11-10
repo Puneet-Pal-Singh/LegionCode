@@ -2,6 +2,18 @@
 
 Date: 2026-09-27
 
+Delivery clarification, 2026-11-10: keep this LLD as the Desktop completion
+authority. Initial harness scope is LegionCode/BYOK plus Codex, Claude Agent
+and OpenCode v2 in Local and Cloud, delivered through the independent 048/061
+integrations and their per-placement package proof. Continue Desktop work in
+parallel with those integrations and 062 local environment work; full 061
+completion is not an entry gate. Consume the specific ready shared/hosted
+capability required by each slice. Generic ACP/registry remains later 048.L6
+scope and is not added to this LLD's acceptance or beta closure. See
+[062 section 12](../062-LOCAL-EXECUTION-ENVIRONMENTS-SHELLS-WORKTREES-AND-INFERENCE-PLAN.md#12-implementation-slices-and-dependency-rules)
+for cross-plan lane ownership; this note does not change the existing native
+single-executable policy or waive any isolation/settlement gate.
+
 Parent:
 `plans/rebuild/product-plans/057-LOCAL-FIRST-DESKTOP-VERTICAL-SLICES-AND-SHARED-CLIENT-EXTRACTION-PLAN.md`
 
@@ -715,6 +727,193 @@ Acceptance:
 - commit targets the granted workspace and selected immutable Turn artifact;
 - commit failure does not mutate Turn terminal truth or lose the artifact.
 
+#### 057.7B Git safety proposal — 2026-11-08
+
+Status: contract A approved for implementation by the user on 2026-11-08
+(Asia/Kolkata): "Cool adopt this and implement this." This adopts the recommended
+stock-Git trusted-host namespace model below. Contract B is not selected. Mutation
+capabilities still require the actual transaction, retention and product proofs;
+this approval alone does not enable them. No replacement Git engine is planned.
+
+Implementation boundary (2026-11-08): the canonical Darwin artifact executor now
+implements the ordinary/linked private-index profile and advertises its narrow
+index-transaction and immutable-artifact guards. Actual factory proofs cover
+saved bytes/modes/deletions, selected subsets and rename pairs, staging conflicts,
+SHA-1/SHA-256 first commits and fresh-process commits after retained-object GC.
+Actual grant/binding -> capture -> kernel coordinator -> one SQLite store also
+preserves artifact IDs, hashes and scope after GC and fresh-process reopening.
+These proofs do not enable installed Desktop admission. Native startup wiring,
+the installed provider/approval/edit/command/Stop/review/commit/restart loop and
+current-head integration gates remain required before product completion.
+The initial mutation profile uses files-format refs and the original common
+object store; nonempty alternates/grafts, replacement refs, executable hooks and
+signing are explicitly unsupported. No alternate object-store backend is added.
+
+**Fresh primary-source audit.** References are pinned to the upstream heads
+observed for this review, rather than moving branch URLs:
+
+| Repository / revision | Useful implemented pattern | Boundary not established by the inspected implementation |
+| --- | --- | --- |
+| Codex `2bc8e7f5459b084afa482c7aac3f56fef36286b3` | Validate linked-worktree gitdir, common-directory association and backlink; scrub inherited Git selectors. | Worktree commands use pathname/cwd process execution, not retained metadata authority. The current disposable baseline is for host-internal directories and must not reset a user's `.git`. |
+| OpenCode `f460ccefcb936d4e4747b5feb3c21604d3000c8e` | Separate checkout/private/common directories; use private snapshot indexes and application-owned snapshot metadata. | Snapshots read the live worktree and borrow source objects through alternates. Local-object packing does not demonstrate an independently retained closure of borrowed objects or hostile namespace protection. |
+| T3 Code `25bf84ab07f53f141c20239c63e383823a9d5ea0` | Disposable indexes, split-index safeguards, conservative timestamps, real checkpoint commits and named retention refs. | Checkpoint ref updates omit expected-old values. Actual selected-file commits reset the real index and commit live state, so that path cannot be copied for immutable saved-artifact commits preserving unrelated staging. |
+
+Sources:
+
+- [Codex trust resolution](https://github.com/openai/codex/blob/2bc8e7f5459b084afa482c7aac3f56fef36286b3/codex-rs/git-utils/src/trust.rs#L139-L249),
+  [worktree Git execution](https://github.com/openai/codex/blob/2bc8e7f5459b084afa482c7aac3f56fef36286b3/codex-rs/worktree/src/git.rs#L142-L181),
+  [internal baseline scope](https://github.com/openai/codex/blob/2bc8e7f5459b084afa482c7aac3f56fef36286b3/codex-rs/git-utils/src/baseline.rs#L74-L90).
+  The old ghost-commit helper is historical: it was
+  [removed in April 2026](https://github.com/openai/codex/commit/4e05f3053c840fc77321bfab0aef65ec50448a9e).
+- [OpenCode snapshot ownership](https://github.com/anomalyco/opencode/blob/f460ccefcb936d4e4747b5feb3c21604d3000c8e/packages/core/src/snapshot.ts#L89-L146),
+  [private/common discovery](https://github.com/anomalyco/opencode/blob/f460ccefcb936d4e4747b5feb3c21604d3000c8e/packages/core/src/git.ts#L214-L276),
+  [source-object alternates](https://github.com/anomalyco/opencode/blob/f460ccefcb936d4e4747b5feb3c21604d3000c8e/packages/core/src/git.ts#L503-L511),
+  [local-object packing](https://github.com/anomalyco/opencode/blob/f460ccefcb936d4e4747b5feb3c21604d3000c8e/packages/core/src/git.ts#L1200-L1270),
+  [declared security scope](https://github.com/anomalyco/opencode/blob/f460ccefcb936d4e4747b5feb3c21604d3000c8e/SECURITY.md#L15-L33).
+- [T3 disposable index](https://github.com/pingdotgg/t3code/blob/25bf84ab07f53f141c20239c63e383823a9d5ea0/apps/server/src/vcs/GitVcsDriverCore.ts#L2500-L2542),
+  [checkpoint index safeguards](https://github.com/pingdotgg/t3code/blob/25bf84ab07f53f141c20239c63e383823a9d5ea0/apps/server/src/vcs/GitVcsDriver.ts#L904-L976),
+  [checkpoint publication](https://github.com/pingdotgg/t3code/blob/25bf84ab07f53f141c20239c63e383823a9d5ea0/apps/server/src/vcs/GitVcsDriver.ts#L1247-L1295),
+  [actual selected-file staging](https://github.com/pingdotgg/t3code/blob/25bf84ab07f53f141c20239c63e383823a9d5ea0/apps/server/src/vcs/GitVcsDriverCore.ts#L2453-L2498).
+- Git's own [reference transactions](https://git-scm.com/docs/git-update-ref),
+  [repository layout](https://git-scm.com/docs/gitrepository-layout), and
+  [garbage-collection notes](https://git-scm.com/docs/git-gc#_notes).
+
+These are findings about the inspected paths, not a claim that no other code in
+those projects has stronger controls. In particular, Git reference locks and
+expected-old checks protect ref values; they do not pin the filesystem directory
+through which a process later opens that ref.
+
+**Decision before implementation: name the namespace guarantee.**
+
+| Proposed contract | What it supports | Consequence |
+| --- | --- | --- |
+| A. Conventional trusted-host Git namespace | Ordinary concurrent Git operations are coordinated by native Git locks, explicit branch/ref identity and expected-old checks. Grant/root and metadata association are revalidated; observed identity changes abort or quarantine. | Can reuse stock Git and existing private-index/lease adapters. It does not guarantee that a hostile process cannot replace metadata between checks. The user approved this contract on 2026-11-08; implementation records it in this LLD and the ownership ledger. It is not an automatic fallback. |
+| B. Retained physical metadata authority | Original checkout, per-worktree metadata and common metadata remain the operation's authority despite hostile rename/replacement during execution. | Keep mutation flags absent until a genuine metadata-binding/publication port is proven. A pathname wrapper, unused inherited descriptor, before/after stat check, or private index does not establish this guarantee. |
+
+Recommendation for the initial local beta: propose A explicitly, keep Git as the
+semantic engine, and reuse the upstream patterns below. This matches the inspected
+coding-tool implementations without promising protection against hostile metadata
+replacement. It requires approval of that stated boundary; it is not permission
+to lower the current gate. If B is a product requirement, select its additional
+feasibility work instead. Do not start a replacement Git implementation simply to
+imitate these repositories: none of the inspected paths provides B. Contract A is now approved; retain the existing enablement gate until its actual
+transaction, object-retention and installed-consumer proofs pass.
+Guarded filesystem tools keep their existing root-FD safeguards under either
+contract; changing the Git policy cannot weaken those tools or command approval.
+
+**Canonical owners and source reuse.**
+
+| Responsibility | Existing owner / implementation to extend |
+| --- | --- |
+| Grant, protected paths and private repository identity | `LocalWorkspaceService` / `LocalWorkspaceRootPin`; native metadata inspection through `NativeFilesystemBridge` |
+| One writer and physical resource lifetime | `LocalWorkspaceWriterLeaseOwner`, actual native close receipts and existing process guardian |
+| Git command construction, snapshots and selected commit policy | `DefaultGitService` with its declared executor capabilities; no second Git parser or renderer shell path |
+| Immutable artifact bytes and authorization | `LocalPersistence.turnArtifacts`, `LocalTurnArtifactReads`, canonical Turn admission and lifecycle replay |
+| Commit request/response translation | `git/commitTurnArtifact` and `LocalTurnArtifactCommitService`; server derives artifact and attempt scope |
+| Lifecycle, capture settlement and capability advertisement | Existing runtime kernel and native composition; clients render the canonical result |
+
+Reuse the reviewed native T transaction in PR684 only for the physical file
+transaction it actually provides. It is unmerged and absent from the current
+production filesystem bridge. Its ordinary-`.git` proof does not demonstrate
+linked layout support or anchor metadata reopened by stock Git. Packaging must
+hash/verify the complete C plus included-header compilation unit when adopting it.
+
+**Delivery sequence: one responsibility per small commit/PR into `dev`.**
+
+1. **Contract and layout inventory.** Record the approved A/B decision in this
+   LLD and capability ledger before changing mutation behavior. Declare the
+   supported Git versions, repository/object/ref formats and unsupported states.
+   Keep current read-only runtime/query delivery independent. No flag enables
+   merely because a factory or interface compiles.
+2. **One repository metadata resolver.** Extend the existing grant/native owner
+   to distinguish checkout root, per-worktree gitdir and common directory.
+   Validate bounded gitfiles, common-directory association and checkout backlink;
+   check both ancestry directions against protected host storage. Legitimate
+   relative `commondir` paths are resolved and validated rather than rejected
+   indiscriminately. Restore ordinary and linked-worktree grants before claiming
+   beta coverage. Do not use origin URL or a project-ID hash as physical authority.
+3. **Private-index and writer integration.** Adapt the existing transaction and
+   canonical Git executor, not an app-local copy. Use the per-worktree index and
+   correct shared metadata locations; preserve index bytes, flags and racy-index
+   behavior. Adopt T3's disposable-index/split-index/timestamp safeguards where
+   applicable. Never use a real-index `reset` to prepare a snapshot or selected
+   commit. Busy, revoked and unknown-quiescence outcomes retain current semantics.
+4. **Reachable, durable snapshot objects.** Extend the same Git/artifact owner to
+   retain each saved baseline/final object closure before publishing its artifact.
+   Prefer explicit Git-native retention refs with ownership bound to the exact
+   artifact scope; use expected-old/create-only semantics where refs are unique.
+   If a private object store is selected, make it part of existing artifact
+   ownership and retain all required borrowed content. Tree IDs, reflog expiry,
+   temporary directories or live alternates alone are insufficient. Reference
+   release follows explicit artifact retention/deletion, never an unrelated
+   cleanup timer. Bound capture disk/time budgets before accepting new content;
+   do not evict referenced artifacts to hide storage pressure. Preserve immutable
+   patch bytes regardless of live Git changes.
+5. **Capture and canonical publication.** Wire the actual baseline and terminal
+   capture ports to the existing producer and settlement coordinator. Persist
+   the required object content and artifact record before publishing its canonical
+   reference; preserve useful persisted evidence after diff/store failures. Use
+   the same writer/attempt and actual physical-quiescence proof. Do not infer a
+   successful capture from an empty diff or replay projection.
+6. **Saved-artifact commit.** Authorize the selected terminal Turn, load the same
+   published immutable diff, and derive scope/paths server-side. Populate the
+   private commit index from saved blob/tree IDs and recorded modes/deletions,
+   never `git add` or a reread of live worktree content. Leave later worktree edits
+   in place and preserve unrelated staging. Compare the candidate commit with its
+   expected HEAD; reject undisclosed baseline content or conflicting selected-path
+   staging rather than silently including or overwriting it. Bind publication to
+   an explicit expected branch/ref and old OID, not
+   a late dereference of an independently changed HEAD. Validate support for the
+   required symbolic-ref/ref-transaction semantics on the installed Git version;
+   do not assume newer Git commands exist on the supported Apple Git. Only the
+   canonical Git owner decides success, conflict or indeterminate publication.
+   An uncertain outcome is non-retryable; no automatic commit retry or terminal
+   Turn rewrite follows it.
+7. **Product integration and activation.** Connect saved review/query and actual
+   commit receipts through the existing SDK/UI. Then enable each mutating
+   capability only when its real capture, lease, approval, stop, retained object
+   content and publication paths pass the chosen contract. Run the installed Mac
+   golden loop and normal Web/shared checks. Record exact source and package
+   provenance; keep each active hotfile with one owner and normal-refresh each
+   focused PR against actual `dev` before merge.
+
+Under B, insert a mandatory feasibility boundary after step 2, before capture or
+commit activation: prove both native access to the retained metadata graph and
+safe publication to the original repository. Evaluate an existing Git/library
+transaction engine before proposing custom object/ref-format code. A private
+worktree/metadata materialization is only a candidate: it must eliminate live
+gitdir/commondir/alternate pointers, preserve effective original configuration,
+attributes/ignores, and retain its object closure. Copying paths does not preserve
+`includeIf gitdir` or `core.worktree` semantics automatically. Original ref,
+reflog and selected-index publication still needs the approved physical port.
+If those obligations cannot be proven, stop at read-only/immutable reads and
+return the unresolved design decision; do not introduce a new runtime, weaken
+the contract silently, or label capture/commit complete.
+
+**Configuration and process constraints remain explicit.** Preserve normal
+attribute/ignore and commit-identity semantics. Do not copy upstream overrides
+that disable user filters, signing or hooks merely to make an operation pass.
+Under the existing no-fork Mac policy, configurations requiring subprocesses are
+typed unsupported before publication unless separately proven; generic shell
+execution is not a substitute. The evidenced XDG selector compatibility issue is
+a separate small fix within the existing Git context owner, not a solution to
+namespace authority. It must preserve selected-config versus fallback semantics.
+
+**Validation without new test files or registrations.** Reuse existing Git,
+runtime, persistence and protocol checks and the owned manual native fixtures:
+
+| Acceptance evidence | Required result |
+| --- | --- |
+| Ordinary and linked worktrees, busy/revoked grants, protected roots and observed metadata replacement | Correct private/common scope; reject observed identity mismatches and invalid associations; explicit unsupported/quarantine where the selected contract cannot be established. Under B, a physical adversarial-replacement proof is required, not observations alone. |
+| Tracked/new/deleted/literal paths, attributes/CRLF/ignores and split/sparse index states | Faithful supported Git semantics or explicit unsupported outcome; original unrelated staged content and merge state preserved. |
+| Restart plus owned-fixture source cleanup/GC | Identical saved diff bytes and retained object closure needed for later artifact commit; no live-review substitution. |
+| Concurrent expected-ref change, branch switch, cancellation, owner loss or uncertain cleanup/publication | No unintended ref/index overwrite; actual receipt or typed conflict/indeterminate result; no retry and no fabricated Turn terminal state. |
+| Installed artifact and actual consumer | Provider -> read -> approved edit/command -> settlement -> saved review -> selected commit -> restart/replay, with the same owners and truthful capabilities. |
+
+Planning alone closes none of these product gates. Estimate the implementation
+only after the policy decision and, for B, a successful physical-port feasibility
+review; do not attach a completion percentage to disconnected package work.
+
 ### 057.8A — Clean-profile local golden-loop proof
 
 This is integration hardening and deletion, not another architecture layer.
@@ -759,6 +958,63 @@ Prove the primary supported OS artifact from a clean machine/profile:
 Plan 057 closes only after the final revision is reviewed, green, merged to
 `dev`, and the parent plan records the merge evidence.
 
+### 057.9 — Responsive Desktop, tablet and mobile acceptance
+
+User-requested addition on 2026-11-08. Complete the current Desktop integration
+before closing this additional milestone. Coordinate with Plan 056 and use the
+same shared UI source; no second responsive component tree or runtime owner.
+
+Before building the responsive checklist, inspect the OSS
+[T3 Code](https://github.com/pingdotgg/t3code) and
+[OpenCode](https://github.com/anomalyco/opencode) source and running layouts for
+responsive ideas. Compare their breakpoints, sidebar/drawer transitions, right
+panels, composer/mobile keyboard, model menus, settings/provider dialogs and
+review surfaces. Record exact commit/file references and adoption decisions in
+the implementation PR. These are interaction references; preserve LegionCode's
+existing UI and canonical SDK/runtime boundaries.
+
+Initial OSS source pass (2026-11-08; source inspection, not live-layout
+acceptance):
+
+- T3 Code `25bf84ab07f53f141c20239c63e383823a9d5ea0`:
+  [sidebar drawer, inert state and focus restoration](https://github.com/pingdotgg/t3code/blob/25bf84ab07f53f141c20239c63e383823a9d5ea0/apps/web/src/components/ui/sidebar.tsx#L102),
+  [small-screen right panel without desktop minimum width](https://github.com/pingdotgg/t3code/blob/25bf84ab07f53f141c20239c63e383823a9d5ea0/apps/web/src/components/RightPanelSheet.tsx#L20),
+  and [compact composer controls without duplicate focus targets](https://github.com/pingdotgg/t3code/blob/25bf84ab07f53f141c20239c63e383823a9d5ea0/apps/web/src/components/chat/ComposerControlsBar.tsx#L278).
+- OpenCode `c33eaa170ed5093c08f1684862a695aae036dcda`:
+  [Settings container-width adaptation](https://github.com/anomalyco/opencode/blob/c33eaa170ed5093c08f1684862a695aae036dcda/packages/app/src/settings/settings.css#L953)
+  over [one navigation definition](https://github.com/anomalyco/opencode/blob/c33eaa170ed5093c08f1684862a695aae036dcda/packages/app/src/settings/navigation.tsx#L68),
+  [mobile panel focus and close behavior](https://github.com/anomalyco/opencode/blob/c33eaa170ed5093c08f1684862a695aae036dcda/packages/app/src/shell/mobile-panel-drawer.tsx#L35),
+  and [dialog autofocus coordinated with the focus trap](https://github.com/anomalyco/opencode/blob/c33eaa170ed5093c08f1684862a695aae036dcda/packages/ui/src/overlays/dialog/dialog.tsx#L144).
+
+Evaluate these patterns in LegionCode's existing WorkspaceFrame, right-panel,
+composer and Settings components. Keep LegionCode's own breakpoints and visual
+language; these references do not prove our layouts work or authorize copying
+another product's component tree. The observed 420 px Settings text-column
+collapse and the wide-right-panel → narrow viewport → provider close → sidebar
+interaction belong in the actual responsive checklist.
+
+- **057.9A:** Desktop minimum supported window through wide/maximized sizes,
+  resize in both directions, narrow windows and zoom to 200%.
+- **057.9B:** Web mobile and tablet, portrait/landscape, on-screen keyboard,
+  safe areas and responsive navigation. Retain existing desktop Web behavior.
+- Follow the parent plan's representative viewport matrix and full surface
+  checklist. Preserve drafts, thread selection, focus and scroll position.
+- Prove controls stay reachable, text columns remain usable, overlays do not
+  intercept other visible actions, and page-level horizontal overflow is absent.
+  Code/diff surfaces may scroll within their own bounded containers.
+- Use actual Desktop window and Web browser evidence, screenshots/measurements
+  and the existing checks. No new test files or registrations.
+- Include the `f54905f0f` native 640 px / 200% zoom reproduction (320 px CSS):
+  interaction checks pass, but full-window evidence shows hero and composer
+  toolbar text clipping. Fix shared reflow/compact behavior, not merely document
+  overflow. In that run Playwright's zoomed page PNG was cropped; Electron's
+  `webContents.capturePage()` supplied the full native bitmap. Use full-window
+  evidence before granting responsive visual acceptance.
+
+Exit gate: both clients pass the shared responsive checklist and the wide Web
+layout remains healthy. The earlier beta gate does not alone close this new
+milestone or the expanded Plan 057 completion standard.
+
 ## 7. PR Boundaries
 
 One PR owns one row below. Subdivide again if a PR cannot be reviewed in one
@@ -776,6 +1032,8 @@ sitting.
 | 057.7B | shared review and Git completion | SDK/UI review surface and canonical Git command |
 | 057.8A | clean-profile golden loop | end-to-end proof, recovery, diagnostics and deletion |
 | 057.8B | distributable beta | security, accessibility, performance, packaging and closure evidence |
+| 057.9A | responsive Desktop windows | shared layout and controls, resize/zoom/focus evidence |
+| 057.9B | responsive Web tablet/mobile | shared navigation/composer/dialog/review layouts, coordinated Plan 056 acceptance |
 
 Rules:
 
