@@ -229,6 +229,7 @@ export function createLocalNativeRuntime(
             },
             binding: bound,
             readFile: filesystem.readFile.bind(filesystem),
+            listDirectory: filesystem.listDirectory.bind(filesystem),
           });
         },
         async createKernelPorts(admission, bound, signal, execution) {
