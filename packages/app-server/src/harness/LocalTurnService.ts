@@ -495,10 +495,10 @@ export class LocalTurnService {
         status: "queued", harnessSelection: intent, mode: binding.mode, providerId: binding.providerId, modelId: next.modelId,
         workerId: binding.workerId, permissionProfileId: binding.permissionProfileId, executionCapability: "repository",
         startedAt: null, completedAt: null, createdAt: now, updatedAt: now, lastEventSequence: 1 }),
-      turn: TurnSchema.parse({ id: turnId, threadId: thread.id, runId, parentTurnId: null, status: "queued",
+      turn: TurnSchema.parse({ id: turnId, threadId: thread.id, runId, parentTurnId: thread.lastTerminalTurnId, status: "queued",
         startedAt: null, completedAt: null, createdAt: now, updatedAt: now, lastEventSequence: 1 }),
       userMessage: ThreadItemSchema.parse({ id: ItemIdSchema.parse(`itm_${randomUUID().replaceAll("-", "")}`),
-        threadId: thread.id, runId, turnId, parentItemId: null, branchId: null, role: "user", type: "user_message",
+        threadId: thread.id, runId, turnId, parentItemId: thread.activeLeafItemId, branchId: null, role: "user", type: "user_message",
         status: "completed", createdAt: now, completedAt: now, eventSequence: 1, content: { text: params.prompt, harnessSelection: intent } }),
     });
   }
