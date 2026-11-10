@@ -1882,3 +1882,10 @@ Concurrent exact image retries derive a validation-only submitted fingerprint
 when another request commits before their image preparation. They use the same
 codec as initial receipt retries without persisting media or resolving providers;
 current Thread authorization and immutable saved-intent checks still gate return.
+
+Local lifecycle replay authorizes from the canonical saved Turn admission and
+its currently granted Thread, rather than requiring a first runtime event.
+An admitted Turn may return an actual empty event page while runtime preflight
+is pending. Unknown Turns remain not found; returned event Thread, Turn, attempt
+and admitted worker identity must agree. Authorization is checked again after
+the replay read. No status, event, terminal or retrying prompt is synthesized.
