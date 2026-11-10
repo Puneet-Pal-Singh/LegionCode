@@ -2862,3 +2862,15 @@ Kernel strategy guard is merged atomically. Missing capture never selects Native
 or reconstructs external ownership. Final constructor/driver wiring remains
 separate. Current Native admission/lineage, immutable artifacts, lifecycle byte
 paging and provider custody retain their existing source and exports.
+
+## Shared saved-history chat conversion
+
+Client UI `convertConversationHistoryMessages` owns the existing pure conversion
+from SDK-classified history records to chat messages. Web's authenticated
+`ChatHydrationService` now uses this shared helper for complete and partial saved
+history. Source IDs, user/assistant roles, timestamps, projected text parts, the
+existing `create_code_artifact` result mapping and all source metadata (including
+canonical identity and image references) retain their existing behavior. SDK
+history projection remains UI-neutral; authentication, paging, replay, runtime
+state and durable transcript ownership remain with their existing owners. This
+extraction adds no Native history consumer or message content inferred from ACKs.

@@ -158,3 +158,5 @@ export { usePendingTitleProjectionRefresh, type PendingTitleProjection, type Pen
 export { shouldRetainCurrentTitleProjection, type TitleProjectionVersion } from "./titles/titleProjectionVersion.js";
 
 export { LocalExecutionDetails } from "./environment/LocalExecutionDetails.js";
+
+export { convertConversationHistoryMessages } from "./conversation/history/conversationHistoryMessages.js";
