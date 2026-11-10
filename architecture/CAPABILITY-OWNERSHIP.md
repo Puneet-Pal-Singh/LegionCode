@@ -688,7 +688,8 @@ pull-request mutation path.
 
 | Responsibility | Canonical owner | Active producers and consumers |
 | --- | --- | --- |
-| Provider catalog, discovered models/cache refresh and product policy | Existing RunEngine provider services and Brain product policy | HostedProviderDiscovery composes the existing runtime proxy with verified cookie identity and authorized workspace claims. |
+| Provider catalog, discovered models/cache refresh | Server-only `@repo/provider-core/discovery` (`ProviderCatalogService`, `ProviderModelDiscoveryService`, existing adapters/ranking/metadata enrichment) | Hosted `ProviderConfigService` composes the extracted implementation with its existing cache and atomic CloudCredentialVault record lookup. Registry, cache and protected credential delivery are narrow ports; discovery is not exported from the browser-facing package root. Desktop composition injects its protected credential broker and the existing memory cache through the same ports. Local selection, preferences and Native admission consume that catalog; the renderer receives metadata only. |
+| Hosted provider policy and platform-managed models | Brain composition and existing Axis metadata owner | HostedProviderDiscovery retains verified cookie identity, authorized workspace claims and runtime proxying. ProviderConfigService injects Axis model behavior explicitly; portable discovery does not import Brain or activate Axis on Desktop. |
 | Typed discovery transport | Existing AppServer provider/catalog and provider/models; provider/models/refresh | Existing SDK ProviderClient and Web ProviderApiClient use the hosted transport. Catalog adds optional canonical runId for hosted composition; models also accepts the existing BYOK query. Local operations retain their existing contracts. Refresh uses canonical runId/provider slug and the existing BYOK refresh result. |
 
 Results reuse ProviderRegistryEntry, BYOKDiscoveredProviderModelsResponse and
@@ -1960,3 +1961,21 @@ SQLite exclusive-lock owner is open and before new commands become ready.
 The private admission enumeration, native runtime port and App Server before-ready
 barrier are separately owned integration dependencies. This leaf does not claim
 to activate that startup barrier or recover captured Build resources.
+
+Native execution captures an available matching discovered model with an explicit
+runtime route, freezes the validated private snapshot and uses its capabilities
+for image admission. The same captured values reach protected inference; volatile
+catalog metadata is not persisted in admission or request fingerprints. Canonical
+provider discovery and inference retain selection and runtime-route validation.
+
+The trusted host may inject the shared ProviderCatalogService modelCatalog
+port independently of Native Git availability. LocalProviderService and its
+Native consumer share that discovery authority; each admitted executor receives
+a validated frozen model snapshot without adding discovery data to durable
+request fingerprints or resolving credentials in the renderer.
+
+The browser-safe SDK owns complete provider inventory pagination and curated
+picker hydration for both clients. Web retains its hosted transport and cache;
+Desktop binds the same loaders to its App Server client, scoped preferences and
+protected credential command. Discovery refresh follows a confirmed credential
+save, and obsolete deliveries cannot repopulate the current inventory.
