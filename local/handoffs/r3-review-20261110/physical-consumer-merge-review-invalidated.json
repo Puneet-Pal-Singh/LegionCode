@@ -1,0 +1,10 @@
+{
+  "invalidated_revision": "121a3251be4113d3fed34d8afefc39f27fc15f67",
+  "invalidated_paths": [
+    "physical-consumer-7f3105-merge-review.patch",
+    "physical-consumer-7f3105-merge-review.json"
+  ],
+  "reason": "Temporary proposal generator used a greedy DOTALL label suffix and truncated file tails. These artifacts must not be applied. Production files and index were untouched.",
+  "authority": "Use Root's explicit seven exact postimage blob hashes, and verify all resulting complete blobs before resolving. Source merge not approved by these invalid artifacts.",
+  "production_changes_applied": false
+}
