@@ -2741,6 +2741,54 @@ waits for those originals before SQLite closure and the private closed receipt.
 Existing HTTP fixtures await that positive shutdown contract rather than socket
 closure alone. No request lifecycle event, status store or forced cleanup is added.
 
+## Plan 057 — Native child intent recovery boundary
+
+The existing native writer inode carries a bounded append-only physical child
+intent WAL. A guardian durably appends and fsyncs the exact boot/PID/kernel unique
+process lifetime before releasing its child-owned EOF-safe start pipe. No argv,
+executable, credential or workspace path enters the WAL. Normal completion is
+appended only after exact-child waitpid has reaped the target. The filesystem
+helper still never forks; mutation/private-transaction loans validate the same
+held-root intent header and retain their inherited writer descriptor throughout.
+
+Darwin's public OFD byte-zero lock is the single inherited writer fence, released
+only on last close. A nonoverlapping POSIX byte-one lock serializes WAL appends;
+it is not another checkout/writer registry. Old whole-file flock holders conflict
+on the same inode. No writer path reopens, renames, unlinks or replaces the fence
+namespace, and no unsupported OFD operation selects a flock fallback.
+
+New writer acquisition reconciles pending intents before exposing authority.
+Inclusive stable-lifetime/status lookup and atomic audit-token signaling exclude
+only the exact recorded process across exec and PID reuse. Signal delivery or an
+old token's ESRCH is never exit proof. Unknown identity/API/permission/cleanup or
+deadline results retain the intent and original authority. Complete records have
+SHA-256 checksums; corrupt complete records fail closed. Only an incomplete final
+record, which never passed its fsync/start barrier, may be trimmed under the held
+writer fence. The WAL has a finite four MiB limit and no speculative compaction.
+
+The new process-helper acquisition receipt is ABI v2/intentVersion 1. The actual
+Desktop composition awaits the original bounded helper probe before constructing
+its shared writer owner or enabling captured Build and artifact commit. The probe
+verifies boot/stable-identity/signaling and actual OFD/old-flock/append-lock support
+using one private immediately removed probe inode, with no workspace, real lease,
+provider or target process. Unsupported support leaves capture unavailable; unknown
+helper closure retains the existing startup failure owner. Stable-identity structures follow the pinned Apple XNU ABI
+and unsupported platforms remain unavailable. The same namespace/inode is retained,
+but old binaries do not produce intents: all active writer profiles must migrate
+to this ABI, and mixed-old-binary crash recovery is not advertised as supported.
+Only the owner's actual fresh O_EXCL-created inode may initialize an empty WAL,
+through the required private --initialize-empty flag. An existing empty inode
+returns known busy before taking a new writer lock; it cannot certify legacy
+child exclusion. A partial initial header remains unverified rather than being
+rewritten. Existing complete WAL headers still undergo the same identity,
+checksum and pending-child reconciliation before any capability is exposed.
+
+A live Node owner already retains the same open description when a guardian is
+lost. This boundary addresses combined Node-host and guardian loss before target
+reaping. Its WAL establishes physical exclusion only; canonical recovery, terminal
+settlement, immutable artifacts and Native predecessor receipts retain their own
+existing owners. No process is relaunched and no lifecycle completion is invented.
+
 ## Issue 810 — Versioned hosted workspace configuration
 
 The existing `WorkspaceRepository` owns saved configuration for one primary
