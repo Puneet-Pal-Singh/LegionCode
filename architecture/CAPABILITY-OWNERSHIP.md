@@ -1534,6 +1534,18 @@ validate actual composed ports or enable attachments, tools or mutations. The
 Turn service/runtime admission and handshake composition retain those obligations.
 Hosted request behavior and existing Git/provider contracts remain unchanged.
 
+## Plan 057 — Canonical local admission configuration metadata
+
+The existing runtime `createLocalTurnAdmission` producer may retain validated
+canonical configuration and a content-digest image fingerprint in the durable
+user-message JSON. It reuses RunMode and the existing configuration/digest schemas;
+optional fields preserve existing callers and the default ask mode. Empty text
+requires a valid digest, but digest syntax is not image authorization or evidence
+that image bytes exist. The actual trusted Turn/runtime caller remains responsible
+for composed mode/permission availability and deriving the fingerprint from real
+authorized images. No image bytes, media store, admission owner, lifecycle producer
+or capability is introduced by this metadata leaf.
+
 ## Plan 057 — Shared App Server response budget
 
 The platform protocol owns the existing one-MiB default JSON response budget and
