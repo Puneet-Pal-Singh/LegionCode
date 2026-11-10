@@ -10,6 +10,7 @@ import { createNodeGitExecutor } from "./local-node-git-executor.js";
 import type { VerifiedMacGitExecution, VerifiedMacGitOptions } from "./local-mac-git-execution.js";
 import { LocalThreadNotFoundError, LocalThreadService } from "./local-threads.js";
 import { LocalProviderService, ProviderConfigurationSchema } from "./local-providers.js";
+import { LocalTurnService, type LocalTurnRuntime } from "./local-turns.js";
 
 const MAX_REQUEST_BYTES = 32 * 1024;
 
@@ -30,13 +31,14 @@ export type LocalAppServerParentPort = {
   postMessage(message: LocalAppServerMessage): void;
 };
 
-export type LocalWorkspaceFilesCompositionOptions = {
+export type LocalAppServerCompositionOptions = {
   createMetadataInspector?: LocalWorkspaceServiceOptions["createMetadataInspector"];
   createProbeExecution?: (authority: Pick<VerifiedMacGitOptions, "probeRoot" | "withRootAuthority">) => Promise<VerifiedMacGitExecution>;
   createWorkspaceFilesService?(workspaces: LocalWorkspaceService): NonNullable<AppServerComposition["localWorkspaceFilesService"]>;
+  createTurnRuntime?(persistence: Pick<LocalPersistence, "turnAdmissions" | "lifecycleEvents">): LocalTurnRuntime;
 };
 
-export function createLocalAppServer(config: LocalAppServerStartConfig, options?: LocalWorkspaceFilesCompositionOptions) {
+export function createLocalAppServer(config: LocalAppServerStartConfig, options?: LocalAppServerCompositionOptions) {
   if (options?.createWorkspaceFilesService && !config.protectedHostRoots?.length) {
     throw new Error("Workspace file queries require trusted protected host roots");
   }
@@ -65,8 +67,16 @@ export function createLocalAppServer(config: LocalAppServerStartConfig, options?
       selectionStore: persistence.providerSelection,
     });
     const workspaceFilesService = options?.createWorkspaceFilesService?.(workspaceService);
+    const runtime = options?.createTurnRuntime?.(persistence);
+    const turnService = runtime ? new LocalTurnService({
+      persistence,
+      workspaces: workspaceService,
+      threads: threadService,
+      providers: providerService,
+      runtime,
+    }) : undefined;
     const server = createServer((request, response) => {
-      void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService);
+      void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, turnService);
     });
     server.once("close", () => persistence.close());
     server.once("error", () => persistence.close());
@@ -80,7 +90,7 @@ export function createLocalAppServer(config: LocalAppServerStartConfig, options?
 export function runLocalAppServerProcess(
   parentPort: LocalAppServerParentPort,
   config: LocalAppServerStartConfig,
-  options?: LocalWorkspaceFilesCompositionOptions,
+  options?: LocalAppServerCompositionOptions,
 ): void {
   let server: ReturnType<typeof createLocalAppServer>;
   try {
@@ -117,6 +127,7 @@ async function handleRequest(
   providerService: LocalProviderService,
   persistence: LocalPersistence,
   workspaceFilesService?: AppServerComposition["localWorkspaceFilesService"],
+  turnService?: LocalTurnService,
 ): Promise<void> {
   const baseInput = {
     method: request.method ?? "",
@@ -133,6 +144,7 @@ async function handleRequest(
     credential: config.credential,
     workspaceService,
     localWorkspaceFilesService: workspaceFilesService,
+    localTurnService: turnService,
     threadService,
     localLifecycleReplayService: {
       replayLifecycleEvents: (params: ReplayLifecycleEventsRequest) =>

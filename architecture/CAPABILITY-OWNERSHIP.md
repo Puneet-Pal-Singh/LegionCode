@@ -1511,3 +1511,12 @@ This schema foundation does not select runtime behavior, project availability,
 validate actual composed ports or enable attachments, tools or mutations. The
 Turn service/runtime admission and handshake composition retain those obligations.
 Hosted request behavior and existing Git/provider contracts remain unchanged.
+
+## Plan 057 — Generic local runtime composition
+
+The Local App Server constructs one optional LocalTurnService over the same
+process-owned SQLite admission and lifecycle store and the existing workspace,
+Thread and provider owners. The trusted host injects its runtime through one
+structural factory; missing runtime leaves execution unconfigured. The Desktop
+workspace-file composition adopts the renamed composition type without changing
+its behavior. This wiring does not fabricate a native executor or capture port.
