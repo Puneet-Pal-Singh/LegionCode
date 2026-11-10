@@ -3,6 +3,7 @@ import {
   CredentialAcquisitionSchema,
   CredentialSecretSchema,
   ProviderConnectionConfigSchema,
+  ProviderIdSchema,
   type CredentialAcquisition,
   type CredentialRefreshClaim,
   type CredentialSecret,
@@ -91,8 +92,25 @@ export class PostgresCredentialStore
   }
   async setCredential(
     input: SetCredentialInput,
+    expected?: CredentialAcquisition,
   ): Promise<ProviderCredentialRecord> {
+    input = {
+      ...input,
+      providerId: ProviderIdSchema.parse(input.providerId),
+      connectionConfig: input.connectionConfig
+        ? ProviderConnectionConfigSchema.parse(input.connectionConfig)
+        : undefined,
+    };
     this.authorize(input.userId);
+    const captured = expected
+      ? CredentialAcquisitionSchema.parse(expected)
+      : undefined;
+    if (
+      captured &&
+      (captured.userId !== this.userId ||
+        captured.providerId !== input.providerId)
+    )
+      throw new Error("Credential reconnect scope mismatch");
     if (!this.encryption.isValidKeyFormat(input.apiKey))
       throw new Error("Invalid API key format");
     const fence = new PostgresCredentialDefaultFence(this.client);
@@ -100,6 +118,14 @@ export class PostgresCredentialStore
     // Capture the durable slot generation before an absent lookup or encryption.
     const epoch = await fence.capture(scope);
     const before = await this.getCredential(input.providerId);
+    if (
+      captured &&
+      (!before ||
+        before.credentialId !== captured.connectionId ||
+        before.authOwnerGeneration !== captured.ownerGeneration ||
+        before.tokenMaterialVersion !== captured.tokenMaterialVersion)
+    )
+      throw new Error("Credential changed during reconnect");
     const existing = before?.status === "revoked" ? null : before;
     const record = this.newRecord(
       input,
@@ -124,9 +150,21 @@ export class PostgresCredentialStore
       epoch,
       async (client) => {
         const store = this.withClient(client);
+        if (captured) {
+          const current = await store.getCredential(input.providerId);
+          if (
+            !current ||
+            current.credentialId !== captured.connectionId ||
+            current.authOwnerGeneration !== captured.ownerGeneration ||
+            current.tokenMaterialVersion !== captured.tokenMaterialVersion
+          )
+            throw new Error("Credential changed during reconnect");
+        }
         if (before?.status === "revoked") {
           // Retire a legacy metadata-only revocation without reconnecting its ID.
-          const retired = await store.revokeConnection(acquisition(before));
+          const retired = await store.revokeConnectionInTransaction(
+            acquisition(before),
+          );
           if (!retired)
             throw new Error("Credential ownership changed during reconnection");
         }
@@ -160,6 +198,14 @@ export class PostgresCredentialStore
   async createConnection(
     input: CreateCredentialConnectionInput,
   ): Promise<ProviderCredentialRecord> {
+    input = {
+      ...input,
+      providerId: ProviderIdSchema.parse(input.providerId),
+      secret: CredentialSecretSchema.parse(input.secret),
+      connectionConfig: input.connectionConfig
+        ? ProviderConnectionConfigSchema.parse(input.connectionConfig)
+        : undefined,
+    };
     this.authorize(input.userId);
     const secret = CredentialSecretSchema.parse(input.secret);
     const record = this.newRecord(input, crypto.randomUUID(), false);
@@ -175,8 +221,8 @@ export class PostgresCredentialStore
     record: ProviderCredentialRecord;
     secret: CredentialSecret;
   } | null> {
+    expected = CredentialAcquisitionSchema.parse(expected);
     this.authorize(expected.userId);
-    CredentialAcquisitionSchema.parse(expected);
     const record = await this.getConnection(expected.connectionId);
     if (!matches(record, expected) || record.refreshClaimId) return null;
     const secret = await this.codec.decode(record);
@@ -185,8 +231,8 @@ export class PostgresCredentialStore
     return { record: current, secret };
   }
   async claimRefresh(expected: CredentialAcquisition) {
+    expected = CredentialAcquisitionSchema.parse(expected);
     this.authorize(expected.userId);
-    CredentialAcquisitionSchema.parse(expected);
     const before = await this.getConnection(expected.connectionId);
     if (
       !matches(before, expected) ||
@@ -216,8 +262,14 @@ export class PostgresCredentialStore
     claim: CredentialRefreshClaim,
     secret: Extract<CredentialSecret, { type: "oauth" }>,
   ): Promise<ProviderCredentialRecord | null> {
+    const { refreshClaimId, ...owner } = claim;
+    claim = {
+      ...CredentialAcquisitionSchema.parse(owner),
+      refreshClaimId:
+        CredentialAcquisitionSchema.shape.connectionId.parse(refreshClaimId),
+    };
+    const parsed = CredentialSecretSchema.parse(secret);
     this.authorize(claim.userId);
-    CredentialAcquisitionSchema.parse(acquisitionFromClaim(claim));
     const before = await this.getConnection(claim.connectionId);
     if (
       !matches(before, claim) ||
@@ -225,7 +277,6 @@ export class PostgresCredentialStore
     )
       return null;
     const previous = await this.codec.decode(before);
-    const parsed = CredentialSecretSchema.parse(secret);
     if (!sameOAuthAccount(previous, parsed))
       throw new Error("Refresh cannot change credential ownership or scope");
     const next = {
@@ -244,7 +295,32 @@ export class PostgresCredentialStore
   async revokeConnection(
     expected: CredentialAcquisition,
   ): Promise<ProviderCredentialRecord | null> {
+    expected = CredentialAcquisitionSchema.parse(expected);
     this.authorize(expected.userId);
+    const fence = new PostgresCredentialDefaultFence(this.client);
+    const mismatch = new Error("Credential revocation ownership changed");
+    try {
+      const result = await fence.advance(
+        { userId: this.userId, providerId: expected.providerId },
+        async (client) => {
+          const revoked =
+            await this.withClient(client).revokeConnectionInTransaction(
+              expected,
+            );
+          if (!revoked) throw mismatch; // Roll back the epoch on a failed CAS.
+          return revoked;
+        },
+      );
+      return result.value;
+    } catch (error) {
+      if (error === mismatch) return null;
+      throw error;
+    }
+  }
+  /** Caller already owns the durable default-slot fence on this transaction. */
+  private async revokeConnectionInTransaction(
+    expected: CredentialAcquisition,
+  ): Promise<ProviderCredentialRecord | null> {
     const result = await this.client.query<SqlRow>(
       `UPDATE provider_credentials SET status = 'revoked', deleted_at = $5, updated_at = $5, auth_owner_generation = auth_owner_generation + 1, refresh_claim_id = NULL, encrypted_secret_json = '{}'::jsonb, is_default = FALSE WHERE user_id = $1 AND id = $2 AND provider_id = $3 AND auth_owner_generation = $4 AND deleted_at IS NULL RETURNING *`,
       [
@@ -257,13 +333,38 @@ export class PostgresCredentialStore
     );
     return result.rows[0] ? this.rowToRecord(result.rows[0]) : null;
   }
-  async deleteCredential(providerId: ProviderId): Promise<void> {
+  async deleteCredential(
+    providerId: ProviderId,
+    expected?: CredentialAcquisition,
+  ): Promise<void> {
+    const captured = expected
+      ? CredentialAcquisitionSchema.parse(expected)
+      : undefined;
+    if (
+      captured &&
+      (captured.userId !== this.userId || captured.providerId !== providerId)
+    )
+      throw new Error("Credential disconnect scope mismatch");
     const fence = new PostgresCredentialDefaultFence(this.client);
     // Advance even for an absent slot; revoke and epoch advance commit together.
     await fence.advance({ userId: this.userId, providerId }, async (client) => {
       const store = this.withClient(client);
       const record = await store.getCredential(providerId);
-      if (record) await store.revokeConnection(acquisition(record));
+      if (
+        captured &&
+        (!record ||
+          record.credentialId !== captured.connectionId ||
+          record.authOwnerGeneration !== captured.ownerGeneration ||
+          record.tokenMaterialVersion !== captured.tokenMaterialVersion)
+      )
+        throw new Error("Credential changed during disconnect");
+      if (record) {
+        const revoked = await store.revokeConnectionInTransaction(
+          acquisition(record),
+        );
+        if (captured && !revoked)
+          throw new Error("Credential changed during disconnect");
+      }
     });
   }
   private withClient(client: SqlClient): PostgresCredentialStore {
@@ -458,10 +559,4 @@ export class PostgresCredentialStore
 }
 function nullable(value: unknown): string | null {
   return value == null ? null : String(value);
-}
-function acquisitionFromClaim(
-  c: CredentialRefreshClaim,
-): CredentialAcquisition {
-  const { refreshClaimId: _, ...expected } = c;
-  return expected;
 }

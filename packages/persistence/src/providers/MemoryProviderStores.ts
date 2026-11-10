@@ -2,6 +2,7 @@ import {
   CredentialSecretSchema,
   CredentialAcquisitionSchema,
   ProviderConnectionConfigSchema,
+  ProviderIdSchema,
   type CredentialAcquisition,
   type CredentialRefreshClaim,
   type CredentialSecret,
@@ -92,11 +93,36 @@ export class MemoryCredentialStore
   }
   async setCredential(
     input: SetCredentialInput,
+    expected?: CredentialAcquisition,
   ): Promise<ProviderCredentialRecord> {
+    input = {
+      ...input,
+      providerId: ProviderIdSchema.parse(input.providerId),
+      connectionConfig: input.connectionConfig
+        ? ProviderConnectionConfigSchema.parse(input.connectionConfig)
+        : undefined,
+    };
     this.authorize(input.userId);
+    const captured = expected
+      ? CredentialAcquisitionSchema.parse(expected)
+      : undefined;
+    if (
+      captured &&
+      (captured.userId !== this.userId ||
+        captured.providerId !== input.providerId)
+    )
+      throw new Error("Credential reconnect scope mismatch");
     if (!this.encryption.isValidKeyFormat(input.apiKey))
       throw new Error("Invalid API key format");
     const before = this.findDefault(input.providerId);
+    if (
+      captured &&
+      (!before ||
+        before.credentialId !== captured.connectionId ||
+        before.authOwnerGeneration !== captured.ownerGeneration ||
+        before.tokenMaterialVersion !== captured.tokenMaterialVersion)
+    )
+      throw new Error("Credential changed during reconnect");
     const epoch = this.epochs.get(input.providerId) ?? 0;
     const next = this.newRecord(
       input,
@@ -129,6 +155,14 @@ export class MemoryCredentialStore
   async createConnection(
     input: CreateCredentialConnectionInput,
   ): Promise<ProviderCredentialRecord> {
+    input = {
+      ...input,
+      providerId: ProviderIdSchema.parse(input.providerId),
+      secret: CredentialSecretSchema.parse(input.secret),
+      connectionConfig: input.connectionConfig
+        ? ProviderConnectionConfigSchema.parse(input.connectionConfig)
+        : undefined,
+    };
     this.authorize(input.userId);
     const secret = CredentialSecretSchema.parse(input.secret);
     const next = this.newRecord(input, crypto.randomUUID(), false);
@@ -142,8 +176,8 @@ export class MemoryCredentialStore
     return structuredClone(next);
   }
   async acquireConnection(expected: CredentialAcquisition) {
+    expected = CredentialAcquisitionSchema.parse(expected);
     this.authorize(expected.userId);
-    CredentialAcquisitionSchema.parse(expected);
     const before = this.records.get(expected.connectionId);
     if (!before || !matches(before, expected) || before.refreshClaimId)
       return null;
@@ -152,8 +186,8 @@ export class MemoryCredentialStore
     return { record: structuredClone(before), secret };
   }
   async claimRefresh(expected: CredentialAcquisition) {
+    expected = CredentialAcquisitionSchema.parse(expected);
     this.authorize(expected.userId);
-    CredentialAcquisitionSchema.parse(expected);
     const before = this.records.get(expected.connectionId);
     if (
       !before ||
@@ -174,6 +208,13 @@ export class MemoryCredentialStore
     claim: CredentialRefreshClaim,
     secret: Extract<CredentialSecret, { type: "oauth" }>,
   ): Promise<ProviderCredentialRecord | null> {
+    const { refreshClaimId, ...owner } = claim;
+    claim = {
+      ...CredentialAcquisitionSchema.parse(owner),
+      refreshClaimId:
+        CredentialAcquisitionSchema.shape.connectionId.parse(refreshClaimId),
+    };
+    const parsed = CredentialSecretSchema.parse(secret);
     this.authorize(claim.userId);
     const before = this.records.get(claim.connectionId);
     if (
@@ -183,7 +224,6 @@ export class MemoryCredentialStore
     )
       return null;
     const previous = await this.codec.decode(before);
-    const parsed = CredentialSecretSchema.parse(secret);
     if (!sameOAuthAccount(previous, parsed))
       throw new Error("Refresh cannot change credential ownership or scope");
     const next = {
@@ -201,6 +241,7 @@ export class MemoryCredentialStore
   async revokeConnection(
     expected: CredentialAcquisition,
   ): Promise<ProviderCredentialRecord | null> {
+    expected = CredentialAcquisitionSchema.parse(expected);
     this.authorize(expected.userId);
     const before = this.records.get(expected.connectionId);
     if (
@@ -229,9 +270,28 @@ export class MemoryCredentialStore
     this.records.set(next.credentialId, next);
     return structuredClone(next);
   }
-  async deleteCredential(providerId: ProviderId): Promise<void> {
-    this.epochs.set(providerId, (this.epochs.get(providerId) ?? 0) + 1);
+  async deleteCredential(
+    providerId: ProviderId,
+    expected?: CredentialAcquisition,
+  ): Promise<void> {
+    const captured = expected
+      ? CredentialAcquisitionSchema.parse(expected)
+      : undefined;
+    if (
+      captured &&
+      (captured.userId !== this.userId || captured.providerId !== providerId)
+    )
+      throw new Error("Credential disconnect scope mismatch");
     const before = this.findDefault(providerId);
+    if (
+      captured &&
+      (!before ||
+        before.credentialId !== captured.connectionId ||
+        before.authOwnerGeneration !== captured.ownerGeneration ||
+        before.tokenMaterialVersion !== captured.tokenMaterialVersion)
+    )
+      throw new Error("Credential changed during disconnect");
+    this.epochs.set(providerId, (this.epochs.get(providerId) ?? 0) + 1);
     if (before) await this.revokeConnection(acquisition(before));
   }
   async listCredentialProviders(): Promise<ProviderId[]> {
@@ -349,6 +409,7 @@ export class MemoryPreferenceStore implements PreferenceStore {
   async updatePreferences(
     patch: BYOKPreferencesPatch,
   ): Promise<BYOKPreferences> {
+    patch = structuredClone(patch);
     const current = await this.getPreferences();
     const next = this.clonePreferences({
       defaultProviderId: patch.defaultProviderId ?? current.defaultProviderId,

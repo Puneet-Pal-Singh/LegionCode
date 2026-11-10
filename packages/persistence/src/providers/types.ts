@@ -118,8 +118,14 @@ export interface CredentialStore extends CredentialConnectionStore {
   getCredentialWithKey(
     providerId: ProviderId,
   ): Promise<{ record: ProviderCredentialRecord; apiKey: string } | null>;
-  setCredential(input: SetCredentialInput): Promise<ProviderCredentialRecord>;
-  deleteCredential(providerId: ProviderId): Promise<void>;
+  setCredential(
+    input: SetCredentialInput,
+    expected?: CredentialAcquisition,
+  ): Promise<ProviderCredentialRecord>;
+  deleteCredential(
+    providerId: ProviderId,
+    expected?: CredentialAcquisition,
+  ): Promise<void>;
   listCredentialProviders(): Promise<ProviderId[]>;
   updateCredentialMetadata(
     providerId: ProviderId,

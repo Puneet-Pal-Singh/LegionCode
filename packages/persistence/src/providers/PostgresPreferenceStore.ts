@@ -39,6 +39,31 @@ export class PostgresPreferenceStore implements PreferenceStore {
   async updatePreferences(
     patch: BYOKPreferencesPatch,
   ): Promise<BYOKPreferences> {
+    patch = structuredClone(patch);
+    return this.client.transaction(async (client) => {
+      // One canonical workspace preference owner, including an absent row.
+      // Credential-only patches cannot validate against a provider from before
+      // a concurrent provider change and then append a mismatched selection.
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [
+          JSON.stringify([
+            "provider-preferences",
+            this.userId,
+            this.workspaceId,
+          ]),
+        ],
+      );
+      return new PostgresPreferenceStore(
+        client,
+        this.userId,
+        this.workspaceId,
+      ).updatePreferencesInTransaction(patch);
+    });
+  }
+  private async updatePreferencesInTransaction(
+    patch: BYOKPreferencesPatch,
+  ): Promise<BYOKPreferences> {
     const current = await this.getPreferences();
     const providerId = patch.defaultProviderId ?? current.defaultProviderId;
     const selectedId =
@@ -53,7 +78,7 @@ export class PostgresPreferenceStore implements PreferenceStore {
         patch.defaultProviderId !== undefined)
     ) {
       const owned = await this.client.query<{ id: string }>(
-        "SELECT id FROM provider_credentials WHERE id = $1 AND user_id = $2 AND provider_id = $3 AND credential_kind = 'api_key' AND status = 'connected' AND deleted_at IS NULL",
+        "SELECT id FROM provider_credentials WHERE id = $1 AND user_id = $2 AND provider_id = $3 AND credential_kind = 'api_key' AND status = 'connected' AND deleted_at IS NULL FOR SHARE",
         [selectedId, this.userId, providerId ?? null],
       );
       if (!owned.rows[0])
