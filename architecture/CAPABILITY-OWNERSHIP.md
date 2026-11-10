@@ -2194,7 +2194,9 @@ harness bindings, observation ingress/reply claims, opening phases and verified
 attachment retirement. Its constructor validates and initializes those indexes
 and one environment identity; no second writer or runtime registry is introduced.
 Control-plane setup/selection uses that same writer and the caller's canonical
-local actor. It stores no credentials and starts no provider or process.
+local actor. It reuses the same strict versioned grant parser as LocalPersistence,
+including v2 Git metadata identity in its grant fingerprint. It stores no
+credentials and starts no provider or process.
 
 This foundation exposes private ports but does not activate a public local
 harness consumer. Binding validation parses captured selection from an opaque

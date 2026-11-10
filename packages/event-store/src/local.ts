@@ -1,4 +1,5 @@
 import type { LocalThreadRuntimeScope, LocalThreadRuntimeSummary } from "./local-thread-runtime-summary.js";
+import { parseStoredGrant, type StoredLocalWorkspaceGrant } from "./local-workspace-grant.js";
 import { LocalHarnessControlPlane, type LocalHarnessControlPlanePort } from "./local/harness-control-plane.js";
 import { LocalHarnessObservationCommitPort } from "./local/harness-observation-port.js";
 import type { StoredHarnessSelection } from "./local/harness-bindings.js";
@@ -13,14 +14,11 @@ import { isAbsolute, join } from "node:path";
 import {
   EventCursorSchema,
   EventScopeSchema,
-  LocalWorkspaceGrantPathSchema,
-  LocalWorkspaceGrantSchema,
   PlatformEventSchema,
   ProviderIdSchema,
   type EventCursor,
   type EventId,
   type PlatformEvent,
-  type LocalWorkspaceGrant,
   type ProviderId,
   type UserId,
   type WorkspaceId,
@@ -62,23 +60,7 @@ const LegacyPlatformFileSchema = z.object({
   version: z.literal(1),
   events: z.array(z.unknown()),
 }).strict();
-const StoredGrantSchema = z.object({
-  version: z.literal(1),
-  path: LocalWorkspaceGrantPathSchema,
-  grant: LocalWorkspaceGrantSchema,
-}).strict();
-
-export type StoredLocalWorkspaceGrant = {
-  readonly version: 1;
-  readonly path: string;
-  readonly grant: LocalWorkspaceGrant;
-} | {
-  readonly version: 2;
-  readonly path: string;
-  readonly grant: LocalWorkspaceGrant;
-  /** Opaque native identity; interpreted only by the canonical grant/NativeFS owner. */
-  readonly gitMetadataIdentity: string;
-};
+export type { StoredLocalWorkspaceGrant } from "./local-workspace-grant.js";
 
 export interface LocalPersistenceOptions {
   readonly storageDirectory: string;
@@ -903,23 +885,6 @@ function platformFingerprint(event: PlatformEvent): string {
   const storeOwnedFields = new Set(["eventId", "sequence", "cursor", "createdAt"]);
   const input = Object.fromEntries(Object.entries(event).filter(([key]) => !storeOwnedFields.has(key)));
   return createStableEventFingerprint(input);
-}
-
-function parseStoredGrant(value: unknown): StoredLocalWorkspaceGrant {
-  // Legacy records remain readable, but only explicit grant can establish identity.
-  const grant = z.union([
-    StoredGrantSchema,
-    z.object({
-      version: z.literal(2),
-      path: LocalWorkspaceGrantPathSchema,
-      grant: LocalWorkspaceGrantSchema,
-      gitMetadataIdentity: z.string().min(1).max(512),
-    }).strict(),
-  ]).parse(value);
-  if (!isAbsolute(grant.path) || grant.path.includes("\0")) {
-    throw new Error("Workspace grant path is invalid");
-  }
-  return grant;
 }
 
 function isTerminal(event: LifecycleEvent): boolean {
