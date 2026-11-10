@@ -1520,3 +1520,9 @@ Thread and provider owners. The trusted host injects its runtime through one
 structural factory; missing runtime leaves execution unconfigured. The Desktop
 workspace-file composition adopts the renamed composition type without changing
 its behavior. This wiring does not fabricate a native executor or capture port.
+
+The same composition injects LocalProviderPreferences using the existing
+SQLite preferences records, current physical grant callback and provider
+registry. Secret-free metadata has one persistence owner; local preference
+reads and writes no longer require an uncomposed service. Credentials remain
+with the trusted host and provider route owners.

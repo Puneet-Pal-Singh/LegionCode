@@ -11,6 +11,7 @@ import type { VerifiedMacGitExecution, VerifiedMacGitOptions } from "./local-mac
 import { LocalThreadNotFoundError, LocalThreadService } from "./local-threads.js";
 import { LocalProviderService, ProviderConfigurationSchema } from "./local-providers.js";
 import { LocalTurnService, type LocalTurnRuntime } from "./local-turns.js";
+import { LocalProviderPreferences } from "./local-provider-preferences.js";
 
 const MAX_REQUEST_BYTES = 32 * 1024;
 
@@ -66,6 +67,11 @@ export function createLocalAppServer(config: LocalAppServerStartConfig, options?
     const providerService = new LocalProviderService({
       selectionStore: persistence.providerSelection,
     });
+    const providerPreferences = new LocalProviderPreferences({
+      getWorkspace: () => workspaceService.getAuthorizedCurrent(),
+      store: persistence.providerPreferences,
+      providers: providerService,
+    });
     const workspaceFilesService = options?.createWorkspaceFilesService?.(workspaceService);
     const runtime = options?.createTurnRuntime?.(persistence);
     const turnService = runtime ? new LocalTurnService({
@@ -76,7 +82,7 @@ export function createLocalAppServer(config: LocalAppServerStartConfig, options?
       runtime,
     }) : undefined;
     const server = createServer((request, response) => {
-      void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, turnService);
+      void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, turnService, providerPreferences);
     });
     server.once("close", () => persistence.close());
     server.once("error", () => persistence.close());
@@ -128,6 +134,7 @@ async function handleRequest(
   persistence: LocalPersistence,
   workspaceFilesService?: AppServerComposition["localWorkspaceFilesService"],
   turnService?: LocalTurnService,
+  providerPreferences?: LocalProviderPreferences,
 ): Promise<void> {
   const baseInput = {
     method: request.method ?? "",
@@ -145,6 +152,7 @@ async function handleRequest(
     workspaceService,
     localWorkspaceFilesService: workspaceFilesService,
     localTurnService: turnService,
+    localProviderPreferenceService: providerPreferences,
     threadService,
     localLifecycleReplayService: {
       replayLifecycleEvents: (params: ReplayLifecycleEventsRequest) =>
