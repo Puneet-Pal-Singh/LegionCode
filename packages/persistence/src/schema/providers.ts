@@ -1,6 +1,8 @@
 import { sql } from "drizzle-orm";
 import {
   check,
+  bigint,
+  boolean,
   index,
   integer,
   jsonb,
@@ -35,6 +37,15 @@ export const providerCredentials = pgTable(
     providerId: text("provider_id").notNull(),
     label: text("label").notNull(),
     keyFingerprint: text("key_fingerprint").notNull(),
+    authOwnerGeneration: bigint("auth_owner_generation", { mode: "number" })
+      .notNull()
+      .default(1),
+    tokenMaterialVersion: bigint("token_material_version", { mode: "number" })
+      .notNull()
+      .default(1),
+    credentialKind: text("credential_kind").notNull().default("api_key"),
+    refreshClaimId: text("refresh_claim_id"),
+    isDefault: boolean("is_default").notNull().default(true),
     encryptedSecretJson: jsonb("encrypted_secret_json").notNull(),
     connectionConfigJson: jsonb("connection_config_json"),
     keyVersion: text("key_version").notNull(),
@@ -55,9 +66,9 @@ export const providerCredentials = pgTable(
     deletedAt: timestamp("deleted_at", { withTimezone: true, mode: "string" }),
   },
   (table) => [
-    uniqueIndex("provider_credentials_user_provider_idx")
+    uniqueIndex("provider_credentials_user_provider_default_idx")
       .on(table.userId, table.providerId)
-      .where(sql`${table.deletedAt} IS NULL`),
+      .where(sql`${table.isDefault} = TRUE AND ${table.deletedAt} IS NULL`),
     index("provider_credentials_user_status_idx").on(
       table.userId,
       table.status,

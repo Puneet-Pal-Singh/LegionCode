@@ -24,10 +24,11 @@ function createEnv(): Env {
 describe("AdapterSelectionService", () => {
   it("creates a google adapter for google-native selections", async () => {
     const providerConfigService = {
-      getApiKey: vi.fn(async (providerId: string) =>
-        providerId === "google" ? "AIzaGoogleTestKey1234567890" : null,
+      resolveCredential: vi.fn(async (providerId: string) =>
+        providerId === "google"
+          ? { apiKey: "AIzaGoogleTestKey1234567890" }
+          : null,
       ),
-      getConnectionConfig: vi.fn(async () => undefined),
     };
 
     const adapter = await selectAdapter(
@@ -49,10 +50,9 @@ describe("AdapterSelectionService", () => {
 
   it("selects by model transport route when route metadata is present", async () => {
     const providerConfigService = {
-      getApiKey: vi.fn(async (providerId: string) =>
-        providerId === "opencode-zen" ? "oc-test" : null,
+      resolveCredential: vi.fn(async (providerId: string) =>
+        providerId === "opencode-zen" ? { apiKey: "oc-test" } : null,
       ),
-      getConnectionConfig: vi.fn(async () => undefined),
     };
 
     const adapter = await selectAdapter(
@@ -80,10 +80,9 @@ describe("AdapterSelectionService", () => {
 
   it("preserves the selected provider identity for openai-compatible adapters", async () => {
     const providerConfigService = {
-      getApiKey: vi.fn(async (providerId: string) =>
-        providerId === "openrouter" ? "sk-or-test-key" : null,
+      resolveCredential: vi.fn(async (providerId: string) =>
+        providerId === "openrouter" ? { apiKey: "sk-or-test-key" } : null,
       ),
-      getConnectionConfig: vi.fn(async () => undefined),
     };
 
     const adapter = await selectAdapter(
@@ -103,15 +102,17 @@ describe("AdapterSelectionService", () => {
   });
 
   it("loads trusted Cloudflare connection config for gateway routing", async () => {
-    const getConnectionConfig = vi.fn(async () => ({
-      providerId: "cloudflare-ai" as const,
-      accountId: "account_123",
-      gatewayId: "gateway-123",
-      routeMode: "ai-gateway" as const,
+    const resolveCredential = vi.fn(async () => ({
+      apiKey: "cf-test-token",
+      connectionConfig: {
+        providerId: "cloudflare-ai" as const,
+        accountId: "account_123",
+        gatewayId: "gateway-123",
+        routeMode: "ai-gateway" as const,
+      },
     }));
     const providerConfigService = {
-      getApiKey: vi.fn(async () => "cf-test-token"),
-      getConnectionConfig,
+      resolveCredential,
     };
 
     const adapter = await selectAdapter(
@@ -135,6 +136,7 @@ describe("AdapterSelectionService", () => {
     );
 
     expect(adapter.provider).toBe("cloudflare-ai");
-    expect(getConnectionConfig).toHaveBeenCalledWith("cloudflare-ai");
+    expect(resolveCredential).toHaveBeenCalledWith("cloudflare-ai");
+    expect(resolveCredential).toHaveBeenCalledTimes(1);
   });
 });
