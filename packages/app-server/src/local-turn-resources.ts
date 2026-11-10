@@ -1,4 +1,5 @@
 import type { TurnAdmission, TurnId } from "@repo/platform-protocol";
+import type { LocalNativeFileIdentity } from "@repo/event-store";
 import type { LocalTurnExecutor } from "./local-turns.js";
 import type { LocalWorkspaceExecutionBinding } from "./local-workspace.js";
 import { AppServerOperationError } from "./server.js";
@@ -6,6 +7,15 @@ import { AppServerOperationError } from "./server.js";
 export interface LocalTurnPreparation {
   readonly operation: Promise<unknown>;
   binding?: LocalWorkspaceExecutionBinding;
+}
+
+/** Constructed by this original binding owner only after successful close. */
+export interface LocalTurnBindingClosure {
+  readonly binding: LocalWorkspaceExecutionBinding;
+  readonly root: LocalNativeFileIdentity;
+  readonly gitMetadataIdentity: string;
+  readonly grantedAt: string;
+  readonly generation: number;
 }
 
 interface OwnedTurnExecution {
@@ -115,7 +125,17 @@ export class LocalTurnResources {
         // Neither fulfillment nor rejection is physical or terminal proof.
         if ((await executor.awaitResourceRelease(admission.turn.id)) !== true)
           throw retained();
+        const recordSettlement = await executor.prepareResourceSettlement?.(admission);
+        const root = recordSettlement ? await binding.rootDirectory.stat({ bigint: true }) : undefined;
+        if (root && !root.isDirectory()) throw retained();
         await binding.close();
+        if (recordSettlement && root) await recordSettlement(Object.freeze({
+          binding,
+          root: Object.freeze({ device: root.dev.toString(16), inode: root.ino.toString(16) }),
+          gitMetadataIdentity: binding.metadataIdentity,
+          grantedAt: binding.workspace.grantedAt,
+          generation: binding.generation,
+        }));
         if (this.executors.get(admission.turn.id) === owned)
           this.executors.delete(admission.turn.id);
         // This callback is part of the original tracked cleanup operation. The

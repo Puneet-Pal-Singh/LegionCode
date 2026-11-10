@@ -478,6 +478,12 @@ export class LocalTurnExecutor<
     return owned ? owned.awaitQuiescence(timeoutMs) : false;
   }
 
+  /** Explicit original acquisition-failure disposition. It is not release proof;
+   * callers may use it only after awaitResourceRelease positively settles. */
+  hasPreparationResourceProof(turnId: StartTurnInput["turn"]["id"]): boolean {
+    return this.turns.get(turnId)?.hasPreparationResourceProof() === true;
+  }
+
   /**
    * Only a positive result permits the host to close this attempt's binding/fence.
    * False (including preflight without a known worker or owner receipt) requires
