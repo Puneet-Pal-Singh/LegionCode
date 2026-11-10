@@ -21,6 +21,7 @@ import {
   type AppServerHttpTransportOptions,
 } from "@legioncode/sdk/platform/app-server-http-transport";
 import { type ProviderId } from "@repo/shared-types";
+import { LocalAppServerClosure } from "./local-app-server-closure";
 import {
   RuntimeCredentialRequestSchema,
   RuntimeCredentialResponseSchema,
@@ -60,6 +61,7 @@ export class LocalAppServerSupervisor {
   >();
 
   private child: UtilityProcess | null = null;
+  private closure: LocalAppServerClosure | null = null;
   private childPid: number | null = null;
   private credential: string | null = null;
   private storageDirectory: string | null = null;
@@ -92,6 +94,9 @@ export class LocalAppServerSupervisor {
     storageDirectory: string,
     hostConfig?: LocalAppServerHostConfig,
   ): Promise<void> {
+    if (this.child || this.closure) {
+      throw new Error("The previous local runtime closure is unconfirmed");
+    }
     const generation = ++this.generation;
     this.stopping = false;
     this.childPid = null;
@@ -112,6 +117,7 @@ export class LocalAppServerSupervisor {
       { serviceName: "LegionCode Local App Server" },
     );
     this.child = child;
+    this.closure = new LocalAppServerClosure(child);
     child.once("spawn", () => {
       if (generation === this.generation && child === this.child) {
         this.childPid = child.pid ?? null;
@@ -131,20 +137,25 @@ export class LocalAppServerSupervisor {
     });
     child.on("error", () => this.handleChildExit(child));
     child.on("exit", () => this.handleChildExit(child));
-    child.postMessage({
-      type: "start",
-      credential,
-      serverVersion,
-      storageDirectory,
-      protectedHostRoots: this.hostConfig?.protectedHostRoots,
-      nativeWriterFenceDirectory: this.hostConfig?.nativeWriterFenceDirectory,
-      nativeFilesystemHelperPath: this.hostConfig?.nativeFilesystemHelperPath,
-      nativeProcessHelperPath: this.hostConfig?.nativeProcessHelperPath,
-    });
+    try {
+      child.postMessage({
+        type: "start",
+        credential,
+        serverVersion,
+        storageDirectory,
+        protectedHostRoots: this.hostConfig?.protectedHostRoots,
+        nativeWriterFenceDirectory: this.hostConfig?.nativeWriterFenceDirectory,
+        nativeFilesystemHelperPath: this.hostConfig?.nativeFilesystemHelperPath,
+        nativeProcessHelperPath: this.hostConfig?.nativeProcessHelperPath,
+      });
+    } catch {
+      this.requestChildShutdown(child);
+      throw new Error("Local App Server startup request could not be delivered");
+    }
     this.startupTimer = setTimeout(() => {
       if (child !== this.child || generation !== this.generation) return;
       this.update(createSnapshot("offline", "Local App Server did not start"));
-      this.terminateChild(child);
+      this.requestChildShutdown(child);
     }, STARTUP_TIMEOUT_MS);
   }
 
@@ -154,32 +165,25 @@ export class LocalAppServerSupervisor {
     this.clearCredentialRequests();
     this.clearStartupTimer();
     this.clearLivenessTimer();
-    const child = this.child;
-    this.child = null;
-    this.childPid = null;
     this.credential = null;
     this.transport = null;
-    if (!child) {
+    const closure = this.closure;
+    if (!closure) {
+      if (this.child) throw new Error("Local runtime closure ownership is unavailable");
       this.update(
         createSnapshot("stopped", "Local App Server stopped cleanly"),
       );
       return;
     }
-    await new Promise<void>((resolve) => {
-      let settled = false;
-      let timeout: ReturnType<typeof setTimeout>;
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        resolve();
-      };
-      child.once("exit", finish);
-      child.once("error", finish);
-      timeout = setTimeout(finish, STARTUP_TIMEOUT_MS);
-      child.kill();
-    });
-    this.update(createSnapshot("stopped", "Local App Server stopped cleanly"));
+    this.update(createSnapshot("degraded", "Local App Server shutdown is pending"));
+    try {
+      await closure.requestShutdown();
+    } catch {
+      if (this.closure === closure) {
+        this.update(createSnapshot("degraded", "Local runtime closure is unconfirmed; its ownership is retained"));
+      }
+      throw new Error("Local runtime closure is unconfirmed");
+    }
   }
 
   async restart(serverVersion: string): Promise<void> {
@@ -307,12 +311,36 @@ export class LocalAppServerSupervisor {
     message: unknown,
     serverVersion: string,
   ): Promise<void> {
+    if (child !== this.child) return;
+    // Closure belongs to the actual child, independently of request generations.
+    if (isClosedMessage(message)) {
+      this.closure?.acknowledgeClosed();
+      this.clearCredentialRequests();
+      this.clearStartupTimer();
+      this.clearLivenessTimer();
+      this.child = null;
+      this.closure = null;
+      this.childPid = null;
+      this.credential = null;
+      this.transport = null;
+      if (!this.stopping) this.generation += 1;
+      this.stopping = true;
+      this.update(createSnapshot("stopped", "Local App Server stopped cleanly"));
+      return;
+    }
+    if (isFatalMessage(message)) {
+      if (message.reason === "runtime-shutdown-failed") {
+        this.handleChildExit(child);
+      } else {
+        this.requestChildShutdown(child);
+      }
+      return;
+    }
     if (
-      child !== this.child ||
       generation !== this.generation ||
+      this.stopping ||
       !isReadyMessage(message)
     ) {
-      if (isFatalMessage(message)) this.handleChildExit(child);
       return;
     }
     const baseUrl = message.baseUrl;
@@ -322,7 +350,7 @@ export class LocalAppServerSupervisor {
       this.update(
         createSnapshot("degraded", "Local App Server address was rejected"),
       );
-      this.terminateChild(child);
+      this.requestChildShutdown(child);
       return;
     }
 
@@ -360,29 +388,29 @@ export class LocalAppServerSupervisor {
           ? "Local App Server protocol is incompatible"
           : "Local App Server handshake failed";
       this.update(createSnapshot("degraded", reason));
-      this.terminateChild(child);
+      this.requestChildShutdown(child);
     }
   }
 
   private handleChildExit(child: UtilityProcess): void {
     if (child !== this.child) return;
+    this.generation += 1;
+    this.stopping = true;
     this.clearCredentialRequests();
     this.clearStartupTimer();
     this.clearLivenessTimer();
-    this.child = null;
-    this.childPid = null;
     this.credential = null;
     this.transport = null;
-    if (this.stopping) return;
+    this.closure?.markUnknown("Local runtime physical closure is unconfirmed");
     this.update(
-      createSnapshot("offline", "Local App Server stopped unexpectedly"),
+      createSnapshot("offline", "Local runtime closure is unconfirmed; its ownership is retained"),
     );
   }
 
-  private terminateChild(child: UtilityProcess): void {
-    this.stopping = true;
-    this.clearCredentialRequests();
-    child.kill();
+  private requestChildShutdown(child: UtilityProcess): void {
+    if (child !== this.child) return;
+    // stop reports failure while retaining the same child and closure obligation.
+    void this.stop().catch(() => undefined);
   }
 
   private clearStartupTimer(): void {
@@ -417,7 +445,10 @@ export class LocalAppServerSupervisor {
   private update(next: SupervisedEnvironment): void {
     this.config = next;
     const { connection: _connection, ...snapshot } = next;
-    for (const listener of this.listeners) listener(snapshot);
+    for (const listener of this.listeners) {
+      try { listener(snapshot); }
+      catch { /* Notification observers cannot interrupt retained ownership. */ }
+    }
   }
 }
 
@@ -453,12 +484,17 @@ function isReadyMessage(message: unknown): message is LocalAppServerMessage & {
   );
 }
 
-function isFatalMessage(message: unknown): boolean {
+function isFatalMessage(message: unknown): message is LocalAppServerMessage & { type: "fatal" } {
   return (
     !!message &&
     typeof message === "object" &&
     (message as { type?: unknown }).type === "fatal"
   );
+}
+
+function isClosedMessage(message: unknown): message is LocalAppServerMessage & { type: "closed" } {
+  return !!message && typeof message === "object" &&
+    (message as { type?: unknown }).type === "closed" && Object.keys(message).length === 1;
 }
 
 function isLoopbackBaseUrl(value: string): boolean {
