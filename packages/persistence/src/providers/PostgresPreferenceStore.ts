@@ -1,6 +1,11 @@
+import { CredentialReconnectConflict } from "./connection-custody.js";
+import {
+  ProviderIdSchema,
+  CredentialAcquisitionSchema,
+} from "@repo/shared-types";
 import type { BYOKPreferences, BYOKPreferencesPatch } from "@repo/shared-types";
 import type { SqlClient, SqlRow } from "../sql.js";
-import type { PreferenceStore } from "./types.js";
+import type { PreferenceStore, CredentialSelectionSnapshot } from "./types.js";
 import { parseJsonColumn, stringifyJsonColumn } from "./json.js";
 
 interface PreferenceRow extends SqlRow {
@@ -23,6 +28,86 @@ export class PostgresPreferenceStore implements PreferenceStore {
     private readonly workspaceId: string,
   ) {}
 
+  ownsCredentialScope(
+    client: SqlClient,
+    userId: string,
+    workspaceId: string,
+  ): boolean {
+    return (
+      client === this.client &&
+      userId === this.userId &&
+      workspaceId === this.workspaceId
+    );
+  }
+  async captureCredentialSelection(): Promise<CredentialSelectionSnapshot> {
+    const result = await this.client.query<{
+      default_provider_id: string | null;
+      default_credential_id: string | null;
+      selection_version: string;
+    }>(
+      "SELECT default_provider_id,default_credential_id,xmin::text AS selection_version FROM provider_preferences WHERE user_id=$1 AND workspace_id=$2",
+      [this.userId, this.workspaceId],
+    );
+    const row = result.rows[0];
+    return row
+      ? {
+          providerId:
+            row.default_provider_id === null
+              ? undefined
+              : ProviderIdSchema.parse(row.default_provider_id),
+          credentialId:
+            row.default_credential_id === null
+              ? undefined
+              : CredentialAcquisitionSchema.shape.connectionId.parse(
+                  row.default_credential_id,
+                ),
+          version: row.selection_version,
+        }
+      : { version: null };
+  }
+  async withCredentialSelection<T>(
+    expected: CredentialSelectionSnapshot,
+    action: (client: SqlClient) => Promise<T>,
+  ): Promise<T> {
+    expected = { ...expected };
+    return this.client.transaction(async (client) => {
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [
+          JSON.stringify([
+            "provider-preferences",
+            this.userId,
+            this.workspaceId,
+          ]),
+        ],
+      );
+      const bound = new PostgresPreferenceStore(
+        client,
+        this.userId,
+        this.workspaceId,
+      );
+      assertSelection(await bound.captureCredentialSelection(), expected);
+      return action(client);
+    });
+  }
+  /** Only the guarded reconnect transaction calls this after inserting its
+   * canonical owned credential. Existing preference validation remains owner. */
+  async bindCredentialSelection(
+    expected: CredentialSelectionSnapshot,
+    credentialId: string,
+  ): Promise<void> {
+    expected = { ...expected };
+    credentialId =
+      CredentialAcquisitionSchema.shape.connectionId.parse(credentialId);
+    assertSelection(await this.captureCredentialSelection(), expected);
+    if (!expected.providerId)
+      throw new Error("Credential selection provider changed");
+    await this.updatePreferencesInTransaction({
+      defaultProviderId: expected.providerId,
+      defaultCredentialId: credentialId,
+    });
+  }
+
   async getPreferences(): Promise<BYOKPreferences> {
     const result = await this.client.query<PreferenceRow>(GET_PREFERENCES_SQL, [
       this.userId,
@@ -39,6 +124,53 @@ export class PostgresPreferenceStore implements PreferenceStore {
   async updatePreferences(
     patch: BYOKPreferencesPatch,
   ): Promise<BYOKPreferences> {
+    patch = structuredClone(patch);
+    return this.client.transaction(async (client) => {
+      // One canonical workspace preference owner, including an absent row.
+      // Credential-only patches cannot validate against a provider from before
+      // a concurrent provider change and then append a mismatched selection.
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [
+          JSON.stringify([
+            "provider-preferences",
+            this.userId,
+            this.workspaceId,
+          ]),
+        ],
+      );
+      return new PostgresPreferenceStore(
+        client,
+        this.userId,
+        this.workspaceId,
+      ).updatePreferencesInTransaction(patch);
+    });
+  }
+  private async updatePreferencesInTransaction(
+    patch: BYOKPreferencesPatch,
+  ): Promise<BYOKPreferences> {
+    const current = await this.getPreferences();
+    const providerId = patch.defaultProviderId ?? current.defaultProviderId;
+    const selectedId =
+      patch.defaultCredentialId ??
+      (patch.defaultProviderId !== undefined &&
+      patch.defaultProviderId !== current.defaultProviderId
+        ? undefined
+        : current.defaultCredentialId);
+    if (
+      selectedId !== undefined &&
+      (patch.defaultCredentialId !== undefined ||
+        patch.defaultProviderId !== undefined)
+    ) {
+      const owned = await this.client.query<{ id: string }>(
+        "SELECT id FROM provider_credentials WHERE id = $1 AND user_id = $2 AND provider_id = $3 AND credential_kind = 'api_key' AND status = 'connected' AND deleted_at IS NULL FOR SHARE",
+        [selectedId, this.userId, providerId ?? null],
+      );
+      if (!owned.rows[0])
+        throw new Error(
+          "Default credential is not an owned connected API-key connection",
+        );
+    }
     const result = await this.client.query<PreferenceRow>(
       UPSERT_PREFERENCES_SQL,
       [
@@ -53,6 +185,9 @@ export class PostgresPreferenceStore implements PreferenceStore {
         patch.defaultProviderId !== undefined,
         patch.defaultModelId !== undefined,
         patch.visibleModelIds !== undefined,
+        selectedId ?? null,
+        patch.defaultCredentialId !== undefined ||
+          patch.defaultProviderId !== undefined,
       ],
     );
 
@@ -121,6 +256,7 @@ export class PostgresPreferenceStore implements PreferenceStore {
 
     return {
       defaultProviderId: row.default_provider_id ?? undefined,
+      defaultCredentialId: row.default_credential_id ?? undefined,
       defaultModelId: row.default_model_id ?? undefined,
       visibleModelIds,
       credentialLabels,
@@ -190,11 +326,13 @@ const UPSERT_PREFERENCES_SQL = `
     default_provider_id,
     default_model_id,
     visible_model_ids_json,
-    updated_at
+    updated_at,
+    default_credential_id
   )
-  VALUES ($1, $2, $3, $4, COALESCE($5::jsonb, '{}'::jsonb), $6)
+  VALUES ($1, $2, $3, $4, COALESCE($5::jsonb, '{}'::jsonb), $6, $10)
   ON CONFLICT (user_id, workspace_id)
   DO UPDATE SET
+    default_credential_id = CASE WHEN $11::boolean THEN EXCLUDED.default_credential_id ELSE provider_preferences.default_credential_id END,
     default_provider_id = CASE
       WHEN $7::boolean THEN EXCLUDED.default_provider_id
       ELSE provider_preferences.default_provider_id
@@ -245,3 +383,15 @@ const DELETE_CREDENTIAL_LABEL_SQL = `
   WHERE user_id = $1
     AND workspace_id = $2
 `;
+
+function assertSelection(
+  current: CredentialSelectionSnapshot,
+  expected: CredentialSelectionSnapshot,
+): void {
+  if (
+    current.version !== expected.version ||
+    current.providerId !== expected.providerId ||
+    current.credentialId !== expected.credentialId
+  )
+    throw new CredentialReconnectConflict();
+}
