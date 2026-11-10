@@ -1719,3 +1719,20 @@ The existing read-only App Server Git adapter forwards this narrow port through
 the same held-root executor and closure checks. No command runner, ref parser,
 GitService interface migration, lifecycle writer or Desktop host authority is
 added. The native runtime consumes the fact in its separately owned composition.
+
+## Plan 057 — Shared discovered local provider models
+
+LocalProviderService consumes the server-only provider catalog port for model
+listing, refresh and exact-model selection; bounded paged inventory remains
+request-local and coalesces concurrent lookups. The existing shared discovery
+service owns catalog retrieval and caching. The local process accepts this one
+injected catalog; protected credential access remains in its existing host port.
+Workspace preferences validate model identities through the same service.
+
+ProtectedProviderInference requires the admitted discovered model identity and
+uses the canonical provider route resolver with the protected connection config.
+It retains provider/model/availability checks and validates Cloudflare routing
+against that same protected config before inference. No static model allowlist,
+second catalog, credential store or app-local routing algorithm replaces these
+owners. Shared provider discovery/routing dependencies and trusted Desktop host
+injection remain separately sequenced integration requirements.
