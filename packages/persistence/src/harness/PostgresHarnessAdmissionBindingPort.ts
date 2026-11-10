@@ -180,6 +180,17 @@ export class PostgresHarnessAdmissionBindingPort {
       });
     });
   }
+  async cancelReservedOpening(input: { principal: Principal; selection: HarnessSelection; intent: HarnessOpeningIntent }): Promise<void> {
+    input = {...input, principal: {...input.principal}, selection: HarnessSelectionSchema.parse(input.selection),
+      intent: HarnessOpeningIntentSchema.parse(input.intent)};
+    await this.client.transaction(async (tx) => {
+      await lock(tx, input.principal.turnId);
+      const result = await new PostgresHarnessBindingRepository(tx).cancelReservedOpening({
+        selection: envelope(input.principal, input.selection), intent: input.intent,
+      });
+      if (result !== "cancelled_before_dispatch") reject("Opening dispatch is ambiguous; recovery required");
+    });
+  }
   async acknowledgeOpening(input: { principal: Principal; selection: HarnessSelection; intent: HarnessOpeningIntent; session: HarnessSession }): Promise<void> {
     input = { ...input, principal: { ...input.principal }, selection: HarnessSelectionSchema.parse(input.selection),
       intent: HarnessOpeningIntentSchema.parse(input.intent), session: HarnessSessionSchema.parse(input.session) };

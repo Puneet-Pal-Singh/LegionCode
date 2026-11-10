@@ -73,6 +73,7 @@ export class SecureHarnessExecutionPort implements DelegatedHarnessPort {
   private openingAuthority: {
     reserve(command: HarnessStartCommand, intent: HarnessOpeningIntent): Promise<void>;
     beginDispatch(intent: HarnessOpeningIntent): Promise<void>;
+    cancelBeforeDispatch(intent: HarnessOpeningIntent): Promise<void>;
     acknowledge(intent: HarnessOpeningIntent, session: HarnessSession): Promise<void>;
   } | null = null;
   private openingCommand: HarnessStartCommand | null = null;
@@ -80,7 +81,7 @@ export class SecureHarnessExecutionPort implements DelegatedHarnessPort {
   private openingLease: SecureExecutionSessionHandle["lease"] | null = null;
   bindOpeningAuthority(authority: NonNullable<SecureHarnessExecutionPort["openingAuthority"]>): void {
     if (this.openingAuthority) throw new Error("Opening authority is already bound");
-    this.openingAuthority = Object.freeze({reserve: authority.reserve.bind(authority), beginDispatch: authority.beginDispatch.bind(authority), acknowledge: authority.acknowledge.bind(authority)});
+    this.openingAuthority = Object.freeze({reserve: authority.reserve.bind(authority), beginDispatch: authority.beginDispatch.bind(authority), cancelBeforeDispatch: authority.cancelBeforeDispatch.bind(authority), acknowledge: authority.acknowledge.bind(authority)});
   }
   bindExecutionSession(session: SecureExecutionSessionPort): void {
     if (this.executionSession)
@@ -318,12 +319,13 @@ export class SecureHarnessExecutionPort implements DelegatedHarnessPort {
         throw new Error("Opening checkout lease mismatch");
       if (frame.type === "opening_session") await authority.acknowledge(intent, frame.session);
       else if (frame.operation === "reserve") await authority.reserve(command, intent);
+      else if (frame.operation === "cancel_before_dispatch") await authority.cancelBeforeDispatch(intent);
       else await authority.beginDispatch(intent);
       // Each adapter promise resolves only AFTER its canonical database COMMIT.
       this.send({ type: "opening_commit", deliveryId: frame.deliveryId, commit: {
         openingRef: intent.openingRef, commandFingerprint: intent.commandFingerprint,
         processGeneration: intent.processGeneration,
-        phase: frame.type === "opening_session" ? "acknowledged" : frame.operation === "reserve" ? "reserved" : "dispatching",
+        phase: frame.type === "opening_session" ? "acknowledged" : frame.operation === "reserve" ? "reserved" : frame.operation === "cancel_before_dispatch" ? "cancelled_before_dispatch" : "dispatching",
       } });
       return;
     }

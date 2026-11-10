@@ -187,6 +187,11 @@ export class CloudHarnessComposition {
         if (binding.closed) throw new Error("Opening authority connection closed");
         return {
           beginDispatch: async () => { if (binding.closed) throw new Error("Opening authority connection closed"); await reserved.beginDispatch(); if (binding.closed) throw new Error("Opening authority connection closed after dispatch commit"); },
+          cancelBeforeDispatch: async () => {
+            if (binding.closed) throw new Error("Opening cancellation connection closed");
+            await reserved.cancelBeforeDispatch();
+            if (binding.closed) throw new Error("Opening cancellation connection closed after commit");
+          },
           acknowledge: async (session) => { if (binding.closed) throw new Error("Opening authority connection closed"); await reserved.acknowledge(session); if (binding.closed) throw new Error("Opening authority connection closed after identity commit"); },
         };
       } },

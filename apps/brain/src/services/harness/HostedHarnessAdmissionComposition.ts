@@ -45,6 +45,7 @@ function createPostgresHarnessAdmissionBindings(
       withBindings((bindings) => bindings.freezeAndClaim(input)),
     reserveOpening: (input) => withBindings((bindings) => bindings.reserveOpening(input)),
     beginOpeningDispatch: (input) => withBindings((bindings) => bindings.beginOpeningDispatch(input)),
+    cancelReservedOpening: (input) => withBindings((bindings) => bindings.cancelReservedOpening(input)),
     acknowledgeOpening: (input) => withBindings((bindings) => bindings.acknowledgeOpening(input)),
     attach: (input) => withBindings((bindings) => bindings.attach(input)),
     assertActive: (...args) =>

@@ -84,6 +84,8 @@ export interface HarnessAdmissionBindingPort {
     readonly command: HarnessStartCommand; readonly intent: HarnessOpeningIntent }): Promise<void>;
   beginOpeningDispatch(input: { readonly principal: HarnessAdmissionPrincipal; readonly selection: HarnessSelection;
     readonly intent: HarnessOpeningIntent }): Promise<void>;
+  cancelReservedOpening(input: { readonly principal: HarnessAdmissionPrincipal; readonly selection: HarnessSelection;
+    readonly intent: HarnessOpeningIntent }): Promise<void>;
   acknowledgeOpening(input: { readonly principal: HarnessAdmissionPrincipal; readonly selection: HarnessSelection;
     readonly intent: HarnessOpeningIntent; readonly session: HarnessSession }): Promise<void>;
   attach(input: {

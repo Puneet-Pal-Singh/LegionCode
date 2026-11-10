@@ -31,7 +31,7 @@ export type CloudOpeningCommitter = (frame: CloudOpeningFrame) => Promise<Harnes
 export class CloudHarnessBridgeClient {
   private openingCommitter: CloudOpeningCommitter | null = null;
   private openingIntent: string | null = null;
-  private openingPhase: "reserved" | "dispatching" | "acknowledged" | null = null;
+  private openingPhase: "reserved" | "dispatching" | "acknowledged" | "cancelled_before_dispatch" | null = null;
   private readonly openingDeliveries = new Set<string>();
   bindOpeningCommitter(committer: CloudOpeningCommitter): void {
     if (this.openingCommitter) throw new Error("Opening committer cannot be replaced");
@@ -125,10 +125,10 @@ export class CloudHarnessBridgeClient {
       const captured = CloudHarnessHostFrameSchema.parse(frame);
       if (captured.type !== "opening_claim" && captured.type !== "opening_session") throw new Error("Opening frame mismatch");
       const intent = JSON.stringify(captured.intent);
-      const phase = captured.type === "opening_session" ? "acknowledged" : captured.operation === "reserve" ? "reserved" : "dispatching";
+      const phase = captured.type === "opening_session" ? "acknowledged" : captured.operation === "reserve" ? "reserved" : captured.operation === "cancel_before_dispatch" ? "cancelled_before_dispatch" : "dispatching";
       if (this.openingDeliveries.size >= 3 || this.openingDeliveries.has(captured.deliveryId) ||
           (phase === "reserved" ? this.openingIntent !== null || this.openingPhase !== null :
-            this.openingIntent !== intent || this.openingPhase !== (phase === "dispatching" ? "reserved" : "dispatching")))
+            this.openingIntent !== intent || this.openingPhase !== (phase === "dispatching" || phase === "cancelled_before_dispatch" ? "reserved" : "dispatching")))
         throw new Error("Opening delivery correlation mismatch");
       if (captured.type === "opening_session" && (captured.session.runAttemptId !== captured.intent.runAttemptId ||
           captured.session.instanceId !== captured.intent.instanceId || captured.session.processGeneration !== captured.intent.processGeneration))
@@ -140,7 +140,7 @@ export class CloudHarnessBridgeClient {
       };
       // Late learned identity is cleanup data; the exact-intent durable CAS
       // remains authoritative after provider authorization has been revoked.
-      if (captured.type === "opening_claim") {
+      if (captured.type === "opening_claim" && captured.operation !== "cancel_before_dispatch") {
         await this.supervisor.authorize(this.target);
         assertCurrent();
       }

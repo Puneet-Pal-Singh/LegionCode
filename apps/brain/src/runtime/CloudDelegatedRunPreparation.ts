@@ -377,6 +377,7 @@ export class CloudDelegatedRunPreparation implements DelegatedRunPreparationPort
       runtime.bindOpeningAuthority({
         reserve: async (command, intent) => { await assertActive(); await bindings.reserveOpening({ principal, selection, command, intent }); },
         beginDispatch: async (intent) => { await assertActive(); await bindings.beginOpeningDispatch({ principal, selection, intent }); },
+        cancelBeforeDispatch: async (intent) => { await bindings.cancelReservedOpening({principal, selection, intent}); },
         acknowledge: async (intent, session) => { await bindings.acknowledgeOpening({ principal, selection, intent, session }); },
       });
       const port = runtime;

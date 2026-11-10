@@ -107,14 +107,14 @@ export function attachCloudHarnessBridge(
       if (error) fence();
     });
   };
-  const commitOpening = async (rawFrame: {type: "opening_claim"; operation: "reserve" | "begin_dispatch"; intent: HarnessOpeningIntent} |
+  const commitOpening = async (rawFrame: {type: "opening_claim"; operation: "reserve" | "begin_dispatch" | "cancel_before_dispatch"; intent: HarnessOpeningIntent} |
     {type: "opening_session"; intent: HarnessOpeningIntent; session: HarnessSession}, phase: HarnessOpeningCommit["phase"]): Promise<void> => {
     const frame = rawFrame.type === "opening_claim" ? HarnessOpeningClaimFrameSchema.parse({...rawFrame, deliveryId: randomUUID()}) :
       HarnessOpeningSessionFrameSchema.parse({...rawFrame, deliveryId: randomUUID()});
     const intent = JSON.stringify(frame.intent);
     if (closed || socket.readyState !== 1 || openingCommits.size >= 3 ||
         (phase === "reserved" ? committedOpeningIntent !== null || committedOpeningPhase !== null :
-          committedOpeningIntent !== intent || committedOpeningPhase !== (phase === "dispatching" ? "reserved" : "dispatching")))
+          committedOpeningIntent !== intent || committedOpeningPhase !== (phase === "dispatching" || phase === "cancelled_before_dispatch" ? "reserved" : "dispatching")))
       throw new Error("Opening commit unavailable or phase mismatch");
     if (frame.type === "opening_session" && (frame.session.runAttemptId !== frame.intent.runAttemptId ||
         frame.session.instanceId !== frame.intent.instanceId || frame.session.processGeneration !== frame.intent.processGeneration))
@@ -219,6 +219,7 @@ export function attachCloudHarnessBridge(
             await commitOpening({type: "opening_claim", operation: "reserve", intent}, "reserved");
             return {
               beginDispatch: () => commitOpening({type: "opening_claim", operation: "begin_dispatch", intent}, "dispatching"),
+              cancelBeforeDispatch: () => commitOpening({type: "opening_claim", operation: "cancel_before_dispatch", intent}, "cancelled_before_dispatch"),
               acknowledge: (session) => commitOpening({type: "opening_session", intent, session}, "acknowledged"),
             };
           },

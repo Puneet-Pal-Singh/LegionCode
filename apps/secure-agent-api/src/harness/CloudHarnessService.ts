@@ -225,7 +225,7 @@ export function handleCloudHarnessBridge(
       port.bindOpeningAuthority({ executionLease: operation.executionLease, commit: async (rawFrame) => {
         const frame = HarnessServiceHostFrameSchema.parse(rawFrame);
         if (frame.type !== "opening_claim" && frame.type !== "opening_session") throw new Error("Opening frame mismatch");
-        const phase = frame.type === "opening_session" ? "acknowledged" : frame.operation === "reserve" ? "reserved" : "dispatching";
+        const phase = frame.type === "opening_session" ? "acknowledged" : frame.operation === "reserve" ? "reserved" : frame.operation === "cancel_before_dispatch" ? "cancelled_before_dispatch" : "dispatching";
         const intent = JSON.stringify(frame.intent);
         const assertCurrent = () => {
           if (closed || connection !== openingConnection || server.readyState !== 1)
@@ -234,7 +234,7 @@ export function handleCloudHarnessBridge(
         assertCurrent();
         if (deliveries.size >= 3 || deliveries.has(frame.deliveryId) ||
             (phase === "reserved" ? committedIntent !== null || committedPhase !== null :
-              committedIntent !== intent || committedPhase !== (phase === "dispatching" ? "reserved" : "dispatching")))
+              committedIntent !== intent || committedPhase !== (phase === "dispatching" || phase === "cancelled_before_dispatch" ? "reserved" : "dispatching")))
           throw new Error("Opening delivery phase mismatch");
         if (frame.type === "opening_session" && (frame.session.runAttemptId !== frame.intent.runAttemptId ||
             frame.session.instanceId !== frame.intent.instanceId || frame.session.processGeneration !== frame.intent.processGeneration))
