@@ -62,4 +62,3 @@ export const GitHubSessionResponseSchema = z.discriminatedUnion("authenticated",
     user: z.undefined().optional(),
   }).passthrough(),
 ]);
-
