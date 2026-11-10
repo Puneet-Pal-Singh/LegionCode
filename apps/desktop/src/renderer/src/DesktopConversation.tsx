@@ -230,6 +230,7 @@ function SelectedConversation({
           ) : null}
           {isApprovalVisible && admission && projection && pendingApproval ? (
             <DesktopApproval
+              key={`${admission.turn.id}:${admission.runAttemptId}:${pendingApproval.approvalId}`}
               client={client}
               admission={admission}
               projection={projection}
