@@ -1599,3 +1599,18 @@ against the same existing one-MiB response budget. This adapter does not select
 history, authorize Threads or introduce a new endpoint; the actual Turn service
 must delegate to the canonical bounded query and reauthorize before returning.
 That service-method integration remains with its current owner.
+
+## Plan 057 — Canonical named repository HEAD evidence
+
+`DefaultGitService.readRepositoryHead` owns the read-only named-HEAD observation
+used by native workspace manifests. Git reports the actual SHA-1 or SHA-256
+format; born HEAD must resolve to the same nonzero commit, while unborn HEAD
+reuses the snapshot owner's existing missing-HEAD, symbolic branch and absent-ref
+classifier. Its format-sized zero object ID is an explicit absent-HEAD guard,
+never a fabricated commit or captured tree. Two complete observations reject an
+observed change without claiming an atomic hostile-namespace snapshot.
+
+The existing read-only App Server Git adapter forwards this narrow port through
+the same held-root executor and closure checks. No command runner, ref parser,
+GitService interface migration, lifecycle writer or Desktop host authority is
+added. The native runtime consumes the fact in its separately owned composition.
