@@ -235,7 +235,7 @@ function EnvironmentPanelView({
       aria-label="Environment summary"
       className={inline
         ? "ui-surface-popover w-full min-w-0 overflow-y-auto p-2"
-        : "ui-surface-popover fixed left-0 top-0 z-[120] w-[21.25rem] overflow-y-auto p-2"}
+        : "ui-surface-popover fixed left-0 top-0 z-[120] w-[min(21.25rem,calc(100vw-1rem))] overflow-y-auto p-2"}
       style={panelPosition}
     >
       <EnvironmentActions {...actions} />
