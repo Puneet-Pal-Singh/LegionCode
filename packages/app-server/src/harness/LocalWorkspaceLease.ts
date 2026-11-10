@@ -126,7 +126,9 @@ export class LocalWorkspaceLease {
     for (let page = 0; page < 100; page += 1) {
       const replay = await this.persistence.lifecycleEvents.replay({ turnId: admission.turn.id, afterSequence, limit: 1000 });
       for (const event of replay.events) {
-        if (event.threadId !== admission.run.threadId || event.runAttemptId !== admission.runAttemptId) throw new Error("Local lease replay identity mismatch");
+        if (event.turnId !== admission.turn.id || event.threadId !== admission.run.threadId ||
+            event.runAttemptId !== admission.runAttemptId || event.producer.id !== admission.run.workerId ||
+            event.sequence !== history.length + 1) throw new Error("Local lease replay identity or admitted producer mismatch");
         history.push(event);
       }
       if (replay.nextSequence === null || replay.nextSequence === afterSequence) return history;
