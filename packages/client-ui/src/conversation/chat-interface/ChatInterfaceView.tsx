@@ -49,6 +49,7 @@ export interface ChatInterfaceViewProps {
   showProjectChip?: boolean;
   projectName?: string;
   onProjectClick?: () => void;
+  projectUnavailableReason?: string;
   showSessionPlaceholder: boolean;
   placeholderError?: ChatErrorNoticeProps | null;
   continuation?: {
@@ -132,6 +133,7 @@ export const ChatInterfaceView = forwardRef<
           <HeroComposer
             projectName={props.projectName}
             onProjectClick={props.onProjectClick}
+            projectUnavailableReason={props.projectUnavailableReason}
             showProjectChip={props.showProjectChip}
           >
             {props.renderComposer("hero")}
@@ -518,11 +520,13 @@ export function HeroComposer({
   children,
   projectName,
   onProjectClick,
+  projectUnavailableReason,
   showProjectChip = true,
 }: {
   children: ReactNode;
   projectName?: string;
   onProjectClick?: () => void;
+  projectUnavailableReason?: string;
   showProjectChip?: boolean;
 }) {
   return (
@@ -534,6 +538,8 @@ export function HeroComposer({
             <button
               type="button"
               onClick={onProjectClick}
+              disabled={!onProjectClick || Boolean(projectUnavailableReason)}
+              title={projectUnavailableReason}
               className="inline-flex min-w-0 max-w-full items-center gap-2 text-zinc-400 underline decoration-zinc-700 decoration-dotted underline-offset-8 transition hover:text-zinc-100"
               aria-label={`Change project from ${projectName}`}
             >
@@ -547,6 +553,8 @@ export function HeroComposer({
             <button
               type="button"
               onClick={onProjectClick}
+              disabled={!onProjectClick || Boolean(projectUnavailableReason)}
+              title={projectUnavailableReason}
               className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-lg bg-zinc-900 px-3 py-2 text-sm text-zinc-200 transition hover:bg-zinc-800"
             >
               <Folder size={15} className="shrink-0" aria-hidden="true" />

@@ -47,6 +47,7 @@ import {
 import { PermissionModeControl } from "@legioncode/client-ui";
 import { ReasoningEffortPicker } from "../chat/ReasoningEffortPicker.js";
 import { ChatBranchSelector } from "../chat/ChatBranchSelector";
+import { WebComposerWorkspaceBar } from "../chat/WebComposerWorkspaceBar";
 import {
   applyFileMention,
   filterFileMentionCandidates,
@@ -607,6 +608,28 @@ export function AgentSetup({
             </div>
           </div>
         ) : null}
+        <div className="mb-2 min-w-0">
+          <WebComposerWorkspaceBar
+            scopeKey={JSON.stringify([sessionId, repo?.full_name, branch])}
+            projectName={repo?.name}
+            renderProjectTrigger={
+              onRepoClick || onProjectSelect || onNoProject
+                ? (trigger) => (
+                    <ProjectChooser
+                      key={JSON.stringify([sessionId, repo?.full_name, branch])}
+                      currentProject={repo?.full_name}
+                      projects={projects}
+                      onSelect={(project) => onProjectSelect?.(project, currentDraft())}
+                      onNewProject={() => onRepoClick?.(currentDraft())}
+                      onNoProject={() => onNoProject?.(currentDraft())}
+                    >
+                      {trigger}
+                    </ProjectChooser>
+                  )
+                : undefined
+            }
+          />
+        </div>
         <motion.div
           data-testid="setup-composer-drop-zone"
           onDragOver={imageDraft.handleDragOver}
@@ -807,35 +830,15 @@ export function AgentSetup({
         <div className="relative -mt-1 px-0.5">
           <div className="rounded-b-2xl bg-[#101114] px-3 pb-2 pt-3">
             <div className="flex items-center gap-2">
-              <ProjectChooser
-                currentProject={repo?.full_name}
-                projects={projects}
-                onSelect={(project) =>
-                  onProjectSelect?.(project, currentDraft())
-                }
-                onNewProject={() => onRepoClick?.(currentDraft())}
-                onNoProject={() => onNoProject?.(currentDraft())}
-              >
-                <button
-                  type="button"
-                  aria-label={`Select project, current project ${repoName}`}
-                  className="flex min-w-0 max-w-48 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800/50 hover:text-zinc-100"
-                >
-                  <Folder size={14} className="shrink-0" />
-                  <span className="truncate">{repoName}</span>
-                  <ChevronDown size={14} className="shrink-0 text-zinc-500" />
-                </button>
-              </ProjectChooser>
               {hasRepositoryContext ? (
                 <>
-                  <div className="h-4 w-px bg-zinc-800/80" />
                   <ChatBranchSelector
                     placement="below"
                     onBranchSelect={onBranchSelect}
                   />
+                  <div className="h-4 w-px bg-zinc-800/80" />
                 </>
               ) : null}
-              <div className="h-4 w-px bg-zinc-800/80" />
               <PermissionModeControl
                 value={productMode}
                 onChange={onProductModeChange}

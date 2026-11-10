@@ -25,6 +25,7 @@ export type ComposerLayout = "docked" | "hero";
 
 interface ChatComposerControlsProps {
   layout: ComposerLayout;
+  workspaceBar?: ReactNode;
   error?: ChatErrorNoticeProps | null;
   continuation?: {
     status: "reconnecting" | "stopped";
@@ -137,6 +138,7 @@ export function ChatComposerControls(props: ChatComposerControlsProps) {
         ) : null}
         <div hidden={Boolean(props.approval.pending)}>
           <ChatInputBar
+            workspaceBar={props.workspaceBar}
             isHidden={Boolean(props.approval.pending)}
             input={props.input}
             onChange={props.onInputChange}
