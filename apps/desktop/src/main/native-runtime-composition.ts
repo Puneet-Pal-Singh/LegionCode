@@ -1,5 +1,6 @@
 import { resolveTrustedMacGitExecutable } from "@legioncode/app-server/local-mac-git-execution";
 import { createLocalNativeRuntime } from "@legioncode/app-server/local-native-runtime";
+import { createLocalPhysicalAdmissionCandidates } from "@legioncode/app-server/local-physical-admission-candidates";
 import { createLocalProviderModelDiscovery } from "@legioncode/app-server/local-provider-model-discovery";
 import { createLocalReadOnlyGitService } from "@legioncode/app-server/local-readonly-git";
 import { LocalWorkspaceGitReads } from "@legioncode/app-server/local-workspace-git-reads";
@@ -45,6 +46,7 @@ export async function createDesktopNativeComposition(
   }) : undefined;
   return {
     ...discovery,
+    createPhysicalAdmissionCandidates: leases ? (input) => createLocalPhysicalAdmissionCandidates({ ...input, leases }) : undefined,
     createWorkspaceGitReadsService: (workspaces) => new LocalWorkspaceGitReads(async (workspaceId) => {
       const binding = await workspaces.bindForExecution(workspaceId);
       const authorizeResult = async () => {
