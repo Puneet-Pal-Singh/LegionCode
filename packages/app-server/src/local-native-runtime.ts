@@ -310,8 +310,10 @@ export function createLocalNativeRuntime(
           if (!attempt || attempt.turnId !== turnId || !releaseExecution)
             return false;
           const released = await releaseExecution(attempt, proveRelease, (receipt) => { releasedWriter = receipt; });
-          positivelyReleased = released === true;
-          return released;
+          // A queued candidate already acquired its writer before admission.
+          // The owner's missing-entry proof fallback cannot release that fence.
+          positivelyReleased = released === true && (!heldCapability || releasedWriter !== undefined);
+          return positivelyReleased;
         },
         async prepareResourceSettlement(savedAdmission) {
           if (!positivelyReleased || !attempt ||

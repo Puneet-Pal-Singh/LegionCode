@@ -2508,3 +2508,7 @@ release it. Unknown closure retains the binding and lease. The existing Desktop
 ABI probe, lexical lease owner, capture and resource-receipt callbacks remain
 canonical. Public route availability still requires the actual runtime consumer
 and same-transaction predecessor guard; this port alone does not activate it.
+
+- Queued execution requires the actual same-entry writer-release callback before
+  accepting positive cleanup. The owner's ordinary pre-acquisition/missing-entry
+  fallback cannot certify a writer that was acquired before queued admission.
