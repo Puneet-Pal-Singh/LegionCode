@@ -45,7 +45,7 @@ export class LocalThreadService {
 
   async list(): Promise<Thread[]> {
     const workspace = await this.requireWorkspace();
-    const projections = await this.rebuildProjections();
+    const projections = await this.rebuildProjections(workspace.workspaceId);
     await this.assertWorkspaceCurrent(workspace);
     return projections
       .filter(({ workspaceId }) => workspaceId === workspace.workspaceId)
@@ -86,7 +86,7 @@ export class LocalThreadService {
       producer: { kind: "control_plane", id: "local-app-server" },
       schemaVersion: EVENT_SCHEMA_VERSION,
     });
-    return await this.projectThread(thread.id, workspace.workspaceId);
+    return await this.readAuthorizedThread(thread.id, workspace);
   }
 
   async get(threadId: string): Promise<Thread> {
@@ -240,7 +240,7 @@ export class LocalThreadService {
     if (!summary) return thread;
     return ThreadSchema.parse({
       ...thread,
-      lastTerminalTurnId: summary.lastTerminalTurnId,
+      lastTerminalTurnId: summary.lastTerminalTurnId ?? thread.lastTerminalTurnId,
       ...(summary.latestAdmissionRunId === thread.activeRunId
         ? { activeLeafItemId: summary.activeLeafItemId } : {}),
       updatedAt: Date.parse(summary.updatedAt) > Date.parse(thread.updatedAt)
@@ -248,13 +248,13 @@ export class LocalThreadService {
     });
   }
 
-  private async rebuildProjections(): Promise<Thread[]> {
+  private async rebuildProjections(workspaceId: WorkspaceId): Promise<Thread[]> {
     const events = await this.eventStore.listAll();
-    const projections = await this.collectProjections(events);
+    const projections = await this.collectProjections(events, workspaceId);
     return projections;
   }
 
-  private async collectProjections(events: readonly PlatformEvent[]): Promise<Thread[]> {
+  private async collectProjections(events: readonly PlatformEvent[], workspaceId: WorkspaceId): Promise<Thread[]> {
     const threadIds = new Set<ThreadId>();
     const grouped = new Map<ThreadId, { event: PlatformEvent; projectionSequence: number }[]>();
     for (const event of events) {
@@ -266,7 +266,7 @@ export class LocalThreadService {
     const threads: Thread[] = [];
     for (const threadId of threadIds) {
       const snapshot = projectThreadEvents(threadId, grouped.get(threadId) ?? []);
-      if (snapshot) threads.push(await this.withRuntimeSummary(snapshot.thread));
+      if (snapshot?.thread.workspaceId === workspaceId) threads.push(await this.withRuntimeSummary(snapshot.thread));
     }
     return threads;
   }
