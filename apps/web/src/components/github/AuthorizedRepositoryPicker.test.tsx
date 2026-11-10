@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HostedWorkspaceConfigurationEditor, PickerModal } from "@legioncode/client-ui";
 import { createAppServerClient, type AppServerTransport, type HostedWorkspaceConfiguration } from "@legioncode/sdk";
-import { ThreadIdSchema, TurnDiffPayloadSchema, WorkspaceIdSchema } from "@repo/platform-protocol";
+import { ThreadIdSchema, TurnDiffPayloadSchema, WorkspaceIdSchema } from "@legioncode/sdk";
 import { DesktopSavedCommitDialog } from "../../../../desktop/src/renderer/src/DesktopSavedCommitDialog";
 import { AuthorizedRepositoryPicker } from "./AuthorizedRepositoryPicker";
 import { RepositoryPickerModal } from "./RepositoryPickerModal";
