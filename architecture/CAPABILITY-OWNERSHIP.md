@@ -2061,3 +2061,17 @@ bounds; the existing Settings and Workspace dialogs share focus lifetime and
 restoration behavior. Desktop's wide sidebar remains below the shared dialog
 layer. Packaged Electron always loads its bundled renderer, reuses the existing
 product icon, and focuses the existing window on a second launch.
+
+Native folder-picker Open now supplies the existing explicit project-grant
+intent directly to the SDK token flow. The redundant Desktop grant/card dialog
+and its copied workspace/settings controls are removed. Picker cancellation
+never grants access; canonical token, generation, native identity and workspace
+validation remain unchanged. The shared project's Remove action retains the
+existing revoke-before-hide flow without deleting chat or artifact records.
+Desktop hides passive submission-availability prose inside the shared composer
+while retaining canonical send guards, busy/Stop controls and actionable notices.
+
+The canonical executable tool publishes its existing absolute-path restriction
+as a provider-visible JSON Schema pattern and description. All Native provider
+adapters consume that one registry definition; no PATH lookup, shell expansion,
+input repair or permission fallback is introduced.

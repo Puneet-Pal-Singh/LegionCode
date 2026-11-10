@@ -6,12 +6,11 @@ import {
   clampRightSidebarWidth,
   EnvironmentSummaryMenu,
   WorkspaceReviewControls,
-  PickerModal,
   WorkspaceFrame,
   WorkspaceTopBar,
 } from "@legioncode/client-ui";
 import { AppServerClientError, createAppServerClient } from "@legioncode/sdk";
-import { StrictMode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { StrictMode, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { AppServerEnvironmentSnapshot } from "@repo/platform-protocol";
 import type { LocalWorkspaceGrant, Thread } from "@repo/platform-protocol";
@@ -21,7 +20,7 @@ import type {
   WorkspaceSelection,
 } from "../../shared/desktop-api";
 import { DesktopSidebar } from "./DesktopSidebar";
-import { DesktopWorkspaceControls } from "./DesktopWorkspaceControls";
+import { useDesktopWorkspacePicker } from "./useDesktopWorkspacePicker";
 import { DesktopSettingsDialog } from "./DesktopSettingsDialog";
 import { DesktopRightPanel } from "./DesktopRightPanel";
 import { DesktopWorkspaceFilesMount } from "./DesktopWorkspaceFilesMount";
@@ -44,7 +43,7 @@ function DesktopApp(): React.JSX.Element {
   const [build, setBuild] = useState<DesktopBuildInfo | null>(null);
   const [environment, setEnvironment] =
     useState<AppServerEnvironmentSnapshot | null>(null);
-  const [selection, setSelection] = useState<WorkspaceSelection | null>(null);
+  const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [threadLoadState, setThreadLoadState] =
@@ -102,7 +101,7 @@ function DesktopApp(): React.JSX.Element {
     environmentReady: environment?.status === "ready",
     scope: threadScope,
     commandActive: workspaceCommand,
-    pickerOpen: selection !== null,
+    pickerOpen: workspacePickerOpen,
     onScopeReset: () => {
       threadScope.current += 1;
       selectionRequest.current += 1;
@@ -206,7 +205,7 @@ function DesktopApp(): React.JSX.Element {
       threadError ||
       pendingThreadSelections > 0 ||
       projects.intent ||
-      selection ||
+      workspacePickerOpen ||
       workspaceBusy ||
       workspacePickerActive.current
     )
@@ -233,7 +232,7 @@ function DesktopApp(): React.JSX.Element {
     newDraftRequested,
     pendingThreadSelections,
     projects.intent,
-    selection,
+    workspacePickerOpen,
     workspaceBusy,
   ]);
 
@@ -517,28 +516,26 @@ function DesktopApp(): React.JSX.Element {
     }
   }
 
-  const chooseWorkspace = useCallback(async (preserveProjectIntent = false): Promise<void> => {
-    if (workspacePickerActive.current || workspaceCommand.current) return;
-    workspacePickerActive.current = true;
-    if (!preserveProjectIntent) projects.clear();
-    setWorkspaceError(null);
-    try {
-      const picked = await window.desktop.pickWorkspace();
-      setSelection(picked);
-      if (picked) setSidebarOpen(true);
-    } catch {
-      setWorkspaceError("The native workspace picker could not be opened.");
-    } finally {
-      workspacePickerActive.current = false;
-    }
-  }, [projects.clear]);
+  const chooseWorkspace = useDesktopWorkspacePicker({
+    enabled: sdkReady,
+    commandActive: workspaceCommand,
+    pickerActive: workspacePickerActive,
+    onOpenChange: setWorkspacePickerOpen,
+    onStart: (preserveProjectIntent) => {
+      if (!preserveProjectIntent) projects.clear();
+      setWorkspaceError(null);
+    },
+    onPicked: grantWorkspace,
+    onCancel: () => {
+      if (projects.currentIntent.current) {
+        setThreadError("Project access was not changed. Choose the selected project's folder to continue, or select another task.");
+      }
+    },
+    onError: () => setWorkspaceError("The folder could not be added. Choose it again to retry."),
+  });
 
-  useEffect(() => window.desktop.onOpenWorkspaceRequested(() => {
-    void chooseWorkspace();
-  }), [chooseWorkspace]);
-
-  async function grantWorkspace(): Promise<void> {
-    if (!selection || workspaceCommand.current) return;
+  async function grantWorkspace(selection: WorkspaceSelection): Promise<void> {
+    if (!sdkReady || !appServerClient || workspaceCommand.current) return;
     workspaceCommand.current = true;
     setWorkspaceBusy(true);
     setWorkspaceError(null);
@@ -577,7 +574,7 @@ function DesktopApp(): React.JSX.Element {
     setThreadError(null);
     setThreads([]);
     setWorkspace(granted);
-    setSelection(null);
+    closeCompactSidebar();
     void projects.refresh();
     if (intent && projects.currentIntent.current === intent) {
       if (granted.workspaceId !== intent.workspaceId || granted.readiness !== "ready") {
@@ -644,30 +641,6 @@ function DesktopApp(): React.JSX.Element {
     }
   }
 
-  async function revokeWorkspace(): Promise<void> {
-    if (workspaceCommand.current) return;
-    workspaceCommand.current = true;
-    setWorkspaceBusy(true);
-    setWorkspaceError(null);
-    try {
-      if (!appServerClient) return;
-      await appServerClient.revokeWorkspace();
-      threadScope.current += 1;
-      selectionRequest.current += 1;
-      threadListRequest.current += 1;
-      setWorkspace(null);
-      void projects.refresh();
-      setThreads([]);
-      setSelectedThread(null);
-      setThreadLoadState("ready");
-    } catch {
-      setWorkspaceError("The local workspace grant could not be revoked.");
-    } finally {
-      workspaceCommand.current = false;
-      setWorkspaceBusy(false);
-    }
-  }
-
   if (!build || !environment) {
     return <ClientShellLoading label="Loading Desktop" />;
   }
@@ -714,7 +687,7 @@ function DesktopApp(): React.JSX.Element {
               threads={sidebarThreads}
               selectedThreadId={selectedThread?.id ?? null}
               loadState={workspaceBootstrapState.status === "error" ? "error" : projects.status}
-              threadError={threadError ?? (projects.status === "error" ? "The local project list could not be loaded." : null) ?? (!selection ? workspaceError ?? (workspaceBootstrapState.status === "error" ? workspaceBootstrapState.message : null) : null)}
+              threadError={threadError ?? (projects.status === "error" ? "The local project list could not be loaded." : null) ?? (!workspacePickerOpen ? workspaceError ?? (workspaceBootstrapState.status === "error" ? workspaceBootstrapState.message : null) : null)}
               canManageWorkspace={(id) => sdkReady && !workspaceBusy && Boolean(projects.navigation?.projects.some((project) => project.workspaceId === id))}
               onRemoveWorkspace={removeProject}
               onOpenSettings={() => {
@@ -892,8 +865,8 @@ function DesktopApp(): React.JSX.Element {
               onRetryThreads={() => { if (sdkReady) void refreshThreads(); }}
               onChoose={() => void chooseWorkspace(Boolean(projects.currentIntent.current))}
               onRetry={retryWorkspaceRead}
-              canChoose={sdkReady && !workspaceBusy && !selection}
-              canRetry={environment.status === "ready" && !workspaceBusy && !selection}
+              canChoose={sdkReady && !workspaceBusy && !workspacePickerOpen}
+              canRetry={environment.status === "ready" && !workspaceBusy && !workspacePickerOpen}
             >
               <DesktopComposer
                 client={appServerClient}
@@ -920,32 +893,6 @@ function DesktopApp(): React.JSX.Element {
           )}
         </WorkspaceFrame>
       </ClientShell>
-      {selection ? (
-        <PickerModal>
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-label="Grant workspace access"
-            className="w-full max-w-lg rounded-xl border border-zinc-800 bg-zinc-950 p-6 text-zinc-100"
-          >
-            <DesktopWorkspaceControls
-              workspace={workspace}
-              selection={selection}
-              ready={sdkReady}
-              busy={workspaceBusy}
-              error={workspaceError}
-              onChoose={() => void chooseWorkspace(Boolean(projects.currentIntent.current))}
-              onGrant={() => void grantWorkspace()}
-              onCancelSelection={() => {
-                setSelection(null);
-                if (projects.currentIntent.current) setThreadError("Project access was not changed. Choose the selected project's folder to continue, or select another task.");
-              }}
-              onRevoke={() => void revokeWorkspace()}
-              onSettings={() => setSettingsTarget("general")}
-            />
-          </section>
-        </PickerModal>
-      ) : null}
       {appServerClient ? (
         <DesktopSavedCommitDialog
           key={JSON.stringify([

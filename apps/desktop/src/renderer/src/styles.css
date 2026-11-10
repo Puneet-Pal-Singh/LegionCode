@@ -6,17 +6,4 @@
 @media (min-width: 1024px) {
   .desktop-workspace-frame > .lc-workspace-sidebar { z-index: 40; }
 }
-.desktop-rail-footer { display: grid; gap: 0.65rem; font-size: 0.75rem; }
-.desktop-workspace-summary { display: grid; gap: 0.25rem; }
-.desktop-workspace-summary > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--lc-color-text-primary); font-size: 0.8rem; font-weight: 500; }
-.desktop-workspace-summary > span, .desktop-workspace-summary p { margin: 0; color: var(--lc-color-text-tertiary); }
-.desktop-rail-caption { font-size: 0.65rem; }
-.desktop-inline-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-.desktop-inline-actions button, .desktop-settings-button { min-height: 2rem; border: 1px solid var(--lc-color-border-subtle); border-radius: 0.4rem; padding: 0.3rem 0.55rem; background: transparent; color: var(--lc-color-text-secondary); cursor: pointer; font: inherit; font-size: 0.75rem; }
-.desktop-inline-actions button:hover, .desktop-settings-button:hover { background: var(--lc-color-surface-elevated); color: var(--lc-color-text-primary); }
-.desktop-inline-actions button:disabled { cursor: default; opacity: 0.5; }
-.desktop-settings-button { text-align: left; border-color: transparent; }
-.desktop-workspace-confirm { padding: 0.65rem; border: 1px solid var(--lc-color-border-subtle); border-radius: 0.5rem; background: var(--lc-color-background); }
-.desktop-workspace-confirm p { margin: 0 0 0.6rem; line-height: 1.5; overflow-wrap: anywhere; }
-.desktop-rail-error { margin: 0; color: #fca5a5; line-height: 1.5; overflow-wrap: anywhere; }
 button:focus-visible { outline-color: var(--lc-color-accent); }
