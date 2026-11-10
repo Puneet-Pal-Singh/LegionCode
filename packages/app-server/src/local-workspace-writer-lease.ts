@@ -30,6 +30,8 @@ export interface LocalWorkspaceWriterAuthority extends LocalMutationLease {
 }
 
 export interface LocalWorkspaceWriterLease extends LocalWorkspaceWriterAuthority {
+  /** Metadata-only loan: never exposes FileHandles or execution authority. */
+  withPredecessorVerification<T>(operation: (identity: LocalWorkspaceWriterReleaseReceipt) => Promise<T>): Promise<T>;
   withMutationAuthority<T>(
     workspaceId: WorkspaceId,
     operation: (authority: LocalWorkspaceWriterAuthority) => Promise<T>,
@@ -66,6 +68,7 @@ type Entry = {
   readonly retained: AbortController;
   readonly loans: Set<Promise<unknown>>;
   readonly resources: Set<Resource>;
+  physicalExposure: boolean;
   file?: FileHandle;
   fileIdentity?: BigIntStats;
   namespaceIdentity?: BigIntStats;
@@ -176,6 +179,7 @@ export class LocalWorkspaceWriterLeaseOwner {
       retained: new AbortController(),
       loans: new Set(),
       resources: new Set(),
+      physicalExposure: false,
       unknown: false,
       releasing: false,
       released: false,
@@ -236,6 +240,7 @@ export class LocalWorkspaceWriterLeaseOwner {
       execution: Resource["execution"],
       proof: Promise<unknown>,
     ) => {
+      entry.physicalExposure = true;
       const closed = proof
         .then(
           () => execution.quiescent === true,
@@ -276,6 +281,8 @@ export class LocalWorkspaceWriterLeaseOwner {
       settlement: boolean,
       operation: (value: LocalWorkspaceWriterAuthority) => Promise<T>,
     ): Promise<T> => {
+      // Sticky: even a completed loan may have authorized physical execution.
+      entry.physicalExposure = true;
       const loan = (async () => {
         if (entry.releasing)
           throw new LocalWorkspaceWriterLeaseError(
@@ -291,6 +298,17 @@ export class LocalWorkspaceWriterLeaseOwner {
     };
     return Object.freeze({
       ...authority,
+      withPredecessorVerification: <T>(operation: (identity: LocalWorkspaceWriterReleaseReceipt) => Promise<T>) => {
+        const loan = Promise.resolve().then(async () => {
+          if (entry.releasing || entry.released) throw new LocalWorkspaceWriterLeaseError("workspace_writer_unavailable");
+          await this.assertEntry(entry, false);
+          const result = await operation(physicalIdentity(entry));
+          await this.assertEntry(entry, false);
+          return result;
+        });
+        entry.loans.add(loan);
+        return loan.finally(() => { entry.loans.delete(loan); });
+      },
       withMutationAuthority: <T>(
         workspaceId: WorkspaceId,
         operation: (value: LocalWorkspaceWriterAuthority) => Promise<T>,
@@ -370,7 +388,7 @@ export class LocalWorkspaceWriterLeaseOwner {
       entry.releasing = true;
       entry.active.abort("Unused writer acquisition is closing");
       await Promise.allSettled([...entry.loans]);
-      if (entry.unknown || entry.loans.size || entry.resources.size || await readCanonicalAdmission() !== null) {
+      if (entry.unknown || entry.physicalExposure || entry.loans.size || entry.resources.size || await readCanonicalAdmission() !== null) {
         this.markUnknown(entry);
         return false;
       }
