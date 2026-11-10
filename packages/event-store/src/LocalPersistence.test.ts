@@ -6,6 +6,10 @@ import {
   HarnessSelectionSchema,
   PlatformEventSchema,
   ProviderIdSchema,
+  RunIdSchema,
+  RunAttemptIdSchema,
+  TurnWorkspaceSnapshotSchema,
+  TurnDiffPayloadSchema,
   ThreadIdSchema,
   UserIdSchema,
   WorkspaceIdSchema,
@@ -21,6 +25,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalPersistence } from "./local.js";
+import { createLocalTurnArtifactStore, validateLocalTurnArtifacts } from "./local-turn-artifacts.js";
 import { LocalPersistenceError } from "./errors.js";
 import { createStableEventFingerprint } from "./fingerprint.js";
 import type { AppendEventInput } from "./types.js";
@@ -61,6 +66,57 @@ describe("LocalPersistence", () => {
     const other = await restarted.events.append(createThreadInput("thread:other", "thr_otherreplay"));
     await expect(restarted.events.replay({ scope, afterCursor: other.cursor, limit: 1 }))
       .rejects.toMatchObject({ code: "cursor_not_found" });
+    // Artifact bytes share the same durable owner; no worktree reads participate.
+    restarted.close();
+    const databasePath = join(persistenceDirectory(persistence), "local-events.sqlite");
+    let database = new Database(databasePath);
+    try {
+      const scope = {
+        userId: UserIdSchema.parse("usr_localdesktop"), workspaceId: first.workspaceId,
+        threadId: first.threadId, runId: RunIdSchema.parse("run_artifact001"),
+        turnId: lifecycle(1, "turn.queued").turnId,
+        runAttemptId: RunAttemptIdSchema.parse("attempt_artifact001"),
+      };
+      const ownership = { createdBy: scope.userId, workspaceId: scope.workspaceId, threadId: scope.threadId, runId: scope.runId };
+      const start = TurnWorkspaceSnapshotSchema.parse({
+        turnId: scope.turnId, snapshotKey: scope.turnId, phase: "start",
+        treeId: "a".repeat(40), headSha: "c".repeat(40), capturedAt: "2026-06-15T00:00:00.000Z",
+      });
+      const terminal = TurnWorkspaceSnapshotSchema.parse({ ...start, phase: "terminal", treeId: "b".repeat(40) });
+      const diff = TurnDiffPayloadSchema.parse({ turnId: scope.turnId, startSnapshot: start, terminalSnapshot: terminal,
+        files: [{ path: "src/app.ts", previousPath: null, status: "modified", additions: 1, deletions: 0 }],
+        patch: "diff --git a/src/app.ts b/src/app.ts\n",
+      });
+      let store = createLocalTurnArtifactStore(database, (operation) => operation()).forAttempt(scope);
+      await expect(store.putTurnDiff({ diff, ownership, access: scope })).rejects.toMatchObject({ code: "idempotency_conflict" });
+      await store.putSnapshot({ snapshot: start, ownership, access: scope });
+      await store.putSnapshot({ snapshot: terminal, ownership, access: scope });
+      const artifact = await store.putTurnDiff({ diff, ownership, access: scope });
+      const bytes = await store.getPayload(artifact.artifactId);
+      await expect(store.putTurnDiff({ diff: { ...diff, startSnapshot: { ...start, treeId: "d".repeat(40) } }, ownership, access: scope }))
+        .rejects.toMatchObject({ code: "idempotency_conflict" });
+      await expect(store.putSnapshot({ snapshot: start, ownership, access: { ...scope, runId: RunIdSchema.parse("run_other001") } })).rejects.toThrow("scope");
+      database.close();
+      writeFileSync(join(persistenceDirectory(persistence), "unrelated-workspace-file"), "later edit");
+      database = new Database(databasePath);
+      validateLocalTurnArtifacts(database);
+      store = createLocalTurnArtifactStore(database, (operation) => operation()).forAttempt(scope);
+      await expect(store.getTurnDiff()).resolves.toMatchObject({ artifact, diff });
+      await expect(store.getPayload(artifact.artifactId)).resolves.toEqual(bytes);
+      await expect(store.putTurnDiff({ diff, ownership, access: scope })).resolves.toEqual(artifact);
+      const other = createLocalTurnArtifactStore(database, (operation) => operation()).forAttempt({ ...scope, runAttemptId: RunAttemptIdSchema.parse("attempt_other001") });
+      await expect(other.getTurnDiff()).resolves.toBeNull();
+      await expect(other.getPayload(artifact.artifactId)).resolves.toBeNull();
+      const key = artifact.payloadRef.objectKey;
+      const original = database.prepare("SELECT value FROM metadata WHERE key = ?").get(key) as { value: string };
+      const damaged = JSON.parse(original.value);
+      damaged.payload.value.patch = "tampered";
+      database.prepare("UPDATE metadata SET value = ? WHERE key = ?").run(JSON.stringify(damaged), key);
+      expect(() => validateLocalTurnArtifacts(database)).toThrow(LocalPersistenceError);
+      database.prepare("UPDATE metadata SET value = ? WHERE key = ?").run(original.value, key);
+    } finally {
+      database.close();
+    }
 
   });
 

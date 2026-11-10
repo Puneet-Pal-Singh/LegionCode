@@ -38,6 +38,7 @@ export interface TurnArtifactSettlementResult {
 export class TurnArtifactSettlementCoordinator {
   private startSnapshot: TurnWorkspaceSnapshot | null = null;
   private startSnapshotArtifact: unknown = undefined;
+  private terminalSnapshot: TurnWorkspaceSnapshot | null = null;
   private settlement: Promise<TurnArtifactSettlementResult> | null = null;
 
   constructor(private readonly options: TurnArtifactSettlementOptions) {}
@@ -62,13 +63,13 @@ export class TurnArtifactSettlementCoordinator {
         artifact: this.startSnapshotArtifact,
       };
     }
-    const snapshot = await this.capture("start");
+    const snapshot = this.startSnapshot ?? await this.capture("start");
+    this.startSnapshot = snapshot;
     const artifact = await this.options.artifacts.putSnapshot({
       snapshot,
       ownership: this.ownership(),
       access: this.access(),
     });
-    this.startSnapshot = snapshot;
     this.startSnapshotArtifact = artifact;
     return { snapshot, artifact };
   }
@@ -80,7 +81,7 @@ export class TurnArtifactSettlementCoordinator {
       resumeUnavailableReason?: ResumeWorkspaceUnavailableReason;
     } = {},
   ): Promise<TurnArtifactSettlementResult> {
-    if (!this.startSnapshot) {
+    if (!this.startSnapshot || this.startSnapshotArtifact === undefined) {
       throw new RuntimeKernelError(
         "turn_artifact_settlement_failed",
         `Turn ${this.options.turn.id} has no start snapshot`,
@@ -106,11 +107,12 @@ export class TurnArtifactSettlementCoordinator {
     }
     let terminalSnapshot: TurnWorkspaceSnapshot;
     try {
-      terminalSnapshot = await this.capture(
+      terminalSnapshot = this.terminalSnapshot ?? await this.capture(
         "terminal",
         input.preserveWorkspaceProgress === true,
         input.resumeUnavailableReason,
       );
+      this.terminalSnapshot = terminalSnapshot;
     } catch {
       if (!input.interrupted) throw new RuntimeKernelError(
         "turn_artifact_settlement_failed",
@@ -118,23 +120,7 @@ export class TurnArtifactSettlementCoordinator {
       );
       return { resumeUnavailableReason: "snapshot_unavailable" };
     }
-    let diff: Awaited<ReturnType<RuntimeGitSnapshotPort["getSnapshotDiff"]>>;
-    try {
-      diff = await this.options.git.getSnapshotDiff({
-      workspace: this.gitWorkspace(),
-      start: toGitSnapshot(startSnapshot, this.options),
-      terminal: toGitSnapshot(terminalSnapshot, this.options),
-      });
-    } catch {
-      if (!input.interrupted) throw new RuntimeKernelError(
-        "turn_artifact_settlement_failed",
-        "Terminal workspace diff is unavailable.",
-      );
-      return {
-        terminalSnapshot,
-        resumeUnavailableReason: "snapshot_unavailable",
-      };
-    }
+    // A diff failure must not discard a capture that can still be persisted.
     let terminalSnapshotArtifact: unknown;
     try {
       terminalSnapshotArtifact = await this.options.artifacts.putSnapshot({
@@ -148,7 +134,6 @@ export class TurnArtifactSettlementCoordinator {
         "Terminal workspace snapshot artifact could not be persisted.",
       );
       return {
-        terminalSnapshot,
         resumeUnavailableReason: "snapshot_unavailable",
       };
     }
@@ -187,6 +172,25 @@ export class TurnArtifactSettlementCoordinator {
           createdAt: terminalSnapshot.capturedAt,
         }
       : undefined;
+    let diff: Awaited<ReturnType<RuntimeGitSnapshotPort["getSnapshotDiff"]>>;
+    try {
+      diff = await this.options.git.getSnapshotDiff({
+        workspace: this.gitWorkspace(),
+        start: toGitSnapshot(startSnapshot, this.options),
+        terminal: toGitSnapshot(terminalSnapshot, this.options),
+      });
+    } catch {
+      if (!input.interrupted) throw new RuntimeKernelError(
+        "turn_artifact_settlement_failed",
+        "Terminal workspace diff is unavailable.",
+      );
+      return {
+        terminalSnapshot,
+        terminalSnapshotArtifact,
+        ...(resumeWorkspaceArtifact ? { resumeWorkspaceArtifact } : {}),
+        resumeUnavailableReason: "snapshot_unavailable",
+      };
+    }
     const turnDiff = {
       turnId: this.options.turn.id,
       startSnapshot,
@@ -209,6 +213,7 @@ export class TurnArtifactSettlementCoordinator {
       return {
         terminalSnapshot,
         terminalSnapshotArtifact,
+        ...(resumeWorkspaceArtifact ? { resumeWorkspaceArtifact } : {}),
         resumeUnavailableReason: "snapshot_unavailable",
       };
     }
@@ -316,7 +321,7 @@ export class TurnArtifactSettlementCoordinator {
   }
 
   private requireStartSnapshot(): TurnWorkspaceSnapshot {
-    if (!this.startSnapshot) {
+    if (!this.startSnapshot || this.startSnapshotArtifact === undefined) {
       throw new RuntimeKernelError(
         "turn_artifact_settlement_failed",
         `Turn ${this.options.turn.id} has no start snapshot`,

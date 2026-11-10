@@ -451,3 +451,11 @@ export { createAppServerLifecycleClient } from "./platform/app-server-lifecycle.
 
 export { LOCAL_WORKSPACE_PATH_MAX_BYTES, LOCAL_WORKSPACE_FILE_PREVIEW_MAX_BYTES, LOCAL_WORKSPACE_DIRECTORY_PAGE_MAX_BYTES, LOCAL_WORKSPACE_DIRECTORY_CURSOR_MAX_CHARS } from "@legioncode/app-server/protocol";
 export { LocalTurnStartParamsSchema } from "@legioncode/app-server/protocol";
+export {
+  LocalTurnConfigurationSchema,
+  LocalTurnConfigurationOptionsSchema,
+  LocalTurnMediaLimitsSchema,
+  type LocalTurnConfiguration,
+  type LocalTurnConfigurationOptions,
+  type LocalTurnMediaLimits,
+} from "@repo/platform-protocol";

@@ -1,6 +1,13 @@
 import { z } from "zod";
+import { LocalTurnConfigurationOptionsSchema } from "./local-turn-configuration.js";
 
 export const APP_SERVER_PROTOCOL_VERSION = "1.0.0" as const;
+export const APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES = 1_048_576;
+
+/** Counts the actual JSON wire encoding, including control/surrogate escapes. */
+export function appServerJsonByteLength(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+}
 
 /** Host identity, separate from connection/process/instance/checkout identities. */
 export const AppServerEnvironmentIdSchema = z.string().regex(/^env_[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
@@ -45,6 +52,7 @@ export const AppServerInitializeResponseSchema = z
       .strict(),
     environment: z.enum(["local", "hosted"]),
     environmentId: AppServerEnvironmentIdSchema.nullable(),
+    localTurnConfiguration: LocalTurnConfigurationOptionsSchema.optional(),
     capabilities: z.array(AppServerCapabilitySchema).max(100),
     unavailableCapabilities: z
       .array(AppServerUnavailableCapabilitySchema)

@@ -5,6 +5,10 @@ import { AppServerOperationError, handleAppServerHttpRequest, validateAppServerH
 import { ProviderConfigurationSchema } from "./local-providers.js";
 import { LocalHarnessComposition, type LocalHarnessBootstrap } from "./harness/LocalHarnessComposition.js";
 export type { LocalHarnessBootstrap } from "./harness/LocalHarnessComposition.js";
+import type { LocalWorkspaceService, LocalWorkspaceServiceOptions } from "./local-workspace.js";
+import { DefaultGitService } from "@repo/git-service";
+import { createNodeGitExecutor } from "./local-node-git-executor.js";
+import type { VerifiedMacGitExecution, VerifiedMacGitOptions } from "./local-mac-git-execution.js";
 
 const MAX_REQUEST_BYTES = 32 * 1024;
 
@@ -12,6 +16,9 @@ export type LocalAppServerStartConfig = {
   credential: string;
   serverVersion: string;
   storageDirectory: string;
+  protectedHostRoots?: readonly string[];
+  nativeFilesystemHelperPath?: string;
+  nativeProcessHelperPath?: string;
 };
 
 export type LocalAppServerMessage =
@@ -22,11 +29,39 @@ export type LocalAppServerParentPort = {
   postMessage(message: LocalAppServerMessage): void;
 };
 
-export function createLocalAppServer(config: LocalAppServerStartConfig, bootstrap?: LocalHarnessBootstrap) {
+export type LocalWorkspaceFilesCompositionOptions = {
+  createMetadataInspector?: LocalWorkspaceServiceOptions["createMetadataInspector"];
+  createProbeExecution?: (authority: Pick<VerifiedMacGitOptions, "probeRoot" | "withRootAuthority">) => Promise<VerifiedMacGitExecution>;
+  createWorkspaceFilesService?(workspaces: LocalWorkspaceService): NonNullable<AppServerComposition["localWorkspaceFilesService"]>;
+};
+
+export type LocalAppServerCompositionOptions = LocalWorkspaceFilesCompositionOptions & {
+  /** Private host bootstrap; never supplied through HTTP or renderer IPC. */
+  harnessBootstrap?: LocalHarnessBootstrap;
+};
+
+export function createLocalAppServer(config: LocalAppServerStartConfig, options?: LocalAppServerCompositionOptions) {
+  if (options?.createWorkspaceFilesService && !config.protectedHostRoots?.length) {
+    throw new Error("Workspace file queries require trusted protected host roots");
+  }
   const persistence = new LocalPersistence({ storageDirectory: config.storageDirectory });
   try {
-    const local = new LocalHarnessComposition(persistence, config.storageDirectory);
-    if (bootstrap) local.bootstrap(bootstrap);
+    const createProbeExecution = options?.createProbeExecution;
+    const local = new LocalHarnessComposition(persistence, config.storageDirectory, {
+      createMetadataInspector: options?.createMetadataInspector,
+      createProbeService: createProbeExecution ? async (authority) => {
+        const macExecution = await createProbeExecution(authority);
+        const git = new DefaultGitService(createNodeGitExecutor({ macExecution }));
+        return { probeRepository: (input) => git.probeRepository(input) };
+      } : undefined,
+      protectedHostRoots: [
+        config.storageDirectory, ...(config.protectedHostRoots ?? []),
+        ...(config.nativeFilesystemHelperPath ? [config.nativeFilesystemHelperPath] : []),
+        ...(config.nativeProcessHelperPath ? [config.nativeProcessHelperPath] : []),
+      ],
+    });
+    if (options?.harnessBootstrap) local.bootstrap(options.harnessBootstrap);
+    const workspaceFilesService = options?.createWorkspaceFilesService?.(local.workspaceService);
     const ready = local.turnService.initialize();
     let startupSettled = false;
     void ready.then(() => { startupSettled = true; }, () => { startupSettled = true; });
@@ -37,6 +72,7 @@ export function createLocalAppServer(config: LocalAppServerStartConfig, bootstra
       serverVersion: config.serverVersion,
       credential: config.credential,
       workspaceService: local.workspaceService,
+      localWorkspaceFilesService: workspaceFilesService,
       threadService: local.threadService,
       providerService: local.providerService,
       harnessOperations: local.harnessOperations,
@@ -88,11 +124,11 @@ export function createLocalAppServer(config: LocalAppServerStartConfig, bootstra
 export function runLocalAppServerProcess(
   parentPort: LocalAppServerParentPort,
   config: LocalAppServerStartConfig,
-  bootstrap?: LocalHarnessBootstrap,
+  options?: LocalAppServerCompositionOptions,
 ): void {
   let server: ReturnType<typeof createLocalAppServer>;
   try {
-    server = createLocalAppServer(config, bootstrap);
+    server = createLocalAppServer(config, options);
   } catch {
     parentPort.postMessage({ type: "fatal" });
     process.exit(1);

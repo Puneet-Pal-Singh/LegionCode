@@ -422,6 +422,7 @@ async function createFixture(context) {
   for (const [name, dependencies] of Object.entries({
     "app-server": { "@repo/event-store": "workspace:*" },
     "artifact-store": { "@repo/platform-protocol": "workspace:*" },
+    "chat-media": { "@repo/shared-types": "workspace:*" },
     "event-store": { "@repo/platform-protocol": "workspace:*" },
     "execution-engine": {},
     "git-service": { "@repo/platform-protocol": "workspace:*" },

@@ -1,7 +1,8 @@
 import { DefaultGitService } from "@repo/git-service";
 import type { LocalPersistence } from "@repo/event-store/local";
 import type { RuntimeGitSnapshotPort } from "@repo/runtime-kernel";
-import { createNodeGitExecutor, type LocalWorkspaceService } from "../local-workspace.js";
+import type { LocalWorkspaceService } from "../local-workspace.js";
+import { createNodeGitExecutor } from "../local-node-git-executor.js";
 import type { LocalThreadService } from "../local-threads.js";
 
 /** Root authorization surrounds the existing canonical Git snapshot implementation. */
