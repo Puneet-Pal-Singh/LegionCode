@@ -1528,3 +1528,35 @@ This schema foundation does not select runtime behavior, project availability,
 validate actual composed ports or enable attachments, tools or mutations. The
 Turn service/runtime admission and handshake composition retain those obligations.
 Hosted request behavior and existing Git/provider contracts remain unchanged.
+
+## Plan 057 — Shared App Server response budget
+
+The platform protocol owns the existing one-MiB default JSON response budget and
+its UTF-8 serialized-byte helper. The SDK HTTP transport reuses that same value;
+its explicit maxResponseBytes override and bounded response reader are unchanged.
+This foundation does not increase limits, alter history queries or add a second
+transport owner. Whole-Turn history selection and final server envelope checks
+remain separate consumers of this shared contract.
+
+## Plan 057 — Bounded local admission history storage
+
+`LocalTurnAdmissions.listByThread` remains the sole query over canonical admission
+and event references. Optional latest reads use insertion order, one bounded extra
+identity and chronological output; forward cursors keep their existing ownership.
+Both directions use the shared response budget to return whole fitting Turns,
+with an actual returned-row cursor and real earlier-history evidence. A single
+next/newest oversized Turn fails with `history_row_too_large`; no row is skipped
+or truncated. Thread authorization, public protocol and Turn-service translation
+remain their existing owners' separate integration responsibilities. No history
+payload copy, table, projection or lifecycle producer is added.
+
+## Plan 057 — Explicit bounded history transport contract
+
+The existing `thread/history` contract accepts explicit latest reads without an
+after cursor and carries optional `hasEarlier` evidence. The SDK requires that
+receipt for latest requests and documents cursor-based continuation rather than
+inferring completion from row count. App Server checks the final history envelope
+against the same existing one-MiB response budget. This adapter does not select
+history, authorize Threads or introduce a new endpoint; the actual Turn service
+must delegate to the canonical bounded query and reauthorize before returning.
+That service-method integration remains with its current owner.
