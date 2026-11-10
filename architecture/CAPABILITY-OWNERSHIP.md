@@ -2464,3 +2464,8 @@ renderer-supplied host path and does not manufacture a Turn scope for steering.
 
 - Steer image eligibility comes from the actual executor's existing captured admitted model snapshot, checked before publication and again at exact-attempt delivery. Missing support fails closed; live discovery is not a second decision owner. Text and saved-receipt retries retain their paths.
 - Native applied-input history enrichment respects the same opaque delegated boundary as inbox projection and Thread lineage. Shared lifecycle scope/producer validation and historical assistant handling remain unchanged.
+
+### Hosted shared-input compatibility
+
+- Hosted update/remove known CAS conflict receipts retain their existing HTTP 200 wrapper. Direct Steer response denials retain the existing HTTP 502/THREAD_INPUT_NOT_CONFIRMED mapping through a private placement brand; queued-Steer and unknown Native delivery keep their existing 503 reconciliation path.
+- Shared policy still owns durable command/CAS/receipt decisions. Placement transport status does not become a second input state owner. No new tests.
