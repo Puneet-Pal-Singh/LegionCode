@@ -16,6 +16,7 @@ import {
   ENVIRONMENT_STATUS_CHANNEL,
   ENVIRONMENT_RESTART_CHANNEL,
   WORKSPACE_PICK_CHANNEL,
+  WORKSPACE_OPEN_REQUESTED_CHANNEL,
   CREDENTIAL_COMMAND_CHANNEL,
   DesktopCredentialCommandSchema,
   DesktopCredentialResultSchema,
@@ -71,6 +72,11 @@ const desktopApi: DesktopApi = {
   },
   restartEnvironment: async () => {
     await ipcRenderer.invoke(ENVIRONMENT_RESTART_CHANNEL);
+  },
+  onOpenWorkspaceRequested: (listener) => {
+    const handler = () => listener();
+    ipcRenderer.on(WORKSPACE_OPEN_REQUESTED_CHANNEL, handler);
+    return () => ipcRenderer.removeListener(WORKSPACE_OPEN_REQUESTED_CHANNEL, handler);
   },
   pickWorkspace: async () => {
     const selection: unknown = await ipcRenderer.invoke(WORKSPACE_PICK_CHANNEL);

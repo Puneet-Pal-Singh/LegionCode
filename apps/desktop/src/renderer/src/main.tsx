@@ -11,7 +11,7 @@ import {
   WorkspaceTopBar,
 } from "@legioncode/client-ui";
 import { AppServerClientError, createAppServerClient } from "@legioncode/sdk";
-import { StrictMode, useEffect, useMemo, useRef, useState } from "react";
+import { StrictMode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { AppServerEnvironmentSnapshot } from "@repo/platform-protocol";
 import type { LocalWorkspaceGrant, Thread } from "@repo/platform-protocol";
@@ -65,6 +65,7 @@ function DesktopApp(): React.JSX.Element {
   }, [rightPanelOpen]);
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const workspaceCommand = useRef(false);
+  const workspacePickerActive = useRef(false);
   const emptyDraftRequest = useRef<string | null>(null);
   const creatingThread = useRef(false);
   const [pendingThreadSelections, setPendingThreadSelections] = useState(0);
@@ -420,7 +421,9 @@ function DesktopApp(): React.JSX.Element {
     }
   }
 
-  async function chooseWorkspace(): Promise<void> {
+  const chooseWorkspace = useCallback(async (): Promise<void> => {
+    if (workspacePickerActive.current || workspaceCommand.current) return;
+    workspacePickerActive.current = true;
     setWorkspaceError(null);
     try {
       const picked = await window.desktop.pickWorkspace();
@@ -428,8 +431,14 @@ function DesktopApp(): React.JSX.Element {
       if (picked) setSidebarOpen(true);
     } catch {
       setWorkspaceError("The native workspace picker could not be opened.");
+    } finally {
+      workspacePickerActive.current = false;
     }
-  }
+  }, []);
+
+  useEffect(() => window.desktop.onOpenWorkspaceRequested(() => {
+    void chooseWorkspace();
+  }), [chooseWorkspace]);
 
   async function grantWorkspace(): Promise<void> {
     if (!selection || workspaceCommand.current) return;

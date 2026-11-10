@@ -9,6 +9,7 @@ export const ENVIRONMENT_SNAPSHOT_CHANNEL = "desktop:get-environment";
 export const ENVIRONMENT_STATUS_CHANNEL = "desktop:environment-status";
 export const ENVIRONMENT_RESTART_CHANNEL = "desktop:restart-environment";
 export const WORKSPACE_PICK_CHANNEL = "desktop:pick-workspace";
+export const WORKSPACE_OPEN_REQUESTED_CHANNEL = "desktop:open-workspace-requested";
 export const CREDENTIAL_COMMAND_CHANNEL = "desktop:credential-command";
 
 export const DesktopCredentialStatusSchema = z.object({
@@ -54,6 +55,7 @@ export type DesktopApi = {
     listener: (snapshot: AppServerEnvironmentSnapshot) => void,
   ): () => void;
   restartEnvironment(): Promise<void>;
+  onOpenWorkspaceRequested(listener: () => void): () => void;
   pickWorkspace(): Promise<WorkspaceSelection | null>;
   credential(command: DesktopCredentialCommand): Promise<DesktopCredentialResult>;
 };

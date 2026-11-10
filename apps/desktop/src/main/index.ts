@@ -19,10 +19,12 @@ import {
   ENVIRONMENT_STATUS_CHANNEL,
   ENVIRONMENT_RESTART_CHANNEL,
   WORKSPACE_PICK_CHANNEL,
+  WORKSPACE_OPEN_REQUESTED_CHANNEL,
   CREDENTIAL_COMMAND_CHANNEL,
   DesktopCredentialCommandSchema,
 } from "../shared/desktop-api";
 import { createWindowOptions } from "./window-options";
+import { installDesktopApplicationMenu } from "./application-menu";
 import { LocalAppServerSupervisor } from "./local-app-server-supervisor";
 import { DesktopCredentialVault } from "./desktop-credential-vault";
 import {
@@ -261,6 +263,13 @@ void app.whenReady().then(() => {
     nativeFilesystemHelperPath, nativeProcessHelperPath,
   });
   createWindow();
+  installDesktopApplicationMenu(() => {
+    const window = BrowserWindow.getFocusedWindow();
+    if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return;
+    const expectedRendererUrl = expectedRendererUrls.get(window.webContents.id);
+    if (!expectedRendererUrl || window.webContents.getURL() !== expectedRendererUrl) return;
+    window.webContents.send(WORKSPACE_OPEN_REQUESTED_CHANNEL);
+  });
 });
 
 localAppServer.subscribe((snapshot) => {
