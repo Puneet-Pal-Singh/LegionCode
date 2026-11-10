@@ -1,0 +1,299 @@
+{
+  "purpose": "Read-only pinned Wrangler preview diagnosis; diagnostic-only proposal, not production change or live acceptance",
+  "source": {
+    "production": "97baba33c0f7f811edadedfc06e67184ff08a7cc",
+    "review": "6adadbd10243dfe351e021e8b891869cca385a78",
+    "review_parent_verified": true,
+    "exact_review_delta_added_paths": [
+      "local/handoffs/r3-review-20261110/cf-preview/protocol.cjs",
+      "local/handoffs/r3-review-20261110/cf-preview/review.json",
+      "local/handoffs/r3-review-20261110/cf-preview/stages.cjs",
+      "local/handoffs/r3-review-20261110/cf-preview/wrapper.cjs"
+    ],
+    "review_json_sha256": "4ec20edaa273c8474f01699e9dcce559e90ef3391d467825b0f5e0b0cba3aa64",
+    "asset_sha256": {
+      "wrapper.cjs": "45c47d1c4390f2809fc582777347575973450bb59a8130d8e17268e53861acef",
+      "protocol.cjs": "610067c53896e318c59425293d40f8224cedf836ba94f2b07c86bfbce6513d57",
+      "stages.cjs": "43babb23cfba01d62deff4c48b53d679ac6c2e95d2f7ac13e66b4f8cb38d750e"
+    },
+    "handoff": "2c61f920cb7ba197dfe9d564510443d657f1c2a3",
+    "manifest_sha256": "97ea115ad92803beced687c0335643cf5e3773842cdc54cef4e025892ff329b3",
+    "handoff_gitobjects_verified": "19/19 hashes+bytes",
+    "vendor_path": "/workspace/LegionCode-R2-BUILD/node_modules/.pnpm/wrangler@4.61.0_@cloudflare+workers-types@4.20260128.0/node_modules/wrangler/wrangler-dist/cli.js",
+    "vendor_sha256": "3df343f7390ca138b0ce9282f0a420fab2261cd518857a74ba82097fc3e20810",
+    "vendor_version": "4.61.0",
+    "vendor_lines": {
+      "createPreviewSession": 292806,
+      "createPreviewToken": 292865,
+      "createWorkerPreview": 292910,
+      "remote_preview_token": 293199,
+      "bindings_conversion": 293315,
+      "remote_upload_error": 293282,
+      "remote_reload_error": 293405,
+      "proxy_bootstrap": 292338,
+      "proxy_bootstrap_error": 292472,
+      "proxy_reload_consumer": 292624
+    },
+    "review_worktree_clean": true,
+    "fixture_transformed_vendor": {
+      "transformed-cli.js": "16f4d88997e9f9ecc50e7bffe64f1755d6242e556381bda68fbae9489eea6a72",
+      "transformed-diagnostic-cli.js": "50890d70fa28e2e64fc653a76feed9b43d8a0f25cec176f90e9d368abb6d9f5d"
+    },
+    "fixture_transform_limit": "These transformed hashes include the Linux review helper path, not authorization to execute an installed wrapper or Mac path."
+  },
+  "finding": {
+    "proven_live_sequence": "guard/compile returned; authenticated initializer/token valid; optional exchange unavailable and initializer token retained; authenticated subdomain read valid; protocol returned; CLI exit1 before private-ready. Zero DO HTTP/probe/kernel evidence. Raw output discarded.",
+    "root_cause": "UNDERDETERMINED: no downstream categorized failure receipt exists. Source/synthetic controls do not establish the live exception.",
+    "source_chain": [
+      "Reviewed protocol returns a preview SESSION token, not the uploaded-worker preview token.",
+      "RemoteRuntimeController converts config bindings, creates RemoteWorkerInit, then createWorkerPreview calls createPreviewToken.",
+      "createPreviewToken POSTs worker preview upload using session.value as cf-preview-upload-config-token; returned preview_token is later used as cf-workers-preview-token. These tokens have distinct roles.",
+      "After upload, controller resolves access for token.host and dispatches reloadComplete with target URL+preview header. Reviewed inspector/prewarm omissions do not force a dereference on this path.",
+      "ProxyController still constructs a LOCAL Miniflare ProxyWorker in remote mode. Remote inspector=false removes InspectorProxyWorker, not this required local proxy/bootstrap.",
+      "ProxyWorker bootstrap is asynchronous and may fail independently of the successful initializer. Its ready event and remote reloadComplete are distinct facts."
+    ],
+    "official_comparison": [
+      "b8c33f removes required exchange, inspector and prewarm; the reviewed backport removes those downstream requirements.",
+      "dc24057 scopes initializer to named worker; reviewed named endpoint and upload name are consistent for this fixed worker-only scope.",
+      "Reviewed helper additionally performs explicit authenticated subdomain lookup; observed lookup succeeded. No token/host/inspector corrective change is justified by present evidence."
+    ],
+    "synthetic_cases": [
+      {
+        "mode": "success",
+        "events": [
+          "reloadStart",
+          "reloadComplete"
+        ],
+        "result": "pass"
+      },
+      {
+        "mode": "upload_failure",
+        "events": [
+          "reloadStart",
+          "error"
+        ],
+        "result": "pass"
+      },
+      {
+        "mode": "bindings_failure",
+        "events": [
+          "reloadStart",
+          "error"
+        ],
+        "result": "pass"
+      },
+      {
+        "mode": "proxy_bootstrap_failure",
+        "events": [
+          {
+            "type": "error",
+            "reason": "Failed to start ProxyWorker or InspectorProxyWorker"
+          }
+        ],
+        "result": "pass"
+      }
+    ]
+  },
+  "proposal": {
+    "kind": "DIAGNOSTIC ONLY; NOT APPLIED",
+    "patch_path": "/tmp/cf-preview-review-20261111/diagnostic-only.patch",
+    "paths": [
+      "local/handoffs/r3-review-20261110/cf-preview/wrapper.cjs",
+      "local/handoffs/r3-review-20261110/cf-preview/stages.cjs"
+    ],
+    "changes": "Ten fixed allowlisted downstream markers at binding/init/upload/access/reload/proxy-ready/proxy-error boundaries. Exact unique preimages required in reviewed transform. Existing safe error class/code classifier only; no raw errors/token/header/config/body/URL logging.",
+    "unchanged": [
+      "auth",
+      "protocol semantics",
+      "pinned versions",
+      "upload behavior",
+      "error propagation",
+      "retry behavior",
+      "readiness/launch gates"
+    ],
+    "preimages": [
+      {
+        "stage": "remote_bindings_enter",
+        "preimage": "      async #updatePreviewToken(config, bundle, auth, routes, bundleId) {",
+        "preimage_sha256": "3a3468e556e1329b8256a3e14d48d2c334b5634a6bc3c5c40661726a020cc1c4",
+        "transformed_line": 293238
+      },
+      {
+        "stage": "preview_init_enter",
+        "preimage": "          const init4 = await createRemoteWorkerInit({",
+        "preimage_sha256": "52530536909b9aa097856c03624f35524fcb1c397b6f9c93dd51a63afbe3e6ce",
+        "transformed_line": 293147
+      },
+      {
+        "stage": "preview_upload_enter",
+        "preimage": "          const workerPreviewToken = await createWorkerPreview(",
+        "preimage_sha256": "f7ff3511551ecb03b78f8483e1c2b16fc13a1738b517de6ef93ce512937f92db",
+        "transformed_line": 293166
+      },
+      {
+        "stage": "preview_upload_returned",
+        "preimage": "            props.minimal_mode\n          );",
+        "preimage_sha256": "5574949eb9aeaef0494edcc84c1d97f3960f5c7dbe1538ddbb392eba39dbbfb1",
+        "transformed_line": 293173
+      },
+      {
+        "stage": "preview_token_rejected",
+        "preimage": "          const shouldRestartSession = handlePreviewSessionUploadError(",
+        "preimage_sha256": "9eaea0ff31d89e8154820dbc849d844e1321c645b492767ce2038f17ca7bddb8",
+        "transformed_line": 293195
+      },
+      {
+        "stage": "proxy_access_enter",
+        "preimage": "        const accessToken = await getAccessToken(token.host);",
+        "preimage_sha256": "a6186506c88fd6c0de262fdb87b1b69a628f3fea4af7c39272aba1a49d75f413",
+        "transformed_line": 293277
+      },
+      {
+        "stage": "proxy_reload_enter",
+        "preimage": "        this.emitReloadCompleteEvent({\n          type: \"reloadComplete\",\n          bundle,\n          config,\n          proxyData: {\n            userWorkerUrl: {\n              protocol: \"https:\",\n              hostname: token.host,",
+        "preimage_sha256": "4a01b9f65efdf831c858da4d49efed545a6c737921711dd2859a3b4c2d68901a",
+        "transformed_line": 293278
+      },
+      {
+        "stage": "remote_reload_rejected",
+        "preimage": "          this.emitErrorEvent({\n            type: \"error\",\n            reason: \"Error reloading remote server\",",
+        "preimage_sha256": "0766ede04a42c211862284181bc524975308f2a604bb838e1c9b4937157b7734",
+        "transformed_line": 293326
+      },
+      {
+        "stage": "proxy_bootstrap_rejected",
+        "preimage": "            this.emitErrorEvent(\n              \"Failed to start ProxyWorker or InspectorProxyWorker\",",
+        "preimage_sha256": "9c926465f18056807ba9d04316575a8ceb77834dfc633f61971b07ebaa09ac15",
+        "transformed_line": 292471
+      },
+      {
+        "stage": "proxy_bootstrap_ready",
+        "preimage": "            this.emitReadyEvent(proxyWorker, url4, inspectorUrl);",
+        "preimage_sha256": "f6a2979c57f365e3dd94932ee82cac2e19a4747ed105d295dffa5d1b06f13dc3",
+        "transformed_line": 292466
+      }
+    ],
+    "postimages": {
+      "wrapper.diagnostic.cjs": {
+        "sha256": "0e1ded3876bbe2f773f0c84b23cc4eac3509c00ca7a32c9b4a17e11c6a7e5a6e",
+        "bytes": 10755
+      },
+      "stages.diagnostic.cjs": {
+        "sha256": "1b4e89e85754d2fefb272e90ca89a750178bb7952aaf955f0cea2d1daa7807b4",
+        "bytes": 1759
+      }
+    }
+  },
+  "commands": [
+    {
+      "command": "node /tmp/cf-preview-review-20261111/prepare.cjs",
+      "result": "original approved wrapper transform, vendor SHA and syntax parse only passed; no CLI/main"
+    },
+    {
+      "command": "node /tmp/cf-preview-review-20261111/prepare.cjs /tmp/cf-preview-review-20261111/wrapper.diagnostic.cjs transformed-diagnostic-cli.js",
+      "result": "proposed transform exact preimages+vendor syntax parse passed; no CLI/main"
+    },
+    {
+      "command": "node /tmp/cf-preview-review-20261111/synthetic.cjs transformed-cli.js synthetic-results-baseline.json",
+      "result": "4 source-extracted synthetic flow controls passed"
+    },
+    {
+      "command": "node /tmp/cf-preview-review-20261111/synthetic.cjs transformed-diagnostic-cli.js synthetic-results-diagnostic.json",
+      "result": "same4 flow controls passed; markers distinguish failures"
+    },
+    {
+      "command": "node /tmp/cf-preview-review-20261111/controls.cjs",
+      "result": "semantic equivalence +8 diagnostic assertions +4 sanitizer controls passed"
+    },
+    {
+      "command": "git apply --check /tmp/cf-preview-review-20261111/diagnostic-only.patch",
+      "result": "passed; NOT applied"
+    }
+  ],
+  "artifacts": {
+    "diagnostic-only.patch": {
+      "sha256": "dbabaf1a5872fb3003eb32421fe21762a395011fca22bc443297a2c26cc58c1d",
+      "bytes": 5984
+    },
+    "diagnostic-preimages.json": {
+      "sha256": "0a0dfc7a46a81ffcac4c313b132512c1c69f04b1baafe47fc7d949eab1e95267",
+      "bytes": 2783
+    },
+    "wrapper.diagnostic.cjs": {
+      "sha256": "0e1ded3876bbe2f773f0c84b23cc4eac3509c00ca7a32c9b4a17e11c6a7e5a6e",
+      "bytes": 10755
+    },
+    "stages.diagnostic.cjs": {
+      "sha256": "1b4e89e85754d2fefb272e90ca89a750178bb7952aaf955f0cea2d1daa7807b4",
+      "bytes": 1759
+    },
+    "prepare.cjs": {
+      "sha256": "7d6dbc307693bad263fa2858d263a94ef0e02a8ee4b658d0710bf91b35bf4163",
+      "bytes": 2053
+    },
+    "synthetic.cjs": {
+      "sha256": "9a4969d2b7a0d6b08f551ac18d887b5adf4065ccc9ecb3de3d1c5a8b28d87c1a",
+      "bytes": 6414
+    },
+    "controls.cjs": {
+      "sha256": "a513f61a1549c78081657950624fa141a09b23a3928ad64d3740601aa058439c",
+      "bytes": 2235
+    },
+    "synthetic-results-baseline.json": {
+      "sha256": "beea027a301ea1407b53cb8d435d6edccefb4076b9b51fbe3477bdd1eb8a57e5",
+      "bytes": 2493
+    },
+    "synthetic-results-diagnostic.json": {
+      "sha256": "e9faaffda8629d19d739619d8bed19d843f1a112d0382b869d9746c02ad025b5",
+      "bytes": 2941
+    },
+    "controls-result.json": {
+      "sha256": "f726d9a65774dd7b32be68af266f5b2c2eebc174dd184be9249f167c37c96bb7",
+      "bytes": 200
+    },
+    "b8c33f.patch": {
+      "sha256": "c6c40a97ede1bf9cc0412a970b65c7a650b621da6349b2cb56fd54237b2fbe6f",
+      "bytes": 55092
+    },
+    "dc24057.patch": {
+      "sha256": "23c28c17af7e9f518ba4c5f8487138a113de03cd9d9a9e8cd0530d8d25cdcd88",
+      "bytes": 11230
+    }
+  },
+  "limits": [
+    "Zero real network calls from synthetic dependencies; no authenticated CLI or wrapper main executed.",
+    "Only public official commit source fetches used network; no Cloudflare/account/DO/provider endpoints contacted.",
+    "No credentials, homes, cookies, real configuration or environment files read. Mac source constant was in-memory fixture substitution only.",
+    "No product source changes/merges, dependency installation, runtime packaging or Native work.",
+    "Root alone decides any future targeted local diagnostic; no live retry proposed."
+  ],
+  "embedded_offline_control_sources": {
+    "prepare.cjs": {
+      "source": "'use strict';\nconst fs=require('node:fs'),vm=require('node:vm'),crypto=require('node:crypto'),path=require('node:path');\nconst root='/workspace/LegionCode-CF-PREVIEW-REVIEW-20261111/local/handoffs/r3-review-20261110/cf-preview';\nconst vendor='/workspace/LegionCode-R2-BUILD/node_modules/.pnpm/wrangler@4.61.0_@cloudflare+workers-types@4.20260128.0/node_modules/wrangler/wrangler-dist/cli.js';\nconst original=fs.readFileSync(vendor,'utf8'),wrapper=fs.readFileSync(process.argv[2]??root+'/wrapper.cjs','utf8');\nconst reads=[];const moduleFixture={exports:{}};\nconst context=vm.createContext({module:moduleFixture,exports:moduleFixture.exports,__dirname:root,require(name){\n if(name==='node:fs')return {readFileSync(p){reads.push(String(p));if(p.endsWith('/wrangler-dist/cli.js'))return original;if(p===root+'/protocol.cjs')return fs.readFileSync(root+'/protocol.cjs');throw Error('unexpected fixture source read');},realpathSync(p){if(p.endsWith('/wrangler-dist/cli.js'))return vendor;throw Error('unexpected fixture realpath');}};\n if(['node:path','node:crypto'].includes(name))return require(name);\n if(name==='./stages.cjs')return {record(){}};\n throw Error('unexpected fixture require');\n}});\nnew vm.Script(wrapper,{filename:'review-wrapper-source-only.cjs'}).runInContext(context);\nconst prepared=moduleFixture.exports.prepareReviewedSource('synthetic-preview');\nnew vm.Script(prepared.source,{filename:'synthetic-pinned-vendor-parse-only.js'});\nfs.writeFileSync('/tmp/cf-preview-review-20261111/'+(process.argv[3]??'transformed-cli.js'),prepared.source);\nfs.writeFileSync('/tmp/cf-preview-review-20261111/preparation.json',JSON.stringify({original_sha256:prepared.originalSha256,transformed_sha256:prepared.transformedSha256,source_only:true,wrapper_main_executed:false,cli_executed:false,source_read_count:reads.length,real_fs_reads:'Linux pinned vendor + explicitly approved review sources only; Mac constant substituted by in-memory fixture'},null,2)+'\\n');\nconsole.log('pinned source verified; wrapper transform and vendor syntax parsed ONLY');\n",
+      "sha256": "7d6dbc307693bad263fa2858d263a94ef0e02a8ee4b658d0710bf91b35bf4163",
+      "bytes": 2053
+    },
+    "synthetic.cjs": {
+      "source": "'use strict';\nconst fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');\nconst dir='/tmp/cf-preview-review-20261111',review='/workspace/LegionCode-CF-PREVIEW-REVIEW-20261111/local/handoffs/r3-review-20261110/cf-preview';\nconst source=fs.readFileSync(dir+'/'+(process.argv[2]??'transformed-cli.js'),'utf8'),protocol=fs.readFileSync(review+'/protocol.cjs','utf8');\nfunction between(start,end){const a=source.indexOf(start),b=source.indexOf(end,a);assert(a>=0&&b>a);return source.slice(a,b);}\nconst tokenFunctions=between('async function createPreviewToken(', '\\nvar import_undici26;');\n// This interval also contains createWorkerPreview, and no top-level I/O.\nconst remote=between('RemoteRuntimeController = class extends RuntimeController {','\\n    };\\n  }\\n});')+'\\n    };';\nconst proxy=between('ProxyController = class extends Controller {','\\n    };\\n    ProxyControllerLogger =')+'\\n    };';\nconst results=[];\nasync function run(mode){\n const facts={mode,stages:[],requests:[],events:[],access:[],native_or_network_calls:0};const work=[];\n const sandbox={console:undefined,URL,TextEncoder,TextDecoder,Uint8Array,AbortController,Error,Promise,\n  __name(){},logger:{log(){},debug(){},warn(){},loggerLevel:'error'},source_default:{dim:x=>x,green:x=>x},\n  castErrorCause:x=>x,unwrapHook:async x=>x,handlePreviewSessionCreationError(){},handlePreviewSessionUploadError(){return false;},\n  miniflare:{Mutex:class{runWith(fn){const p=Promise.resolve().then(fn);work.push(p);return p;}}},\n  RuntimeController:class{emitErrorEvent(e){facts.events.push(e.type);facts.errorReason=e.reason;facts.syntheticErrorClass=e.cause?.constructor?.name;}bus={dispatch(e){facts.events.push(e.type);if(e.type==='error')facts.errorReason=e.reason;}};async teardown(){}},\n  MissingConfigError:Error,\n  getWorkerAccountAndContext:async props=>({workerAccount:{accountId:props.accountId,apiToken:'synthetic-account-token'},workerContext:{routes:[],host:undefined,zone:undefined}}),\n  createWorkerUploadForm(){return {set(){}};},\n  fetchResult:async(_compliance,url,options)=>{facts.requests.push({kind:'preview_upload',method:options.method});assert(url.endsWith('/workers/scripts/synthetic-preview/edge-preview'));assert.equal(options.headers['cf-preview-upload-config-token'],'synthetic-initial-token');if(mode==='upload_failure')throw new Error('synthetic upload failure');return {preview_token:'synthetic-preview-token'};},\n  createRemoteWorkerInit:async()=>({name:'synthetic-preview'}),\n  convertBindingsToCfWorkerInitBindings:async()=>{facts.stages.push('bindings');if(mode==='bindings_failure')throw new Error('synthetic binding failure');return {bindings:{}};},\n  getAccessToken:async host=>{facts.access.push(host);return undefined;},\n };\n sandbox.require=()=>({record(label){facts.stages.push(label);}});\n const ctx=vm.createContext(sandbox);\n const module={exports:{}};const protocolCtx=vm.createContext({module,exports:module.exports,URL,TextEncoder,TextDecoder,Uint8Array,require(name){assert.equal(name,'./stages.cjs');return {record(s){facts.stages.push(s);}};}});\n new vm.Script(protocol).runInContext(protocolCtx);\n ctx.createPreviewSession=module.exports.createProtocol({\n  fetchResult:async(_c,url)=>url.endsWith('/subdomain/edge-preview')?{token:'synthetic-initial-token',exchange_url:'https://synthetic.subdomain.workers.dev/exchange'}:{subdomain:'synthetic-subdomain'},\n  exchangeFetch:async()=>({ok:false,body:null}),getAccessToken:async()=>undefined,getComplianceRegionSubdomain:()=>''\n },'synthetic-preview').createPreviewSession;\n new vm.Script(tokenFunctions+'\\n'+remote).runInContext(ctx);\n const controller=new ctx.RemoteRuntimeController();\n controller.onBundleComplete({config:{name:'synthetic-preview',complianceRegion:undefined,dev:{remote:true,auth:{accountId:'a'.repeat(32),apiToken:'synthetic-account-token'}},bindings:{},experimental:{}},bundle:{entry:{format:'modules'},modules:[]}});\n await Promise.all(work);\n assert(facts.stages.includes('protocol_returned'));\n if(mode==='success'){assert(facts.events.includes('reloadComplete'),JSON.stringify(facts));assert.deepEqual(facts.requests.map(x=>x.method),['POST']);}\n if(mode==='upload_failure'){assert.equal(facts.errorReason,'Failed to obtain a preview token');assert(!facts.events.includes('reloadComplete'));}\n if(mode==='bindings_failure'){assert.equal(facts.errorReason,'Error reloading remote server');assert.equal(facts.requests.length,0);}\n results.push(facts);\n}\n(async()=>{for(const mode of ['success','upload_failure','bindings_failure'])await run(mode);\n // Source-exact ProxyController runs against a synthetic Miniflare constructor;\n // no workerd, listening socket, credentials, config, or filesystem is opened.\n const facts={mode:'proxy_bootstrap_failure',events:[],native_or_network_calls:0};\n const ctx=vm.createContext({require:()=>({record(label){facts.stages??=[];facts.stages.push(label);}}),Promise,Error,castErrorCause:x=>x,process:{env:{}},crypto:{randomUUID:()=> 'synthetic-uuid'},__name(){},\n  Controller:class{emitErrorEvent(event){facts.events.push({type:event.type,reason:event.reason});}bus={dispatch(e){facts.events.push({type:e.type,reason:e.reason});}};async teardown(){}},createDeferred:()=>({promise:Promise.resolve(),resolve(){}}),\n  assert49__default:{default:assert},path4__namespace:{default:{dirname:()=>'/synthetic'}},ProxyWorker_default:'/synthetic/worker',\n  logger:{loggerLevel:'error',debug(){}},castLogLevel:x=>x,ProxyControllerLogger:class{},handleStructuredLogs(){},\n  didMiniflareOptionsChange:()=>false,miniflare:{Mutex:class{},Miniflare:class{ready=Promise.reject(new Error('synthetic bootstrap failure'));}},\n });\n new vm.Script(proxy).runInContext(ctx);const p=new ctx.ProxyController();p.latestConfig={dev:{remote:true,server:{hostname:'127.0.0.1',port:12345}}};p.createProxyWorker();\n for(let n=0;n<12;n++)await Promise.resolve();\n assert.equal(facts.events[0]?.reason,'Failed to start ProxyWorker or InspectorProxyWorker');results.push(facts);\n fs.writeFileSync(dir+'/'+(process.argv[3]??'synthetic-results.json'),JSON.stringify({controls:results.length,results,scope:'Source-extracted functions/classes with synthetic dependencies only; no CLI/main or real network/fs credential/config reads'},null,2)+'\\n');\n console.log('4 synthetic source-flow controls passed; no authenticated CLI/main executed');\n})().catch(e=>{console.error(e.stack);process.exitCode=1;});\n",
+      "sha256": "9a4969d2b7a0d6b08f551ac18d887b5adf4065ccc9ecb3de3d1c5a8b28d87c1a",
+      "bytes": 6414
+    },
+    "controls.cjs": {
+      "source": "'use strict';\nconst fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');\nconst dir='/tmp/cf-preview-review-20261111';\nconst baseline=JSON.parse(fs.readFileSync(dir+'/synthetic-results-baseline.json','utf8'));\nconst diagnostic=JSON.parse(fs.readFileSync(dir+'/synthetic-results-diagnostic.json','utf8'));\nassert.equal(diagnostic.controls,4);\nfor(let i=0;i<4;i++){\n const a=baseline.results[i],b=diagnostic.results[i];\n assert.deepEqual(b.events,a.events);assert.deepEqual(b.requests,a.requests);assert.deepEqual(b.access,a.access);\n assert.equal(b.native_or_network_calls,0);\n}\nassert(diagnostic.results[1].stages.includes('preview_upload_enter'));\nassert(diagnostic.results[1].stages.includes('preview_token_rejected'));\nassert(!diagnostic.results[1].stages.includes('preview_upload_returned'));\nassert(diagnostic.results[2].stages.includes('remote_bindings_enter'));\nassert(diagnostic.results[2].stages.includes('remote_reload_rejected'));\nassert(diagnostic.results[3].stages.includes('proxy_bootstrap_rejected'));\nassert(!diagnostic.results[3].stages.includes('proxy_bootstrap_ready'));\nconst moduleFixture={exports:{}};\nconst context=vm.createContext({module:moduleFixture,exports:moduleFixture.exports});\nnew vm.Script(fs.readFileSync(dir+'/stages.diagnostic.cjs','utf8')).runInContext(context);\nconst {record}=moduleFixture.exports;const out=[];const sentinel='SYNTHETIC_PRIVATE_SENTINEL';\nrecord('preview_token_rejected',Object.assign(new Error(sentinel),{code:'EACCES',stack:sentinel}),s=>out.push(s));\nrecord('proxy_bootstrap_rejected',{get constructor(){throw new Error(sentinel);}},s=>out.push(s));\nrecord(sentinel,new Error(sentinel),s=>out.push(s));\nrecord('preview_upload_enter',undefined,()=>{throw new Error(sentinel);});\nassert.equal(out.length,1);assert.equal(out[0],'LC_STAGE|preview_token_rejected|kind=Error|code=EACCES\\n');assert(!out.join('').includes(sentinel));\nfs.writeFileSync(dir+'/controls-result.json',JSON.stringify({source_flow_cases:4,semantic_outcomes_unchanged:true,diagnostic_stage_assertions:8,sanitizer_controls:4,network_or_cli_calls:0,real_credential_config_fs_reads:0},null,2)+'\\n');\nconsole.log('source-flow equivalence and sanitized fixed-stage controls passed');\n",
+      "sha256": "a513f61a1549c78081657950624fa141a09b23a3928ad64d3740601aa058439c",
+      "bytes": 2235
+    }
+  },
+  "offline_reproduction": {
+    "inputs": "Only the exact pinned Linux vendor source and four approved review source files; no vendor bundle embedded. Substitute local reviewed source directory and pinned vendor path in the embedded scripts before synthetic-only execution. Never run wrapper main or CLI main.",
+    "order": [
+      "Extract embedded prepare.cjs, synthetic.cjs, controls.cjs into isolated scratch.",
+      "Stage the approved review files from exact6adadbd Git objects and verify their recorded SHA256 values.",
+      "Use diagnostic-only.patch to form wrapper/stages postimages in scratch; verify recorded postimage hashes.",
+      "Run prepare.cjs using baseline wrapper, then diagnostic wrapper to produce the two transformed source fixtures. It compiles source syntax only.",
+      "Run synthetic.cjs against each transformed fixture, saving baseline and diagnostic result JSON.",
+      "Run controls.cjs to compare outcomes and verify fixed-label sanitization."
+    ],
+    "portability_note": "The embedded scripts retain exact original Cloud fixture paths to preserve reproducibility and provenance. Path substitution is required on a different executor and changes transformed fixture hashes; it does not authorize reading Mac source/config or executing authenticated code."
+  }
+}
