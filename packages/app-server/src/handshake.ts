@@ -72,11 +72,10 @@ export function initializeAppServer(
         options.environment === "local"
           ? LOCAL_APP_SERVER_UNAVAILABLE_CAPABILITIES.filter((capability) =>
               (capability !== "turn-execution-v1" || !options.localTurnExecutionAvailable) &&
-              (capability !== "artifact-review-v1" || !options.localSavedReviewAvailable) &&
-              (capability !== "artifact-commit-v1" || !options.localSavedCommitAvailable),
+              (capability !== "artifact-review-v1" || !options.localSavedReviewAvailable),
             ).map((capability) => ({
               capability,
-              reason: capability === "artifact-commit-v1" ? "Saved commits are unavailable." : "This local capability is planned for a later slice",
+              reason: "This local capability is planned for a later slice",
             }))
           : [],
     },
