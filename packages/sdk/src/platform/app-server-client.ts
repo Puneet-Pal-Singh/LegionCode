@@ -5,6 +5,8 @@ import type { DiffContent, GitBranchMutationResult, GitMutationErrorCode, GitMut
 import type { BYOKCredential, BYOKCredentialConnectRequest, BYOKCredentialUpdateRequest, BYOKCredentialValidateRequest, BYOKCredentialValidateResponse } from "@repo/shared-types";
 import {
   LocalWorkspaceListFilesParamsSchema,
+  LocalProviderPreferenceScopeSchema,
+  type LocalProviderPreferenceScope,
   LocalWorkspaceReadFileParamsSchema,
   type LocalWorkspaceListFilesParams,
   type LocalWorkspaceListFilesResult,
@@ -180,6 +182,8 @@ const GitMutationMetadataSchema = z.object({
 export type AppServerClient = {
   startTurn(params: LocalTurnStartParams): Promise<TurnAdmission>;
   getTurn(turnId: string): Promise<TurnAdmission>;
+  /** latest:true reads a chronological tail with server-measured hasEarlier.
+   * limit is a row maximum; use actual nextCursor, never row count, to continue. */
   getThreadHistoryPage(params: LocalThreadHistoryParams): Promise<LocalThreadHistoryResult>;
   interruptLocalTurn(params: LocalTurnInterruptParams): Promise<InterruptTurnResponse>;
   initialize(
@@ -259,8 +263,8 @@ export type AppServerClient = {
   updateProviderCredential(runId: string | undefined, credentialId: string, request: BYOKCredentialUpdateRequest): Promise<BYOKCredential>;
   disconnectProviderCredential(runId: string | undefined, credentialId: string): Promise<void>;
   validateProviderCredential(runId: string | undefined, credentialId: string, request: BYOKCredentialValidateRequest): Promise<BYOKCredentialValidateResponse>;
-  readProviderPreferences(runId?: string): Promise<BYOKPreference>;
-  updateProviderPreferences(runId: string | undefined, request: BYOKPreferencesUpdateRequest): Promise<BYOKPreference>;
+  readProviderPreferences(runId?: string, localScope?: LocalProviderPreferenceScope): Promise<BYOKPreference>;
+  updateProviderPreferences(runId: string | undefined, request: BYOKPreferencesUpdateRequest, localScope?: LocalProviderPreferenceScope): Promise<BYOKPreference>;
   resolveProviderPreferences(runId: string | undefined, request: BYOKResolveRequest): Promise<BYOKResolution>;
   getProviderSelection(): Promise<ProviderSelection | null>;
   selectProvider(providerId: string, modelId: string): Promise<ProviderSelection>;
@@ -283,9 +287,16 @@ export function createAppServerClient(
     getTurn: async (turnId) => (await request(options, {
       method: "turn/get", params: { turnId: TurnIdSchema.parse(turnId) },
     }, AppServerResultSchemas["turn/get"])).admission,
-    getThreadHistoryPage: (params) => request(options, {
-      method: "thread/history", params: LocalThreadHistoryParamsSchema.parse(params),
-    }, AppServerResultSchemas["thread/history"]),
+    getThreadHistoryPage: async (params) => {
+      const verified = LocalThreadHistoryParamsSchema.parse(params);
+      const page = await request(options, {
+        method: "thread/history", params: verified,
+      }, AppServerResultSchemas["thread/history"]);
+      if (verified.latest && typeof page.hasEarlier !== "boolean") {
+        throw invalidResponse("thread/history", "Latest history did not include its earlier-history receipt");
+      }
+      return page;
+    },
     interruptLocalTurn: (params) => request(options, {
       method: "turn/interrupt", params: LocalTurnInterruptParamsSchema.parse(params),
     }, AppServerResultSchemas["turn/interrupt"]),
@@ -574,8 +585,8 @@ export function createAppServerClient(
     updateProviderCredential: async (runId, credentialId, payload) => request(options, { method: "provider/credentials/update", params: { ...(runId === undefined ? {} : { runId: RunIdSchema.parse(runId) }), credentialId, request: payload } }, AppServerResultSchemas["provider/credentials/update"]),
     disconnectProviderCredential: async (runId, credentialId) => { await request(options, { method: "provider/credentials/disconnect", params: { ...(runId === undefined ? {} : { runId: RunIdSchema.parse(runId) }), credentialId } }, AppServerResultSchemas["provider/credentials/disconnect"]); },
     validateProviderCredential: async (runId, credentialId, payload) => request(options, { method: "provider/credentials/validate", params: { ...(runId === undefined ? {} : { runId: RunIdSchema.parse(runId) }), credentialId, request: payload } }, AppServerResultSchemas["provider/credentials/validate"]),
-    readProviderPreferences: async (runId) => request(options, { method: "provider/preferences/read", params: runId === undefined ? {} : { runId: RunIdSchema.parse(runId) } }, AppServerResultSchemas["provider/preferences/read"]),
-    updateProviderPreferences: async (runId, payload) => request(options, { method: "provider/preferences/update", params: { ...(runId === undefined ? {} : { runId: RunIdSchema.parse(runId) }), request: payload } }, AppServerResultSchemas["provider/preferences/update"]),
+    readProviderPreferences: async (runId, localScope) => request(options, { method: "provider/preferences/read", params: { ...(runId === undefined ? {} : { runId: RunIdSchema.parse(runId) }), ...(localScope === undefined ? {} : { localScope: LocalProviderPreferenceScopeSchema.parse(localScope) }) } }, AppServerResultSchemas["provider/preferences/read"]),
+    updateProviderPreferences: async (runId, payload, localScope) => request(options, { method: "provider/preferences/update", params: { ...(runId === undefined ? {} : { runId: RunIdSchema.parse(runId) }), ...(localScope === undefined ? {} : { localScope: LocalProviderPreferenceScopeSchema.parse(localScope) }), request: payload } }, AppServerResultSchemas["provider/preferences/update"]),
     resolveProviderPreferences: async (runId, payload) => request(options, { method: "provider/resolve", params: { ...(runId === undefined ? {} : { runId: RunIdSchema.parse(runId) }), request: payload } }, AppServerResultSchemas["provider/resolve"]),
     getProviderSelection: async () => {
       const result = await request(options, { method: "provider/current", params: {} }, AppServerResultSchemas["provider/current"]);

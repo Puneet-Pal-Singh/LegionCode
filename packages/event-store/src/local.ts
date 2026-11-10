@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { LocalProviderPreferencesRecords } from "./local-provider-preferences.js";
 import { LocalTurnAdmissions } from "./local-turn-admissions.js";
 import type { TurnAdmission } from "@repo/platform-protocol/conversation";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync } from "node:fs";
@@ -16,6 +17,7 @@ import {
   type PlatformEvent,
   type LocalWorkspaceGrant,
   type ProviderId,
+  type WorkspaceId,
 } from "@repo/platform-protocol";
 import {
   LifecycleEventSchema,
@@ -110,8 +112,8 @@ export class LocalPersistence {
     admit(candidate: TurnAdmission): Promise<{ admission: TurnAdmission; newlyAdmitted: boolean }>;
     findByRequest(threadId: string, clientRequestId: string): Promise<TurnAdmission | null>;
     getByTurn(turnId: string): Promise<TurnAdmission | null>;
-    listByThread(input: { threadId: string; afterCursor: EventCursor | null; limit: number }): Promise<{
-      admissions: readonly TurnAdmission[]; nextCursor: EventCursor | null;
+    listByThread(input: { threadId: string; afterCursor: EventCursor | null; limit: number; latest?: boolean }): Promise<{
+      admissions: readonly TurnAdmission[]; nextCursor: EventCursor | null; hasEarlier?: boolean;
     }>;
   };
   readonly workspaceGrants: {
@@ -123,6 +125,11 @@ export class LocalPersistence {
     read(): Promise<{ readonly providerId: ProviderId; readonly modelId: string } | null>;
     write(value: { readonly providerId: ProviderId; readonly modelId: string }): Promise<void>;
     clear(): Promise<void>;
+  };
+
+  readonly providerPreferences: {
+    read(workspaceId: WorkspaceId): Promise<unknown | null>;
+    write(workspaceId: WorkspaceId, preferences: unknown): Promise<void>;
   };
 
   private readonly database!: Database.Database;
@@ -188,6 +195,11 @@ export class LocalPersistence {
       read: async () => this.readProviderSelection(),
       write: async (value) => this.writeProviderSelection(value),
       clear: async () => this.clearProviderSelection(),
+    };
+    const providerPreferences = new LocalProviderPreferencesRecords(this.database);
+    this.providerPreferences = {
+      read: async (workspaceId) => this.guardStorage(() => providerPreferences.read(workspaceId)),
+      write: async (workspaceId, preferences) => this.guardStorage(() => providerPreferences.write(workspaceId, preferences)),
     };
   }
 
