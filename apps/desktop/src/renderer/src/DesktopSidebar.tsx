@@ -27,8 +27,11 @@ export function DesktopSidebar({
   threadPresentation,
   ...actions
 }: DesktopSidebarProps): React.JSX.Element {
+  const workspaceUnavailable = workspace && workspace.readiness !== "ready";
   const model = useMemo(() => projectThreadSidebar({
-    state: loadState === "error"
+    state: workspaceUnavailable
+      ? { status: "error", message: "Restore project access to load its tasks." }
+      : loadState === "error"
       ? { status: "error", message: "The local thread list could not be loaded." }
       : { status: loadState },
     workspaces: workspace ? [{
@@ -49,13 +52,14 @@ export function DesktopSidebar({
       isUnread: threadPresentation?.get(thread.id)?.isUnread ?? false,
     })),
     selectedSelectionId: selectedThreadId,
-  }), [loadState, workspace, threads, selectedThreadId, threadPresentation]);
+  }), [loadState, workspace, workspaceUnavailable, threads, selectedThreadId, threadPresentation]);
 
   return (
     <ThreadSidebar
       {...actions}
       model={model}
       collapsibleProjects
+      retainWorkspaceGroups
       mutationError={threadError}
       pullRequestUnavailableReason="Pull request status is unavailable."
     />

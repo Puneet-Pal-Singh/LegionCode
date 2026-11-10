@@ -27,6 +27,8 @@ export interface ThreadSidebarProps {
   recentWorkspaceSelectionId?: WorkspaceSelectionId;
   /** Use the shared collapsible Projects section even without projectless chats. */
   collapsibleProjects?: boolean;
+  /** Keep known project metadata visible while its thread list is unavailable. */
+  retainWorkspaceGroups?: boolean;
   onSelect: (selectionId: string) => void;
   onCreate?: (workspaceSelectionId?: WorkspaceSelectionId) => void;
   onAddWorkspace?: () => void;
@@ -56,6 +58,7 @@ export function ThreadSidebar({
   visible = true,
   recentWorkspaceSelectionId,
   collapsibleProjects = Boolean(recentWorkspaceSelectionId),
+  retainWorkspaceGroups = false,
   onSelect,
   onCreate,
   onAddWorkspace,
@@ -312,8 +315,7 @@ export function ThreadSidebar({
       <nav className="sidebar-scroll-region flex-1 overflow-y-auto px-4 pb-3 pt-3" aria-label="Threads">
         {model.status === "loading" ? <p className="px-2 py-3 text-xs text-zinc-500" role="status">Loading threads…</p> : null}
         {model.status === "error" ? <p className="px-2 py-3 text-xs text-red-300" role="alert">{model.error || "Could not load threads."}</p> : null}
-        {model.status === "empty" ? <p className="px-2 py-3 text-xs italic text-zinc-600">No tasks yet</p> : null}
-        {model.status === "ready" || model.status === "empty" ? (
+        {model.status === "ready" || model.status === "empty" || (retainWorkspaceGroups && model.workspaceGroups.length > 0) ? (
           <div className="space-y-2">
             {collapsibleProjects ? (
               <ThreadSidebarSectionHeader label="Projects" expanded={isProjectsOpen} onToggle={() => setIsProjectsOpen((open) => !open)}>
@@ -470,6 +472,7 @@ export function ThreadSidebar({
                 ) : null}
               </section>
             ) : null}
+            {model.status === "empty" && (!collapsibleProjects || isProjectsOpen) ? <p className="px-2 py-3 text-xs italic text-zinc-600">No tasks yet</p> : null}
             {model.status === "ready" && hasNoMatches ? <p className="px-2 py-3 text-xs italic text-zinc-600">No matching tasks or projects</p> : null}
             </div>
           </div>
