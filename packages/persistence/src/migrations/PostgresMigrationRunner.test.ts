@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { providerConnectionCustodyMigration } from "./0037-provider-connection-custody.js";
+import { workspaceConfigurationVersionMigration } from "./0041-workspace-configuration-version.js";
+
 import { PostgresMigrationRunner } from "./PostgresMigrationRunner.js";
 import { projectlessSessionRepositoryMigration } from "./0034-projectless-session-repository.js";
 import { artifactProvenanceMigration } from "./0024-artifact-provenance.js";
@@ -84,6 +86,7 @@ describe("PostgresMigrationRunner", () => {
       legacyHistoryImportReceiptsMigration,
       projectlessSessionRepositoryMigration,
       providerConnectionCustodyMigration,
+      workspaceConfigurationVersionMigration,
     ]);
 
     expect(result).toEqual({
@@ -92,6 +95,7 @@ describe("PostgresMigrationRunner", () => {
         "0034_legacy_history_import_receipts",
         "0034_projectless_session_repository",
         "0037_provider_connection_custody",
+        "0041_workspace_configuration_version",
       ],
       skipped: ["0001_done"],
     });
@@ -101,12 +105,15 @@ describe("PostgresMigrationRunner", () => {
       ...legacyHistoryImportReceiptsMigration.statements,
       ...projectlessSessionRepositoryMigration.statements,
       ...providerConnectionCustodyMigration.statements,
+      ...workspaceConfigurationVersionMigration.statements,
+
     ]);
     expect(ledger.recorded).toEqual([
       "0002_pending",
       "0034_legacy_history_import_receipts",
       "0034_projectless_session_repository",
       "0037_provider_connection_custody",
+      "0041_workspace_configuration_version",
     ]);
     expect(legacyHistoryImportReceiptsMigration.statements[1]).toContain(
       "FOREIGN KEY (session_id, user_id) REFERENCES sessions (id, user_id) ON DELETE RESTRICT",
@@ -117,6 +124,10 @@ describe("PostgresMigrationRunner", () => {
     expect(legacyHistoryImportReceiptsMigration.statements[3]).toContain(
       "WHERE source_kind = 'local_wrangler_sqlite'",
     );
+    expect(workspaceConfigurationVersionMigration.statements).toEqual([
+      "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS configuration_version INTEGER NOT NULL DEFAULT 1",
+      "ALTER TABLE workspaces ADD CONSTRAINT workspaces_configuration_version_positive_check CHECK (configuration_version > 0)",
+    ]);
     expect(projectlessSessionRepositoryMigration.statements[0]).toContain(
       "UPDATE sessions SET repository = NULL WHERE repository = 'New Project'",
     );
@@ -128,14 +139,17 @@ describe("PostgresMigrationRunner", () => {
       await alreadyApplied.runPending([
         projectlessSessionRepositoryMigration,
         providerConnectionCustodyMigration,
+        workspaceConfigurationVersionMigration,
       ]),
     ).toEqual({
       applied: [],
       skipped: [
         "0034_projectless_session_repository",
         "0037_provider_connection_custody",
+        "0041_workspace_configuration_version",
       ],
     });
+
   });
 
   it("adds migration context to statement failures", async () => {
