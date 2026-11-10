@@ -1,9 +1,10 @@
 import { platformFingerprint } from "./local-platform-fingerprint.js";
+import { fingerprintLocalHarnessClientIntent } from "./local-harness-client-intent.js";
 import type { LocalThreadRuntimeScope, LocalThreadRuntimeSummary } from "./local-thread-runtime-summary.js";
 import { parseStoredGrant, type StoredLocalWorkspaceGrant } from "./local-workspace-grant.js";
 import { LocalHarnessControlPlane, type LocalHarnessControlPlanePort } from "./local/harness-control-plane.js";
 import { LocalHarnessObservationCommitPort } from "./local/harness-observation-port.js";
-import type { StoredHarnessSelection } from "./local/harness-bindings.js";
+import type { StoredHarnessSelection, StoredHarnessPreparation, HarnessPreparationInput } from "./local/harness-bindings.js";
 import { initializeLocalHarnessBindings, validateLocalHarnessBindings, HarnessPersistenceError, LocalHarnessBindingRepository, type HarnessBindingRepository } from "./local/harness-bindings.js";
 import Database from "better-sqlite3";
 import { LocalProviderPreferencesRecords } from "./local-provider-preferences.js";
@@ -102,6 +103,12 @@ export class LocalPersistence {
   readonly readAttachmentRetirement: LocalHarnessBindingRepository["readAttachmentRetirement"];
   readonly readHarnessPreOpeningSettlement: LocalHarnessBindingRepository["readHarnessPreOpeningSettlement"];
   readonly retireHarnessAttachment: (input: Parameters<LocalHarnessBindingRepository["retireHarnessAttachment"]>[0]) => Promise<void>;
+  readonly admitHarnessPreparation: (input: HarnessPreparationInput & { readonly admission: TurnAdmission }) => Promise<{
+    admission: TurnAdmission; newlyAdmitted: boolean; preparation: StoredHarnessPreparation;
+  }>;
+  readonly beginHarnessPreparation: LocalHarnessBindingRepository["beginHarnessPreparation"];
+  readonly cancelHarnessPreparation: LocalHarnessBindingRepository["cancelHarnessPreparation"];
+  readonly readHarnessPreparation: LocalHarnessBindingRepository["readHarnessPreparation"];
   readonly turnArtifacts: ReturnType<typeof createLocalTurnArtifactStore>;
   readonly turnAdmissions: {
     admit(candidate: TurnAdmission): Promise<{ admission: TurnAdmission; newlyAdmitted: boolean }>;
@@ -205,6 +212,26 @@ export class LocalPersistence {
     }
 
     const harnessBindings = new LocalHarnessBindingRepository(this.database, (event) => this.appendLifecycleWithin(event), this.admissions);
+    this.admitHarnessPreparation = (input) => this.guardHarnessStorage(() => this.database.transaction(() => {
+      if (!this.admissions)
+        throw new HarnessPersistenceError("admission_required", "Canonical admission writer is unavailable");
+      const fingerprint = fingerprintLocalHarnessClientIntent(input.admission);
+      const previous = this.admissions.findByRequest(input.admission.run.threadId, input.admission.clientRequestId);
+      if (previous) {
+        if (fingerprintLocalHarnessClientIntent(previous) !== fingerprint)
+          throw new EventStoreError("idempotency_conflict", "Admission request key has different client intent");
+        return { admission: previous, newlyAdmitted: false,
+          preparation: harnessBindings.readAdmittedPreparationWithin(previous) };
+      }
+      const result = this.admissions.admitWithin(input.admission);
+      const preparation = result.newlyAdmitted
+        ? harnessBindings.reservePreparationWithin(input, true)
+        : harnessBindings.readAdmittedPreparationWithin(result.admission);
+      return { ...result, preparation };
+    }).immediate());
+    this.beginHarnessPreparation = (input) => this.guardHarnessStorage(() => harnessBindings.beginHarnessPreparation(input));
+    this.cancelHarnessPreparation = (input) => this.guardHarnessStorage(() => harnessBindings.cancelHarnessPreparation(input));
+    this.readHarnessPreparation = (input) => this.guardHarnessStorage(() => harnessBindings.readHarnessPreparation(input));
     this.readAttachmentRetirement = (scope) => this.guardHarnessStorage(() => harnessBindings.readAttachmentRetirement(scope));
     this.readHarnessPreOpeningSettlement = (input) => this.guardHarnessStorage(() => harnessBindings.readHarnessPreOpeningSettlement(input));
     this.retireHarnessAttachment = (input) => this.guardHarnessStorage(() => harnessBindings.retireHarnessAttachment(input));
@@ -657,7 +684,7 @@ export class LocalPersistence {
     return row.value;
   }
 
-  private async guardHarnessStorage<T>(operation: () => Promise<T>): Promise<T> {
+  private async guardHarnessStorage<T>(operation: () => T | Promise<T>): Promise<T> {
     try { return await operation(); }
     catch (error) {
       if (error instanceof EventStoreError || error instanceof LocalPersistenceError || error instanceof HarnessPersistenceError) throw error;

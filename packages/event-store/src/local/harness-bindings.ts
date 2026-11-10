@@ -67,13 +67,22 @@ export const StoredHarnessOpeningSchema = z.object({
   phase:z.enum(["reserved","dispatching","acknowledged","retired","cancelled_before_dispatch"]),
 }).strict();
 export type StoredHarnessOpening = z.infer<typeof StoredHarnessOpeningSchema>;
-export const HarnessPreOpeningStateSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("unbound"), selection: z.null(), executionClaimId: z.null(), opening: z.null() }).strict(),
-  z.object({ kind: z.literal("frozen_unclaimed"), selection: StoredHarnessSelectionSchema,
-    executionClaimId: z.null(), opening: z.null() }).strict(),
-  z.object({ kind: z.literal("cancelled_before_dispatch"), selection: StoredHarnessSelectionSchema,
-    executionClaimId: text, opening: StoredHarnessOpeningSchema.refine((value) => value.phase === "cancelled_before_dispatch") }).strict(),
-]);
+export const StoredHarnessPreparationSchema = z.object({
+  preparationId: z.string().uuid(),
+  phase: z.enum(["reserved", "begun", "cancelled_before_preparation"]),
+}).strict();
+export type StoredHarnessPreparation = z.infer<typeof StoredHarnessPreparationSchema>;
+export interface HarnessPreparationInput {
+  readonly selection: StoredHarnessSelection;
+  readonly preparationId: string;
+}
+export const HarnessPreOpeningStateSchema = z.object({
+  kind: z.literal("cancelled_before_preparation"),
+  selection: StoredHarnessSelectionSchema,
+  preparation: StoredHarnessPreparationSchema.refine((value) => value.phase === "cancelled_before_preparation"),
+  executionClaimId: z.null(),
+  opening: z.null(),
+}).strict();
 export const HarnessPreOpeningSettlementSchema = CanonicalPreOpeningSettlementSchema.extend({
   version: z.literal(1), status: z.literal("verified_pre_opening_settlement"), state: HarnessPreOpeningStateSchema,
 }).strict();
@@ -299,7 +308,7 @@ export function validateLocalHarnessBindings(
     )
     .all();
   if (!marker && tables.length === 0) return false;
-  if (!["1", "2", "3"].includes(marker?.value ?? "") || tables.length !== 3)
+  if (!["1", "2", "3", "4"].includes(marker?.value ?? "") || tables.length !== 3)
     throw new LocalPersistenceError(
       "corrupt",
       "Local harness schema is incomplete",
@@ -336,7 +345,7 @@ export function validateLocalHarnessBindings(
       name: string;
     }[]
   ).some((c) => c.name === "recovery_observation_json");
-  if (["2", "3"].includes(marker?.value ?? "") && (!hasRecovery || !recoveryColumn))
+  if (["2", "3", "4"].includes(marker?.value ?? "") && (!hasRecovery || !recoveryColumn))
     throw new LocalPersistenceError(
       "corrupt",
       "Local harness recovery schema is incomplete",
@@ -346,7 +355,7 @@ export function validateLocalHarnessBindings(
       "corrupt",
       "Local harness recovery upgrade is incomplete",
     );
-  if (["2", "3"].includes(marker?.value ?? "")) {
+  if (["2", "3", "4"].includes(marker?.value ?? "")) {
     const claimColumns = database.pragma(
       "table_info(harness_reply_claims)",
     ) as { name: string; pk: number }[];
@@ -399,7 +408,11 @@ export function validateLocalHarnessBindings(
     );
   const hasOpening = (database.pragma("table_info(harness_bindings)") as {name:string}[])
     .some(column=>column.name==="opening_json");
-  if ((marker?.value === "3") !== hasOpening)
+  const hasPreparation = (database.pragma("table_info(harness_bindings)") as {name:string}[])
+    .some(column => column.name === "preparation_json");
+  if ((marker?.value === "4") !== hasPreparation)
+    throw new LocalPersistenceError("corrupt", "Local harness preparation schema version conflicts with its columns");
+  if (["3", "4"].includes(marker?.value ?? "") !== hasOpening)
     throw new LocalPersistenceError("corrupt","Local harness opening schema version conflicts with its columns");
   const bindings = database
     .prepare(
@@ -438,11 +451,33 @@ export function validateLocalHarnessBindings(
       );
     if (row.attachment_json !== null)
       StoredHarnessAttachmentSchema.parse(JSON.parse(row.attachment_json));
+    if (hasPreparation) {
+      const extra = database.prepare("SELECT preparation_json FROM harness_bindings WHERE turn_id=?")
+        .get(row.turn_id) as {preparation_json: string | null};
+      if (extra.preparation_json !== null) {
+        const preparation = StoredHarnessPreparationSchema.parse(JSON.parse(extra.preparation_json));
+        HarnessSelectionSchema.parse(JSON.parse(selection.selectionJson));
+        if (preparation.phase !== "begun" && (row.execution_claim_id !== null || row.attachment_json !== null ||
+            row.external_turn_id !== null || row.last_observation_sequence !== 0 || row.recovery_required !== 0))
+          throw new LocalPersistenceError("corrupt", "Unbegun preparation has execution authority");
+        if (preparation.phase !== "begun" && database.prepare(`SELECT 1 FROM harness_process_generations WHERE turn_id=?
+          UNION ALL SELECT 1 FROM harness_observation_receipts WHERE turn_id=?
+          UNION ALL SELECT 1 FROM harness_reply_claims WHERE turn_id=? LIMIT 1`).get(row.turn_id, row.turn_id, row.turn_id))
+          throw new LocalPersistenceError("corrupt", "Unbegun preparation has execution history");
+      }
+    }
     if(hasOpening){
       const extra=database.prepare("SELECT opening_json FROM harness_bindings WHERE turn_id=?").get(row.turn_id) as {opening_json:string|null};
       if(extra.opening_json!==null){
         const opening=StoredHarnessOpeningSchema.parse(JSON.parse(extra.opening_json));
         assertHarnessOpeningSelection(selection,opening.intent);
+        if (hasPreparation) {
+          const prepared = database.prepare("SELECT preparation_json FROM harness_bindings WHERE turn_id=?")
+            .get(row.turn_id) as {preparation_json: string | null};
+          if (prepared.preparation_json !== null &&
+              StoredHarnessPreparationSchema.parse(JSON.parse(prepared.preparation_json)).phase !== "begun")
+            throw new LocalPersistenceError("corrupt", "Opening conflicts with preparation state");
+        }
         if(!row.execution_claim_id ||
           ((opening.phase==="reserved" || opening.phase==="dispatching" || opening.phase==="cancelled_before_dispatch" || opening.phase==="retired") && row.attachment_json!==null) ||
           (opening.phase==="acknowledged" && row.attachment_json===null))
@@ -461,7 +496,7 @@ export function initializeLocalHarnessBindings(
   const marker = database
     .prepare("SELECT value FROM metadata WHERE key='harness_bindings_version'")
     .get() as { value: string } | undefined;
-  if (existing && marker?.value === "3") return;
+  if (existing && marker?.value === "4") return;
   database
     .transaction(() => {
       if (!existing) database.exec(LOCAL_SCHEMA);
@@ -473,10 +508,12 @@ export function initializeLocalHarnessBindings(
         "CREATE TABLE harness_reply_claims(turn_id TEXT NOT NULL,process_generation TEXT NOT NULL,request_sequence INTEGER NOT NULL,origin_json TEXT NOT NULL,PRIMARY KEY(turn_id,process_generation,request_sequence),FOREIGN KEY(turn_id,process_generation,request_sequence) REFERENCES harness_observation_receipts(turn_id,process_generation,sequence) ON DELETE CASCADE)",
       );
       }
-      database.exec("ALTER TABLE harness_bindings ADD COLUMN opening_json TEXT");
+      if (!existing || ["1", "2"].includes(marker?.value ?? ""))
+        database.exec("ALTER TABLE harness_bindings ADD COLUMN opening_json TEXT");
+      database.exec("ALTER TABLE harness_bindings ADD COLUMN preparation_json TEXT");
       database
         .prepare(
-          "INSERT INTO metadata(key,value) VALUES ('harness_bindings_version','3') ON CONFLICT(key) DO UPDATE SET value='3'",
+          "INSERT INTO metadata(key,value) VALUES ('harness_bindings_version','4') ON CONFLICT(key) DO UPDATE SET value='4'",
         )
         .run();
     })
@@ -489,6 +526,131 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
     private readonly appendLifecycle: (event: LifecycleEvent) => LifecycleEvent,
     private readonly admissions?: Pick<LocalTurnAdmissions, "getByTurn">,
   ) {}
+
+  /** Composed only with the canonical admission on this same immediate writer. */
+  reservePreparationWithin(raw: HarnessPreparationInput, newlyAdmitted: boolean): StoredHarnessPreparation {
+    if (!this.database.inTransaction)
+      throw new HarnessPersistenceError("admission_required", "Preparation reservation requires the existing writer transaction");
+    const input = this.parsePreparationInput(raw);
+    this.requireAdmission(input.selection);
+    const existing = this.readWithin(input.selection);
+    if (existing) {
+      if (newlyAdmitted)
+        throw new HarnessPersistenceError("corrupt", "Preparation binding precedes its canonical admission");
+      assertHarnessSelection(existing.selection, input.selection);
+      const preparation = this.readPreparationWithin(input.selection);
+      if (!preparation || preparation.preparationId !== input.preparationId)
+        throw new HarnessPersistenceError("binding_conflict", "Admitted preparation is immutable or unverified");
+      return preparation;
+    }
+    if (!newlyAdmitted || this.isSettled(input.selection.turnId))
+      throw new HarnessPersistenceError("binding_conflict", "Preparation cannot be added to a previous admission");
+    this.freezeWithin(input.selection, []);
+    const preparation: StoredHarnessPreparation = { preparationId: input.preparationId, phase: "reserved" };
+    const changed = this.database.prepare(`UPDATE harness_bindings SET preparation_json=?
+      WHERE turn_id=? AND run_attempt_id=? AND user_id=? AND preparation_json IS NULL`)
+      .run(JSON.stringify(preparation), input.selection.turnId, input.selection.runAttemptId, input.selection.userId);
+    if (changed.changes !== 1)
+      throw new HarnessPersistenceError("binding_conflict", "Preparation reservation lost its admission");
+    return preparation;
+  }
+
+  readAdmittedPreparationWithin(admission: import("@repo/platform-protocol").TurnAdmission): StoredHarnessPreparation {
+    if (!this.database.inTransaction)
+      throw new HarnessPersistenceError("admission_required", "Preparation read requires the existing writer transaction");
+    const binding = this.readWithin({ userId: admission.run.userId, turnId: admission.turn.id,
+      runAttemptId: admission.runAttemptId });
+    if (!binding)
+      throw new HarnessPersistenceError("binding_conflict", "Previous admission has no verified preparation");
+    if (binding.selection.userId !== admission.run.userId || binding.selection.runId !== admission.run.id ||
+        binding.selection.workspaceId !== admission.run.workspaceId || binding.selection.threadId !== admission.turn.threadId ||
+        binding.selection.turnId !== admission.turn.id || binding.selection.runAttemptId !== admission.runAttemptId)
+      throw new HarnessPersistenceError("corrupt", "Preparation binding differs from its canonical admission scope");
+    this.requireAdmission(binding.selection);
+    const canonical = this.admissions?.getByTurn(admission.turn.id);
+    if (!canonical || createStableEventFingerprint(canonical) !== createStableEventFingerprint(admission))
+      throw new HarnessPersistenceError("binding_conflict", "Preparation read differs from its canonical admission");
+    const preparation = this.readPreparationWithin(binding.selection);
+    if (!preparation)
+      throw new HarnessPersistenceError("binding_conflict", "Previous admission has no verified preparation");
+    return preparation;
+  }
+
+  async beginHarnessPreparation(raw: HarnessPreparationInput): Promise<"begun" | "not_reserved"> {
+    const input = this.parsePreparationInput(raw);
+    return this.database.transaction(() => {
+      const preparation = this.requiredPreparation(input);
+      if (preparation.phase !== "reserved" || this.isSettled(input.selection.turnId) ||
+          this.hasPreparationAuthority(input.selection.turnId)) return "not_reserved" as const;
+      this.writePreparationWithin(input, preparation, "begun");
+      return "begun" as const;
+    }).immediate();
+  }
+
+  async readHarnessPreparation(raw: Pick<HarnessPreparationInput, "selection">): Promise<StoredHarnessPreparation | null> {
+    const input = { selection: StoredHarnessSelectionSchema.parse(raw.selection) };
+    return this.database.transaction(() => {
+      this.requireAdmission(input.selection);
+      const binding = this.readWithin(input.selection);
+      if (!binding) return null;
+      assertHarnessSelection(binding.selection, input.selection);
+      return this.readPreparationWithin(input.selection);
+    })();
+  }
+
+  /** Caller must first seal its original no-exposure physical preparation. */
+  async cancelHarnessPreparation(raw: HarnessPreparationInput): Promise<"cancelled_before_preparation" | "not_reserved"> {
+    const input = this.parsePreparationInput(raw);
+    return this.database.transaction(() => {
+      const preparation = this.requiredPreparation(input);
+      if (preparation.phase === "begun" || this.hasPreparationAuthority(input.selection.turnId))
+        return "not_reserved" as const;
+      if (preparation.phase === "reserved")
+        this.writePreparationWithin(input, preparation, "cancelled_before_preparation");
+      return "cancelled_before_preparation" as const;
+    }).immediate();
+  }
+
+  private parsePreparationInput(raw: HarnessPreparationInput): HarnessPreparationInput {
+    return { selection: StoredHarnessSelectionSchema.parse(raw.selection), preparationId: z.string().uuid().parse(raw.preparationId) };
+  }
+  private readPreparationWithin(selection: StoredHarnessSelection): StoredHarnessPreparation | null {
+    const row = this.database.prepare(`SELECT preparation_json FROM harness_bindings
+      WHERE turn_id=? AND run_attempt_id=? AND user_id=?`)
+      .get(selection.turnId, selection.runAttemptId, selection.userId) as {preparation_json: string | null} | undefined;
+    return row?.preparation_json ? StoredHarnessPreparationSchema.parse(JSON.parse(row.preparation_json)) : null;
+  }
+  private requiredPreparation(input: HarnessPreparationInput): StoredHarnessPreparation {
+    this.requireAdmission(input.selection);
+    this.required(input.selection);
+    const preparation = this.readPreparationWithin(input.selection);
+    if (!preparation || preparation.preparationId !== input.preparationId)
+      throw new HarnessPersistenceError("binding_conflict", "Preparation does not match the admitted reservation");
+    return preparation;
+  }
+  private requirePreparationBegun(selection: StoredHarnessSelection): void {
+    this.requireAdmission(selection);
+    this.required(selection);
+    if (this.readPreparationWithin(selection)?.phase !== "begun")
+      throw new HarnessPersistenceError("admission_required", "Execution requires its original begun preparation");
+  }
+  private hasPreparationAuthority(turnId: string): boolean {
+    return Boolean(this.database.prepare(`SELECT 1 FROM harness_bindings WHERE turn_id=? AND
+      (execution_claim_id IS NOT NULL OR recovery_required<>0 OR attachment_json IS NOT NULL OR
+       external_turn_id IS NOT NULL OR last_observation_sequence<>0 OR opening_json IS NOT NULL)
+      UNION ALL SELECT 1 FROM harness_process_generations WHERE turn_id=?
+      UNION ALL SELECT 1 FROM harness_observation_receipts WHERE turn_id=?
+      UNION ALL SELECT 1 FROM harness_reply_claims WHERE turn_id=? LIMIT 1`).get(turnId, turnId, turnId, turnId));
+  }
+  private writePreparationWithin(input: HarnessPreparationInput, previous: StoredHarnessPreparation,
+    phase: StoredHarnessPreparation["phase"]): void {
+    const changed = this.database.prepare(`UPDATE harness_bindings SET preparation_json=? WHERE
+      turn_id=? AND run_attempt_id=? AND user_id=? AND preparation_json=?`)
+      .run(JSON.stringify({ ...previous, phase }), input.selection.turnId, input.selection.runAttemptId,
+        input.selection.userId, JSON.stringify(previous));
+    if (changed.changes !== 1)
+      throw new HarnessPersistenceError("binding_conflict", "Preparation compare-and-swap lost ownership");
+  }
 
   /** Positive logical pre-dispatch evidence only. The physical candidate owner
    * must separately drain its original publication and release its exact lease. */
@@ -503,45 +665,22 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
       const foreignAttempt = this.database.prepare("SELECT 1 FROM harness_bindings WHERE run_attempt_id=? AND turn_id<>?")
         .get(admission.runAttemptId, admission.turn.id);
       if (foreignAttempt) throw new HarnessPersistenceError("corrupt", "Pre-opening attempt has a foreign binding");
-      // No negative lookup alone authorizes release: the exact failed/interrupted
-      // terminal above fences future claims, dispatch and ordinary attachment.
-      const activity = this.database.prepare(`SELECT 1 FROM harness_process_generations WHERE turn_id=?
-        UNION ALL SELECT 1 FROM harness_observation_receipts WHERE turn_id=?
-        UNION ALL SELECT 1 FROM harness_reply_claims WHERE turn_id=? LIMIT 1`)
-        .get(admission.turn.id, admission.turn.id, admission.turn.id);
-      if (activity) return unknown;
+      // Missing or legacy state is never a positive no-preparation receipt.
       const row = this.database.prepare(`SELECT run_attempt_id,user_id,selection_json,selection_fingerprint,
-        attachment_json,external_turn_id,last_observation_sequence,execution_claim_id,recovery_required,opening_json
-        FROM harness_bindings WHERE turn_id=?`).get(admission.turn.id) as {
+        preparation_json FROM harness_bindings WHERE turn_id=?`).get(admission.turn.id) as {
           run_attempt_id: string; user_id: string; selection_json: string; selection_fingerprint: string;
-          attachment_json: string | null; external_turn_id: string | null; last_observation_sequence: number;
-          execution_claim_id: string | null; recovery_required: number; opening_json: string | null;
+          preparation_json: string | null;
         } | undefined;
-      let state: z.infer<typeof HarnessPreOpeningStateSchema> = {
-        kind: "unbound", selection: null, executionClaimId: null, opening: null,
-      };
-      if (row) {
-        const selection = StoredHarnessSelectionSchema.parse(JSON.parse(row.selection_json));
-        this.requireAdmission(selection);
-        if (row.run_attempt_id !== admission.runAttemptId || row.user_id !== admission.run.userId ||
-            selection.turnId !== admission.turn.id || selection.runAttemptId !== admission.runAttemptId ||
-            selection.userId !== admission.run.userId || row.selection_fingerprint !== harnessSelectionFingerprint(selection) ||
-            !Number.isSafeInteger(row.last_observation_sequence) || row.last_observation_sequence < 0 ||
-            ![0, 1].includes(row.recovery_required))
-          throw new HarnessPersistenceError("corrupt", "Pre-opening binding conflicts with canonical admission");
-        if (row.attachment_json !== null || row.external_turn_id !== null || row.last_observation_sequence !== 0 ||
-            row.recovery_required !== 0) return unknown;
-        if (row.opening_json === null) {
-          if (row.execution_claim_id !== null) return unknown;
-          state = { kind: "frozen_unclaimed", selection, executionClaimId: null, opening: null };
-        } else {
-          const opening = StoredHarnessOpeningSchema.parse(JSON.parse(row.opening_json));
-          assertHarnessOpeningSelection(selection, opening.intent);
-          if (opening.phase !== "cancelled_before_dispatch" || row.execution_claim_id === null) return unknown;
-          state = { kind: "cancelled_before_dispatch", selection,
-            executionClaimId: text.parse(row.execution_claim_id), opening };
-        }
-      }
+      if (!row || row.preparation_json === null || this.hasPreparationAuthority(admission.turn.id)) return unknown;
+      const selection = StoredHarnessSelectionSchema.parse(JSON.parse(row.selection_json));
+      this.requireAdmission(selection);
+      if (row.run_attempt_id !== admission.runAttemptId || row.user_id !== admission.run.userId ||
+          selection.turnId !== admission.turn.id || selection.runAttemptId !== admission.runAttemptId ||
+          selection.userId !== admission.run.userId || row.selection_fingerprint !== harnessSelectionFingerprint(selection))
+        throw new HarnessPersistenceError("corrupt", "Pre-opening binding conflicts with canonical admission");
+      const preparation = StoredHarnessPreparationSchema.parse(JSON.parse(row.preparation_json));
+      if (preparation.phase !== "cancelled_before_preparation") return unknown;
+      const state = { kind: "cancelled_before_preparation", selection, preparation, executionClaimId: null, opening: null };
       return HarnessPreOpeningSettlementSchema.parse({ ...canonical, status: "verified_pre_opening_settlement", version: 1, state });
     }).immediate();
   }
@@ -551,7 +690,9 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
     if(intent.executionLease.kind!=="local" || intent.executionLease.leaseId!==command.leaseId)
       throw new HarnessPersistenceError("binding_conflict","Local opening requires its actual local command lease");
     return this.database.transaction(()=>{
-      this.requireAdmission(selection);this.requireClaim(selection.turnId);
+      this.requirePreparationBegun(selection);this.requireClaim(selection.turnId);
+      if (this.isSettled(selection.turnId))
+        throw new HarnessPersistenceError("stale_origin", "Settled attempt cannot reserve an opening");
       const binding=this.required(selection);
       const prior=this.readOpeningWithin(selection);
       if (prior) { assertHarnessOpeningIntent(prior,intent);return {status:"existing" as const,opening:prior}; }
@@ -583,7 +724,7 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
     const input={selection:StoredHarnessSelectionSchema.parse(raw.selection),
       intent:HarnessOpeningIntentSchema.parse(raw.intent)};
     this.database.transaction(()=>{
-      this.requireAdmission(input.selection);this.requireClaim(input.selection.turnId);this.required(input.selection);
+      this.requirePreparationBegun(input.selection);this.requireClaim(input.selection.turnId);this.required(input.selection);
       const opening=this.readOpeningWithin(input.selection);
       if(!opening)throw new HarnessPersistenceError("stale_origin","Opening reservation is missing");
       assertHarnessOpeningIntent(opening,input.intent);
@@ -614,7 +755,7 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
     const input={selection:StoredHarnessSelectionSchema.parse(raw.selection),
       intent:HarnessOpeningIntentSchema.parse(raw.intent),origin:StoredHarnessAttachmentSchema.parse(raw.origin)};
     this.database.transaction(()=>{
-      this.requireAdmission(input.selection);this.requireClaim(input.selection.turnId);const binding=this.required(input.selection);
+      this.requirePreparationBegun(input.selection);this.requireClaim(input.selection.turnId);const binding=this.required(input.selection);
       const opening=this.readOpeningWithin(input.selection);
       if(!opening)throw new HarnessPersistenceError("stale_origin","Opening reservation is missing");
       assertHarnessOpeningIntent(opening,input.intent);assertHarnessOpeningOrigin(opening,input.origin);
@@ -667,6 +808,7 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
     this.requireAdmission(selection);
     if (events.length > 0 && this.isSettled(selection.turnId))
       throw new HarnessPersistenceError("stale_origin", "Settled attempt cannot append freeze events or regain execution authority");
+    if (events.length > 0) this.requirePreparationBegun(selection);
     for (const event of events) {
       assertEventScope(selection, event);
       this.appendLifecycle(event);
@@ -752,7 +894,15 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
     text.parse(input.claimId);
     return this.database
       .transaction(() => {
-        const binding = this.freezeWithin(input.selection, input.events ?? []);
+        const selection = StoredHarnessSelectionSchema.parse(input.selection);
+        this.requireAdmission(selection);
+        if (this.isSettled(selection.turnId)) {
+          const binding = this.readWithin(selection);
+          if (binding) assertHarnessSelection(binding.selection, selection);
+          return { status: "settled" as const, binding };
+        }
+        this.requirePreparationBegun(selection);
+        const binding = this.freezeWithin(selection, input.events ?? []);
         const state = this.database
           .prepare(
             "SELECT execution_claim_id,recovery_required FROM harness_bindings WHERE turn_id=?",
@@ -1101,6 +1251,7 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
     events?: readonly LifecycleEvent[];
   }): StoredHarnessBinding {
         const binding = this.required(input.selection);
+        this.requirePreparationBegun(input.selection);
         this.requireClaim(input.selection.turnId);
         const opening=this.readOpeningWithin(input.selection);
         if(opening){
