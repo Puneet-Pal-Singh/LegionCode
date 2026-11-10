@@ -119,6 +119,11 @@ export async function assertLocalFileToolAuthorized(
   }
   if (input.approval !== null) return assertLocalToolApproved(options);
   const { events, tool, parsed } = await readCanonicalLocalToolRequest(options, false);
+  const attemptStarted = events[2];
+  if (attemptStarted?.type !== "run_attempt.started" ||
+    attemptStarted.payload.executionCapability !== admission.run.executionCapability) {
+    throw new Error("Canonical file tool execution capability changed");
+  }
   const itemStarts = events.filter((event) => event.type === "item.started" && event.itemId === tool.itemId);
   const itemStart = itemStarts[0];
   if (itemStarts.length !== 1 || itemStart?.type !== "item.started" ||
