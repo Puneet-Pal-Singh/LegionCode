@@ -474,6 +474,8 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
 
   async reserveOpening(input:ReserveHarnessOpeningInput):Promise<HarnessOpeningReservation> {
     const {selection,intent,command}=await validateHarnessOpeningCommand(input);
+    if(intent.executionLease.kind!=="local" || intent.executionLease.leaseId!==command.leaseId)
+      throw new HarnessPersistenceError("binding_conflict","Local opening requires its actual local command lease");
     return this.database.transaction(()=>{
       this.requireAdmission(selection);this.requireClaim(selection.turnId);
       const binding=this.required(selection);
@@ -668,7 +670,8 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
           recovery_required: number;
         };
         // Terminal lifecycle does not retire a still-owned physical generation.
-        if (state.recovery_required === 1 && binding.attachment !== null)
+        const opening=this.readOpeningWithin(input.selection);
+        if (state.recovery_required === 1 && (binding.attachment !== null || (opening !== null && opening.phase!=="retired")))
           return { status: "recovery_required" as const, binding };
         if (this.isSettled(input.selection.turnId))
           return { status: "settled" as const, binding };

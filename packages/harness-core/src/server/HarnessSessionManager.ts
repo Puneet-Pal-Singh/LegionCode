@@ -183,7 +183,11 @@ export class HarnessSessionManager {
     readonly commandFingerprint: string;
     readonly timeoutMs: number;
   }): Promise<HarnessOpeningFenceResult> {
-    const target=HarnessOpeningFenceTargetSchema.pick({runAttemptId:true,processGeneration:true,commandFingerprint:true}).parse(input);
+    const target=HarnessOpeningFenceTargetSchema.pick({runAttemptId:true,processGeneration:true,commandFingerprint:true}).parse({
+      runAttemptId: input.runAttemptId,
+      processGeneration: input.processGeneration,
+      commandFingerprint: input.commandFingerprint,
+    });
     const timeoutMs=input.timeoutMs;
     if (
       !Number.isSafeInteger(timeoutMs) ||
