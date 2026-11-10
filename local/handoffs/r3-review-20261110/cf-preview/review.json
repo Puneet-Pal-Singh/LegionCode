@@ -1,0 +1,42 @@
+{
+  "purpose": "Read-only Cloud source investigation of private Wrangler preview startup; not production code or approved launch policy",
+  "expected_repository_source": "97baba33c0f7f811edadedfc06e67184ff08a7cc",
+  "approved_document_handoff": "2c61f920c",
+  "approved_document_manifest_sha256": "97ea115ad92803beced687c0335643cf5e3773842cdc54cef4e025892ff329b3",
+  "wrangler_version": "4.61.0",
+  "official_cli_sha256": "3df343f7390ca138b0ce9282f0a420fab2261cd518857a74ba82097fc3e20810",
+  "assets": {
+    "wrapper.cjs": "45c47d1c4390f2809fc582777347575973450bb59a8130d8e17268e53861acef",
+    "protocol.cjs": "610067c53896e318c59425293d40f8224cedf836ba94f2b07c86bfbce6513d57",
+    "stages.cjs": "43babb23cfba01d62deff4c48b53d679ac6c2e95d2f7ac13e66b4f8cb38d750e"
+  },
+  "official_reference_commits": [
+    "https://github.com/cloudflare/workers-sdk/commit/b8c33f5509a202cf4d4ebe5bd38c5705dffd9346",
+    "https://github.com/cloudflare/workers-sdk/commit/dc24057e13580a3cd3e3b917b8659ad5c1e85e50"
+  ],
+  "offline_verification": {
+    "existing_fixtures": 29,
+    "instrumentation_semantic_controls": 7,
+    "fixed_stage_classifier_cases": 24
+  },
+  "observed_diagnostic": {
+    "initializer_authenticated_request": "returned and token validated",
+    "optional_exchange": "response unavailable; required initializer token retained",
+    "subdomain_authenticated_read": "returned and validated",
+    "protocol": "returned",
+    "cli_exit": 1,
+    "private_ready": false,
+    "do_http_requests": 0,
+    "kernel_evidence": false,
+    "raw_output": "discarded; no message/stack/URL/token/header retained"
+  },
+  "safety": {
+    "no_provider_credentials_or_homes": true,
+    "no_cloudflare_credentials_or_config": true,
+    "no_environment_files": true,
+    "no_live_execution_authorized_for_cloud_review": true,
+    "source_edits": "none; report exact proposed hunks to root",
+    "allowed_work": "Read exact sources, compare official upstream references, simulate private preview token/proxy consumer flow with synthetic dependencies. Any installs/builds happen in managed Cloud. Never run authenticated CLI/probe or alter installed Mac source.",
+    "mac_specific_wrapper_path": "An input path constant only. Cloud reviewer may use an isolated fixture substitution for its pinned vendor source; do not execute wrapper main or interpret the path as credential access."
+  }
+}
