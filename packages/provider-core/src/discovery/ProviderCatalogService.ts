@@ -6,6 +6,7 @@
 
 import type {
   BYOKDiscoveredProviderModelsResponse,
+  BYOKDiscoveredProviderModel,
   BYOKDiscoveredProviderModelsQuery,
   BYOKDiscoveredProviderModelsRefreshResponse,
   ProviderCatalogEntry,
@@ -84,19 +85,9 @@ export class ProviderCatalogService {
     }
 
     if (provider.modelSource === "static") {
-      const defaultModelId = provider.defaultModelId;
-      const models = defaultModelId
-        ? await this.modelDiscoveryService.enrichModels(providerId, [
-            {
-              id: defaultModelId,
-              name: defaultModelId,
-              providerId,
-              contextWindow: builtinProviderRegistry.getModel(
-                providerId,
-                defaultModelId,
-              )?.contextWindow,
-            },
-          ])
+      const declared = staticRegistryModels(provider);
+      const models = declared.length > 0
+        ? await this.modelDiscoveryService.enrichModels(providerId, declared)
         : [];
       return createRegistryResponse(
         providerId,
@@ -137,6 +128,16 @@ export class ProviderCatalogService {
         modelsCount: platformModels.length,
       };
     }
+    const provider = this.registryService.getProvider(providerId);
+    if (provider?.modelSource === "static") {
+      return {
+        providerId,
+        refreshedAt: new Date().toISOString(),
+        source: "provider_api",
+        cacheInvalidated: false,
+        modelsCount: staticRegistryModels(provider).length,
+      };
+    }
     return this.modelDiscoveryService.refreshDiscoveredModels(providerId);
   }
 
@@ -164,6 +165,16 @@ export class ProviderCatalogService {
       return false;
     }
   }
+}
+
+function staticRegistryModels(provider: ProviderRegistryEntry): BYOKDiscoveredProviderModel[] {
+  const modelId = provider.defaultModelId;
+  return modelId ? [{
+    id: modelId,
+    name: modelId,
+    providerId: provider.providerId,
+    contextWindow: builtinProviderRegistry.getModel(provider.providerId, modelId)?.contextWindow,
+  }] : [];
 }
 
 function createRegistryResponse(
