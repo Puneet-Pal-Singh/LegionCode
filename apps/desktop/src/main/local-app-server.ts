@@ -125,7 +125,7 @@ function isStartMessage(message: unknown): message is LocalAppServerStartMessage
       Array.isArray(value.protectedHostRoots) && value.protectedHostRoots.length <= 32 &&
       value.protectedHostRoots.every((path: unknown) => typeof path === "string" && path.startsWith("/") && !path.includes("\0"))
     )) &&
-    [value.nativeFilesystemHelperPath, value.nativeProcessHelperPath].every((path) =>
+    [value.nativeFilesystemHelperPath, value.nativeProcessHelperPath, value.nativeWriterFenceDirectory].every((path) =>
       path === undefined || (typeof path === "string" && path.startsWith("/") && !path.includes("\0")),
     )
   );
