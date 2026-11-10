@@ -54,7 +54,7 @@ export type LocalAppServerParentPort = {
 
 export type LocalAppServerCompositionOptions = {
   createPhysicalAdmissionCandidates?(input: {
-    persistence: Pick<LocalPersistence, "turnAdmissions" | "lifecycleEvents" | "turnArtifacts">;
+    persistence: Pick<LocalPersistence, "turnAdmissions" | "lifecycleEvents" | "turnArtifacts" | "readHarnessPreOpeningSettlement">;
     workspaces: LocalWorkspaceService;
   }): LocalPhysicalAdmissionCandidates;
   providerModelCatalog?: LocalProviderModelCatalog;

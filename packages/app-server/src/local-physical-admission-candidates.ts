@@ -1,19 +1,34 @@
 import { isDeepStrictEqual } from "node:util";
 import { TurnAdmissionSchema, type TurnAdmission } from "@repo/platform-protocol";
 import type { LocalPersistence } from "@repo/event-store/local";
-import type { LocalNativeResourceSettlement } from "@repo/event-store";
+import {
+  HarnessPreOpeningSettlementResultSchema,
+  type HarnessPreOpeningSettlement,
+  type LocalNativeResourceSettlement,
+} from "@repo/event-store";
 import type { LocalTurnAttemptIdentity } from "@legioncode/execution-engine/runtime/desktop/LocalReadOnlyTurnExecutor";
 import { verifyLocalNativePredecessorSettlement } from "./local-native-settlement.js";
+import { readLocalTurnArtifactPublication } from "./local-turn-artifact-publication.js";
 import type { LocalWorkspaceExecutionBinding, LocalWorkspaceService } from "./local-workspace.js";
 import { LocalWorkspaceWriterLeaseError, type LocalWorkspaceWriterLease, type LocalWorkspaceWriterLeaseOwner } from "./local-workspace-writer-lease.js";
 
-type Persistence = Pick<LocalPersistence, "turnAdmissions" | "lifecycleEvents" | "turnArtifacts">;
+type Persistence = Pick<LocalPersistence, "turnAdmissions" | "lifecycleEvents" | "turnArtifacts" | "readHarnessPreOpeningSettlement">;
 type AdmissionResult = Awaited<ReturnType<LocalPersistence["turnAdmissions"]["admit"]>>;
 
 export type LocalPhysicalAdmissionPublication =
   | { readonly newlyAdmitted: false; readonly admission: TurnAdmission }
   | { readonly newlyAdmitted: true; readonly admission: TurnAdmission;
-      readonly binding: LocalWorkspaceExecutionBinding; readonly lease: LocalWorkspaceWriterLease };
+      readonly disposition: "execution";
+      readonly binding: LocalWorkspaceExecutionBinding; readonly lease: LocalWorkspaceWriterLease }
+  | { readonly newlyAdmitted: true; readonly admission: TurnAdmission;
+      readonly disposition: "settlement_required";
+      readonly settleBeforeDispatch: (input: LocalPhysicalAdmissionSettlement) => Promise<boolean> };
+
+export type LocalPhysicalAdmissionSettlement = {
+  /** The existing canonical runtime/061 reservation owner settles interruption.
+   * This callback grants no execution or physical release authority. */
+  readonly settleCanonical: (admission: TurnAdmission) => Promise<void>;
+};
 
 /** Private original-resource reservation. The caller retains this object before
  * awaiting ready(), and keeps it on every unknown acquisition/publication result. */
@@ -26,6 +41,7 @@ export interface LocalPhysicalAdmissionCandidate {
   /** Permanently fences publication/adoption, drains both original promises,
    * then asks the same writer entry to verify canonical absence before release. */
   discardUnadmitted(): Promise<boolean>;
+  settleBeforeDispatch(input: LocalPhysicalAdmissionSettlement): Promise<boolean>;
 }
 
 export interface LocalPhysicalAdmissionCandidates {
@@ -54,12 +70,14 @@ class PhysicalAdmissionCandidate implements LocalPhysicalAdmissionCandidate {
   private readonly acquisition: Promise<void>;
   private publication: Promise<LocalPhysicalAdmissionPublication> | undefined;
   private discard: Promise<boolean> | undefined;
+  private settlement: Promise<boolean> | undefined;
   private binding: LocalWorkspaceExecutionBinding | undefined;
   private lease: LocalWorkspaceWriterLease | undefined;
   private acquisitionWasUnused = false;
   private bindingWasStarted = false;
   private fenced = false;
   private adopted = false;
+  private knownAdmission = false;
 
   constructor(private readonly options: Parameters<typeof createLocalPhysicalAdmissionCandidates>[0], input: {
     readonly candidate: TurnAdmission; readonly signal: AbortSignal;
@@ -96,28 +114,37 @@ class PhysicalAdmissionCandidate implements LocalPhysicalAdmissionCandidate {
     // publisher. Discard must drain this original, never a replacement lookup.
     this.publication = Promise.resolve().then<LocalPhysicalAdmissionPublication>(async () => {
       await this.ready();
-      const result = await publishAdmission(this.admission);
       this.assertAccepting();
+      let result: AdmissionResult;
+      try {
+        result = await publishAdmission(this.admission);
+      } catch (error) {
+        // Unknown delivery can only reconcile to cleanup, never execution.
+        if (await this.readExactCandidate()) return this.requireSettlement();
+        throw error;
+      }
       const admission = TurnAdmissionSchema.parse(result.admission);
       if (result.newlyAdmitted === false) {
         const byRequest = await this.options.persistence.turnAdmissions.findByRequest(
           this.admission.run.threadId, this.admission.clientRequestId,
         );
         const byTurn = await this.options.persistence.turnAdmissions.getByTurn(admission.turn.id);
-        this.assertAccepting();
         if (!sameRequest(this.admission, admission) || !byRequest || !byTurn ||
             !isDeepStrictEqual(TurnAdmissionSchema.parse(byRequest), admission) ||
             !isDeepStrictEqual(TurnAdmissionSchema.parse(byTurn), admission)) throw unavailable();
         return { newlyAdmitted: false, admission };
       }
       if (result.newlyAdmitted !== true || !isDeepStrictEqual(admission, this.admission)) throw unavailable();
-      const saved = await this.options.persistence.turnAdmissions.getByTurn(this.admission.turn.id);
-      this.assertAccepting();
-      if (!saved || !isDeepStrictEqual(TurnAdmissionSchema.parse(saved), this.admission)) throw unavailable();
-      await this.lease!.assertCurrent();
-      this.assertAccepting();
+      if (!(await this.readExactCandidate())) throw unavailable();
+      if (this.fenced || this.signal.aborted) return this.requireSettlement();
+      try {
+        await this.lease!.assertCurrent();
+        this.assertAccepting();
+      } catch {
+        return this.requireSettlement();
+      }
       this.adopted = true;
-      return { newlyAdmitted: true, admission, binding: this.binding!, lease: this.lease! };
+      return { newlyAdmitted: true, disposition: "execution", admission, binding: this.binding!, lease: this.lease! };
     });
     void this.publication.catch(() => undefined);
     return this.publication;
@@ -129,6 +156,29 @@ class PhysicalAdmissionCandidate implements LocalPhysicalAdmissionCandidate {
     this.controller.abort("Physical admission candidate is closing");
     this.discard ??= this.discardOriginal();
     return this.discard;
+  }
+
+  settleBeforeDispatch(input: LocalPhysicalAdmissionSettlement): Promise<boolean> {
+    if (this.adopted) return Promise.resolve(false);
+    this.fenced = true;
+    this.controller.abort("Known admission is settling without dispatch");
+    this.settlement ??= this.settleOriginal(input);
+    return this.settlement;
+  }
+
+  private requireSettlement(): LocalPhysicalAdmissionPublication {
+    this.fenced = true;
+    return {
+      newlyAdmitted: true, disposition: "settlement_required", admission: this.admission,
+      settleBeforeDispatch: (input) => this.settleBeforeDispatch(input),
+    };
+  }
+
+  private async readExactCandidate(): Promise<boolean> {
+    const saved = await this.options.persistence.turnAdmissions.getByTurn(this.admission.turn.id);
+    if (!saved || !isDeepStrictEqual(TurnAdmissionSchema.parse(saved), this.admission)) return false;
+    this.knownAdmission = true;
+    return true;
   }
 
   private async acquireOriginal(): Promise<void> {
@@ -156,6 +206,9 @@ class PhysicalAdmissionCandidate implements LocalPhysicalAdmissionCandidate {
       await this.acquisition.catch(() => undefined);
       await this.publication?.catch(() => undefined);
       if (this.adopted) return false;
+      // Do not poison the writer's single release promise with an unused-release
+      // refusal when known admission needs the separate never-dispatched proof.
+      if (this.knownAdmission || await this.readExactCandidate()) return false;
       if (this.lease) {
         if (!(await this.lease.releaseUnadmitted(() =>
           this.options.persistence.turnAdmissions.getByTurn(this.admission.turn.id)))) return false;
@@ -173,8 +226,41 @@ class PhysicalAdmissionCandidate implements LocalPhysicalAdmissionCandidate {
     }
   }
 
+  private async settleOriginal(input: LocalPhysicalAdmissionSettlement): Promise<boolean> {
+    try {
+      await this.acquisition.catch(() => undefined);
+      await this.publication?.catch(() => undefined);
+      if (this.adopted || !this.lease || !this.binding || !(await this.readExactCandidate())) return false;
+      try { await input.settleCanonical(this.admission); } catch { /* Reconcile the exact durable result below. */ }
+      // The same-writer P11 proof and canonical terminal are checked below; a
+      // callback return or a terminal event alone cannot release this lease.
+      const proof = await this.readSettlementProof();
+      if (!proof || !(await this.lease.release(async (turnId) =>
+        turnId === this.admission.turn.id && !this.adopted &&
+        isDeepStrictEqual(await this.readSettlementProof(), proof)))) return false;
+      await this.binding.close();
+      return this.binding.rootDirectory.fd === -1;
+    } catch {
+      return false;
+    }
+  }
+
+  private async readSettlementProof(): Promise<HarnessPreOpeningSettlement | null> {
+    if (this.adopted || !this.knownAdmission || !(await this.readExactCandidate())) return null;
+    const proof = HarnessPreOpeningSettlementResultSchema.parse(
+      await this.options.persistence.readHarnessPreOpeningSettlement({ admission: this.admission }),
+    );
+    if (proof.status !== "verified_pre_opening_settlement" ||
+        !isDeepStrictEqual(proof.admission, this.admission) ||
+        !isDeepStrictEqual(proof.capture, this.admission.run.harnessSelection)) return null;
+    const publication = await readLocalTurnArtifactPublication(this.options.persistence.lifecycleEvents, this.admission);
+    if (!publication.terminal || publication.terminal.type === "turn.completed" ||
+        !isDeepStrictEqual(publication.terminal, proof.terminal) || this.adopted) return null;
+    return proof;
+  }
+
   private assertAccepting(): void {
-    if (this.fenced || this.signal.aborted) throw unavailable();
+    if (this.fenced || this.adopted || this.signal.aborted) throw unavailable();
     this.binding?.assertCurrent();
   }
 }
@@ -188,6 +274,7 @@ function sameRequest(candidate: TurnAdmission, saved: TurnAdmission): boolean {
     clientRequestId, workspaceId: run.workspaceId, threadId: run.threadId, userId: run.userId,
     mode: run.mode, providerId: run.providerId, modelId: run.modelId,
     permissionProfileId: run.permissionProfileId, executionCapability: run.executionCapability,
+    harnessSelection: run.harnessSelection,
     parentTurnId: turn.parentTurnId, parentItemId: userMessage.parentItemId,
     branchId: userMessage.branchId, type: userMessage.type, content: userMessage.content,
   });

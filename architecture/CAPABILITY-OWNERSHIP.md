@@ -2189,6 +2189,15 @@ The private factory option is a provider seam only until the 061 constructor
 retains and invokes these candidates. Delegated availability also requires the
 new enforcing Native child-intent ABI; this leaf does not advertise activation.
 
+If the original publisher finishes after fencing, exact durable admission yields
+only a never-dispatched settlement capability. The actual 061 canonical owner
+settles interruption; the same P11 transactional reader proves exact terminal,
+capture and pre-opening/targeted-cancellation state. The candidate independently
+rechecks that proof and canonical publication while the original writer still
+holds its never-exposed authority. Only the same writer's combined release and
+original binding close complete cleanup. A lost publisher acknowledgement can
+reconcile to this cleanup-only path, never newly authorize execution.
+
 ## Issue 810 — Versioned hosted workspace configuration
 
 The existing `WorkspaceRepository` owns saved configuration for one primary
