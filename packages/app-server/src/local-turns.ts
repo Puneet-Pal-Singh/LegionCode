@@ -1,3 +1,4 @@
+import type { BYOKDiscoveredProviderModel } from "@repo/shared-types";
 import {
   ModelIdSchema,
   ContentDigestSchema,
@@ -35,6 +36,7 @@ import { AppServerOperationError } from "./server.js";
 import { LocalApprovalService } from "./local-approvals.js";
 import type { LocalTurnMediaPort, LocalTurnPreparedMedia } from "./local-turn-media.js";
 import { localTurnImageReferences } from "./local-turn-images.js";
+import { captureLocalTurnModel } from "./local-turn-model.js";
 import { LocalTurnResources, type LocalTurnPreparation } from "./local-turn-resources.js";
 import {
   LocalInterruptionService,
@@ -71,7 +73,7 @@ export type LocalTurnServiceOptions = {
       configuration: LocalTurnConfiguration;
       media?: { preparation: LocalTurnPreparedMedia; imageCount: number };
     }): Promise<TurnAdmission>;
-    createExecutor(binding: LocalWorkspaceExecutionBinding, admission: TurnAdmission): LocalTurnExecutor;
+    createExecutor(binding: LocalWorkspaceExecutionBinding, admission: TurnAdmission, model: BYOKDiscoveredProviderModel): LocalTurnExecutor;
   };
 };
 
@@ -195,9 +197,12 @@ export class LocalTurnService {
           "Select a protected provider and model before starting a turn",
         );
       assertProviderSelection(selection, params.expectedSelection);
+      const model = captureLocalTurnModel(
+        await this.options.providers.getModel(selection.providerId, selection.modelId),
+        selection,
+      );
       const hasImages = images.length > 0 || await this.hasImageHistory(thread.id);
-      if (hasImages && this.options.providers.listModels(selection.providerId).models
-        .find((model) => model.id === selection.modelId)?.capabilities?.supportsVision !== true) {
+      if (hasImages && model.capabilities?.supportsVision !== true) {
         throw new AppServerOperationError(409, "conflict", "The selected model does not support image input", "local_image_model_unsupported", false);
       }
       preparedMedia = await this.prepareImages(images, AbortSignal.any([binding.signal, this.resources.admissionSignal]));
@@ -222,7 +227,7 @@ export class LocalTurnService {
       }
       this.resources.assertAcceptingAdmission();
       // Construct ports before admission; providers execute only through execute().
-      const executor = runtime.createExecutor(binding, candidate);
+      const executor = runtime.createExecutor(binding, candidate, model);
       if (typeof executor.awaitResourceRelease !== "function") {
         throw new AppServerOperationError(
           503,

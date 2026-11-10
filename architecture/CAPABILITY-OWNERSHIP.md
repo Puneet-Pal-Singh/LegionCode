@@ -1751,3 +1751,9 @@ Native Plan recovery refuses any defined opaque harness selection on the Run or
 immutable admitted user content before schema, worker, producer or history checks.
 Those records remain with their independent harness owner; no driver ID parsing,
 selection remapping or delegated lifecycle mutation is introduced.
+
+Native execution captures an available matching discovered model with an explicit
+runtime route, freezes the validated private snapshot and uses its capabilities
+for image admission. The same captured values reach protected inference; volatile
+catalog metadata is not persisted in admission or request fingerprints. Canonical
+provider discovery and inference retain selection and runtime-route validation.
