@@ -1,3 +1,4 @@
+import { RepositoryIdentityConflictError } from "./types.js";
 import type {
   RepositoryRecord,
   UpdateWorkspaceConfigurationInput,
@@ -42,8 +43,13 @@ export class MemoryWorkspaceRepository implements WorkspaceRepository {
   }
 
   async updateWorkspaceConfiguration(
-    input: UpdateWorkspaceConfigurationInput,
+    request: UpdateWorkspaceConfigurationInput,
   ): Promise<WorkspaceConfigurationUpdateResult> {
+    const input = {
+      ...request,
+      patch: { ...request.patch },
+      expectedRepository: { ...request.expectedRepository },
+    };
     // No awaits between reading the revision and updating both records.
     const stored = Array.from(this.workspacesByKey.values()).find(
       (workspace) =>
@@ -52,6 +58,14 @@ export class MemoryWorkspaceRepository implements WorkspaceRepository {
         workspace.status === "active",
     );
     if (!stored) return { status: "not_found" };
+    const repository = this.requireRepository(stored.repoId);
+    if (
+      !/^[1-9][0-9]*$/u.test(input.expectedRepository.providerRepoId) ||
+      stored.repoId !== input.expectedRepository.id ||
+      repository.providerRepoId !== input.expectedRepository.providerRepoId
+    ) {
+      throw new RepositoryIdentityConflictError();
+    }
     if (stored.configurationVersion !== input.expectedVersion)
       return { status: "conflict" };
     const name = input.patch.name ?? stored.name;
@@ -87,8 +101,9 @@ export class MemoryWorkspaceRepository implements WorkspaceRepository {
   }
 
   async selectWorkspace(
-    input: SelectWorkspaceInput,
+    request: SelectWorkspaceInput,
   ): Promise<WorkspaceBootstrapRecord> {
+    const input = { ...request, repository: { ...request.repository } };
     const repository = this.upsertRepository(input);
     const workspace = this.upsertWorkspace(input, repository);
     const selection = {
@@ -100,7 +115,11 @@ export class MemoryWorkspaceRepository implements WorkspaceRepository {
     };
 
     this.selectionsByUserId.set(input.userId, selection);
-    return { repository, workspace, selection };
+    return {
+      repository: { ...repository },
+      workspace: { ...workspace },
+      selection: { ...selection },
+    };
   }
 
   async findWorkspaceSelection(
@@ -121,7 +140,7 @@ export class MemoryWorkspaceRepository implements WorkspaceRepository {
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .map((workspace) => ({
         workspace: publicWorkspace(workspace),
-        repository: this.requireRepository(workspace.repoId),
+        repository: { ...this.requireRepository(workspace.repoId) },
         selected: selection?.selectedWorkspaceId === workspace.id,
       }));
   }
@@ -129,6 +148,13 @@ export class MemoryWorkspaceRepository implements WorkspaceRepository {
   private upsertRepository(input: SelectWorkspaceInput): RepositoryRecord {
     const key = buildRepoKey(input.repository);
     const existing = this.reposByKey.get(key);
+    // Existing namespace identity (including legacy null) cannot be rebound.
+    if (
+      existing &&
+      existing.providerRepoId !== (input.repository.providerRepoId ?? null)
+    ) {
+      throw new RepositoryIdentityConflictError();
+    }
     const repository = {
       id: existing?.id ?? `repo-${this.reposByKey.size + 1}`,
       provider: input.repository.provider,
@@ -182,9 +208,9 @@ export class MemoryWorkspaceRepository implements WorkspaceRepository {
   ): WorkspaceBootstrapRecord {
     const workspace = this.requireWorkspace(selection.selectedWorkspaceId);
     return {
-      selection,
+      selection: { ...selection },
       workspace,
-      repository: this.requireRepository(workspace.repoId),
+      repository: { ...this.requireRepository(workspace.repoId) },
     };
   }
 

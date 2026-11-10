@@ -74,10 +74,22 @@ export interface WorkspaceConfigurationRecord {
   version: number;
 }
 
+/** Canonical namespace identity cannot be rebound by selection or settings writes. */
+export class RepositoryIdentityConflictError extends Error {
+  constructor() {
+    super(
+      "Repository identity conflict; reviewed identity recovery is required",
+    );
+    this.name = "RepositoryIdentityConflictError";
+  }
+}
+
 export interface UpdateWorkspaceConfigurationInput {
   userId: string;
   workspaceId: string;
   expectedVersion: number;
+  /** Private binding captured from an owned saved record, never public input. */
+  expectedRepository: { id: string; providerRepoId: string };
   patch: { name?: string; selectedBranch?: string };
   now: string;
 }

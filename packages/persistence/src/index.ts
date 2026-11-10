@@ -247,6 +247,7 @@ export type {
   WorkspaceSelectionRecord,
   WorkspaceStatus,
 } from "./workspaces/types.js";
+export { RepositoryIdentityConflictError } from "./workspaces/types.js";
 export { WORKSPACE_STATUSES } from "./workspaces/types.js";
 export type {
   AppendExistingTranscriptMessageInput,

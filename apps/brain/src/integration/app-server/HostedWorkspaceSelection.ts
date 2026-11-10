@@ -1,3 +1,4 @@
+import { RepositoryIdentityConflictError } from "@repo/persistence";
 import {
   HostedWorkspaceConfigurationReadRequestSchema,
   HostedWorkspaceConfigurationUpdateRequestSchema,
@@ -36,15 +37,17 @@ export async function selectHostedWorkspace(
   client: Pick<GitHubAPIClient, "getRepository">,
   params: HostedWorkspaceSelectRequest,
 ) {
-  const repository = await client.getRepository(
-    params.repository.owner,
-    params.repository.name,
+  const captured = { ...params, repository: { ...params.repository } };
+  const authorized = await client.getRepository(
+    captured.repository.owner,
+    captured.repository.name,
   );
+  const repository = { ...authorized, owner: { ...authorized.owner } };
   return withWorkspaceRepository(env, (workspaceRepo) =>
     new WorkspaceSelectionService(workspaceRepo).selectGitHubWorkspace({
       userId,
       repository,
-      selectedBranch: params.selectedBranch,
+      selectedBranch: captured.selectedBranch,
     }),
   );
 }
@@ -63,8 +66,9 @@ export function composeHostedWorkspaceSelection(
         updateConfiguration(request, env, userId, params),
       ),
     list: () => workspaceOperation(() => listHostedWorkspaces(env, userId)),
-    select: (params) =>
-      workspaceOperation(async () => {
+    select: (params) => {
+      const captured = { ...params, repository: { ...params.repository } };
+      return workspaceOperation(async () => {
         const auth = await getGitHubClient(request, env);
         if (!auth || auth.userId !== userId)
           throw new AppServerOperationError(
@@ -77,10 +81,11 @@ export function composeHostedWorkspaceSelection(
             env,
             userId,
             auth.client,
-            params,
+            captured,
           ),
         };
-      }),
+      });
+    },
   };
 }
 
@@ -89,6 +94,15 @@ async function workspaceOperation<T>(operation: () => Promise<T>): Promise<T> {
     return await operation();
   } catch (error) {
     if (error instanceof AppServerOperationError) throw error;
+    if (error instanceof RepositoryIdentityConflictError) {
+      throw new AppServerOperationError(
+        409,
+        "conflict",
+        "Workspace repository identity conflicts; reviewed identity recovery is required",
+        "WORKSPACE_REPOSITORY_IDENTITY_CONFLICT",
+        false,
+      );
+    }
     if (isSessionStoreUnavailableError(error)) {
       throw new AppServerOperationError(
         503,
@@ -130,25 +144,53 @@ async function updateConfiguration(
     const service = new WorkspaceSelectionService(repository);
     const current = await service.getConfiguration(userId, params.workspaceId);
     if (!current) throw workspaceNotFound();
+    // Capture all saved identity before authentication/provider awaits. The owner
+    // may return a mutable object; later mutation cannot redirect this validation.
+    const savedRepository = { ...current.repository };
+    const expectedRepository = {
+      id: savedRepository.id,
+      providerRepoId: savedRepository.providerRepoId,
+    };
     const auth = await getGitHubClient(request, env);
     if (!auth || auth.userId !== userId)
       throw new AppServerOperationError(401, "unauthorized", "Unauthorized");
+    const savedProviderRepoId = expectedRepository.providerRepoId;
+    if (!savedProviderRepoId || !/^[1-9][0-9]*$/u.test(savedProviderRepoId)) {
+      throw new AppServerOperationError(
+        409,
+        "conflict",
+        "Workspace repository identity is unavailable; reviewed identity recovery is required",
+        "GITHUB_REPOSITORY_IDENTITY_UNAVAILABLE",
+        false,
+      );
+    }
     // Repository identity comes only from the owned saved record. Classify
     // remote validation separately; persistence errors retain their own owner.
     try {
-      await auth.client.getRepository(
-        current.repository.owner,
-        current.repository.name,
+      const authorizedRepository = await auth.client.getRepository(
+        savedRepository.owner,
+        savedRepository.name,
       );
+      if (savedProviderRepoId !== String(authorizedRepository.id)) {
+        throw new AppServerOperationError(
+          409,
+          "conflict",
+          "Workspace repository identity changed; reviewed identity recovery is required",
+          "GITHUB_REPOSITORY_IDENTITY_CHANGED",
+          false,
+        );
+      }
       if (params.patch.selectedBranch !== undefined) {
         await auth.client.getBranchSha(
-          current.repository.owner,
-          current.repository.name,
+          savedRepository.owner,
+          savedRepository.name,
           params.patch.selectedBranch,
         );
       }
     } catch (error) {
-      if (error instanceof GitHubAPIError) throw mapWorkspaceGitHubValidationError(error);
+      if (error instanceof AppServerOperationError) throw error;
+      if (error instanceof GitHubAPIError)
+        throw mapWorkspaceGitHubValidationError(error);
       throw new AppServerOperationError(
         503,
         "server_unavailable",
@@ -159,6 +201,10 @@ async function updateConfiguration(
     }
     const result = await service.updateConfiguration({
       ...params,
+      expectedRepository: {
+        id: expectedRepository.id,
+        providerRepoId: savedProviderRepoId,
+      },
       userId,
       now: new Date().toISOString(),
     });

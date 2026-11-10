@@ -1,3 +1,4 @@
+import { RepositoryIdentityConflictError } from "./types.js";
 import type { SqlClient, SqlRow } from "../sql.js";
 import type {
   RepositoryRecord,
@@ -54,11 +55,29 @@ export class PostgresWorkspaceRepository implements WorkspaceRepository {
   }
 
   async updateWorkspaceConfiguration(
-    input: UpdateWorkspaceConfigurationInput,
+    request: UpdateWorkspaceConfigurationInput,
   ): Promise<WorkspaceConfigurationUpdateResult> {
+    const input = {
+      ...request,
+      patch: { ...request.patch },
+      expectedRepository: { ...request.expectedRepository },
+    };
     return this.client.transaction(async (tx) => {
-      // Same workspace -> selection lock order as selectWorkspace. A selection
-      // for another workspace is never inserted or rebound by a settings edit.
+      // Match select's repo -> workspace -> selection lock order. FOR SHARE
+      // fences even metadata-only repo UPSERTs until this write commits.
+      const lockedRepository = (
+        await tx.query<WorkspaceSelectionRow>(LOCK_REPOSITORY_SQL, [
+          input.expectedRepository.id,
+        ])
+      ).rows[0];
+      if (
+        !lockedRepository ||
+        !/^[1-9][0-9]*$/u.test(input.expectedRepository.providerRepoId) ||
+        lockedRepository.provider_repo_id !==
+          input.expectedRepository.providerRepoId
+      ) {
+        throw new RepositoryIdentityConflictError();
+      }
       const current = (
         await tx.query<WorkspaceSelectionRow>(
           `${FIND_CONFIGURATION_SQL} FOR UPDATE OF workspaces`,
@@ -66,6 +85,12 @@ export class PostgresWorkspaceRepository implements WorkspaceRepository {
         )
       ).rows[0];
       if (!current) return { status: "not_found" };
+      if (
+        current.repo_id !== input.expectedRepository.id ||
+        current.provider_repo_id !== input.expectedRepository.providerRepoId
+      ) {
+        throw new RepositoryIdentityConflictError();
+      }
       if (current.configuration_version !== input.expectedVersion)
         return { status: "conflict" };
       const name = input.patch.name ?? current.workspace_name;
@@ -106,8 +131,9 @@ export class PostgresWorkspaceRepository implements WorkspaceRepository {
   }
 
   async selectWorkspace(
-    input: SelectWorkspaceInput,
+    request: SelectWorkspaceInput,
   ): Promise<WorkspaceBootstrapRecord> {
+    const input = { ...request, repository: { ...request.repository } };
     return await this.client.transaction(async (tx) => {
       const repository = await upsertRepository(tx, input);
       const workspace = await upsertWorkspace(tx, input, repository);
@@ -158,7 +184,9 @@ async function upsertRepository(
       input.repository.now,
     ],
   );
-  return mapRepositoryRow(readReturnedRow(result.rows[0], "repos"));
+  // A rejected ON CONFLICT predicate returns no row and changes no metadata.
+  if (!result.rows[0]) throw new RepositoryIdentityConflictError();
+  return mapRepositoryRow(result.rows[0]);
 }
 
 async function upsertWorkspace(
@@ -338,6 +366,7 @@ const UPSERT_REPOSITORY_SQL = `
     default_branch = EXCLUDED.default_branch,
     provider_repo_id = EXCLUDED.provider_repo_id,
     updated_at = EXCLUDED.updated_at
+  WHERE repos.provider_repo_id IS NOT DISTINCT FROM EXCLUDED.provider_repo_id
   RETURNING ${REPOSITORY_COLUMNS}
 `;
 
@@ -440,4 +469,8 @@ const UPDATE_CONFIGURATION_SQL = `
 const UPDATE_SELECTED_BRANCH_SQL = `
   UPDATE workspace_selections SET selected_branch = $4, updated_at = $5
   WHERE user_id = $1 AND selected_workspace_id = $2 AND selected_repo_id = $3
+`;
+
+const LOCK_REPOSITORY_SQL = `
+  SELECT ${REPOSITORY_COLUMNS} FROM repos WHERE repos.id = $1 FOR SHARE
 `;
