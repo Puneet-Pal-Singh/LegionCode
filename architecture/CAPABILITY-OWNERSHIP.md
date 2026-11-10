@@ -2823,3 +2823,22 @@ metadata only: the runtime tool registry, approval policy and process helper ret
 execution authority. Hosted Web callers omit it and retain their existing summary.
 A future harness selector must scope this descriptor to the selected backend;
 it does not describe Codex subscription execution or ordinary shell support.
+
+## Hosted workspace configuration presentation
+
+The shared `HostedWorkspaceConfigurationEditor` reads and updates the existing
+saved project name and starting branch through the injected authenticated SDK.
+The host supplies its exact account/session/environment generation and workspace
+ID and retains modal mounting, project navigation and sign-in ownership. The
+controller keeps only an unsaved form draft; it owns no project registry or auth
+state. Scope/client changes hide prior data immediately and fence late reads,
+branch listings, save results and notifications. Writes retain the acknowledged
+configuration version; conflicts or uncertain responses require an explicit
+reload before another save, without automatically rebinding repository identity.
+
+`WorkspaceDialogFrame` and `WorkspaceBranchField` are extracted from the existing
+Web authorized repository picker, which now consumes those shared presentations.
+GitHub inventory, branch authorization and account state remain with the existing
+Web/SDK/server owners. The new configuration leaf remains awaiting the host-owned
+Web/Desktop mount and installed acceptance; it exposes no scripts, secrets,
+allocation or machine-readiness controls. Saving settings is not preparation.

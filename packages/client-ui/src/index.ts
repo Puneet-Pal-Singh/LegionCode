@@ -161,3 +161,7 @@ export { LocalExecutionDetails } from "./environment/LocalExecutionDetails.js";
 
 export { WorkspaceDialogFrame } from "./workspace/WorkspaceDialogFrame.js";
 export { WorkspaceBranchField } from "./workspace/WorkspaceBranchField.js";
+export {
+  HostedWorkspaceConfigurationEditor,
+  type HostedWorkspaceConfigurationEditorProps,
+} from "./workspace/HostedWorkspaceConfigurationEditor.js";
