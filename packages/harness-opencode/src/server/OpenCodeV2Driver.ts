@@ -298,6 +298,8 @@ export class OpenCodeV2Driver implements HarnessDriver {
             };
           }
         }
+        if (capturedNative.pendingNativeWork > 0)
+          return { status: "unknown", session, reason: "work_still_running" };
         const evidence = HarnessQuiescenceSchema.parse(
           await this.options.proveQuiescence({
             host,
@@ -322,7 +324,10 @@ export class OpenCodeV2Driver implements HarnessDriver {
             reason: "observation_integrity_lost",
           };
         }
-        if (evidence.status === "quiescent" && pendingObservations > 0)
+        if (
+          evidence.status === "quiescent" &&
+          (pendingObservations > 0 || capturedNative.pendingNativeWork > 0)
+        )
           return { status: "unknown", session, reason: "work_still_running" };
         if (evidence.status === "quiescent" && !terminalPublished) {
           // The real proof must include an ordered stream/drain barrier, not just process exit.

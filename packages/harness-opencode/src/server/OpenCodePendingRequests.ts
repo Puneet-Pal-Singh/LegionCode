@@ -90,7 +90,8 @@ export class OpenCodePendingRequests {
   }
 
   get pending(): number {
-    return this.permissions.size + this.forms.size;
+    // Stop revokes claim handles, not the native work or its uncommitted closure.
+    return this.knownPermissions.size + this.knownForms.size;
   }
 
   async observe(
