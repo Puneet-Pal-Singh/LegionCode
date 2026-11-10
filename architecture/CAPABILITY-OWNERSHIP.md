@@ -1162,6 +1162,25 @@ never rendered as a successfully verified closed pull request.
   only through the existing PlatformClient methods; hosted admission, queue
   ordering, steering and resume settlement retain their server/runtime owners.
 
+The shared `ThreadInputQueuePanel` owns only scoped edit text and transient
+row-action delivery state. One synchronous in-flight fence disables queue-row
+actions while leaving the main composer editable. Completion checks the mounted
+thread/workspace, exact request and captured edit before closing that edit;
+failures and uncertain canonical receipts stay visible. The optional Retry port
+is bound to Web's existing queue refresh and never resubmits an uncertain mutation.
+The controlled queuing toggle changes only the existing shared composer preference;
+it does not delete queued items, resume a paused queue or drain it.
+
+`QueueActionsMenu` uses the existing shared VisualViewport placement, outside
+dismissal and IME-aware Escape/focus helpers, rather than owning a second popup
+geometry algorithm. This presentation adapts the captured-edit/save separation
+in [T3 Code's pinned queued edit owner](https://github.com/pingdotgg/t3code/blob/f86e21f7cce7324119dadf61064965d83c539455/packages/client-runtime/src/queuedRunEdit.ts#L194)
+and the composition-key guard in
+[OpenCode's pinned editor interaction](https://github.com/anomalyco/opencode/blob/05d347d75054bf27778750ad5f2cd30336e81d8f/packages/app/src/composer/editor/interaction.ts#L469).
+LegionCode's documented Enter-to-queue and Cmd/Ctrl+Enter-to-steer contract,
+versioned queue CAS, accepted/applied/unconfirmed receipts, approvals and Stop
+remain unchanged. This UI slice does not activate local queue execution.
+
 ## Plan 058 — Portable lifecycle projection continuation
 
 SDK `platform/conversation-lifecycle` composes the existing canonical lifecycle
