@@ -323,6 +323,10 @@ export {
   type WorkflowRequestAnswer,
 } from "./workflow/turn-workflow-projection.js";
 export {
+  projectApprovalPresentation,
+  type WorkflowApprovalPresentation,
+} from "./workflow/approval-presentation.js";
+export {
   groupToolActivity,
   buildSegmentTitle,
   buildActiveWorkflowTrace,
