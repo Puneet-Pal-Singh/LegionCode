@@ -99,6 +99,19 @@ export class ProviderModelRouteResolver {
       );
     }
 
+    if (provider.adapterFamily === "anthropic-native") {
+      return {
+        providerId: input.providerId,
+        modelId: input.modelId,
+        runtimeModelId: normalizeRuntimeModelId(
+          input.providerId,
+          input.modelId,
+        ),
+        transport: "anthropic-messages",
+        endpoint: `${provider.baseUrl.replace(/\/$/, "")}/messages`,
+      };
+    }
+
     if (provider.adapterFamily === "google-native") {
       return {
         providerId: input.providerId,
