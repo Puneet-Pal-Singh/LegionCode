@@ -95,6 +95,59 @@ describe("authenticated hosted workspace selection", () => {
     expect(
       await command(await createEnv(workspaces, OTHER_USER), "workspace/list"),
     ).toMatchObject({ ok: true, result: { workspaces: [], selection: null } });
+
+    const persist = vi.spyOn(workspaces, "updateWorkspaceConfiguration");
+    for (const [savedId, remoteId, operationCode] of [
+      ["42", 43, "GITHUB_REPOSITORY_IDENTITY_CHANGED"],
+      [null, 42, "GITHUB_REPOSITORY_IDENTITY_UNAVAILABLE"],
+      ["unknown", 42, "GITHUB_REPOSITORY_IDENTITY_UNAVAILABLE"],
+    ] as const) {
+      // Seed saved/legacy identity through the existing repository owner.
+      const now = new Date().toISOString();
+      const seeded = await workspaces.selectWorkspace({
+        userId: USER, selectedBranch: "feature/task", now,
+        repository: {
+          provider: "github", owner: "acme", name: "repo", fullName: "acme/repo",
+          repoUrl: repository.html_url, defaultBranch: "main", providerRepoId: savedId, now,
+        },
+      });
+      const params = { workspaceId: seeded.workspace.id };
+      const before = await workspaces.findWorkspaceConfiguration(USER, params.workspaceId);
+      expect(before).not.toBeNull();
+      vi.mocked(GitHubAPIClient.prototype.getRepository).mockResolvedValue({ ...repository, id: remoteId });
+      vi.mocked(GitHubAPIClient.prototype.getBranchSha).mockClear();
+      persist.mockClear();
+      expect(await command(env, "workspace/configuration/update", {
+        ...params, expectedVersion: before!.version,
+        patch: { name: "Must not save", selectedBranch: "branchB" },
+      })).toMatchObject({ ok: false, error: {
+        code: "conflict", statusCode: 409, retryable: false, operationCode,
+        message: savedId === "42"
+          ? "Workspace repository identity changed; explicitly reselect the repository before updating"
+          : "Workspace repository identity is unavailable; explicitly reselect the repository before updating",
+      } });
+      expect(GitHubAPIClient.prototype.getBranchSha).not.toHaveBeenCalled();
+      expect(persist).not.toHaveBeenCalled();
+      expect(await workspaces.findWorkspaceConfiguration(USER, params.workspaceId)).toEqual(before);
+
+      // Ordinary same-ID selection remains supported. A reused namespace's
+      // durable identity/rebinding policy belongs to the canonical store owner.
+      vi.mocked(GitHubAPIClient.prototype.getRepository).mockResolvedValue(repository);
+      expect(await command(env, "workspace/select", {
+        repository: { owner: "acme", name: "repo" }, selectedBranch: "feature/task",
+      })).toMatchObject({ ok: true, result: { selection: { repository: { providerRepoId: String(repository.id) } } } });
+      const recovered = await workspaces.findWorkspaceConfiguration(USER, params.workspaceId);
+      expect(recovered?.repository.providerRepoId).toBe(String(repository.id));
+      expect(await command(env, "workspace/configuration/update", {
+        ...params, expectedVersion: recovered!.version,
+        patch: { selectedBranch: "branchB" },
+      })).toMatchObject({ ok: true, result: {
+        repository: { providerRepoId: String(repository.id) },
+        version: recovered!.version + 1, selectedBranch: "branchB",
+      } });
+      expect(GitHubAPIClient.prototype.getBranchSha).toHaveBeenCalledWith("acme", "repo", "branchB");
+      expect(persist).toHaveBeenCalledTimes(1);
+    }
   });
 
   it("round-trips persisted hosted records through the actual SDK transport", async () => {
@@ -179,6 +232,7 @@ describe("authenticated hosted workspace selection", () => {
     expect(updated).toMatchObject({
       name: "Configured project",
       selectedBranch: "feature/configured",
+      repository: { providerRepoId: "42" },
       version: 2,
     });
     expect(GitHubAPIClient.prototype.getBranchSha).toHaveBeenCalledWith(
@@ -358,6 +412,7 @@ describe("authenticated hosted workspace selection", () => {
         fullName: "acme/repo",
         repoUrl: repository.html_url,
         defaultBranch: "main",
+        providerRepoId: String(repository.id),
         now: new Date().toISOString(),
       },
     });

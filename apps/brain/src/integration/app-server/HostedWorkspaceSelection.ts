@@ -133,13 +133,32 @@ async function updateConfiguration(
     const auth = await getGitHubClient(request, env);
     if (!auth || auth.userId !== userId)
       throw new AppServerOperationError(401, "unauthorized", "Unauthorized");
+    const savedProviderRepoId = current.repository.providerRepoId;
+    if (!savedProviderRepoId || !/^[1-9][0-9]*$/u.test(savedProviderRepoId)) {
+      throw new AppServerOperationError(
+        409,
+        "conflict",
+        "Workspace repository identity is unavailable; explicitly reselect the repository before updating",
+        "GITHUB_REPOSITORY_IDENTITY_UNAVAILABLE",
+        false,
+      );
+    }
     // Repository identity comes only from the owned saved record. Classify
     // remote validation separately; persistence errors retain their own owner.
     try {
-      await auth.client.getRepository(
+      const authorizedRepository = await auth.client.getRepository(
         current.repository.owner,
         current.repository.name,
       );
+      if (savedProviderRepoId !== String(authorizedRepository.id)) {
+        throw new AppServerOperationError(
+          409,
+          "conflict",
+          "Workspace repository identity changed; explicitly reselect the repository before updating",
+          "GITHUB_REPOSITORY_IDENTITY_CHANGED",
+          false,
+        );
+      }
       if (params.patch.selectedBranch !== undefined) {
         await auth.client.getBranchSha(
           current.repository.owner,
@@ -148,6 +167,7 @@ async function updateConfiguration(
         );
       }
     } catch (error) {
+      if (error instanceof AppServerOperationError) throw error;
       if (error instanceof GitHubAPIError) throw mapWorkspaceGitHubValidationError(error);
       throw new AppServerOperationError(
         503,
