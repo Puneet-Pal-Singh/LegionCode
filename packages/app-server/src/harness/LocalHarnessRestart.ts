@@ -32,7 +32,7 @@ export async function reconcileLocalHarnessRestart(persistence: LocalPersistence
     const lifecycle = new RuntimeLifecycleCoordinator({
       threadId: admission.run.threadId, workspaceId: admission.run.workspaceId,
       turnId: admission.turn.id, runAttemptId: admission.runAttemptId,
-      producerId: "local-app-server-runtime", sink: persistence.lifecycleEvents,
+      producerId: admission.run.workerId, sink: persistence.lifecycleEvents,
       executionCapability: admission.run.executionCapability,
       clock: { now: () => new Date().toISOString() },
     });

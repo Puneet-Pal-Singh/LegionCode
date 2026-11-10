@@ -241,6 +241,9 @@ export class LocalTurnService {
         "Local harness execution was already claimed or requires recovery", "LOCAL_RUNTIME_RECOVERY_REQUIRED", false);
       const leaseId = this.options.leases.leaseId(execution.admission);
       prepared = await binding.prepare({ admission: execution.admission, selection, grant, leaseId, signal: execution.controller.signal });
+      if (prepared.dependencies.producerId !== execution.admission.run.workerId) {
+        throw new Error("Prepared local runtime producer does not match the admitted worker");
+      }
       if (prepared.leaseId !== leaseId) throw new Error("Prepared runtime returned a different local checkout lease");
       if (execution.controller.signal.aborted) throw new DOMException("Local turn stopped before runtime start", "AbortError");
       const dependencies = { ...prepared.dependencies,
@@ -273,7 +276,7 @@ export class LocalTurnService {
         if (history.events.length === 0) {
           const lifecycle = new RuntimeLifecycleCoordinator({ threadId: execution.admission.run.threadId,
             workspaceId: execution.admission.run.workspaceId, turnId: execution.admission.turn.id,
-            runAttemptId: execution.admission.runAttemptId, producerId: "local-app-server-runtime",
+            runAttemptId: execution.admission.runAttemptId, producerId: execution.admission.run.workerId,
             executionCapability: execution.admission.run.executionCapability,
             sink: this.options.persistence.lifecycleEvents, clock: { now: () => new Date().toISOString() } });
           await lifecycle.start();
