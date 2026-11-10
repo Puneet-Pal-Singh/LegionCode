@@ -81,6 +81,7 @@ export type AppServerComposition = {
     contents(params: RepositoryContentsRequest): Promise<RepositoryContentsResult>;
   };
   threadService?: LocalThreadService;
+  /** Native configuration/start authority; saved routing is not launch readiness. */
   localTurnService?: {
     getConfigurationOptions(): LocalTurnConfigurationOptions;
     startTurn(params: LocalTurnStartParams): Promise<TurnAdmission>;
@@ -90,6 +91,8 @@ export type AppServerComposition = {
     submitLifecycleApproval(params: SubmitLifecycleApprovalRequest): Promise<LifecycleEvent>;
     submitUserInputResponse?(params: SubmitUserInputResponseRequest): Promise<LifecycleEvent>;
   };
+  /** Dispatches saved commands by durable owner, including without a live Native runtime. */
+  localTurnCommands?: Omit<NonNullable<AppServerComposition["localTurnService"]>, "getConfigurationOptions" | "startTurn">;
   providerService?: LocalProviderService;
   hostedProviderDiscoveryService?: {
     catalog(runId?: string): Promise<{ providers: ProviderRegistryEntry[] }>;
@@ -392,12 +395,14 @@ async function dispatch(
       return { admission: await composition.localTurnService.startTurn(request.params) };
     }
     case "turn/get": {
-      if (composition.environment !== "local" || !composition.localTurnService) throw new Error("unsupported");
-      return { admission: await composition.localTurnService.getTurn(request.params.turnId) };
+      const service = composition.localTurnCommands ?? composition.localTurnService;
+      if (composition.environment !== "local" || !service) throw new Error("unsupported");
+      return { admission: await service.getTurn(request.params.turnId) };
     }
     case "thread/history": {
-      if (composition.environment !== "local" || !composition.localTurnService) throw new Error("unsupported");
-      return composition.localTurnService.readHistory(request.params);
+      const service = composition.localTurnCommands ?? composition.localTurnService;
+      if (composition.environment !== "local" || !service) throw new Error("unsupported");
+      return service.readHistory(request.params);
     }
     case "turn/reserve": {
       if (!composition.hostedTurnScopeService) throw new Error("unsupported");
@@ -414,8 +419,9 @@ async function dispatch(
     }
     case "turn/interrupt": {
       if (composition.environment === "local") {
-        if (!composition.localTurnService || typeof request.params.sessionId === "string") throw new Error("unsupported");
-        return composition.localTurnService.interruptTurn(request.params);
+        const service = composition.localTurnCommands ?? composition.localTurnService;
+        if (!service || typeof request.params.sessionId === "string") throw new Error("unsupported");
+        return service.interruptTurn(request.params);
       }
       if (typeof request.params.sessionId !== "string") {
         throw new AppServerOperationError(400, "invalid_request", "Hosted interruption requires its session scope");
@@ -454,15 +460,16 @@ async function dispatch(
     }
     case "turn/approval": {
       if (composition.environment === "local") {
-        if (!composition.localTurnService) throw new Error("unsupported");
-        return composition.localTurnService.submitLifecycleApproval(request.params);
+        const service = composition.localTurnCommands ?? composition.localTurnService;
+        if (!service) throw new Error("unsupported");
+        return service.submitLifecycleApproval(request.params);
       }
       if (!composition.hostedLifecycleOperationsService) throw new Error("unsupported");
       return composition.hostedLifecycleOperationsService.submitLifecycleApproval(request.params);
     }
     case "turn/userInput": {
       if (composition.environment === "local") {
-        const service = composition.localTurnService;
+        const service = composition.localTurnCommands ?? composition.localTurnService;
         if (!service?.submitUserInputResponse) throw new AppServerOperationError(503, "server_unavailable", "Local question responses are unavailable", undefined, false);
         return service.submitUserInputResponse(request.params);
       }

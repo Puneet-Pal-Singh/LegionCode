@@ -130,7 +130,7 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
       persistence, workspaces: workspaceService, reads: artifactReads,
     }) : undefined;
     const server = createServer((request, response) => {
-      void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, turnService, providerPreferences, artifactReads, imageReads, artifactCommits, harness);
+      void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, turnService, providerPreferences, artifactReads, imageReads, artifactCommits, harness, nativeTurnService);
     });
     const owner = attachLocalServerShutdown(
       server, persistence, combineLocalShutdownOwners(nativeTurnService, artifactCommits, {
@@ -175,7 +175,6 @@ function createLocalSavedOwnerRouting(
   const saved = async (turnId: Parameters<typeof delegated.savedTurnBackend>[0]) =>
     (await delegated.savedTurnBackend(turnId)) === "delegated" ? delegated : requireNative();
   return {
-    getConfigurationOptions: () => requireNative().getConfigurationOptions(),
     startTurn: async (params: Parameters<NativeLocalTurnService["startTurn"]>[0]) => {
       const request = LocalTurnStartParamsSchema.parse(params);
       const previous = await persistence.turnAdmissions.findByRequest(request.threadId, request.clientRequestId);
@@ -267,6 +266,7 @@ async function handleRequest(
   imageReads?: LocalChatMediaReads,
   artifactCommits?: AppServerComposition["localTurnArtifactCommitService"],
   harness?: LocalHarnessComposition,
+  nativeTurnService?: NativeLocalTurnService,
 ): Promise<void> {
   const baseInput = {
     method: request.method ?? "",
@@ -289,7 +289,11 @@ async function handleRequest(
     credential: config.credential,
     workspaceService,
     localWorkspaceFilesService: workspaceFilesService,
-    localTurnService: turnService,
+    localTurnService: nativeTurnService && turnService ? {
+      ...turnService,
+      getConfigurationOptions: () => nativeTurnService.getConfigurationOptions(),
+    } : undefined,
+    localTurnCommands: turnService,
     localProviderPreferenceService: providerPreferences,
     localTurnArtifactReadsService: { getTurnDiff: readSavedDiff },
     localChatMediaService: imageReads,
