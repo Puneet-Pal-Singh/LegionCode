@@ -1535,3 +1535,9 @@ The local turn/diff dispatch now delegates to LocalTurnArtifactReads over the
 actual authorized Turn service and same lifecycle/artifact stores. Missing
 published capture returns the reader's canonical absence rather than a live Git
 substitute. Initialize advertises saved review only with the actual reader port.
+
+One LocalChatMediaStore supplies admission preparation, runtime hydration
+and authorized original-image reads. Its recovery admission lookup uses the
+same process-owned SQLite store independently of the selected workspace. The
+Turn service and runtime share the same media port; no second media journal,
+admission writer or credential store is constructed.

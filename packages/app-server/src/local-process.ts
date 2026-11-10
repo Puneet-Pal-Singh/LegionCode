@@ -13,6 +13,9 @@ import { LocalProviderService, ProviderConfigurationSchema } from "./local-provi
 import { LocalTurnService, type LocalTurnRuntime } from "./local-turns.js";
 import { LocalProviderPreferences } from "./local-provider-preferences.js";
 import { LocalTurnArtifactReads } from "./local-turn-artifact-reads.js";
+import { LocalChatMediaStore } from "./local-chat-media-store.js";
+import { LocalChatMediaReads } from "./local-chat-media-reads.js";
+import type { LocalTurnMediaPort } from "./local-turn-media.js";
 
 const MAX_REQUEST_BYTES = 32 * 1024;
 
@@ -37,7 +40,7 @@ export type LocalAppServerCompositionOptions = {
   createMetadataInspector?: LocalWorkspaceServiceOptions["createMetadataInspector"];
   createProbeExecution?: (authority: Pick<VerifiedMacGitOptions, "probeRoot" | "withRootAuthority">) => Promise<VerifiedMacGitExecution>;
   createWorkspaceFilesService?(workspaces: LocalWorkspaceService): NonNullable<AppServerComposition["localWorkspaceFilesService"]>;
-  createTurnRuntime?(persistence: Pick<LocalPersistence, "turnAdmissions" | "lifecycleEvents">): LocalTurnRuntime;
+  createTurnRuntime?(persistence: Pick<LocalPersistence, "turnAdmissions" | "lifecycleEvents">, media?: LocalTurnMediaPort): LocalTurnRuntime;
 };
 
 export function createLocalAppServer(config: LocalAppServerStartConfig, options?: LocalAppServerCompositionOptions) {
@@ -74,20 +77,26 @@ export function createLocalAppServer(config: LocalAppServerStartConfig, options?
       providers: providerService,
     });
     const workspaceFilesService = options?.createWorkspaceFilesService?.(workspaceService);
-    const runtime = options?.createTurnRuntime?.(persistence);
+    const media = new LocalChatMediaStore({
+      storageDirectory: config.storageDirectory,
+      lookupAdmission: (scope) => persistence.turnAdmissions.getByTurn(scope.turnId),
+    });
+    const runtime = options?.createTurnRuntime?.(persistence, media);
     const turnService = runtime ? new LocalTurnService({
       persistence,
       workspaces: workspaceService,
       threads: threadService,
       providers: providerService,
       runtime,
+      media,
     }) : undefined;
     const artifactReads = turnService ? new LocalTurnArtifactReads({
       turns: turnService,
       persistence,
     }) : undefined;
+    const imageReads = turnService ? new LocalChatMediaReads({ turns: turnService, store: media }) : undefined;
     const server = createServer((request, response) => {
-      void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, turnService, providerPreferences, artifactReads);
+      void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, turnService, providerPreferences, artifactReads, imageReads);
     });
     server.once("close", () => persistence.close());
     server.once("error", () => persistence.close());
@@ -141,6 +150,7 @@ async function handleRequest(
   turnService?: LocalTurnService,
   providerPreferences?: LocalProviderPreferences,
   artifactReads?: LocalTurnArtifactReads,
+  imageReads?: LocalChatMediaReads,
 ): Promise<void> {
   const baseInput = {
     method: request.method ?? "",
@@ -160,6 +170,7 @@ async function handleRequest(
     localTurnService: turnService,
     localProviderPreferenceService: providerPreferences,
     localTurnArtifactReadsService: artifactReads,
+    localChatMediaService: imageReads,
     threadService,
     localLifecycleReplayService: {
       replayLifecycleEvents: (params: ReplayLifecycleEventsRequest) =>
