@@ -8,6 +8,8 @@ export default defineConfig({
       externalizeDepsPlugin({
         exclude: [
           "@legioncode/app-server",
+          "@legioncode/execution-engine",
+          "@repo/git-service",
           "@legioncode/sdk",
           "@repo/event-store/local",
           "@repo/platform-protocol",

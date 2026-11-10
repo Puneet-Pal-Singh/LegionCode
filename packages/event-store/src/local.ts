@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { LocalProviderPreferencesRecords } from "./local-provider-preferences.js";
 import { LocalTurnAdmissions } from "./local-turn-admissions.js";
 import type { TurnAdmission } from "@repo/platform-protocol/conversation";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync } from "node:fs";
@@ -16,6 +17,7 @@ import {
   type PlatformEvent,
   type LocalWorkspaceGrant,
   type ProviderId,
+  type WorkspaceId,
 } from "@repo/platform-protocol";
 import {
   LifecycleEventSchema,
@@ -24,6 +26,7 @@ import {
 import { z } from "zod";
 import { EventStoreError, LocalPersistenceError } from "./errors.js";
 import { createStableEventFingerprint } from "./fingerprint.js";
+import { createLocalTurnArtifactStore, validateLocalTurnArtifacts } from "./local-turn-artifacts.js";
 import type {
   AppendEventInput,
   EventStore,
@@ -62,6 +65,12 @@ export type StoredLocalWorkspaceGrant = {
   readonly version: 1;
   readonly path: string;
   readonly grant: LocalWorkspaceGrant;
+} | {
+  readonly version: 2;
+  readonly path: string;
+  readonly grant: LocalWorkspaceGrant;
+  /** Opaque native identity; interpreted only by the canonical grant/NativeFS owner. */
+  readonly gitMetadataIdentity: string;
 };
 
 export interface LocalPersistenceOptions {
@@ -98,12 +107,13 @@ type EventRow = {
 export class LocalPersistence {
   readonly events: EventStore & { listAll(): Promise<readonly PlatformEvent[]> };
   readonly lifecycleEvents: LifecycleEventStore;
+  readonly turnArtifacts: ReturnType<typeof createLocalTurnArtifactStore>;
   readonly turnAdmissions: {
     admit(candidate: TurnAdmission): Promise<{ admission: TurnAdmission; newlyAdmitted: boolean }>;
     findByRequest(threadId: string, clientRequestId: string): Promise<TurnAdmission | null>;
     getByTurn(turnId: string): Promise<TurnAdmission | null>;
-    listByThread(input: { threadId: string; afterCursor: EventCursor | null; limit: number }): Promise<{
-      admissions: readonly TurnAdmission[]; nextCursor: EventCursor | null;
+    listByThread(input: { threadId: string; afterCursor: EventCursor | null; limit: number; latest?: boolean }): Promise<{
+      admissions: readonly TurnAdmission[]; nextCursor: EventCursor | null; hasEarlier?: boolean;
     }>;
   };
   readonly workspaceGrants: {
@@ -115,6 +125,11 @@ export class LocalPersistence {
     read(): Promise<{ readonly providerId: ProviderId; readonly modelId: string } | null>;
     write(value: { readonly providerId: ProviderId; readonly modelId: string }): Promise<void>;
     clear(): Promise<void>;
+  };
+
+  readonly providerPreferences: {
+    read(workspaceId: WorkspaceId): Promise<unknown | null>;
+    write(workspaceId: WorkspaceId, preferences: unknown): Promise<void>;
   };
 
   private readonly database!: Database.Database;
@@ -144,6 +159,7 @@ export class LocalPersistence {
       this.createSchemaIfNew();
       this.migrateOrValidate();
       this.validateDatabase();
+      this.turnArtifacts = createLocalTurnArtifactStore(this.database, (operation) => this.guardStorage(operation));
       const admissions = new LocalTurnAdmissions(this.database, (input) => this.appendPlatformWithin(input));
       admissions.initialize();
       this.admissions = admissions;
@@ -179,6 +195,11 @@ export class LocalPersistence {
       read: async () => this.readProviderSelection(),
       write: async (value) => this.writeProviderSelection(value),
       clear: async () => this.clearProviderSelection(),
+    };
+    const providerPreferences = new LocalProviderPreferencesRecords(this.database);
+    this.providerPreferences = {
+      read: async (workspaceId) => this.guardStorage(() => providerPreferences.read(workspaceId)),
+      write: async (workspaceId, preferences) => this.guardStorage(() => providerPreferences.write(workspaceId, preferences)),
     };
   }
 
@@ -599,6 +620,7 @@ export class LocalPersistence {
     if (marker?.value !== "1" || version?.value !== String(SCHEMA_VERSION)) throw corruptStore("Local database metadata is invalid");
     this.assertRequiredIndexes();
     this.validateProviderSelectionMetadata();
+    validateLocalTurnArtifacts(this.database);
 
     const rows = this.database.prepare(`
       SELECT family, event_json, fingerprint, event_id, thread_id, turn_id,
@@ -807,7 +829,16 @@ function platformFingerprint(event: PlatformEvent): string {
 }
 
 function parseStoredGrant(value: unknown): StoredLocalWorkspaceGrant {
-  const grant = StoredGrantSchema.parse(value);
+  // Legacy records remain readable, but only explicit grant can establish identity.
+  const grant = z.union([
+    StoredGrantSchema,
+    z.object({
+      version: z.literal(2),
+      path: LocalWorkspaceGrantPathSchema,
+      grant: LocalWorkspaceGrantSchema,
+      gitMetadataIdentity: z.string().min(1).max(512),
+    }).strict(),
+  ]).parse(value);
   if (!isAbsolute(grant.path) || grant.path.includes("\0")) {
     throw new Error("Workspace grant path is invalid");
   }
