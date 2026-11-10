@@ -53,9 +53,9 @@ export function readLocalThreadRuntimeSummary(
     if (admission.run.threadId !== scope.threadId || admission.run.userId !== scope.userId ||
       admission.run.workspaceId !== scope.workspaceId) throw corrupt();
     if (admission.userMessage.type !== "user_message") throw corrupt();
-    // Delegated selection is immutable ownership evidence. Its adapter keeps its
-    // own producer identity; this Native reader never interprets driver details.
-    if (hasDelegatedOwnership(admission)) continue;
+    // All local runtimes bind canonical lifecycle to the admitted worker. This
+    // read projection does not interpret driver selection or infer producer
+    // ownership from the first event. Historical mismatches remain corrupt.
     let sequence = 0;
     let settled = false;
     let assistantLeaf: ItemId | undefined;
@@ -101,11 +101,6 @@ export function readLocalThreadRuntimeSummary(
   const terminal = readPlatformTerminal(database, scope);
   if (terminal && terminal.insertionOrder > terminalOrder) summary.lastTerminalTurnId = terminal.turnId;
   return summary;
-}
-
-export function hasDelegatedOwnership(admission: TurnAdmission): boolean {
-  return ("harnessSelection" in admission.run && admission.run.harnessSelection !== undefined) ||
-    (admission.userMessage.type === "user_message" && admission.userMessage.content.harnessSelection !== undefined);
 }
 
 /** Synchronous admission precondition, using the same facts as Thread reads.

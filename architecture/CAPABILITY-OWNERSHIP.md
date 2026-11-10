@@ -2444,3 +2444,22 @@ The canonical executable tool publishes its existing absolute-path restriction
 as a provider-visible JSON Schema pattern and description. All Native provider
 adapters consume that one registry definition; no PATH lookup, shell expansion,
 input repair or permission fallback is introduced.
+
+## Plan 057 / 048 — Shared local canonical Thread lineage
+
+The existing SQLite admission summary reads canonical terminal and completed
+assistant facts for every local admitted runtime, using the admitted worker as
+the exact producer identity. Full scope, sequence, item-start and shared insertion
+order checks remain mandatory. Harness selection metadata is not a projection
+bypass or a producer receipt; the reader never parses driver IDs or trusts the
+first observed producer. Historical producer mismatches fail closed and no saved
+record is rewritten. The delegated host must enforce that admitted-worker rule
+for normal execution, preflight and restart before its integration is activated.
+
+The same atomic admission transaction checks parent Turn/item facts for all
+local candidates after receipt lookup and unsettled-Turn refusal. Captured
+selection metadata, including explicit Native selection, cannot bypass that
+check. Native and delegated admission producers consume the same current Thread
+parents; stale prepared candidates conflict rather than being reparented. No
+terminal mirror, projection table, second reducer or recovery authority is added.
+Native process-loss recovery retains its separate opaque delegated exclusion.
