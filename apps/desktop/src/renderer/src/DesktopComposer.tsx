@@ -254,6 +254,7 @@ function ThreadComposer({
         usage={usage}
         showContextWindowUsage={preferences.showContextWindowUsage}
         submissionUnavailableReason={unavailable}
+        showSubmissionUnavailableNotice={false}
         attachmentsAvailable={attachmentsAvailable}
         attachmentsUnavailableReason={attachmentsUnavailableReason}
         renderModelPicker={

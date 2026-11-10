@@ -58,6 +58,7 @@ export interface ChatInputBarProps {
   composerPreferences?: ComposerPreferences;
   isHidden?: boolean;
   submissionUnavailableReason?: string;
+  showSubmissionUnavailableNotice?: boolean;
   attachmentsAvailable?: boolean;
   attachmentsUnavailableReason?: string;
   renderModelPicker?: (onModelSwitchWarning: () => void) => ReactNode;
@@ -136,6 +137,7 @@ function ChatInputBarView({
   onResume,
   isHidden = false,
   submissionUnavailableReason,
+  showSubmissionUnavailableNotice = true,
   attachmentsAvailable = true,
   attachmentsUnavailableReason,
   reviewComments = [],
@@ -193,6 +195,13 @@ function ChatInputBarView({
     (hasImageAttachments && !attachmentsAvailable
       ? attachmentsUnavailableReason
       : undefined);
+  // Hosts may omit passive delivery/readiness copy without weakening Send.
+  // A draft's incompatible attachments remain actionable and visible.
+  const visibleUnavailableReason = showSubmissionUnavailableNotice
+    ? unavailableReason
+    : hasImageAttachments && !attachmentsAvailable
+      ? attachmentsUnavailableReason
+      : undefined;
   const submissionAvailable = !submissionUnavailableReason &&
     (attachmentsAvailable || !hasImageAttachments);
   const canSubmit = submissionAvailable && (hasInput || hasReviewComments || hasImageAttachments);
@@ -780,7 +789,7 @@ function ChatInputBarView({
             onClick={syncCursorPosition}
             onKeyUp={syncCursorPosition}
             onSelect={syncCursorPosition}
-            aria-describedby={unavailableReason ? unavailableDescriptionId : undefined}
+            aria-describedby={visibleUnavailableReason ? unavailableDescriptionId : undefined}
             aria-autocomplete="list"
             aria-controls={shouldShowFilePicker ? filePickerListId : undefined}
             aria-expanded={shouldShowFilePicker}
@@ -836,9 +845,9 @@ function ChatInputBarView({
             </div>
           ) : null}
 
-          {unavailableReason ? (
+          {visibleUnavailableReason ? (
             <p id={unavailableDescriptionId} role="status" className="mt-3 text-xs text-zinc-400">
-              {unavailableReason}
+              {visibleUnavailableReason}
             </p>
           ) : null}
           {providerNotice}
