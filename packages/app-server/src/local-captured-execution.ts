@@ -1,3 +1,4 @@
+import type { ToolAuthorizationPort } from "@repo/runtime-kernel";
 import type { LocalPersistence } from "@repo/event-store/local";
 import {
   TurnAdmissionSchema,
@@ -72,7 +73,11 @@ export function createLocalCapturedExecutionCapability(
       input: TurnAdmission,
       binding: LocalWorkspaceExecutionBinding,
       signal: AbortSignal,
+      toolAuthorization: ToolAuthorizationPort,
     ) {
+      if (!toolAuthorization?.authorize) {
+        throw new Error("Captured file execution requires the canonical tool authorizer");
+      }
       const admission = TurnAdmissionSchema.parse(input);
       const attempt: LocalTurnAttemptIdentity = Object.freeze({
         workspaceId: admission.run.workspaceId,
@@ -216,6 +221,7 @@ export function createLocalCapturedExecutionCapability(
           admission,
           binding: workerBinding,
           helperPath: options.filesystemHelperPath,
+          toolAuthorization,
           lifecycleEvents: options.persistence.lifecycleEvents,
           assertMutationReady,
           observeExecution: (execution: NativeFilesystemExecution) =>
