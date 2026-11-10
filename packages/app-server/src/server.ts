@@ -1,4 +1,5 @@
 import type { LocalProviderPreferenceScope } from "./protocol.js";
+import { APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES, appServerJsonByteLength } from "@repo/platform-protocol";
 import type { LocalWorkspaceListFilesParams, LocalWorkspaceListFilesResult, LocalWorkspaceReadFileParams } from "./protocol.js";
 import type { LocalTurnStartParams, LocalTurnInterruptParams, LocalThreadHistoryParams, LocalThreadHistoryResult, CheckoutListFilesResult, CheckoutReadFileResult } from "./protocol.js";
 import type { BYOKPreference, BYOKPreferencesUpdateRequest, BYOKResolution, BYOKResolveRequest } from "@repo/shared-types";
@@ -274,6 +275,9 @@ export async function handleAppServerHttpRequest(
       ok: true,
       result,
     });
+    if (request.method === "thread/history" && appServerJsonByteLength(response) > APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES) {
+      throw new AppServerOperationError(503, "server_unavailable", "History page exceeds the supported response size", "history_page_too_large", false);
+    }
     return { statusCode, headers: JSON_HEADERS, payload: response };
   } catch (error) {
     if (error instanceof AppServerProviderOperationError) {
