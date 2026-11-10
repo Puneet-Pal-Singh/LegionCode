@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 import { LocalPersistence } from "@repo/event-store/local";
-import type { ReplayLifecycleEventsRequest } from "@repo/platform-protocol";
+import type { ReplayLifecycleEventsRequest, GetTurnDiffRequest } from "@repo/platform-protocol";
 import {
   AppServerRequestSchema,
   LocalTurnStartParamsSchema,
@@ -235,6 +235,12 @@ async function handleRequest(
     authorization: request.headers.authorization,
     contentType: request.headers["content-type"],
   };
+  const readSavedDiff = async (params: GetTurnDiffRequest) => {
+    if (harness && (await harness.turnService.savedTurnBackend(params.turnId)) === "delegated")
+      return harness.turnService.getTurnDiff(params);
+    if (!artifactReads) throw new AppServerOperationError(503, "server_unavailable", "Native saved review is unavailable", undefined, false);
+    return artifactReads.getTurnDiff(params);
+  };
   const composition = {
     environment: "local" as const,
     serverId: "legioncode-local",
@@ -244,12 +250,25 @@ async function handleRequest(
     localWorkspaceFilesService: workspaceFilesService,
     localTurnService: turnService,
     localProviderPreferenceService: providerPreferences,
-    localTurnArtifactReadsService: artifactReads,
+    localTurnArtifactReadsService: { getTurnDiff: readSavedDiff },
     localChatMediaService: imageReads,
-    localTurnArtifactCommitService: artifactCommits,
+    localTurnArtifactCommitService: artifactCommits ? {
+      commitTurnArtifact: async (params: Parameters<NonNullable<typeof artifactCommits>["commitTurnArtifact"]>[0]) => {
+        if (harness && (await harness.turnService.savedTurnBackend(params.turnId)) === "delegated")
+          throw new AppServerOperationError(503, "server_unavailable", "Delegated saved commits require their enforced writer authority", undefined, false);
+        return artifactCommits.commitTurnArtifact(params);
+      },
+    } : undefined,
     environmentId: persistence.environmentId,
     harnessOperations: harness?.harnessOperations,
     hostedChatSubmissionService: harness?.turnService,
+    hostedLifecycleOperationsService: turnService ? {
+      replayLifecycleEvents: (params: ReplayLifecycleEventsRequest) => replayLocalLifecycle(persistence, threadService, params),
+      getTurnDiff: readSavedDiff,
+      submitLifecycleApproval: turnService.submitLifecycleApproval,
+      submitUserInputResponse: turnService.submitUserInputResponse,
+      compactTurn: async () => { throw new AppServerOperationError(503, "server_unavailable", "Local compaction is unavailable", undefined, false); },
+    } : undefined,
     threadService,
     localLifecycleReplayService: {
       replayLifecycleEvents: (params: ReplayLifecycleEventsRequest) =>
