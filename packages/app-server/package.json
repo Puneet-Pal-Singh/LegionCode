@@ -20,6 +20,7 @@
     "./local-artifact-git": "./src/local-artifact-git.ts",
     "./local-native-runtime": "./src/local-native-runtime.ts",
     "./local-native-settlement": "./src/local-native-settlement.ts",
+    "./local-physical-admission-candidates": "./src/local-physical-admission-candidates.ts",
     "./local-provider-model-discovery": "./src/local-provider-model-discovery.ts",
     "./local-readonly-git": "./src/local-readonly-git.ts",
     "./local-artifact-commit-composition": "./src/local-artifact-commit-composition.ts"

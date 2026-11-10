@@ -2170,3 +2170,21 @@ process guardian retains the writer descriptor through normal exact-child reapin
 but its target closes that descriptor before execution. An unexpectedly lost
 guardian therefore cannot be excluded solely by acquiring the old fence. No
 preparation label or new receipt is substituted for surviving-child exclusion.
+
+## Plan 057 / 061 — Private physical admission candidates
+
+The trusted Desktop composition supplies physical admission candidates through
+its existing Native/commit writer owner. The opaque candidate registers its
+original deferred acquisition before the caller awaits readiness. It validates
+Native predecessor settlement under that same held lease and exposes execution
+authority only after the original canonical publication positively admits and
+re-reads the exact candidate. No second admission or attempt registry is created.
+
+Discard permanently fences publication and adoption, drains the original
+acquisition and full publication/validation promise, and calls the same writer
+entry's unused-release path with a fresh exact canonical absence read. Only
+positive release and original binding close permit cleanup; unknown acquisition,
+publication, exposure or cleanup remains in the caller's existing reservation.
+The private factory option is a provider seam only until the 061 constructor
+retains and invokes these candidates. Delegated availability also requires the
+new enforcing Native child-intent ABI; this leaf does not advertise activation.
