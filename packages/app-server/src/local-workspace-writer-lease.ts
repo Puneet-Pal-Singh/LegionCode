@@ -182,6 +182,8 @@ export class LocalWorkspaceWriterLeaseOwner {
       const acquired = await acquireNativeWriterFence({
         helperPath: this.options.helperPath,
         leaseFile: entry.file,
+        rootDirectory: binding.rootDirectory,
+        fenceDirectory: (await this.directory!).handle,
         signal: AbortSignal.any([binding.signal, entry.active.signal]),
       });
       if (acquired === "busy") {
