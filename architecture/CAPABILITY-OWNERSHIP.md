@@ -2321,3 +2321,22 @@ This is an execution foundation, not driver or public-route activation. Chat and
 queued-input capture, real host/driver construction and initialization identity
 remain with the final consumer slice. No credential resolver, process launcher,
 second event writer or client-owned lifecycle is introduced here.
+
+## Plans 057 / 061 — Canonical pre-opening settlement evidence
+
+The existing LocalPersistence P11 writer owns a read-only structured settlement
+receipt for an exact admitted delegated attempt stopped before physical authority
+was exposed. One immediate transaction validates the original canonical admission,
+immutable Run/user-message capture, complete contiguous lifecycle scope and producer,
+and the final failed/interrupted terminal with real SHA256 digests. It includes
+the actual current selection/claim/opening state: unbound, frozen but unclaimed,
+or exactly cancelled before dispatch. No opening intent, snapshot, metadata record,
+second registry or lifecycle event is synthesized.
+
+A generation, attachment, ingress/reply receipt, external turn, uncertain binding
+or dispatch authority prevents positive proof. The existing terminal gates claim,
+opening dispatch and attachment; freeze cannot append past that terminal to regain
+authority. The receipt proves logical pre-dispatch settlement only. The physical
+candidate owner must independently retain and drain its original admission
+publication, prove authority was never exposed, and positively release the same
+held physical lease before closing its exact binding.

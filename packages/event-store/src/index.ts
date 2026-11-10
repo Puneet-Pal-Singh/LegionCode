@@ -30,6 +30,8 @@ export type {
 
 export {
   HarnessPersistenceError,
+  HarnessPreOpeningSettlementSchema,
+  HarnessPreOpeningSettlementResultSchema,
   StoredHarnessOpeningSchema,
   assertHarnessOpeningSelection,
   assertHarnessOpeningIntent,
@@ -49,6 +51,8 @@ export {
   fingerprintHarnessObservation,
 } from "./local/harness-bindings.js";
 export type {
+  HarnessPreOpeningSettlement,
+  HarnessPreOpeningSettlementResult,
   StoredHarnessOpening,
   ReserveHarnessOpeningInput,
   HarnessOpeningInput,

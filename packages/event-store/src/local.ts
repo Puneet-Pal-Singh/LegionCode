@@ -1,3 +1,4 @@
+import { platformFingerprint } from "./local-platform-fingerprint.js";
 import type { LocalThreadRuntimeScope, LocalThreadRuntimeSummary } from "./local-thread-runtime-summary.js";
 import { parseStoredGrant, type StoredLocalWorkspaceGrant } from "./local-workspace-grant.js";
 import { LocalHarnessControlPlane, type LocalHarnessControlPlanePort } from "./local/harness-control-plane.js";
@@ -99,6 +100,7 @@ export class LocalPersistence {
   readonly environmentId: string;
   readonly harnessBindings: HarnessBindingRepository;
   readonly readAttachmentRetirement: LocalHarnessBindingRepository["readAttachmentRetirement"];
+  readonly readHarnessPreOpeningSettlement: LocalHarnessBindingRepository["readHarnessPreOpeningSettlement"];
   readonly retireHarnessAttachment: (input: Parameters<LocalHarnessBindingRepository["retireHarnessAttachment"]>[0]) => Promise<void>;
   readonly turnArtifacts: ReturnType<typeof createLocalTurnArtifactStore>;
   readonly turnAdmissions: {
@@ -204,6 +206,7 @@ export class LocalPersistence {
 
     const harnessBindings = new LocalHarnessBindingRepository(this.database, (event) => this.appendLifecycleWithin(event), this.admissions);
     this.readAttachmentRetirement = (scope) => this.guardHarnessStorage(() => harnessBindings.readAttachmentRetirement(scope));
+    this.readHarnessPreOpeningSettlement = (input) => this.guardHarnessStorage(() => harnessBindings.readHarnessPreOpeningSettlement(input));
     this.retireHarnessAttachment = (input) => this.guardHarnessStorage(() => harnessBindings.retireHarnessAttachment(input));
     this.harnessBindings = {
       reserveOpening:(input)=>this.guardHarnessStorage(()=>harnessBindings.reserveOpening(input)),
@@ -879,12 +882,6 @@ function parseLifecycleEvent(event: unknown): LifecycleEvent {
 function parseStoredLifecycleEvent(json: string): LifecycleEvent {
   try { return LifecycleEventSchema.parse(JSON.parse(json)); }
   catch { throw corruptStore("Stored lifecycle event is invalid"); }
-}
-
-function platformFingerprint(event: PlatformEvent): string {
-  const storeOwnedFields = new Set(["eventId", "sequence", "cursor", "createdAt"]);
-  const input = Object.fromEntries(Object.entries(event).filter(([key]) => !storeOwnedFields.has(key)));
-  return createStableEventFingerprint(input);
 }
 
 function isTerminal(event: LifecycleEvent): boolean {
