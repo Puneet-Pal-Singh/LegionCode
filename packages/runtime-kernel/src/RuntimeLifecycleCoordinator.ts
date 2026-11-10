@@ -1072,6 +1072,36 @@ export class RuntimeLifecycleCoordinator {
     });
   }
 
+  /** Exact native withdrawal, staged inside the canonical observation transaction. */
+  async withdrawHarnessRequest(input: {
+    readonly requestType: "approval" | "user_input";
+    readonly itemId: ItemId;
+    readonly requestId: string;
+    readonly reason: "native_rejected" | "native_cancelled";
+  }): Promise<void> {
+    await this.enqueue(async () => {
+      if (input.requestType === "approval") {
+        const approvalId = input.requestId as ApprovalId;
+        if (this.approvalItems[approvalId] !== input.itemId || this.approvalStatuses[approvalId] !== "pending")
+          throw new LifecycleTransitionError("item", "inactive", "cancelled", "Native withdrawal does not match a pending approval");
+        await this.emit({ type: "approval.decided", itemId: input.itemId, approvalId,
+          payload: { status: "cancelled", decidedBy: null, reason: "Native request withdrawn" } });
+        this.approvalStatuses[approvalId] = "cancelled";
+        await this.settleItem(input.itemId, "declined", { reason: "Native request withdrawn" });
+        if (this.blockingState.kind === "waiting_for_approval" && this.blockingState.approvalId === approvalId)
+          await this.changeBlocking({ kind: "none" });
+      } else {
+        if (this.userInputItems[input.requestId] !== input.itemId || this.itemStatuses[input.itemId] !== "active")
+          throw new LifecycleTransitionError("item", "inactive", "cancelled", "Native withdrawal does not match a pending question");
+        await this.emit({ type: "request.resolved", itemId: input.itemId, requestId: input.requestId,
+          payload: { status: "cancelled", reason: input.reason } });
+        await this.settleItem(input.itemId, "interrupted", { reason: "Native request withdrawn" });
+        if (this.blockingState.kind === "waiting_for_user_input" && this.blockingState.requestId === input.requestId)
+          await this.changeBlocking({ kind: "none" });
+      }
+    });
+  }
+
   async respondUserInput(requestId: string, response: JsonRecord, respondedBy: import("@repo/platform-protocol").UserId | null): Promise<void> {
     await this.enqueue(async () => {
       const itemId = this.userInputItems[requestId];

@@ -1,4 +1,4 @@
-import { JsonRecordSchema, toPublicProtocolError } from "@repo/platform-protocol";
+import { JsonRecordSchema, UserInputRequestSchema, normalizeUserInputResponse, toPublicProtocolError } from "@repo/platform-protocol";
 import type {
   HarnessSelection,
   ItemId,
@@ -51,6 +51,8 @@ export class DelegatedTurnCoordinator {
   private interruptSent = false;
   private integrityRecovery: Promise<HarnessObservationRecovery> | null = null;
   private readonly replies = new Set<string>();
+  private readonly withdrawnRequests = new Set<string>();
+  private readonly approvalRequests = new Map<string, Extract<import("@repo/worker-protocol").HarnessObservationPayload, { kind: "approval_requested" }>>();
   private readonly approvalJobs = new Set<Promise<void>>();
   private approvalFailure: unknown;
   private readonly userInputs = new Map<
@@ -120,6 +122,7 @@ export class DelegatedTurnCoordinator {
       lifecycle: this.options.lifecycle,
       persistence: dependencies.observations,
       onUserInput: (request) => {
+        UserInputRequestSchema.parse(request.payload);
         if (this.userInputs.has(request.requestId))
           throw new RuntimeKernelError(
             "approval_resolution_conflict",
@@ -127,7 +130,9 @@ export class DelegatedTurnCoordinator {
           );
         this.userInputs.set(request.requestId, request);
       },
+      onWithdrawal: (request) => this.reserveWithdrawal(request),
       onApproval: (approval) => {
+        this.approvalRequests.set(JSON.stringify(approval.replyTo), approval);
         const job = this.replyToApproval(approval).catch((error: unknown) => {
           this.approvalFailure = error;
         });
@@ -419,11 +424,18 @@ export class DelegatedTurnCoordinator {
         "User input request is no longer pending",
       );
     const key = JSON.stringify(request.replyTo);
-    if (this.replies.has(key))
+    if (this.replies.has(key) || this.withdrawnRequests.has(key))
       throw new RuntimeKernelError(
         "approval_resolution_conflict",
         "User input reply was already consumed",
       );
+    // Validate against the exact committed descriptor before consuming any handle.
+    // A malformed answer must not poison the valid correction's single-use claim.
+    try {
+      response = normalizeUserInputResponse(request.payload, response);
+    } catch {
+      throw new RuntimeKernelError("tool_policy_denied", "User input response does not match the pending question");
+    }
     // Reserve before the first await; concurrent replies cannot both append or send.
     this.replies.add(key);
     await this.options.dependencies.assertActive(this.options.command);
@@ -452,6 +464,30 @@ export class DelegatedTurnCoordinator {
     });
   }
 
+  private reserveWithdrawal(request: Extract<import("@repo/worker-protocol").HarnessObservationPayload, { kind: "request_withdrawn" }>) {
+    const key = JSON.stringify(request.replyTo);
+    const pending = request.requestType === "approval"
+      ? this.approvalRequests.get(key) : this.userInputs.get(request.requestId);
+    const matches = pending && JSON.stringify(pending.replyTo) === key &&
+      (pending.kind === "approval_requested"
+        ? pending.request.approvalId === request.requestId && pending.request.itemId === request.itemId
+        : pending.requestId === request.requestId && pending.itemId === request.itemId);
+    if (!matches || this.replies.has(key) || this.withdrawnRequests.has(key))
+      throw new RuntimeKernelError("approval_resolution_conflict", "Native withdrawal conflicts with a claimed or unknown request");
+    const reservation = request.requestType === "approval"
+      ? this.options.approvals.reserveNativeWithdrawal(request.requestId as import("@repo/platform-protocol").ApprovalId)
+      : undefined;
+    this.withdrawnRequests.add(key);
+    return {
+      committed: () => {
+        reservation?.committed();
+        if (request.requestType === "approval") this.approvalRequests.delete(key);
+        else this.userInputs.delete(request.requestId);
+      },
+      failed: (error: unknown) => { reservation?.failed(error); },
+    };
+  }
+
   private assertNotStopped(): void {
     if (this.stopRequested || this.options.signal.aborted)
       throw new RuntimeKernelError("turn_cancelled", "Turn stopped by user");
@@ -471,7 +507,6 @@ export class DelegatedTurnCoordinator {
         "approval_resolution_conflict",
         "Harness request was already consumed",
       );
-    this.replies.add(key);
     let decision: import("@repo/platform-protocol").ApprovalDecision;
     let grantScope:
       | import("@repo/platform-protocol").ApprovalGrantScope
@@ -498,10 +533,13 @@ export class DelegatedTurnCoordinator {
       else if (error.code === "turn_cancelled") decision = "cancelled";
       else throw error;
     }
+    // A native withdrawal has already committed canonical cancellation; send nothing.
+    if (this.withdrawnRequests.has(key)) return;
     // Never replay an ambiguous reply, including transport failure after send.
     if (signal.aborted || this.stopRequested) return;
     await dependencies.assertActive(command);
-    if (signal.aborted || this.stopRequested) return;
+    if (signal.aborted || this.stopRequested || this.withdrawnRequests.has(key)) return;
+    this.replies.add(key);
     if (
       (await dependencies.observations.claimReply(approval.replyTo)) !==
       "claimed"

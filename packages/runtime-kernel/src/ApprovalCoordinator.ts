@@ -132,6 +132,27 @@ export class ApprovalCoordinator {
     }
   }
 
+  /** Reserve the existing canonical winner while a targeted native withdrawal
+   * commits through the same observation append transaction. No second append. */
+  reserveNativeWithdrawal(approvalId: ApprovalRequestedPayload["approvalId"]): {
+    committed(): void;
+    failed(error: unknown): void;
+  } {
+    const pending = this.pending.get(approvalId);
+    if (!pending || pending.settlement)
+      throw new RuntimeKernelError("approval_resolution_conflict", "Approval withdrawal no longer owns an unresolved request");
+    let resolve!: () => void;
+    let reject!: (error: unknown) => void;
+    const completion = new Promise<void>((accept, fail) => { resolve = accept; reject = fail; });
+    void completion.catch(() => undefined);
+    const resolution = Object.freeze({ decision: "cancelled" as const, decidedBy: null, reason: "Native request withdrawn" });
+    pending.settlement = { resolution, completion };
+    return {
+      committed: () => { resolve(); pending.resolve({ status: "decided", resolution }); },
+      failed: (error) => { reject(error); pending.resolve({ status: "failed", error }); },
+    };
+  }
+
   private createPending(
     request: ApprovalRequestedPayload,
   ): PendingApprovalResolution {

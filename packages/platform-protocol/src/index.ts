@@ -650,3 +650,11 @@ export {
   type CommitTurnArtifactRequest,
   type CommitTurnArtifactResponse,
 } from "./git-artifact-operations.js";
+  UserInputQuestionSchema,
+  UserInputRequestSchema,
+  UserInputResponseSchema,
+  normalizeUserInputResponse,
+  type UserInputQuestion,
+  type UserInputRequest,
+  type UserInputResponse,
+} from "./questions.js";

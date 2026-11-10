@@ -8,7 +8,7 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { ItemIdSchema, JsonRecordSchema } from "@repo/platform-protocol";
+import { ItemIdSchema, JsonRecordSchema, UserInputRequestSchema, normalizeUserInputResponse } from "@repo/platform-protocol";
 import type { JsonRecord } from "@repo/platform-protocol";
 import type {
   HarnessObservationPayload,
@@ -52,6 +52,22 @@ export function claudeQuestion(input: unknown, replyTo: HarnessRequestOrigin) {
     .update(JSON.stringify(replyTo))
     .digest("hex")
     .slice(0, 40);
+  const descriptor = UserInputRequestSchema.parse({
+    prompt: null,
+    questions: questions.map((question, index) => ({
+      id: `claude-question-${index + 1}`,
+      header: question.header,
+      question: question.question,
+      multiple: question.multiSelect,
+      required: true,
+      allowCustom: true,
+      customMultiple: false,
+      maxAnswerLength: 8000,
+      options: question.options.map((option) => ({
+        id: option.label, label: option.label, description: option.description,
+      })),
+    })),
+  });
   const observation: Extract<
     HarnessObservationPayload,
     { kind: "user_input_requested" }
@@ -60,11 +76,18 @@ export function claudeQuestion(input: unknown, replyTo: HarnessRequestOrigin) {
     replyTo,
     itemId: ItemIdSchema.parse(`itm_question_${identity}`),
     requestId: `claude_question_${identity}`,
-    payload: JsonRecordSchema.parse({ questions }),
+    payload: descriptor,
   };
   return {
     observation,
     answer(response: JsonRecord): JsonRecord {
+      const normalized = normalizeUserInputResponse(descriptor, response);
+      const nativeAnswers = Object.fromEntries(questions.map((question, index) => {
+        const values = normalized.answers[`claude-question-${index + 1}`]!.answers;
+        const custom = values.some((value) => !question.options.some((option) => option.label === value));
+        return [question.question, custom ? values[0] : values];
+      }));
+      response = JsonRecordSchema.parse({ answers: nativeAnswers });
       if (Object.keys(response).some((key) => key !== "answers"))
         throw new Error("Unsupported Claude question response fields");
       const answers = JsonRecordSchema.parse(response.answers);

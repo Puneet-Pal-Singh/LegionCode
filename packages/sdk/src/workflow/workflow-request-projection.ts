@@ -1,3 +1,4 @@
+import { UserInputRequestSchema, UserInputResponseSchema } from "@repo/platform-protocol";
 import type {
   ApprovalId,
   ItemId,
@@ -219,6 +220,8 @@ function approvalDecisionLabel(
 function readRequestQuestions(
   payload: Record<string, unknown>,
 ): WorkflowRequestQuestion[] {
+  const canonical = UserInputRequestSchema.safeParse(payload);
+  if (canonical.success) return canonical.data.questions;
   const value = payload.questions;
   if (!Array.isArray(value)) return [];
   return value.flatMap((entry, index) => {
@@ -239,6 +242,12 @@ function readRequestAnswers(
   questions: readonly WorkflowRequestQuestion[],
 ): WorkflowRequestAnswer[] {
   const response = readRecord(payload.response) ?? payload;
+  const canonical = UserInputResponseSchema.safeParse(response);
+  if (canonical.success) return questions.flatMap((question) => {
+    const values = canonical.data.answers[question.id]?.answers;
+    return values ? [{ questionId: question.id, values: [...values],
+      value: values.map((value) => question.options?.find((option) => option.id === value)?.label ?? value).join("\n") }] : [];
+  });
   const value = response.value;
   if (typeof value === "string" && value.trim()) {
     const questionId = questions[0]?.id;

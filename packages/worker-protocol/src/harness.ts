@@ -1,3 +1,4 @@
+import { UserInputRequestSchema, UserInputResponseSchema } from "@repo/platform-protocol";
 import { z } from "zod";
 import {
   ApprovalDecisionSchema,
@@ -131,8 +132,19 @@ export const HarnessObservationPayloadSchema = z.discriminatedUnion("kind", [
       background: z.literal(true).optional(),
       itemId: ItemIdSchema,
       requestId: z.string().min(1).max(160),
-      payload: JsonRecordSchema,
+      payload: UserInputRequestSchema,
       replyTo: HarnessRequestOriginSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("request_withdrawn"),
+      background: z.literal(true).optional(),
+      requestType: z.enum(["approval", "user_input"]),
+      itemId: ItemIdSchema,
+      requestId: z.string().min(1).max(160),
+      replyTo: HarnessRequestOriginSchema,
+      reason: z.enum(["native_rejected", "native_cancelled"]),
     })
     .strict(),
   z
@@ -217,7 +229,7 @@ export type HarnessStartCommand = z.infer<typeof HarnessStartCommandSchema>;
 export const HarnessUserInputReplySchema = z
   .object({
     replyTo: HarnessRequestOriginSchema,
-    response: JsonRecordSchema,
+    response: UserInputResponseSchema,
   })
   .strict()
   .readonly();
