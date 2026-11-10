@@ -1531,13 +1531,28 @@ installed execution, immutable capture or safe commits.
 
 ### Plan 057 shared workspace chrome and composer preferences
 
-`client-ui/workspace/EnvironmentSummaryMenu` and `WorkspaceReviewControls` own
-Web's existing summary popover and top-right icon presentation. Web retains its
-authenticated branch loader and selector through a render port. Desktop supplies
-its actual granted branch as read-only metadata and explicitly unavailable pull
-request status for the real local thread. Its right-panel header uses the same
-fixed top placement and summary slot as Web, rather than a second row below the
-application header. No hosted repository identity is fabricated.
+`client-ui/workspace/EnvironmentSummaryMenu` renders one shared summary card,
+either in a reserved conversation column or its existing popup. `WorkspaceFrame`
+scopes the shared `WorkspaceSummaryProvider` transient visibility preference;
+`WorkspaceSummaryLayout` measures the actual chat space after surrounding rails.
+Web mounts that layout inside `Workspace` beside its nested review pane; Desktop
+mounts it around Main's existing conversation. A rem-resolved footprint and full
+VisualViewport containment determine inline availability, including zoom, pan and
+keyboard clipping. Wide hide preference is separate from popup visibility;
+resizing never opens the popup unasked. This presentation adapts the measured
+minimum-chat/card-clearance condition in
+[T3 Code's pinned card layout](https://github.com/pingdotgg/t3code/blob/871b00907d0bcf2705224de6c6e90de925c7cbb9/apps/web/src/components/chat/threadDetailsCardLayout.ts#L30)
+to LegionCode's existing card and tokens. Actual layout proof remains a delivery check.
+
+Web retains its authenticated branch loader and selector through the existing
+render port. Desktop supplies its actual granted branch as read-only metadata
+and explicitly unavailable pull request status for the real local thread.
+The Changes action uses Web's existing summary action request and Desktop's
+scoped right-panel callback, including when the file count is zero or unknown;
+unknown counts are not fabricated. `WorkspaceReviewControls` retains only the
+actual right-sidebar toggle, with review access inside the summary. Right-panel
+header placement and immutable versus live review owners remain unchanged.
+No runtime, SDK product-state, filesystem or Git authority is added.
 The existing Web fullscreen review overlay, close control and focus lifecycle live
 in `client-ui/workspace/ReviewDialogFrame`; both clients mount this source.
 Desktop fullscreen retains the same scoped SDK review/file adapters and tab state,
