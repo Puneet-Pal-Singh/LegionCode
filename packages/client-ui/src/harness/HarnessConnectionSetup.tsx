@@ -32,6 +32,8 @@ export function HarnessConnectionSetup({
   const [data, setData] = useState<Awaited<
     ReturnType<HarnessConnectionSetupProps["loadConnections"]>
   > | null>(null);
+  const [selectedHarness, setSelectedHarness] =
+    useState<HarnessSetupRequest["harness"]>("codex");
   const [selectedId, setSelectedId] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -80,13 +82,11 @@ export function HarnessConnectionSetup({
       (entry) => entry.providerId === credential.providerId,
     );
     if (!provider) return [];
-    const harness: HarnessSetupRequest["harness"] =
-      credential.providerId === "openai"
-        ? "codex"
-        : credential.providerId === "anthropic"
-          ? "claude"
-          : "opencode";
-    return [{ ...credential, harness, providerLabel: provider.displayName }];
+    if (selectedHarness === "codex" && credential.providerId !== "openai")
+      return [];
+    if (selectedHarness === "claude" && credential.providerId !== "anthropic")
+      return [];
+    return [{ ...credential, providerLabel: provider.displayName }];
   });
   const selected = choices.find((choice) => choice.credentialId === selectedId);
   async function setup() {
@@ -94,7 +94,7 @@ export function HarnessConnectionSetup({
     if (!command.current && selected)
       command.current = {
         ...scope,
-        harness: selected.harness,
+        harness: selectedHarness,
         connectionId: selected.credentialId,
         clientCommandId: crypto.randomUUID(),
       };
@@ -108,8 +108,8 @@ export function HarnessConnectionSetup({
       const result = await client.setup(request);
       if (!mounted.current) return;
       if (
-        result.instance.workspaceId !== scope.workspaceId ||
-        result.instance.environmentId !== scope.environmentId ||
+        result.instance.workspaceId !== request.workspaceId ||
+        result.instance.environmentId !== request.environmentId ||
         (result.instance.connectionId !== null &&
           result.instance.connectionId !== request.connectionId) ||
         result.instance.harness !== request.harness
@@ -142,6 +142,28 @@ export function HarnessConnectionSetup({
         Uses API billing. Subscription connections are separate. Availability is
         checked by this environment.
       </p>
+      <label>
+        Agent
+        <select
+          value={selectedHarness}
+          disabled={loading || busy || pending}
+          onChange={(event) => {
+            if (inFlight.current || command.current) return;
+            const harness = event.currentTarget.value;
+            if (
+              harness !== "codex" &&
+              harness !== "opencode" &&
+              harness !== "claude"
+            ) return;
+            setSelectedHarness(harness);
+            setSelectedId("");
+          }}
+        >
+          <option value="codex">Codex</option>
+          <option value="opencode">OpenCode</option>
+          <option value="claude">Claude</option>
+        </select>
+      </label>
       {loading ? <p role="status">Loading saved API connections…</p> : null}
       {error ? <p role="alert">{error}</p> : null}
       <button
@@ -153,8 +175,8 @@ export function HarnessConnectionSetup({
       </button>
       {!loading && data && choices.length === 0 ? (
         <p>
-          No eligible saved API connections. Add an API key in provider settings
-          below, then refresh saved connections.
+          No eligible saved API connections for this agent. Add an API key in
+          provider settings below, then refresh saved connections.
         </p>
       ) : null}
       {choices.length > 0 || pending ? (
@@ -164,7 +186,10 @@ export function HarnessConnectionSetup({
             <select
               value={selectedId}
               disabled={loading || busy || pending}
-              onChange={(event) => setSelectedId(event.currentTarget.value)}
+              onChange={(event) => {
+                if (inFlight.current || command.current) return;
+                setSelectedId(event.currentTarget.value);
+              }}
             >
               <option value="">Choose an API connection</option>
               {pending && !selected ? (
@@ -174,12 +199,12 @@ export function HarnessConnectionSetup({
               ) : null}
               {choices.map((choice) => (
                 <option key={choice.credentialId} value={choice.credentialId}>
-                  {choice.providerLabel} · {choice.label} · {choice.harness}
+                  {choice.providerLabel} · {choice.label}
                 </option>
               ))}
             </select>
           </label>
-          {selected?.harness === "codex" ? (
+          {selected && selectedHarness === "codex" ? (
             <p role="status">
               Codex API-key setup does not provide execution identity. This
               route is unavailable for execution.
