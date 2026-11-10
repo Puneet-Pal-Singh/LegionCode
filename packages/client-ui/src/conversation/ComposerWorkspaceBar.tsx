@@ -44,7 +44,7 @@ export function ComposerWorkspaceBar(props: ComposerWorkspaceBarProps): React.JS
   const closeMenu = useCallback(() => setOpenScope(null), []);
   const insideRefs = useMemo(() => [panelRef], []);
   const menuStyle = useViewportPopoverPosition(isOpen, triggerRef, panelRef, {
-    align: "start", placement: "auto", preferredWidth: 248,
+    align: "auto", placement: "auto", preferredWidth: 248,
   });
   useOutsideDismiss(rootRef, isOpen, closeMenu, {
     additionalRefs: insideRefs,
