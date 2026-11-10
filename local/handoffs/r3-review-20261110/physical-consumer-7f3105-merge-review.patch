@@ -1,0 +1,2345 @@
+Warning: truncated output (original token count: 40798)
+Total output lines: 3626
+
+--- a/architecture/CAPABILITY-OWNERSHIP.md
++++ b/architecture/CAPABILITY-OWNERSHIP.md
+@@ -2207,63 +2207,50 @@
+ changing their implementations, permissions, launch availability or physical
+ release requirements. All other architecture dependency rules are unchanged.
+ 
+-## Issue 810 — Versioned hosted workspace configuration
+-
+-The existing `WorkspaceRepository` owns saved configuration for one primary
+-repository per user/workspace. Authenticated App Server
+-`workspace/configuration/read` and `workspace/configuration/update`, exposed by
+-SDK `readHostedWorkspaceConfiguration` / `updateHostedWorkspaceConfiguration`,
+-read and edit only the existing name and selected branch. Repository identity
+-comes from the exact owned active workspace; updates recheck its GitHub access
+-and resolve an explicitly changed branch through the authenticated client.
+-
+-The existing Postgres workspace row holds the configuration version. Updates
+-lock the canonical repository before the owned active workspace, compare the
+-privately captured verified repository identity and expected version, then
+-atomically change the saved branch and any matching current selection. Stale writes fail, including
+-stale no-ops; current no-ops retain their version. Existing selection preserves
+-configured names and increments the same version when branch, default branch
+-or active state changes. Editing an unselected workspace never selects it.
+-`MemoryWorkspaceRepository` implements the same contract for existing consumers.
+-
+-The existing repository UPSERT cannot rebind a namespace to another provider
+-repository identity, including transitions to or from legacy unknown identity.
+-Ingress and returned Memory records are detached from caller mutation. Identity
+-conflicts are typed nonretryable errors; recovery requires an explicitly reviewed
+-identity operation, not automatic reselection or a parallel repository registry.
+-
+-Workspace list/select renders saved names; session workspace context and
+-`AuthorizedWorkspaceRepositoryContext` consume the saved branch for future
+-work. Explicit admitted run branches and resume identity keep their existing
+-owners and are not rewritten. Configuration reads perform no GitHub or execution
+-probe. These records are saved settings, not prepared machines: this slice adds
+-no allocation, scripts, network policy, setup secrets, preparation principal,
+-Ready binding, runtime identity or alternate environment registry.
+-
+-## Plan 057 — Lifecycle replay cursor continuation
+-
+-The SDK's existing lifecycle ordering owner validates replay page progress against
+-the last accepted contiguous canonical event. Saved conversation replay and live
+-continuation share this check before projecting or yielding the page; page counts
+-and omitted request limits no longer imply exhaustion. Empty pages with a
+-continuation cursor and cursors beyond accepted events fail explicitly. A final
+-nonempty/null page or accepted terminal event remains valid, while empty/null
+-means caught up rather than terminal for live polling. Runtime event production,
+-canonical terminal state, reducers and transport limits remain unchanged.
+-
+-## Plan 057 — Optional exact lifecycle replay byte paging
+-
+-The existing lifecycle event store optionally bounds the exact UTF-8 JSON result
+-`{ events, nextSequence }`, with one shared budget and continuity helper for SQLite
+-and memory replay. SQLite reads ordered rows incrementally and returns only the
+-largest full-event prefix fitting both count and byte limits. The first excluded
+-event remains canonical unread history; the cursor is the last returned sequence,
+-and only an actual empty suffix returns null. Omitted byte budgets preserve the
+-existing internal count-only replay contract.
+-
+-A first event that cannot fit raises a typed identity/sequence/encoded-size
+-descriptor without copying its body, skipping it or claiming EOF. No append or
+-lifecycle authority changes. Public HTTP byte paging remains inactive until the
+-separately owned lossless event hydration and cursor-aware consumers are wired;
+-this foundation alone does not make oversized public replay deliverable. Chunk
+-bytes and their real wire digest remain read/transport responsibilities.
++## Plan 057 — Native child intent recovery boundary
++
++The existing native writer inode carries a bounded append-only physical child
++intent WAL. A guardian durably appends and fsyncs the exact boot/PID/kernel unique
++process lifetime before releasing its child-owned EOF-safe start pipe. No argv,
++executable, credential or workspace path enters the WAL. Normal completion is
++appended only after exact-child waitpid has reaped the target. The filesystem
++helper still never forks; mutation/private-transaction loans validate the same
++held-root intent header and retain their inherited writer descriptor throughout.
++
++Darwin's public OFD byte-zero lock is the single inherited writer fence, released
++only on last close. A nonoverlapping POSIX byte-one lock serializes WAL appends;
++it is not another checkout/writer registry. Old whole-file flock holders conflict
++on the same inode. No writer path reopens, renames, unlinks or replaces the fence
++namespace, and no unsupported OFD operation selects a flock fallback.
++
++New writer acquisition reconciles pending intents before exposing authority.
++Inclusive stable-lifetime/status lookup and atomic audit-token signaling exclude
++only the exact recorded process across exec and PID reuse. Signal delivery or an
++old token's ESRCH is never exit proof. Unknown identity/API/permission/cleanup or
++deadline results retain the intent and original authority. Complete records have
++SHA-256 checksums; corrupt complete records fail closed. Only an incomplete final
++record, which never passed its fsync/start barrier, may be trimmed under the held
++writer fence. The WAL has a finite four MiB limit and no speculative compaction.
++
++The new process-helper acquisition receipt is ABI v2/intentVersion 1. The actual
++Desktop composition awaits the original bounded helper probe before constructing
++its shared writer owner or enabling captured Build and artifact commit. The probe
++verifies boot/stable-identity/signaling and actual OFD/old-flock/append-lock support
++using one private immediately removed probe inode, with no workspace, real lease,
++provider or target process. Unsupported support leaves capture unavailable; unknown
++helper closure retains the existing startup failure owner. Stable-identity structures follow the pinned Apple XNU ABI
++and unsupported platforms remain unavailable. The same namespace/inode is retained,
++but old binaries do not produce intents: all active writer profiles must migrate
++to this ABI, and mixed-old-binary crash recovery is not advertised as supported.
++Only the owner's actual fresh O_EXCL-created inode may initialize an empty WAL,
++through the required private --initialize-empty flag. An existing empty inode
++returns known busy before taking a new writer lock; it cannot certify legacy
++child exclusion. A partial initial header remains unverified rather than being
++rewritten. Existing complete WAL headers still undergo the same identity,
++checksum and pending-child reconciliation before any capability is exposed.
++
++A live Node owner already retains the same open description when a guardian is
++lost. This boundary addresses combined Node-host and guardian loss before target
++reaping. Its WAL establishes physical exclusion only; canonical recovery, terminal
++settlement, immutable artifacts and Native predecessor receipts retain their own
++existing owners. No process is relaunched and no lifecycle completion is invented.
+--- a/packages/event-store/src/local.ts
++++ b/packages/event-store/src/local.ts
+@@ -1,945 +1,2 @@
+ import type { LocalThreadRuntimeScope, LocalThreadRuntimeSummary } from "./local-thread-runtime-summary.js";
+-import { LocalHarnessControlPlane, type LocalHarnessControlPlanePort } from "./local/harness-control-plane.js";
+-import { LocalHarnessObservationCommitPort } from "./local/harness-observation-port.js";
+-import type { StoredHarnessSelection } from "./local/harness-bindings.js";
+-import { initializeLocalHarnessBindings, validateLocalHarnessBindings, HarnessPersistenceError, LocalHarnessBindingRepository, type HarnessBindingRepository } from "./local/harness-bindings.js";
+-import Database from "better-sqlite3";
+-import { LocalProviderPreferencesRecords } from "./local-provider-preferences.js";
+-import { LocalTurnAdmissions } from "./local-turn-admissions.js";
+-import type { TurnAdmission } from "@repo/platform-protocol/conversation";
+-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync } from "node:fs";
+-import { randomUUID } from "node:crypto";
+-import { isAbsolute, join } from "node:path";
+-import {
+-  EventCursorSchema,
+-  EventScopeSchema,
+-  LocalWorkspaceGrantPathSchema,
+-  LocalWorkspaceGrantSchema,
+-  PlatformEventSchema,
+-  ProviderIdSchema,
+-  type EventCursor,
+-  type EventId,
+-  type PlatformEvent,
+-  type LocalWorkspaceGrant,
+-  type ProviderId,
+-  type UserId,
+-  type WorkspaceId,
+-} from "@repo/platform-protocol";
+-import {
+-  LifecycleEventSchema,
+-  type LifecycleEvent,
+-} from "@repo/platform-protocol/lifecycle";
+-import { z } from "zod";
+-import { EventStoreError, LocalPersistenceError } from "./errors.js";
+-import { createStableEventFingerprint } from "./fingerprint.js";
+-import { LifecycleReplayPage } from "./lifecycle-replay-page.js";
+-import { createLocalTurnArtifactStore, validateLocalTurnArtifacts } from "./local-turn-artifacts.js";
+-import type {
+-  AppendEventInput,
+-  EventStore,
+-  EventStoreClock,
+-  EventStoreIdGenerator,
+-  ReplayEventsInput,
+-  ReplayEventsResult,
+-} from "./types.js";
+-import type {
+-  LifecycleEventStore,
+-  ReplayLifecycleEventsInput,
+-  ReplayLifecycleEventsResult,
+-} from "./lifecycle-types.js";
+-
+-const DATABASE_NAME = "local-events.sqlite";
+-const SCHEMA_VERSION = 1;
+-const MAX_REPLAY_LIMIT = 1_000;
+-const PROVIDER_SELECTION_METADATA_KEY = "provider_selection_v1";
+-const ProviderSelectionSchema = z.object({
+-  version: z.literal(1),
+-  providerId: ProviderIdSchema,
+-  modelId: z.string().min(1).max(256).refine((value) => value.trim() === value),
+-}).strict();
+-
+-const LegacyPlatformFileSchema = z.object({
+-  version: z.literal(1),
+-  events: z.array(z.unknown()),
+-}).strict();
+-const StoredGrantSchema = z.object({
+-  version: z.literal(1),
+-  path: LocalWorkspaceGrantPathSchema,
+-  grant: LocalWorkspaceGrantSchema,
+-}).strict();
+-
+-export type StoredLocalWorkspaceGrant = {
+-  readonly version: 1;
+-  readonly path: string;
+-  readonly grant: LocalWorkspaceGrant;
+-} | {
+-  readonly version: 2;
+-  readonly path: string;
+-  readonly grant: LocalWorkspaceGrant;
+-  /** Opaque native identity; interpreted only by the canonical grant/NativeFS owner. */
+-  readonly gitMetadataIdentity: string;
+-};
+-
+-export interface LocalPersistenceOptions {
+-  readonly storageDirectory: string;
+-  readonly clock?: EventStoreClock;
+-  readonly idGenerator?: EventStoreIdGenerator;
+-}
+-
+-const systemClock: EventStoreClock = { now: () => new Date().toISOString() };
+-const systemIdGenerator: EventStoreIdGenerator = {
+-  nextEventId: () => `evt_${randomUUID()}` as EventId,
+-  nextCursor: () => `cursor_${randomUUID()}` as EventCursor,
+-};
+-
+-type EventRow = {
+-  event_json: string;
+-  fingerprint: string;
+-  family: "platform" | "lifecycle";
+-  stream_id: string;
+-  stream_type: string;
+-  event_id: string;
+-  thread_id: string;
+-  turn_id: string | null;
+-  sequence: number;
+-  cursor: string | null;
+-  idempotency_key: string;
+-};
+-
+-/**
+- * One process-owned SQLite writer for all local durable product records.
+- * Construction performs validation and one-time legacy migration synchronously,
+- * before the local App Server can announce readiness.
+- */
+-export class LocalPersistence {
+-  readonly events: EventStore & { listAll(): Promise<readonly PlatformEvent[]> };
+-  readonly lifecycleEvents: LifecycleEventStore;
+-  readonly environmentId: string;
+-  readonly harnessBindings: HarnessBindingRepository;
+-  readonly readAttachmentRetirement: LocalHarnessBindingRepository["readAttachmentRetirement"];
+-  readonly retireHarnessAttachment: (input: Parameters<LocalHarnessBindingRepository["retireHarnessAttachment"]>[0]) => Promise<void>;
+-  readonly turnArtifacts: ReturnType<typeof createLocalTurnArtifactStore>;
+-  readonly turnAdmissions: {
+-    admit(candidate: TurnAdmission): Promise<{ admission: TurnAdmission; newlyAdmitted: boolean }>;
+-    findByRequest(threadId: string, clientRequestId: string): Promise<TurnAdmission | null>;
+-    getByTurn(turnId: string): Promise<TurnAdmission | null>;
+-    readThreadSummary(scope: LocalThreadRuntimeScope): Promise<LocalThreadRuntimeSummary | null>;
+-    listForRecovery(input: { afterCursor: EventCursor | null; limit: number }): Promise<{
+-      admissions: readonly TurnAdmission[]; nextCursor: EventCursor | null;
+-    }>;
+-    listByThread(input: { threadId: string; afterCursor: EventCursor | null; limit: number; latest?: boolean }): Promise<{
+-      admissions: readonly TurnAdmission[]; nextCursor: EventCursor | null; hasEarlier?: boolean;
+-    }>;
+-  };
+-  readonly workspaceGrants: {
+-    read(): Promise<StoredLocalWorkspaceGrant | null>;
+-    write(value: StoredLocalWorkspaceGrant): Promise<void>;
+-    clear(): Promise<void>;
+-  };
+-  readonly providerSelection: {
+-    read(): Promise<{ readonly providerId: ProviderId; readonly modelId: string } | null>;
+-    write(value: { readonly providerId: ProviderId; readonly modelId: string }): Promise<void>;
+-    clear(): Promise<void>;
+-  };
+-
+-  createHarnessControlPlane(userId: UserId): LocalHarnessControlPlanePort {
+-    return new LocalHarnessControlPlane(this.database, { environmentId: this.environmentId, userId });
+-  }
+-
+-  createHarnessObservationCommitPort(selection:StoredHarnessSelection) {
+-    const port=new LocalHarnessObservationCommitPort(this.database,event=>this.appendLifecycleWithin(event),selection);
+-    return {
+-      recover:(session:Parameters<typeof port.recover>[0])=>this.guardHarnessStorage(()=>port.recover(session)),
+-      claimReply:(origin:Parameters<typeof port.claimReply>[0])=>this.guardHarnessStorage(()=>port.claimReply(origin)),
+-      lookup:(observation:Parameters<typeof port.lookup>[0])=>this.guardHarnessStorage(()=>port.lookup(observation)),
+-      commit:(input:Parameters<typeof port.commit>[0])=>this.guardHarnessStorage(()=>port.commit(input)),
+-    };
+-  }
+-  readonly providerPreferences: {
+-    read(workspaceId: WorkspaceId): Promise<unknown | null>;
+-    write(workspaceId: WorkspaceId, preferences: unknown): Promise<void>;
+-  };
+-
+-  private readonly database!: Database.Database;
+-  private readonly storageDirectory: string;
+-  private readonly clock: EventStoreClock;
+-  private readonly idGenerator: EventStoreIdGenerator;
+-  private closed = false;
+-  private admissions?: LocalTurnAdmissions;
+-
+-  constructor(options: LocalPersistenceOptions) {
+-    if (!isAbsolute(options.storageDirectory) || options.storageDirectory.includes("\0")) {
+-      throw new LocalPersistenceError("unavailable", "Local persistence requires an absolute storage directory");
+-    }
+-    this.storageDirectory = options.storageDirectory;
+-    this.clock = options.clock ?? systemClock;
+-    this.idGenerator = options.idGenerator ?? systemIdGenerator;
+-    try {
+-      mkdirSync(this.storageDirectory, { recursive: true, mode: 0o700 });
+-      const databasePath = join(this.storageDirectory, DATABASE_NAME);
+-      const existed = existsSync(databasePath);
+-      this.assertRecoveryEvidenceBeforeOpen(databasePath, existed);
+-      this.database = new Database(databasePath, { timeout: 0 });
+-      if (!existed) chmodSync(databasePath, 0o600);
+-      this.assertArchiveMarkerInOpenDatabase();
+-      if (existed) {
+-        this.validateExistingDatabaseBeforeMutation();
+-        const hasMetadata = this.database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='metadata'").get();
+-        if (hasMetadata) {
+-          validateLocalHarnessBindings(this.database);
+-          this.readEnvironmentId();
+-        }
+-      }
+-      this.configureAndAcquireExclusiveLock();
+-      this.createSchemaIfNew();
+-      this.migrateOrValidate();
+-      this.validateDatabase();
+-      this.turnArtifacts = createLocalTurnArtifactStore(this.database, (operation) => this.guardStorage(operation));
+-      const admissions = new LocalTurnAdmissions(this.database, (input) => this.appendPlatformWithin(input));
+-      this.environmentId = this.database.transaction(() => {
+-        admissions.initialize();
+-        initializeLocalHarnessBindings(this.database);
+-        const existingEnvironmentId = this.readEnvironmentId();
+-        if (existingEnvironmentId !== null) return existingEnvironmentId;
+-        const environmentId = `env_${randomUUID()}`;
+-        this.database.prepare("INSERT INTO metadata(key,value) VALUES ('local_environment_id_v1',?)").run(environmentId);
+-        return environmentId;
+-      }).immediate();
+-      this.admissions = admissions;
+-      this.turnAdmissions = {
+-        admit: async (candidate) => this.guardStorage(() => admissions.admit(candidate)),
+-        findByRequest: async (threadId, requestId) => this.guardStorage(() => admissions.findByRequest(threadId, requestId)),
+-        getByTurn: async (turnId) => this.guardStorage(() => admissions.getByTurn(turnId)),
+-        readThreadSummary: async (scope) => this.guardStorage(() => admissions.readThreadSummary(scope)),
+-        listForRecovery: async (input) => this.guardStorage(() => admissions.listForRecovery(input)),
+-        listByThread: async (input) => this.guardStorage(() => admissions.listByThread(input)),
+-      };
+-      this.archiveLegacyFilesAfterCommit();
+-    } catch (error) {
+-      this.database?.close();
+-      throw sanitizeOpenError(error);
+-    }
+-
+-    const harnessBindings = new LocalHarnessBindingRepository(this.database, (event) => this.appendLifecycleWithin(event), this.admissions);
+-    this.readAttachmentRetirement = (scope) => this.guardHarnessStorage(() => harnessBindings.readAttachmentRetirement(scope));
+-    this.retireHarnessAttachment = (input) => this.guardHarnessStorage(() => harnessBindings.retireHarnessAttachment(input));
+-    this.harnessBindings = {
+-      reserveOpening:(input)=>this.guardHarnessStorage(()=>harnessBindings.reserveOpening(input)),
+-      beginOpeningDispatch:(input)=>this.guardHarnessStorage(()=>harnessBindings.beginOpeningDispatch(input)),
+-      cancelReservedOpening:(input)=>this.guardHarnessStorage(()=>harnessBindings.cancelReservedOpening(input)),
+-      acknowledgeOpening:(input)=>this.guardHarnessStorage(()=>harnessBindings.acknowledgeOpening(input)),
+-      readOpening:(scope)=>this.guardHarnessStorage(()=>harnessBindings.readOpening(scope)),
+-      freezeAndClaim: (input) => this.guardHarnessStorage(() => harnessBindings.freezeAndClaim(input)),
+-      markRecoveryRequired: (input) => this.guardHarnessStorage(() => harnessBindings.markRecoveryRequired(input)),
+-      freeze: (selection, events) => this.guardHarnessStorage(() => harnessBindings.freeze(selection, events)),
+-      read: (scope) => this.guardHarnessStorage(() => harnessBindings.read(scope)),
+-      attach: (input) => this.guardHarnessStorage(() => harnessBindings.attach(input)),
+-      lookupObservation: (input) => this.guardHarnessStorage(() => harnessBindings.lookupObservation(input)),
+-      appendObservation: (input) => this.guardHarnessStorage(() => harnessBindings.appendObservation(input)),
+-    };
+-    this.events = {
+-      append: async (input) => this.appendPlatform(input),
+-      appendBatch: async (inputs) => this.appendPlatformBatch(inputs),
+-      replay: async (input) => this.replayPlatform(input),
+-      listAll: async () => this.listAllPlatform(),
+-    };
+-    this.lifecycleEvents = {
+-      append: async (event) => this.appendLifecycle(event),
+-      appendBatch: async (events) => this.appendLifecycleBatch(events),
+-      replay: async (input) => this.replayLifecycle(input),
+-    };
+-    this.workspaceGrants = {
+-      read: async () => this.readWorkspaceGrant(),
+-      write: async (value) => this.writeWorkspaceGrant(value),
+-      clear: async () => this.clearWorkspaceGrant(),
+-    };
+-    this.providerSelection = {
+-      read: async () => this.readProviderSelection(),
+-      write: async (value) => this.writeProviderSelection(value),
+-      clear: async () => this.clearProviderSelection(),
+-    };
+-    const providerPreferences = new LocalProviderPreferencesRecords(this.database);
+-    this.providerPreferences = {
+-      read: async (workspaceId) => this.guardStorage(() => providerPreferences.read(workspaceId)),
+-      write: async (workspaceId, preferences) => this.guardStorage(() => providerPreferences.write(workspaceId, preferences)),
+-    };
+-  }
+-
+-  close(): void {
+-    if (this.closed) return;
+-    this.closed = true;
+-    this.database.close();
+-  }
+-
+-  private configureAndAcquireExclusiveLock(): void {
+-    this.database.pragma("busy_timeout = 0");
+-    const journalMode = this.database.pragma("journal_mode = WAL", { simple: true });
+-    if (String(journalMode).toLowerCase() !== "wal") {
+-      throw corruptStore("SQLite WAL mode could not be enabled");
+-    }
+-    this.database.pragma("synchronous = FULL");
+-    const synchronous = this.database.pragma("synchronous", { simple: true });
+-    if (synchronous !== 2) throw corruptStore("SQLite FULL durability is unavailable");
+-    this.database.pragma("locking_mode = EXCLUSIVE");
+-    const lockingMode = this.database.pragma("locking_mode", { simple: true });
+-    if (String(lockingMode).toLowerCase() !== "exclusive") {
+-      throw corruptStore("SQLite exclusive locking is unavailable");
+-    }
+-    // This transaction acquires SQLite's real exclusive lock before migration
+-    // and readiness without leaving a probe table or row behind.
+-    this.database.exec("BEGIN EXCLUSIVE");
+-    try {
+-      this.database.prepare("SELECT name FROM sqlite_master LIMIT 1").get();
+-      this.database.exec("COMMIT");
+-    } catch (error) {
+-      this.database.exec("ROLLBACK");
+-      throw error;
+-    }
+-  }
+-
+-  private createSchemaIfNew(): void {
+-    const tables = this.database.prepare(`
+-      SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+-    `).all() as { name: string }[];
+-    if (tables.length > 0) {
+-      const present = new Set(tables.map(({ name }) => name));
+-      if (!present.has("metadata") || !present.has("events") || !present.has("workspace_grant")) {
+-        throw new LocalPersistenceError("corrupt", "Local database schema is incomplete");
+-      }
+-      const schemaVersion = this.database.prepare("SELECT value FROM metadata WHERE key = 'schema_version'").get() as { value: string } | undefined;
+-      if (schemaVersion && schemaVersion.value !== String(SCHEMA_VERSION)) {
+-        throw new LocalPersistenceError("corrupt", "Local database schema version is unsupported");
+-      }
+-      const marker = this.database.prepare("SELECT value FROM metadata WHERE key = 'legacy_migration_complete'").get() as { value: string } | undefined;
+-      const records = this.database.prepare("SELECT 1 FROM events UNION ALL SELECT 1 FROM workspace_grant LIMIT 1").get();
+-      if (!marker && records) throw new LocalPersistenceError("corrupt", "Local database is populated without a migration marker");
+-      return;
+-    }
+-    this.database.transaction(() => {
+-      this.database.exec(`
+-        CREATE TABLE metadata (
+-          key TEXT PRIMARY KEY NOT NULL,
+-          value TEXT NOT NULL
+-        );
+-        CREATE TABLE events (
+-          insertion_order INTEGER PRIMARY KEY AUTOINCREMENT,
+-          family TEXT NOT NULL CHECK (family IN ('platform', 'lifecycle')),
+-          event_id TEXT NOT NULL UNIQUE,
+-          thread_id TEXT NOT NULL,
+-          turn_id TEXT,
+-          stream_type TEXT NOT NULL,
+-          stream_id TEXT NOT NULL,
+-          sequence INTEGER NOT NULL CHECK (sequence > 0),
+-          cursor TEXT UNIQUE,
+-          idempotency_key TEXT NOT NULL,
+-          fingerprint TEXT NOT NULL,
+-          event_json TEXT NOT NULL,
+-          UNIQUE (family, stream_type, stream_id, sequence),
+-          UNIQUE (family, stream_type, stream_id, idempotency_key)
+-        );
+-        CREATE INDEX events_family_order ON events(family, insertion_order);
+-        CREATE INDEX events_stream_order ON events(family, stream_type, stream_id, sequence);
+-        CREATE TABLE workspace_grant (
+-          id INTEGER PRIMARY KEY CHECK (id = 1),
+-          value_json TEXT NOT NULL
+-        );
+-      `);
+-    }).exclusive();
+-  }
+-
+-  private migrateOrValidate(): void {
+-    const version = this.database.prepare("SELECT value FROM metadata WHERE key = 'schema_version'").get() as { value: string } | undefined;
+-    if (version && version.value !== String(SCHEMA_VERSION)) {
+-      throw corruptStore("Local database schema version is unsupported");
+-    }
+-    const marker = this.database.prepare("SELECT value FROM metadata WHERE key = 'legacy_migration_complete'").get() as { value: string } | undefined;
+-    if (marker) {
+-      if (marker.value !== "1") throw corruptStore("Local migration marker is invalid");
+-      return;
+-    }
+-    if (this.hasArchivedMigrationEvidence()) {
+-      throw corruptStore("Archived migration evidence has no matching database marker");
+-    }
+-
+-    const hasRecords = (this.database.prepare("SELECT 1 FROM events LIMIT 1").get() !== undefined)
+-      || (this.database.prepare("SELECT 1 FROM workspace_grant LIMIT 1").get() !== undefined);
+-    if (hasRecords) throw corruptStore("Local database is populated without a migration marker");
+-
+-    const platformEvents = this.readLegacyPlatformEvents();
+-    const storedGrant = this.readLegacyGrant();
+-    this.database.transaction(() => {
+-      for (const event of platformEvents) this.insertMigratedPlatformEvent(event);
+-      if (storedGrant) {
+-        this.database.prepare("INSERT INTO workspace_grant(id, value_json) VALUES (1, ?)")
+-          .run(JSON.stringify(storedGrant));
+-      }
+-      this.database.prepare("INSERT INTO metadata(key, value) VALUES ('schema_version', ?)")
+-        .run(String(SCHEMA_VERSION));
+-      this.database.prepare("INSERT INTO metadata(key, value) VALUES ('legacy_migration_complete', '1')").run();
+-    }).exclusive();
+-  }
+-
+-  private readLegacyPlatformEvents(): PlatformEvent[] {
+-    const filePath = join(this.storageDirectory, "thread-events.json");
+-    if (!existsSync(filePath)) return [];
+-    try {
+-      const raw: unknown = JSON.parse(readFileSync(filePath, "utf8"));
+-      const file = LegacyPlatformFileSchema.parse(raw);
+-      return file.events.map((event) => PlatformEventSchema.parse(event));
+-    } catch {
+-      throw corruptStore("Legacy local event data is invalid");
+-    }
+-  }
+-
+-  private readLegacyGrant(): StoredLocalWorkspaceGrant | null {
+-    const filePath = join(this.storageDirectory, "workspace-grant.json");
+-    if (!existsSync(filePath)) return null;
+-    try {
+-      const raw: unknown = JSON.parse(readFileSync(filePath, "utf8"));
+-      return parseStoredGrant(raw);
+-    } catch {
+-      throw corruptStore("Legacy workspace grant data is invalid");
+-    }
+-  }
+-
+-  private insertMigratedPlatformEvent(event: PlatformEvent): void {
+-    const streamType = event.scopeType;
+-    const previous = this.database.prepare(`
+-      SELECT sequence FROM events WHERE family = 'platform' AND stream_type = ? AND stream_id = ? ORDER BY sequence DESC LIMIT 1
+-    `).get(streamType, event.scopeId) as { sequence: number } | undefined;
+-    if (event.sequence !== (previous?.sequence ?? 0) + 1) {
+-      throw corruptStore("Legacy local event sequence is invalid");
+-    }
+-    this.insertEvent({
+-      family: "platform",
+-      eventId: event.eventId,
+-      threadId: event.threadId,
+-      turnId: null,
+-      streamType,
+-      streamId: event.scopeId,
+-      sequence: event.sequence,
+-      cursor: event.cursor,
+-      idempotencyKey: event.idempotencyKey,
+-      fingerprint: platformFingerprint(event),
+-      event,
+-    });
+-  }
+-
+-  private appendPlatform(input: AppendEventInput): PlatformEvent {
+-    return this.guardStorage(() => this.database.transaction(() => this.appendPlatformWithin(input)).immediate());
+-  }
+-
+-  private appendPlatformBatch(inputs: readonly AppendEventInput[]): readonly PlatformEvent[] {
+-    return this.guardStorage(() => this.database.transaction(() => inputs.map((input) => this.appendPlatformWithin(input))).immediate());
+-  }
+-
+-  private appendPlatformWithin(input: AppendEventInput): PlatformEvent {
+-    const scope = EventScopeSchema.parse({ scopeType: input.scopeType, scopeId: input.scopeId });
+-    const existing = this.database.prepare(`
+-      SELECT event_json, fingerprint, family, stream_id, stream_type, event_id, thread_id,
+-        turn_id, sequence, cursor, idempotency_key
+-      FROM events WHERE family = 'platform' AND stream_type = ? AND stream_id = ? AND idempotency_key = ?
+-    `).get(scope.scopeType, scope.scopeId, input.idempotencyKey) as EventRow | undefined;
+-    if (existing) {
+-      const saved = parseStoredPlatformEvent(existing.event_json);
+-      const retry = PlatformEventSchema.parse({
+-        ...input,
+-        eventId: saved.eventId,
+-        cursor: saved.cursor,
+-        sequence: saved.sequence,
+-        createdAt: saved.createdAt,
+-      });
+-      if (existing.fingerprint !== platformFingerprint(retry)) {
+-        throw new EventStoreError("idempotency_conflict", "Idempotency key was already used for a different event");
+-      }
+-      return saved;
+-    }
+-    const last = this.database.prepare(`
+-      SELECT sequence FROM events WHERE family = 'platform' AND stream_type = ? AND stream_id = ? ORDER BY sequence DESC LIMIT 1
+-    `).get(scope.scopeType, scope.scopeId) as { sequence: number } | undefined;
+-    const event = PlatformEventSchema.parse({
+-      ...input,
+-      eventId: this.idGenerator.nextEventId(),
+-      cursor: this.idGenerator.nextCursor(),
+-      sequence: (last?.sequence ?? 0) + 1,
+-      createdAt: this.clock.now(),
+-    });
+-    this.insertEvent({
+-      family: "platform", eventId: event.eventId, threadId: event.threadId, turnId: null,
+-      streamType: event.scopeType, streamId: event.scopeId, sequence: event.sequence,
+-      cursor: event.cursor, idempotencyKey: event.idempotencyKey, fingerprint: platformFingerprint(event),
+-      event,
+-    });
+-    return event;
+-  }
+-
+-  private appendLifecycle(event: LifecycleEvent): LifecycleEvent {
+-    return this.guardStorage(() => this.database.transaction(() => this.appendLifecycleWithin(event)).immediate());
+-  }
+-
+-  private appendLifecycleBatch(events: readonly LifecycleEvent[]): readonly LifecycleEvent[] {
+-    return this.guardStorage(() => this.database.transaction(() => events.map((event) => this.appendLifecycleWithin(event))).immediate());
+-  }
+-
+-  private appendLifecycleWithin(input: LifecycleEvent): LifecycleEvent {
+-    const event = parseLifecycleEvent(input);
+-    this.admissions?.assertLifecycleIdentity(event);
+-    const fingerprint = createStableEventFingerprint(event);
+-    const existing = this.database.prepare(`
+-      SELECT event_json, fingerprint, family, stream_id, sequence, idempotency_key
+-      FROM events WHERE family = 'lifecycle' AND stream_type = 'turn' AND stream_id = ? AND idempotency_key = ?
+-    `).get(event.turnId, event.idempotencyKey) as EventRow | undefined;
+-    if (existing) {
+-      if (existing.fingerprint !== fingerprint) {
+-        throw new EventStoreError("idempotency_conflict", "Lifecycle idempotency key was already used for a different event");
+-      }
+-      return parseStoredLifecycleEvent(existing.event_json);
+-    }
+-    const stream = this.database.prepare(`
+-      SELECT thread_id, sequence, event_json FROM events
+-      WHERE family = 'lifecycle' AND stream_type = 'turn' AND stream_id = ?
+-      ORDER BY sequence DESC LIMIT 1
+-    `).get(event.turnId) as { thread_id: string; sequence: number; event_json: string } | undefined;
+-    if (stream && stream.thread_id !== event.threadId) {
+-      throw new EventStoreError("corrupt_event_stream", "Lifecycle turn identity changed thread");
+-    }
+-    if (stream && isTerminal(parseStoredLifecycleEvent(stream.event_json))) {
+-      throw new EventStoreError("terminal_stream", "Turn already has terminal lifecycle evidence");
+-    }
+-    const expected = (stream?.sequence ?? 0) + 1;
+-    if (event.sequence !== expected) {
+-      throw new EventStoreError("sequence_gap", `Lifecycle sequence must be ${expected}, received ${event.sequence}`);
+-    }
+-    this.insertEvent({
+-      family: "lifecycle", eventId: event.eventId, threadId: event.threadId,
+-      turnId: event.turnId, streamType: "turn", streamId: event.turnId,
+-      sequence: event.sequence, cursor: null, idempotencyKey: event.idempotencyKey,
+-      fingerprint, event,
+-    });
+-    return event;
+-  }
+-
+-  private insertEvent(input: {
+-    family: "platform" | "lifecycle";
+-    eventId: string;
+-    threadId: string;
+-    turnId: string | null;
+-    streamType: string;
+-    streamId: string;
+-    sequence: number;
+-    cursor: string | null;
+-    idempotencyKey: string;
+-    fingerprint: string;
+-    event: PlatformEvent | LifecycleEvent;
+-  }): void {
+-    try {
+-      this.database.prepare(`
+-        INSERT INTO events(family, event_id, thread_id, turn_id, stream_type, stream_id, sequence, cursor, idempotency_key, fingerprint, event_json)
+-        VALUES (@family, @eventId, @threadId, @turnId, @streamType, @streamId, @sequence, @cursor, @idempotencyKey, @fingerprint, @eventJson)
+-      `).run({ ...input, eventJson: JSON.stringify(input.event) });
+-    } catch (error) {
+-      const code = error instanceof Error && "code" in error ? String(error.code) : "";
+-      if (code.startsWith("SQLITE_CONSTRAINT")) {
+-        const message = error instanceof Error ? error.message : "";
+-        if (message.includes("events.cursor")) {
+-          throw new EventStoreError("cursor_conflict", "Generated event cursor already exists");
+-        }
+-        throw new EventStoreError("event_id_conflict", "Local event identity conflicts with existing history");
+-      }
+-      throw new LocalPersistenceError("unavailable", "Local event could not be stored safely");
+-    }
+-  }
+-
+-  private replayPlatform(input: ReplayEventsInput): ReplayEventsResult {
+-    return this.guardStorage(() => this.replayPlatformWithin(input));
+-  }
+-
+-  private replayPlatformWithin(input: ReplayEventsInput): ReplayEventsResult {
+-    const scope = EventScopeSchema.parse(input.scope);
+-    validateReplayLimit(input.limit);
+-    const afterCursor = input.afterCursor === null ? null : EventCursorSchema.parse(input.afterCursor);
+-    let afterSequence = 0;
+-    if (afterCursor !== null) {
+-      const anchor = this.database.prepare(`
+-        SELECT sequence FROM events
+-        WHERE family = 'platform' AND stream_type = ? AND stream_id = ? AND cursor = ?
+-      `).get(scope.scopeType, scope.scopeId, afterCursor) as { sequence: number } | undefined;
+-      if (!anchor) {
+-        throw new EventStoreError("cursor_not_found", "Replay cursor does not exist in the requested scope");
+-      }
+-      afterSequence = anchor.sequence;
+-    }
+-    const rows = this.database.prepare(`
+-      SELECT event_json FROM events
+-      WHERE family = 'platform' AND stream_type = ? AND stream_id = ? AND sequence > ?
+-      ORDER BY sequence LIMIT ?
+-    `).all(scope.scopeType, scope.scopeId, afterSequence, input.limit) as { event_json: string }[];
+-    const page = rows.map(({ event_json }) => parseStoredPlatformEvent(event_json));
+-    return { events: page, nextCursor: page.at(-1)?.cursor ?? null };
+-  }
+-
+-  private replayLifecycle(input: ReplayLifecycleEventsInput): ReplayLifecycleEventsResult {
+-    return this.guardStorage(() => this.replayLifecycleWithin(input));
+-  }
+-
+-  private replayLifecycleWithin(input: ReplayLifecycleEventsInput): ReplayLifecycleEventsResult {
+-    validateReplayLimit(input.limit);
+-    if (input.afterSequence !== null && (!Number.isSafeInteger(input.afterSequence) || input.afterSequence < 0)) {
+-      throw new EventStoreError("cursor_not_found", "Invalid lifecycle replay sequence");
+-    }
+-    const after = input.afterSequence ?? 0;
+-    const page = new LifecycleReplayPage(input);
+-    const rows = this.database.prepare(`
+-      SELECT event_json FROM events WHERE family = 'lifecycle' AND stream_type = 'turn' AND stream_id = ? AND sequence > ?
+-      ORDER BY sequence LIMIT ?
+-    `).iterate(input.turnId, after, input.limit) as Iterable<{ event_json: string }>;
+-    for (const { event_json } of rows) {
+-      if (!page.append(parseStoredLifecycleEvent(event_json))) break;
+-    }
+-    return page.result();
+-  }
+-
+-  private listAllPlatform(): readonly PlatformEvent[] {
+-    return this.guardStorage(() => {
+-      const rows = this.database.prepare("SELECT event_json FROM events WHERE family = 'platform' ORDER BY insertion_order").all() as { event_json: string }[];
+-      return rows.map(({ event_json }) => parseStoredPlatformEvent(event_json));
+-    });
+-  }
+-
+-  private readWorkspaceGrant(): StoredLocalWorkspaceGrant | null {
+-    return this.guardStorage(() => {
+-      const row = this.database.prepare("SELECT value_json FROM workspace_grant WHERE id = 1").get() as { value_json: string } | undefined;
+-      if (!row) return null;
+-      try { return parseStoredGrant(JSON.parse(row.value_json)); }
+-      catch { throw corruptStore("Stored workspace grant is invalid"); }
+-    });
+-  }
+-
+-  private writeWorkspaceGrant(value: StoredLocalWorkspaceGrant): void {
+-    let parsed: StoredLocalWorkspaceGrant;
+-    try { parsed = parseStoredGrant(value); }
+-    catch { throw corruptStore("Workspace grant is invalid"); }
+-    this.guardStorage(() => this.database.transaction(() => {
+-      this.database.prepare(`INSERT INTO workspace_grant(id, value_json) VALUES (1, ?)
+-        ON CONFLICT(id) DO UPDATE SET value_json = excluded.value_json`).run(JSON.stringify(parsed));
+-    }).immediate());
+-  }
+-
+-  private clearWorkspaceGrant(): void {
+-    this.guardStorage(() => this.database.transaction(() => this.database.prepare("DELETE FROM workspace_grant WHERE id = 1").run()).immediate());
+-  }
+-
+-  private readProviderSelection(): { readonly providerId: ProviderId; readonly modelId: string } | null {
+-    return this.guardStorage(() => {
+-      const row = this.database.prepare("SELECT value FROM metadata WHERE key = ?")
+-        .get(PROVIDER_SELECTION_METADATA_KEY) as { value: string } | undefined;
+-      if (!row) return null;
+-      try {
+-        const { providerId, modelId } = ProviderSelectionSchema.parse(JSON.parse(row.value));
+-        return { providerId, modelId };
+-      } catch {
+-        throw corruptStore("Stored provider selection is invalid");
+-      }
+-    });
+-  }
+-
+-  private writeProviderSelection(value: { readonly providerId: ProviderId; readonly modelId: string }): void {
+-    let selection: z.infer<typeof ProviderSelectionSchema>;
+-    try {
+-      selection = ProviderSelectionSchema.parse({ version: 1, ...value });
+-    } catch {
+-      throw corruptStore("Provider selection is invalid");
+-    }
+-    this.guardStorage(() => this.database.transaction(() => {
+-      this.database.prepare(`INSERT INTO metadata(key, value) VALUES (?, ?)
+-        ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+-        .run(PROVIDER_SELECTION_METADATA_KEY, JSON.stringify(selection));
+-    }).immediate());
+-  }
+-
+-  private clearProviderSelection(): void {
+-    this.guardStorage(() => this.database.transaction(() => {
+-      this.database.prepare("DELETE FROM metadata WHERE key = ?").run(PROVIDER_SELECTION_METADATA_KEY);
+-    }).immediate());
+-  }
+-
+-  private readEnvironmentId(): string | null {
+-    const row = this.database.prepare("SELECT value FROM metadata WHERE key='local_environment_id_v1'").get() as { value: string } | undefined;
+-    if (!row) return null;
+-    if (!/^env_[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(row.value)) {
+-      throw corruptStore("Stored local environment identity is invalid");
+-    }
+-    return row.value;
+-  }
+-
+-  private async guardHarnessStorage<T>(operation: () => Promise<T>): Promise<T> {
+-    try { return await operation(); }
+-    catch (error) {
+-      if (error instanceof EventStoreError || error instanceof LocalPersistenceError || error instanceof HarnessPersistenceError) throw error;
+-      throw new LocalPersistenceError("unavailable", "Local harness persistence operation failed safely");
+-    }
+-  }
+-
+-  private guardStorage<T>(operation: () => T): T {
+-    try {
+-      return operation();
+-    } catch (error) {
+-      if (error instanceof EventStoreError || error instanceof LocalPersistenceError) throw error;
+-      throw new LocalPersistenceError("unavailable", "Local persistence operation failed safely");
+-    }
+-  }
+-
+-  private validateDatabase(): void {
+-    const result = this.database.pragma("quick_check") as { quick_check: string }[];
+-    if (result.length !== 1 || result[0]?.quick_check !== "ok") throw corruptStore("Local database integrity check failed");
+-    const marker = this.database.prepare("SELECT value FROM metadata WHERE key = 'legacy_migration_complete'").get() as { value: string } | undefined;
+-    const version = this.database.prepare("SELECT value FROM metadata WHERE key = 'schema_version'").get() as { value: string } | undefined;
+-    if (marker?.value !== "1" || version?.value !== String(SCHEMA_VERSION)) throw corruptStore("Local database metadata is invalid");
+-    this.assertRequiredIndexes();
+-    this.validateProviderSelectionMetadata();
+-    validateLocalTurnArtifacts(this.database);
+-
+-    const rows = this.database.prepare(`
+-      SELECT family, event_json, fingerprint, event_id, thread_id, turn_id,
+-        stream_type, stream_id, sequence, cursor, idempotency_key
+-      FROM events ORDER BY insertion_order
+-    `).all() as EventRow[];
+-    if (this.database.prepare("SELECT 1 FROM workspace_grant WHERE id != 1 LIMIT 1").get()) {
+-      throw corruptStore("Stored workspace grant identity is invalid");
+-    }
+-    const platformSequence = new Map<string, number>();
+-    const lifecycleSequence = new Map<string, { sequence: number; threadId: string; terminal: boolean }>();
+-    for (const row of rows) {
+-      if (row.family === "platform") {
+-        const event = parseStoredPlatformEvent(row.event_json);
+-        const key = `${event.scopeType}:${event.scopeId}`;
+-        const expected = (platformSequence.get(key) ?? 0) + 1;
+-        if (event.sequence !== expected) throw corruptStore("Local platform event sequence is invalid");
+-        if (row.event_id !== event.eventId || row.thread_id !== event.threadId || row.turn_id !== null
+-          || row.stream_type !== event.scopeType || row.stream_id !== event.scopeId
+-          || row.sequence !== event.sequence || row.cursor !== event.cursor
+-          || row.idempotency_key !== event.idempotencyKey || row.fingerprint !== platformFingerprint(event)) {
+-          throw corruptStore("Local platform event index is inconsistent");
+-        }
+-        platformSequence.set(key, event.sequence);
+-      } else if (row.family === "lifecycle") {
+-        const event = parseStoredLifecycleEvent(row.event_json);
+-        const previous = lifecycleSequence.get(event.turnId);
+-        if (previous && (previous.threadId !== event.threadId || previous.terminal)) throw corruptStore("Local lifecycle stream identity is invalid");
+-        const expected = (previous?.sequence ?? 0) + 1;
+-        if (event.sequence !== expected) throw corruptStore("Local lifecycle event sequence is invalid");
+-        if (row.event_id !== event.eventId || row.thread_id !== event.threadId || row.turn_id !== event.turnId
+-          || row.stream_type !== "turn" || row.stream_id !== event.turnId
+-          || row.sequence !== event.sequence || row.cursor !== null
+-          || row.idempotency_key !== event.idempotencyKey
+-          || row.fingerprint !== createStableEventFingerprint(event)) {
+-          throw corruptStore("Local lifecycle event index is inconsistent");
+-        }
+-        lifecycleSequence.set(event.turnId, { sequence: event.sequence, threadId: event.threadId, terminal: isTerminal(event) });
+-      } else {
+-        throw corruptStore("Local event family is invalid");
+-      }
+-    }
+-    this.readWorkspaceGrant();
+-  }
+-
+-  private validateProviderSelectionMetadata(): void {
+-    const row = this.database.prepare("SELECT value FROM metadata WHERE key = ?")
+-      .get(PROVIDER_SELECTION_METADATA_KEY) as { value: string } | undefined;
+-    if (!row) return;
+-    try {
+-      ProviderSelectionSchema.parse(JSON.parse(row.value));
+-    } catch {
+-      throw corruptStore("Stored provider selection is invalid");
+-    }
+-  }
+-
+-  private assertRequiredIndexes(): void {
+-    this.assertRequiredTableKeys();
+-    const indexes = this.database.pragma("index_list(events)") as { name: string; unique: number; partial: number; origin: string }[];
+-    const columnsByIndex = new Map<string, readonly string[]>();
+-    for (const index of indexes) {
+-      const escapedName = index.name.replaceAll("'", "''");
+-      const columns = this.database.pragma(`index_info('${escapedName}')`) as { name: string | null }[];
+-      columnsByIndex.set(index.name, columns.map(({ name }) => name ?? ""));
+-    }
+-    const hasIndex = (columns: readonly string[], unique: boolean): boolean => indexes.some((index) => {
+-      const actual = columnsByIndex.get(index.name) ?? [];
+-      return Boolean(index.unique) === unique && index.partial === 0 && actual.length === columns.length
+-        && actual.every((column, position) => column === columns[position]);
+-    });
+-    const requiredUnique = [
+-      ["event_id"],
+-      ["cursor"],
+-      ["family", "stream_type", "stream_id", "sequence"],
+-      ["family", "stream_type", "stream_id", "idempotency_key"],
+-    ] as const;
+-    if (requiredUnique.some((columns) => !hasIndex(columns, true))) {
+-      throw corruptStore("Local database uniqueness constraints are incomplete");
+-    }
+-    if (!hasIndex(["family", "insertion_order"], false)
+-      || !hasIndex(["family", "stream_type", "stream_id", "sequence"], false)) {
+-      throw corruptStore("Local database lookup indexes are incomplete");
+-    }
+-  }
+-
+-  private assertRequiredTableKeys(): void {
+-    const metadata = this.database.pragma("table_info(metadata)") as { name: string; type: string; pk: number }[];
+-    const events = this.database.pragma("table_info(events)") as { name: string; type: string; pk: number }[];
+-    const grants = this.database.pragma("table_info(workspace_grant)") as { name: string; type: string; pk: number }[];
+-    const metadataKey = metadata.find(({ name }) => name === "key");
+-    const eventOrder = events.find(({ name }) => name === "insertion_order");
+-    const grantId = grants.find(({ name }) => name === "id");
+-    const eventIndexes = this.database.pragma("index_list(events)") as { origin: string }[];
+-    const grantIndexes = this.database.pragma("index_list(workspace_grant)") as { origin: string }[];
+-    if (metadataKey?.type.toUpperCase() !== "TEXT" || metadataKey.pk !== 1
+-      || metadata.filter(({ pk }) => pk > 0).length !== 1
+-      || eventOrder?.type.toUpperCase() !== "INTEGER" || eventOrder.pk !== 1
+-      || events.filter(({ pk }) => pk > 0).length !== 1
+-      || grantId?.type.toUpperCase() !== "INTEGER" || grantId.pk !== 1
+-      || grants.filter(({ pk }) => pk > 0).length !== 1
+-      || eventIndexes.some(({ origin }) => origin === "pk")
+-      || grantIndexes.some(({ origin }) => origin === "pk")) {
+-      throw corruptStore("Local database primary …16798 tokens truncated…workspace && startArtifacts
+-      ? new DelegatedTurnCoordinator({
+-          dependencies: this.dependencies.delegated,
+-          command: HarnessStartCommandSchema.parse({
+-            mode: restored ? "recover_same_attempt" : "start",
+-            commandId: `${runAttemptId}:start`, selection: delegatedInput.selection,
+-            leaseId: delegatedInput.leaseId, startSnapshot: startArtifacts.snapshot,
+-            filesystemRoot: workspace.filesystemRoot, prompt: delegatedInput.prompt,
+-            resumeSession: delegatedInput.resumeSession,
+-          }),
+-          run, turn, lifecycle, approvals, signal: executionController.signal,
+-        }) : null;
+-    return {
+-      run,
+-      turn,
+-      runAttemptId,
+-      workspace,
+-      lifecycle,
+-      delegated,
+-      artifacts: artifactSettlement,
+-      tools,
+-      executionSignal: executionController.signal,
+-      hookTriggerEvents: lifecycleStart ? {
+-        sessionStart: lifecycleStart.turnStarted,
+-        userPromptSubmit: lifecycleStart.runAttemptStarted,
+-      } : null,
+-    };
+-  }
+-
+-  private async executePreparedTurn(
+-    prepared: PreparedTurn,
+-  ): Promise<StartTurnResult> {
+-    const { turn, workspace, lifecycle, artifacts } = prepared;
+-    try {
+-      if (lifecycle.isTerminal) {
+-        return {
+-          status: "completed",
+-          output: "",
+-          toolCallCount: 0,
+-          workspace,
+-        };
+-      }
+-      prepared.executionSignal.throwIfAborted();
+-      await this.runHooks(prepared);
+-      const result = prepared.delegated
+-        ? { status: "completed" as const, ...await prepared.delegated.execute() }
+-        : await this.executeNativePreparedTurn(prepared);
+-      if (prepared.executionSignal.aborted || lifecycle.isTerminal) {
+-        throw new LifecycleTransitionError(
+-          "turn",
+-          "interrupted",
+-          "completed",
+-          "turn was interrupted before successful settlement",
+-        );
+-      }
+-      if (this.dependencies.worker?.executionCapability === "guarded_mutation") {
+-        await this.awaitGuardedQuiescence(turn.id);
+-        prepared.executionSignal.throwIfAborted();
+-      }
+-      await this.settleArtifacts(turn.id, lifecycle, artifacts);
+-      // Snapshot capture awaits filesystem/Git work. Stop may have been accepted
+-      // during that await; revalidate before entering terminal arbitration.
+-      if (prepared.executionSignal.aborted) throw new RuntimeKernelError("turn_cancelled", "Turn stopped during artifact capture");
+-      if (prepared.delegated) await prepared.delegated.requireQuiescence();
+-      await lifecycle.complete(result.output, result.finalItemId, () => !prepared.executionSignal.aborted);
+-      return {
+-        status: result.status,
+-        output: result.output,
+-        toolCallCount: result.toolCallCount,
+-        workspace,
+-      };
+-    } catch (error) {
+-      if (!lifecycle.isTerminalDecided && !lifecycle.requiresHarnessRecovery) {
+-        if (!isArtifactSettlementError(error)) {
+-          const interrupted =
+-            isTurnCancelled(error) || prepared.executionSignal.aborted;
+-          const requiresQuiescence = interrupted || prepared.delegated !== null ||
+-            this.dependencies.worker?.executionCapability === "guarded_mutation";
+-          let resumeQuiescent = false;
+-          if (prepared.delegated) {
+-            try {
+-              await prepared.delegated.stop();
+-              await prepared.delegated.requireQuiescence();
+-              resumeQuiescent = true;
+-            } catch { /* Unknown quiescence retains checkout ownership for recovery. */ }
+-          } else {
+-            resumeQuiescent = requiresQuiescence &&
+-              (await this.dependencies.worker?.awaitQuiescence?.({ turnId: turn.id, timeoutMs: 500 })) === true;
+-            if (this.dependencies.worker?.executionCapability === "guarded_mutation" && !resumeQuiescent) {
+-              await this.awaitGuardedQuiescence(turn.id);
+-              resumeQuiescent = true;
+-            }
+-          }
+-          await this.settleArtifacts(
+-            turn.id,
+-            lifecycle,
+-            artifacts,
+-            true,
+-            resumeQuiescent,
+-            requiresQuiescence && !resumeQuiescent
+-              ? "worker_not_quiescent"
+-              : undefined,
+-          );
+-        }
+-        if (isTurnCancelled(error) || prepared.executionSignal.aborted) {
+-          await lifecycle.interrupt(
+-            this.pendingInterrupts.get(turn.id) ??
+-              cancellationReason(prepared.executionSignal) ??
+-              (error instanceof Error ? error.message : "Run interrupted"),
+-          );
+-        } else {
+-          await this.recoverFailedTurn(lifecycle, error);
+-        }
+-      }
+-      throw error;
+-    } finally {
+-      this.activeContexts.delete(turn.id);
+-      this.compactedContexts.delete(turn.id);
+-      this.compactions.delete(turn.id);
+-      this.automaticCompactions.delete(turn.id);
+-      this.approvalCoordinators.delete(turn.id);
+-    }
+-  }
+-
+-  private requireNativePorts(): { provider: ProviderPort; contextAssembly: ContextAssemblyPort; worker: WorkerProtocolPort; toolAuthorization: ToolAuthorizationPort } {
+-    const { provider, contextAssembly, worker, toolAuthorization } = this.dependencies;
+-    if (!provider || !contextAssembly || !worker || !toolAuthorization) throw new RuntimeKernelError("worker_failed", "Native execution requires its configured native ports");
+-    return { provider, contextAssembly, worker, toolAuthorization };
+-  }
+-
+-  private async executeNativePreparedTurn(prepared: PreparedTurn) {
+-    const { run, turn, runAttemptId, workspace, tools } = prepared;
+-    if (!tools) throw new RuntimeKernelError("worker_failed", "Native tool ports are unavailable for this strategy");
+-    const context = await this.assembleContext(run, turn, workspace, [], prepared.executionSignal);
+-    this.activeContexts.set(turn.id, context);
+-    return this.executeLoop(prepared, run, runAttemptId, turn, workspace, context, tools);
+-  }
+-
+-  private async runHooks(prepared: PreparedTurn): Promise<void> {
+-    const hooks = this.dependencies.hooks;
+-    if (!hooks || !prepared.workspace || !prepared.hookTriggerEvents) return;
+-
+-    const base = {
+-      run: prepared.run,
+-      turn: prepared.turn,
+-      runAttemptId: prepared.runAttemptId,
+-      workspace: prepared.workspace,
+-      auditAppender: prepared.lifecycle,
+-    };
+-    await hooks.runSessionStart({
+-      ...base,
+-      triggerEventId: prepared.hookTriggerEvents.sessionStart.eventId,
+-    });
+-    await hooks.runUserPromptSubmit({
+-      ...base,
+-      triggerEventId: prepared.hookTriggerEvents.userPromptSubmit.eventId,
+-    });
+-  }
+-
+-  async interruptTurn(turnId: Turn["id"], reason: string): Promise<void> {
+-    const lifecycle = this.lifecycles.get(turnId);
+-    if (!lifecycle) {
+-      throw new RuntimeKernelError(
+-        "turn_not_active",
+-        `Turn ${turnId} is not owned by this runtime kernel`,
+-      );
+-    }
+-    if (lifecycle.isTerminalDecided) return;
+-
+-    this.pendingInterrupts.set(turnId, reason);
+-    this.executionControllers
+-      .get(turnId)
+-      ?.abort(new DOMException(reason, "AbortError"));
+-    const delegated = this.preparedTurns.get(turnId)?.delegated;
+-    if (delegated) await delegated.stop();
+-    const execution = this.executions.get(turnId);
+-    let executionSettled = !execution;
+-    if (execution) {
+-      try {
+-        if (this.dependencies.worker?.executionCapability === "guarded_mutation") {
+-          await execution;
+-        } else {
+-          await withBoundedCancellationSettlement(execution);
+-        }
+-        executionSettled = true;
+-      } catch (error) {
+-        if (!isTurnCancelled(error) && !lifecycle.isTerminal) {
+-          throw error;
+-        }
+-      }
+-    }
+-
+-    if (!lifecycle.isTerminal) {
+-      const prepared = this.preparedTurns.get(turnId);
+-      if (!prepared) {
+-        throw new RuntimeKernelError(
+-          "turn_not_active",
+-          `Turn ${turnId} has not reached runtime preparation`,
+-        );
+-      }
+-      this.pendingInterrupts.delete(turnId);
+-      let quiescent = false;
+-      if (prepared.delegated) {
+-        try { await prepared.delegated.requireQuiescence(); quiescent = true; }
+-        catch { /* No release or immutable snapshot while mutation may continue. */ }
+-      } else {
+-        quiescent = executionSettled && (await this.dependencies.worker?.awaitQuiescence?.({ turnId, timeoutMs: 500 })) === true;
+-      }
+-      await this.interruptPreparedTurn(prepared, reason, quiescent);
+-    }
+-  }
+-
+-  getTurnTerminalStatus(turnId: Turn["id"]): RuntimeLifecycleCoordinator["terminalStatus"] {
+-    return this.lifecycles.get(turnId)?.terminalStatus ?? null;
+-  }
+-
+-  isTurnTerminal(turnId: Turn["id"]): boolean {
+-    return this.getTurnTerminalStatus(turnId) !== null;
+-  }
+-
+-  isTurnReady(turnId: Turn["id"]): boolean {
+-    return this.lifecycles.has(turnId) && this.executions.has(turnId);
+-  }
+-
+-  /**
+-   * Records an interrupt requested after this kernel was constructed but
+-   * before startTurn has created its lifecycle coordinator. The request is
+-   * consumed by startTurn and settled through the same canonical lifecycle.
+-   */
+-  requestInterruptBeforeStart(turnId: Turn["id"], reason: string): void {
+-    this.pendingInterrupts.set(turnId, reason);
+-  }
+-
+-  private abortAllExecutions(reason: unknown): void {
+-    for (const controller of this.executionControllers.values()) {
+-      controller.abort(reason);
+-    }
+-  }
+-
+-  async resolveApproval(
+-    turnId: Turn["id"],
+-    approvalId: Parameters<ApprovalCoordinator["resolve"]>[0],
+-    resolution: Parameters<ApprovalCoordinator["resolve"]>[1],
+-  ): Promise<void> {
+-    const approvals = this.approvalCoordinators.get(turnId);
+-    if (!approvals) {
+-      throw new RuntimeKernelError(
+-        "turn_not_active",
+-        `Turn ${turnId} is not owned by this runtime kernel`,
+-      );
+-    }
+-    await approvals.resolve(approvalId, resolution);
+-  }
+-
+-  /** Bind this actual canonical callback into HarnessRecovery before retiring a
+-   * damaged journal. A physical stop alone is never a successful resolution. */
+-  async resolveObservationIntegrity(input: {
+-    readonly command: import("@repo/worker-protocol").HarnessStartCommand;
+-    readonly session: import("@repo/worker-protocol").HarnessSession;
+-    readonly signal: AbortSignal;
+-  }): Promise<import("./harness/DelegatedHarnessPort.js").HarnessObservationRecovery> {
+-    const delegated = this.preparedTurns.get(input.command.selection.turnId)?.delegated;
+-    if (!delegated) throw new RuntimeKernelError("turn_not_active", "No canonical delegated owner exists for integrity resolution");
+-    return delegated.resolveObservationIntegrity(input);
+-  }
+-
+-  async respondUserInput(input: {
+-    readonly turnId: Turn["id"];
+-    readonly requestId: string;
+-    readonly response: import("@repo/platform-protocol").JsonRecord;
+-    readonly respondedBy: import("@repo/platform-protocol").UserId | null;
+-  }): Promise<void> {
+-    const delegated = this.preparedTurns.get(input.turnId)?.delegated;
+-    if (!delegated) throw new RuntimeKernelError("turn_not_active", "No active delegated user input owner");
+-    await delegated.respondUserInput(input.requestId, input.response, input.respondedBy);
+-  }
+-
+-  async compactTurn(
+-    turnId: Turn["id"],
+-    mode: ContextCompactionMode,
+-  ): Promise<void> {
+-    const prepared = this.preparedTurns.get(turnId);
+-    const context = this.activeContexts.get(turnId);
+-    if (!prepared || !context || prepared.lifecycle.isTerminal) {
+-      throw new RuntimeKernelError(
+-        "turn_not_active",
+-        `Turn ${turnId} is not active in the runtime kernel`,
+-      );
+-    }
+-    const existing = this.compactions.get(turnId);
+-    if (existing) {
+-      await existing;
+-      return;
+-    }
+-    await this.runCompaction(prepared, context, mode);
+-  }
+-
+-  private async executeLoop(
+-    prepared: PreparedTurn,
+-    run: Run,
+-    runAttemptId: StartTurnInput["runAttemptId"],
+-    turn: Turn,
+-    workspace: WorkspaceManifest | null,
+-    context: Awaited<ReturnType<ContextAssemblyPort["assemble"]>>,
+-    tools: ToolExecutionCoordinator,
+-  ): Promise<
+-    Omit<StartTurnResult, "workspace"> & { finalItemId: ProviderStepItemId }
+-  > {
+-    const toolResults: ToolResult[] = [];
+-    for (
+-      let toolCallCount = 0;
+-      toolCallCount <= this.maxToolCalls;
+-      toolCallCount += 1
+-    ) {
+-      prepared.executionSignal.throwIfAborted();
+-      const currentContext = this.activeContexts.get(turn.id) ?? context;
+-      const effectiveContext = this.compactedContexts.has(turn.id)
+-        ? currentContext
+-        : await this.assembleContext(
+-            run,
+-            turn,
+-            workspace,
+-            toolResults,
+-            prepared.executionSignal,
+-          );
+-      this.activeContexts.set(turn.id, effectiveContext);
+-      await this.maybeAutomaticallyCompact(prepared, effectiveContext);
+-      const providerInput = {
+-        run,
+-        runAttemptId,
+-        turn,
+-        workspace,
+-        context: this.activeContexts.get(turn.id) ?? effectiveContext,
+-        toolResults,
+-        signal: prepared.executionSignal,
+-        refreshContext: async () => {
+-          const refreshed = await this.assembleContext(
+-            run,
+-            turn,
+-            workspace,
+-            toolResults,
+-            prepared.executionSignal,
+-          );
+-          this.activeContexts.set(turn.id, refreshed);
+-          await this.maybeAutomaticallyCompact(prepared, refreshed);
+-          return this.activeContexts.get(turn.id) ?? refreshed;
+-        },
+-        onThreadInputsApplied: async (inputs: readonly import("./types.js").AppliedThreadInput[]) => {
+-          for (const input of inputs) {
+-            await prepared.lifecycle.applyThreadInput({
+-              inputId: input.inputId,
+-              acceptedSequence: input.acceptedSequence,
+-              modelStep: input.modelStep,
+-              contextRevision: input.contextRevision,
+-            });
+-          }
+-        },
+-      };
+-      let step: Awaited<ReturnType<ProviderPort["generateNext"]>>;
+-      try {
+-        prepared.executionSignal.throwIfAborted();
+-        step = await this.requireNativePorts().provider.generateNext(providerInput);
+-        prepared.executionSignal.throwIfAborted();
+-      } catch (error) {
+-        if (error instanceof RuntimeKernelError) throw error;
+-        throw new RuntimeKernelError(
+-          "provider_failed",
+-          error instanceof Error && error.message.trim()
+-            ? error.message
+-            : "Model provider request failed",
+-          error,
+-        );
+-      }
+-      if (step.usage) {
+-        const lifecycle = this.lifecycles.get(turn.id);
+-        if (!lifecycle) {
+-          throw new RuntimeKernelError(
+-            "turn_not_active",
+-            `Turn ${turn.id} has no lifecycle coordinator`,
+-          );
+-        }
+-        await lifecycle.updateUsage(step.usage);
+-        const latestContext =
+-          this.activeContexts.get(turn.id) ?? effectiveContext;
+-        const providerBudget = reconcileProviderContextBudget(
+-          latestContext.budgetSnapshot,
+-          step.usage,
+-        );
+-        if (providerBudget) {
+-          const measuredContext = {
+-            ...latestContext,
+-            budgetSnapshot: providerBudget,
+-          };
+-          this.activeContexts.set(turn.id, measuredContext);
+-          await lifecycle.updateContextBudget(providerBudget);
+-        }
+-      }
+-      if (step.kind === "complete") {
+-        const reserved = await prepared.lifecycle.reserveCompletion(
+-          () => this.requireNativePorts().provider.hasPendingThreadInputs?.() ?? false,
+-        );
+-        if (!reserved) {
+-          const flushed = await this.requireNativePorts().provider.flushThreadInputs?.();
+-          if (flushed) {
+-            toolCallCount -= 1;
+-            continue;
+-          }
+-          throw new RuntimeKernelError(
+-            "turn_not_active",
+-            `Turn ${turn.id} could not reserve terminal settlement`,
+-          );
+-        }
+-        if (step.reasoning) {
+-          const lifecycle = this.lifecycles.get(turn.id);
+-          if (!lifecycle) {
+-            throw new RuntimeKernelError(
+-              "turn_not_active",
+-              `Turn ${turn.id} has no lifecycle coordinator`,
+-            );
+-          }
+-          await lifecycle.appendAssistantReasoning(
+-            ItemIdSchema.parse(
+-              `itm_${turn.id.slice(4)}_reasoning_${toolCallCount}`,
+-            ),
+-            step.reasoning.text,
+-            step.reasoning.displaySafe,
+-          );
+-        }
+-        return {
+-          status: "completed",
+-          output: step.output,
+-          toolCallCount,
+-          finalItemId: step.itemId,
+-        };
+-      }
+-      if (toolCallCount === this.maxToolCalls) {
+-        throw new RuntimeKernelError(
+-          "tool_loop_limit_exceeded",
+-          `Turn ${turn.id} exceeded ${this.maxToolCalls} tool calls`,
+-        );
+-      }
+-      if (step.commentary) {
+-        const lifecycle = this.lifecycles.get(turn.id);
+-        if (!lifecycle) {
+-          throw new RuntimeKernelError(
+-            "turn_not_active",
+-            `Turn ${turn.id} has no lifecycle coordinator`,
+-          );
+-        }
+-        await lifecycle.appendAssistantCommentary(
+-          ItemIdSchema.parse(
+-            `itm_${turn.id.slice(4)}_commentary_${toolCallCount}`,
+-          ),
+-          step.commentary,
+-        );
+-      }
+-      if (step.reasoning) {
+-        const lifecycle = this.lifecycles.get(turn.id);
+-        if (!lifecycle) {
+-          throw new RuntimeKernelError(
+-            "turn_not_active",
+-            `Turn ${turn.id} has no lifecycle coordinator`,
+-          );
+-        }
+-        await lifecycle.appendAssistantReasoning(
+-          ItemIdSchema.parse(
+-            `itm_${turn.id.slice(4)}_reasoning_${toolCallCount}`,
+-          ),
+-          step.reasoning.text,
+-          step.reasoning.displaySafe,
+-        );
+-      }
+-      if (!workspace) {
+-        throw new RuntimeKernelError("tool_policy_denied", "Select a project before using repository tools.");
+-      }
+-      toolResults.push(
+-        await tools.execute(
+-          run,
+-          runAttemptId,
+-          turn,
+-          workspace,
+-          step.itemId,
+-          step.content,
+-          prepared.executionSignal,
+-        ),
+-      );
+-    }
+-    throw new RuntimeKernelError(
+-      "tool_loop_limit_exceeded",
+-      `Turn ${turn.id} exceeded its tool loop limit`,
+-    );
+-  }
+-
+-  private async assembleContext(
+-    run: Run,
+-    turn: Turn,
+-    workspace: WorkspaceManifest | null,
+-    toolResults: readonly ToolResult[],
+-    signal: AbortSignal,
+-  ): Promise<Awaited<ReturnType<ContextAssemblyPort["assemble"]>>> {
+-    const context = await this.requireNativePorts().contextAssembly.assemble({
+-      run,
+-      turn,
+-      workspace,
+-      toolResults,
+-      signal,
+-    });
+-    const lifecycle = this.lifecycles.get(turn.id);
+-    if (!lifecycle) {
+-      throw new RuntimeKernelError(
+-        "turn_not_active",
+-        `Turn ${turn.id} has no lifecycle coordinator`,
+-      );
+-    }
+-    if (context.budgetSnapshot) {
+-      await lifecycle.updateContextBudget(context.budgetSnapshot);
+-    }
+-    if (context.usage) {
+-      await lifecycle.updateUsage(context.usage);
+-    }
+-    return context;
+-  }
+-
+-  private async maybeAutomaticallyCompact(
+-    prepared: PreparedTurn,
+-    context: Awaited<ReturnType<ContextAssemblyPort["assemble"]>>,
+-  ): Promise<void> {
+-    const budget = context.budgetSnapshot;
+-    if (
+-      !budget ||
+-      budget.utilizationPercent < budget.automaticCompactionThresholdPercent ||
+-      this.automaticCompactions.has(prepared.turn.id)
+-    ) {
+-      return;
+-    }
+-    this.automaticCompactions.add(prepared.turn.id);
+-    await this.runCompaction(prepared, context, "automatic");
+-  }
+-
+-  private async runCompaction(
+-    prepared: PreparedTurn,
+-    context: Awaited<ReturnType<ContextAssemblyPort["assemble"]>>,
+-    mode: ContextCompactionMode,
+-  ): Promise<void> {
+-    const existing = this.compactions.get(prepared.turn.id);
+-    if (existing) {
+-      await existing;
+-      return;
+-    }
+-    const operation = this.compactPreparedTurn(prepared, context, mode);
+-    this.compactions.set(prepared.turn.id, operation);
+-    try {
+-      await operation;
+-    } finally {
+-      this.compactions.delete(prepared.turn.id);
+-    }
+-  }
+-
+-  private async compactPreparedTurn(
+-    prepared: PreparedTurn,
+-    context: Awaited<ReturnType<ContextAssemblyPort["assemble"]>>,
+-    mode: ContextCompactionMode,
+-  ): Promise<void> {
+-    const compaction = this.dependencies.contextCompaction;
+-    if (!compaction) {
+-      throw new RuntimeKernelError(
+-        "context_compaction_unsupported",
+-        "The active runtime does not support context compaction",
+-      );
+-    }
+-    const suffix = mode === "automatic" ? "automatic" : "manual";
+-    const itemId = ItemIdSchema.parse(
+-      `itm_${prepared.turn.id.slice(4)}_context_compaction_${suffix}`,
+-    );
+-    const compactionId = `cmp_${prepared.turn.id.slice(4)}_${suffix}`;
+-    const base = {
+-      compactionId,
+-      itemId,
+-      mode,
+-      phase: "compacting" as const,
+-      preservedContextReference: null,
+-      summary: null,
+-      error: null,
+-    };
+-    await prepared.lifecycle.requestContextCompaction(base);
+-    try {
+-      const result = await compaction.compact({
+-        run: prepared.run,
+-        turn: prepared.turn,
+-        context,
+-        mode,
+-        signal: prepared.executionSignal,
+-      });
+-      this.activeContexts.set(prepared.turn.id, result.context);
+-      this.compactedContexts.add(prepared.turn.id);
+-      if (result.context.budgetSnapshot) {
+-        await prepared.lifecycle.updateContextBudget(
+-          result.context.budgetSnapshot,
+-        );
+-      }
+-      await prepared.lifecycle.settleContextCompaction({
+-        ...base,
+-        phase: "compacted",
+-        preservedContextReference: result.preservedContextReference,
+-        summary: result.summary,
+-      });
+-    } catch (error) {
+-      await prepared.lifecycle.settleContextCompaction({
+-        ...base,
+-        phase: "failed",
+-        error:
+-          error instanceof Error ? error.message : "Context compaction failed",
+-      });
+-      throw error;
+-    }
+-  }
+-
+-  /** Keep this kernel continuation and its prepared resources alive until the real worker drains. */
+-  private async awaitGuardedQuiescence(turnId: Turn["id"]): Promise<void> {
+-    const worker = this.dependencies.worker;
+-    if (!worker?.awaitQuiescence) {
+-      throw new RuntimeKernelError("worker_failed", "Captured worker has no physical quiescence port");
+-    }
+-    while (!(await worker.awaitQuiescence({ turnId, timeoutMs: 500 }))) {
+-      // A backend may return false immediately; yield without abandoning settlement ownership.
+-      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+-    }
+-  }
+-
+-  private async interruptPreparedTurn(
+-    prepared: PreparedTurn,
+-    reason: string,
+-    resumeWorkspaceQuiescent: boolean,
+-  ): Promise<void> {
+-    if (this.dependencies.worker?.executionCapability === "guarded_mutation" && !resumeWorkspaceQuiescent) {
+-      await this.awaitGuardedQuiescence(prepared.turn.id);
+-      resumeWorkspaceQuiescent = true;
+-    }
+-    try {
+-      await this.settleArtifacts(
+-        prepared.turn.id,
+-        prepared.lifecycle,
+-        prepared.artifacts,
+-        true,
+-        resumeWorkspaceQuiescent,
+-        resumeWorkspaceQuiescent ? undefined : "worker_not_quiescent",
+-      );
+-      await prepared.lifecycle.interrupt(reason);
+-    } finally {
+-      this.approvalCoordinators.delete(prepared.turn.id);
+-    }
+-  }
+-
+-  private assertTurnIdentity(run: Run, turn: Turn): void {
+-    if (turn.runId !== run.id || turn.threadId !== run.threadId) {
+-      throw new RuntimeKernelError(
+-        "invalid_turn_identity",
+-        `Turn ${turn.id} does not belong to run ${run.id}`,
+-      );
+-    }
+-  }
+-
+-  private async requireWorkspace(run: Run): Promise<WorkspaceManifest> {
+-    if (!this.workspaces) throw new RuntimeKernelError("workspace_not_found", "Repository execution requires a workspace owner.");
+-    const workspace = await this.workspaces.loadExecutableManifest(run.id);
+-    this.assertWorkspaceIdentity(run, workspace);
+-    return workspace;
+-  }
+-
+-  private createArtifactSettlement(run: Run, turn: Turn, workspace: WorkspaceManifest) {
+-    if (!this.dependencies.gitSnapshots || !this.dependencies.turnArtifacts) {
+-      throw new RuntimeKernelError("turn_artifact_settlement_failed", "Repository execution requires Git and artifact owners.");
+-    }
+-    return new TurnArtifactSettlementCoordinator({
+-      git: this.dependencies.gitSnapshots, artifacts: this.dependencies.turnArtifacts,
+-      clock: this.clock, run, turn, workspace,
+-    });
+-  }
+-
+-  private assertWorkspaceIdentity(
+-    run: Run,
+-    workspace: WorkspaceManifest,
+-  ): void {
+-    if (workspace.workspaceId !== run.workspaceId) {
+-      throw new RuntimeKernelError(
+-        "invalid_turn_identity",
+-        `Run ${run.id} workspace does not match durable manifest truth`,
+-      );
+-    }
+-  }
+-
+-  private assertTurnAvailable(turn: Turn): void {
+-    if (this.lifecycles.has(turn.id)) {
+-      throw new RuntimeKernelError(
+-        "turn_already_owned",
+-        `Turn ${turn.id} already has a lifecycle coordinator`,
+-      );
+-    }
+-  }
+-
+-  private createLifecycle(
+-    run: Run,
+-    turn: Turn,
+-    runAttemptId: StartTurnInput["runAttemptId"],
+-    input: StartTurnInput,
+-  ): RuntimeLifecycleCoordinator {
+-    this.assertTurnAvailable(turn);
+-    const lifecycle = new RuntimeLifecycleCoordinator({
+-      sink: this.dependencies.lifecycleEvents,
+-      producerId: this.dependencies.producerId,
+-      executionCapability: run.executionCapability,
+-      clock: this.clock,
+-      threadId: run.threadId,
+-      workspaceId: run.workspaceId,
+-      turnId: turn.id,
+-      runAttemptId,
+-      initialSequence: turn.lastEventSequence,
+-      revisionOfTurnId: turn.parentTurnId ?? undefined,
+-      continuationOfTurnId: input.continuationOfTurnId,
+-      originalPromptId: input.originalPromptId,
+-    });
+-    this.lifecycles.set(turn.id, lifecycle);
+-    return lifecycle;
+-  }
+-
+-  private async recoverFailedTurn(
+-    lifecycle: RuntimeLifecycleCoordinator,
+-    error: unknown,
+-  ): Promise<void> {
+-    try {
+-      await lifecycle.fail(toProtocolError(error));
+-    } catch (settlementError) {
+-      if (settlementError instanceof RuntimeLifecycleSettlementError) {
+-        throw settlementError;
+-      }
+-      throw new RuntimeLifecycleSettlementError("failed", settlementError);
+-    }
+-  }
+-
+-  private async settleArtifacts(
+-    turnId: Turn["id"],
+-    lifecycle: RuntimeLifecycleCoordinator,
+-    coordinator: TurnArtifactSettlementCoordinator | null,
+-    interruptedSettlement = false,
+-    preserveWorkspaceProgress = false,
+-    resumeUnavailableReason?: ResumeWorkspaceUnavailableReason,
+-  ): Promise<TurnArtifactSettlementResult> {
+-    if (!coordinator) return {};
+-    if (resumeUnavailableReason === "worker_not_quiescent") {
+-      if (!this.unsafeWorkspaces.has(turnId)) {
+-        await lifecycle.markWorkspaceSnapshotUnavailable("worker_not_quiescent");
+-        this.unsafeWorkspaces.add(turnId);
+-      }
+-      return { resumeUnavailableReason };
+-    }
+-    const existing = this.artifactSettlementEmissions.get(turnId);
+-    if (existing) return await existing;
+-    const settlement = this.settleArtifactsNow(
+-      lifecycle,
+-      coordinator,
+-      interruptedSettlement,
+-      preserveWorkspaceProgress,
+-      resumeUnavailableReason,
+-    );
+-    this.artifactSettlementEmissions.set(turnId, settlement);
+-    return await settlement;
+-  }
+-
+-  private async settleArtifactsNow(
+-    lifecycle: RuntimeLifecycleCoordinator,
+-    coordinator: TurnArtifactSettlementCoordinator,
+-    interruptedSettlement: boolean,
+-    preserveWorkspaceProgress: boolean,
+-    resumeUnavailableReason?: ResumeWorkspaceUnavailableReason,
+-  ): Promise<TurnArtifactSettlementResult> {
+-    try {
+-      const settlement = await coordinator.settle({
+-        interrupted: interruptedSettlement,
+-        preserveWorkspaceProgress,
+-        resumeUnavailableReason,
+-      });
+-      if (!settlement.terminalSnapshot) {
+-        await lifecycle.markWorkspaceSnapshotUnavailable(
+-          settlement.resumeUnavailableReason ?? "snapshot_unavailable",
+-        );
+-        return settlement;
+-      }
+-      if (settlement.resumeWorkspaceArtifact) {
+-        await lifecycle.createTurnArtifact(settlement.resumeWorkspaceArtifact);
+-      }
+-      await lifecycle.captureWorkspaceSnapshot({
+-        snapshot: settlement.terminalSnapshot,
+-        ...(settlement.terminalSnapshotArtifact !== undefined
+-          ? { artifact: settlement.terminalSnapshotArtifact }
+-          : {}),
+-      });
+-      if (settlement.turnDiff) {
+-        await lifecycle.updateTurnDiff(settlement.turnDiff);
+-      }
+-      if (settlement.turnDiffArtifact) {
+-        await lifecycle.createTurnArtifact(settlement.turnDiffArtifact);
+-      }
+-      return settlement;
+-    } catch (error) {
+-      throw new RuntimeKernelError(
+-        "turn_artifact_settlement_failed",
+-        "Turn artifacts could not be settled before the terminal event",
+-        error,
+-      );
+-    }
+-  }
+-}
+-
+-function isTurnCancelled(error: unknown): error is RuntimeKernelError {
+-  return error instanceof RuntimeKernelError && error.code === "turn_cancelled";
+-}
+-
+-function isArtifactSettlementError(error: unknown): boolean {
+-  return (
+-    error instanceof RuntimeKernelError &&
+-    error.code === "turn_artifact_settlement_failed"
+-  );
+-}
+-
+-function cancellationReason(signal: AbortSignal): string | null {
+-  const reason = signal.reason;
+-  if (reason instanceof Error && reason.message.trim()) {
+-    return reason.message;
+-  }
+-  if (typeof reason === "string" && reason.trim()) {
+-    return reason;
+-  }
+-  return null;
+-}
+-
+-const CANCELLATION_SETTLEMENT_TIMEOUT_MS = 2_000;
+-
+-async function withBoundedCancellationSettlement<T>(
+-  operation: Promise<T>,
+-): Promise<T> {
+-  let timeout: ReturnType<typeof setTimeout> | undefined;
+-  try {
+-    return await Promise.race([
+-      operation,
+-      new Promise<T>((_, reject) => {
+-        timeout = setTimeout(
+-          () =>
+-            reject(
+-              new RuntimeKernelError(
+-                "turn_cancelled",
+-                "Backend cancellation settlement timed out",
+-              ),
+-            ),
+-          CANCELLATION_SETTLEMENT_TIMEOUT_MS,
+-        );
+-      }),
+-    ]);
+-  } finally {
+-    if (timeout) clearTimeout(timeout);
+-  }
+-}
+-
+-type ProviderStepItemId = Extract<
+-  Awaited<ReturnType<ProviderPort["generateNext"]>>,
+-  { kind: "complete" }
+->["itemId"];
++        admittedSelection.selection.connectionId !== selection.connectionId || admittedSelection.selection.modelId !== selection.modelId) {
+--- a/packages/worker-protocol/src/harness.ts
++++ b/packages/worker-protocol/src/harness.ts
+@@ -15,554 +15,3 @@
+   TurnIdSchema,
+   HarnessActivityMeasuredPayloadSchema,
+   HarnessProviderLimitNotifiedPayloadSchema,
+-  JsonRecordSchema,
+-  ItemIdSchema,
+-  LeaseIdSchema,
+-  ProtocolErrorSchema,
+-  ProtocolTimestampSchema,
+-  RunAttemptIdSchema,
+-  ToolCallItemContentSchema,
+-  UsageCostSnapshotSchema,
+-  TurnWorkspaceSnapshotSchema,
+-  TurnInputAcceptedPayloadSchema,
+-  TurnInputAppliedPayloadSchema,
+-  EventSequenceSchema,
+-} from "@repo/platform-protocol";
+-
+-const OpaqueId = z.string().min(1).max(256);
+-const Generation = z.number().int().safe().nonnegative();
+-/** Learned session identity; never overwrites the admitted selection. */
+-export const HarnessSessionSchema = z
+-  .object({
+-    runAttemptId: RunAttemptIdSchema,
+-    instanceId: OpaqueId,
+-    externalSessionId: OpaqueId,
+-    processGeneration: z.string().uuid(),
+-  })
+-  .strict()
+-  .readonly();
+-export type HarnessSession = z.infer<typeof HarnessSessionSchema>;
+-export const HarnessRequestOriginSchema = z
+-  .object({
+-    session: HarnessSessionSchema,
+-    origin: OpaqueId,
+-    requestId: OpaqueId,
+-    authOwnerGeneration: Generation,
+-  })
+-  .strict()
+-  .readonly();
+-export type HarnessRequestOrigin = z.infer<typeof HarnessRequestOriginSchema>;
+-
+-/** Foreground completion alone is never proof that descendants stopped mutating. */
+-export const HarnessQuiescenceSchema = z.discriminatedUnion("status", [
+-  z
+-    .object({
+-      status: z.literal("quiescent"),
+-      session: HarnessSessionSchema,
+-      observedAt: ProtocolTimestampSchema,
+-      evidenceId: OpaqueId,
+-      scope: z.literal("process_tree_and_background_work"),
+-      observationIntegrity: z.enum(["complete", "lost"]),
+-    })
+-    .strict(),
+-  z
+-    .object({
+-      status: z.literal("unknown"),
+-      session: HarnessSessionSchema,
+-      reason: z.enum([
+-        "timeout",
+-        "transport_lost",
+-        "unsupported",
+-        "work_still_running",
+-        "observation_integrity_lost",
+-      ]),
+-    })
+-    .strict(),
+-]);
+-export type HarnessQuiescence = z.infer<typeof HarnessQuiescenceSchema>;
+-
+-export const HarnessObservationPayloadSchema = z.discriminatedUnion("kind", [
+-  HarnessActivityMeasuredPayloadSchema.extend({
+-    kind: z.literal("activity_measurement"),
+-    background: z.literal(true).optional(),
+-  }).strict(),
+-  HarnessProviderLimitNotifiedPayloadSchema.extend({
+-    kind: z.literal("provider_limit"),
+-    background: z.literal(true).optional(),
+-  }).strict(),
+-  z
+-    .object({
+-      kind: z.literal("thread_input_applied"),
+-      background: z.literal(true).optional(),
+-      input: TurnInputAppliedPayloadSchema,
+-    })
+-    .strict(),
+-  z
+-    .object({
+-      kind: z.literal("assistant_text"),
+-      background: z.literal(true).optional(),
+-      itemId: ItemIdSchema,
+-      text: z.string().max(1_048_576),
+-    })
+-    .strict(),
+-  z
+-    .object({
+-      kind: z.literal("tool_started"),
+-      background: z.literal(true).optional(),
+-      itemId: ItemIdSchema,
+-      content: ToolCallItemContentSchema,
+-    })
+-    .strict(),
+-  z
+-    .object({
+-      kind: z.literal("tool_completed"),
+-      background: z.literal(true).optional(),
+-      itemId: ItemIdSchema,
+-      output: z.string().max(1_048_576),
+-    })
+-    .strict(),
+-  z
+-    .object({
+-      kind: z.literal("tool_failed"),
+-      background: z.literal(true).optional(),
+-      itemId: ItemIdSchema,
+-      failure: ProtocolErrorSchema,
+-    })
+-    .strict(),
+-  z
+-    .object({
+-      kind: z.literal("user_input_requested"),
+-      background: z.literal(true).optional(),
+-      itemId: ItemIdSchema,
+-      requestId: z.string().min(1).max(160),
+-      payload: UserInputRequestSchema,
+-      replyTo: HarnessRequestOriginSchema,
+-    })
+-    .strict(),
+-  z
+-    .object({
+-      kind: z.literal("request_withdrawn"),
+-      background: z.literal(true).optional(),
+-      requestType: z.enum(["approval", "user_input"]),
+-      itemId: ItemIdSchema,
+-      requestId: z.string().min(1).max(160),
+-      replyTo: HarnessRequestOriginSchema,
+-      reason: z.enum(["native_rejected", "native_cancelled"]),
+-    })
+-    .strict(),
+-  z
+-    .object({
+-      kind: z.literal("approval_requested"),
+-      background: z.literal(true).optional(),
+-      parentItemId: ItemIdSchema,
+-      request: ApprovalRequestedPayloadSchema,
+-      replyTo: HarnessRequestOriginSchema,
+-    })
+-    .strict(),
+-  z
+-    .object({
+-      kind: z.literal("usage"),
+-      background: z.literal(true).optional(),
+-      usage: UsageCostSnapshotSchema,
+-    })
+-    .strict(),
+-  z
+-    .object({
+-      kind: z.literal("external_terminal"),
+-      status: z.enum(["completed", "failed", "interrupted"]),
+-      providerCompletedAt: ProtocolTimestampSchema.nullable(),
+-      itemId: ItemIdSchema,
+-      output: z.string().max(1_048_576),
+-      error: ProtocolErrorSchema.nullable(),
+-    })
+-    .strict(),
+-  z
+-    .object({
+-      kind: z.literal("quiescence"),
+-      evidence: HarnessQuiescenceSchema,
+-    })
+-    .strict(),
+-]);
+-export const HarnessObservationSchema = z
+-  .object({
+-    session: HarnessSessionSchema,
+-    sequence: z.number().int().safe().positive(),
+-    externalTurnId: OpaqueId.nullable(),
+-    payload: HarnessObservationPayloadSchema,
+-  })
+-  .strict()
+-  .readonly();
+-export type HarnessObservation = z.infer<typeof HarnessObservationSchema>;
+-export type HarnessObservationPayload = z.infer<
+-  typeof HarnessObservationPayloadSchema
+->;
+-export const HarnessCommitAckSchema = z
+-  .object({
+-    session: HarnessSessionSchema,
+-    committedSequence: z.number().int().safe().positive(),
+-  })
+-  .strict()
+-  .readonly();
+-export type HarnessCommitAck = z.infer<typeof HarnessCommitAckSchema>;
+-
+-export const HarnessReplySchema = z
+-  .object({
+-    replyTo: HarnessRequestOriginSchema,
+-    decision: ApprovalDecisionSchema,
+-    grantScope: ApprovalGrantScopeSchema.optional(),
+-  })
+-  .strict()
+-  .readonly();
+-export type HarnessReply = z.infer<typeof HarnessReplySchema>;
+-
+-export const HarnessStartCommandSchema = z
+-  .object({
+-    mode: z.enum(["start", "recover_same_attempt"]),
+-    commandId: OpaqueId,
+-    selection: HarnessSelectionSchema,
+-    leaseId: LeaseIdSchema,
+-    startSnapshot: TurnWorkspaceSnapshotSchema,
+-    filesystemRoot: z.string().min(1).max(4096),
+-    prompt: z.string().min(1).max(1_048_576),
+-    resumeSession: HarnessSessionSchema.nullable(),
+-  })
+-  .strict()
+-  .readonly();
+-export type HarnessStartCommand = z.infer<typeof HarnessStartCommandSchema>;
+-export const HarnessUserInputReplySchema = z
+-  .object({
+-    replyTo: HarnessRequestOriginSchema,
+-    response: UserInputResponseSchema,
+-  })
+-  .strict()
+-  .readonly();
+-export type HarnessUserInputReply = z.infer<typeof HarnessUserInputReplySchema>;
+-
+-export const HarnessControlCommandSchema = z.discriminatedUnion("kind", [
+-  z
+-    .object({
+-      kind: z.literal("user_input_reply"),
+-      commandId: OpaqueId,
+-      reply: HarnessUserInputReplySchema,
+-    })
+-    .strict(),
+-  z
+-    .object({
+-      kind: z.literal("steer"),
+-      commandId: OpaqueId,
+-      session: HarnessSessionSchema,
+-      expectedExternalTurnId: OpaqueId,
+-      accepted: TurnInputAcceptedPayloadSchema.extend({
+-        acceptedSequence: EventSequenceSchema,
+-      }),
+-      text: z.string().min(1).max(1_048_576),
+-    })
+-    .strict(),
+-  z
+-    .object({
+-      kind: z.literal("interrupt"),
+-      commandId: OpaqueId,
+-      session: HarnessSessionSchema,
+-    })
+-    .strict(),
+-  z
+-    .object({
+-      kind: z.literal("reply"),
+-      commandId: OpaqueId,
+-      reply: HarnessReplySchema,
+-    })
+-    .strict(),
+-  z
+-    .object({
+-      kind: z.literal("dispose"),
+-      commandId: OpaqueId,
+-      session: HarnessSessionSchema,
+-    })
+-    .strict(),
+-]);
+-export type HarnessControlCommand = z.infer<typeof HarnessControlCommandSchema>;
+-
+-/** Private Brain -> SECURE_API service binding. Internal service authentication is
+- * mandatory on both routes; bridge additionally requires the existing lease token.
+- * No provider credentials are carried by this protocol. */
+-export const HARNESS_SERVICE_CAPABILITY_PATH = "/api/v1/harness/capability";
+-export const HARNESS_SERVICE_BRIDGE_PATH = "/api/v1/harness/bridge";
+-export const HarnessServiceScopeSchema = z
+-  .object({
+-    userId: OpaqueId,
+-    workspaceId: OpaqueId,
+-    sessionId: OpaqueId,
+-    runId: OpaqueId,
+-    threadId: ThreadIdSchema,
+-    turnId: TurnIdSchema,
+-    runAttemptId: RunAttemptIdSchema,
+-  })
+-  .strict();
+-export const HarnessServiceCapabilityRequestSchema = z
+-  .object({
+-    scope: HarnessServiceScopeSchema,
+-    capture: HarnessAdmissionSelectionSchema,
+-    productMode: ProductModeSchema,
+-  })
+-  .strict();
+-export const HarnessServiceCapabilitySchema = z.discriminatedUnion(
+-  "available",
+-  [
+-    z.object({ available: z.literal(false), code: OpaqueId }).strict(),
+-    z
+-      .object({
+-        available: z.literal(true),
+-        productModes: z.array(ProductModeSchema).min(1),
+-        policyId: PermissionProfileIdSchema,
+-        policyRevision: OpaqueId,
+-      })
+-      .strict(),
+-  ],
+-);
+-export type HarnessServiceScope = z.infer<typeof HarnessServiceScopeSchema>;
+-export type HarnessServiceCapability = z.infer<
+-  typeof HarnessServiceCapabilitySchema
+->;
+-export const HarnessServiceConnectSchema = z
+-  .object({
+-    type: z.literal("connect"),
+-    scope: HarnessServiceScopeSchema,
+-    lease: z
+-      .object({
+-        leaseId: LeaseIdSchema,
+-        generation: Generation,
+-        sandboxId: OpaqueId,
+-      })
+-      .strict(),
+-  })
+-  .strict();
+-const id = z.string().uuid();
+-const request = { type: z.literal("request"), requestId: id };
+-/** Private turn-opening coordination. These receipts never certify OS confinement. */
+-export const HarnessOpeningCloudLeaseSchema = z
+-  .object({
+-    kind: z.literal("cloud"),
+-    leaseId: LeaseIdSchema,
+-    sandboxId: OpaqueId,
+-    generation: Generation,
+-  })
+-  .strict();
+-export const HarnessOpeningLocalLeaseSchema = z
+-  .object({ kind: z.literal("local"), leaseId: LeaseIdSchema })
+-  .strict();
+-export const HarnessOpeningIntentSchema = z
+-  .object({
+-    openingRef: OpaqueId,
+-    commandId: OpaqueId,
+-    commandFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+-    runAttemptId: RunAttemptIdSchema,
+-    instanceId: OpaqueId,
+-    processGeneration: z.string().uuid(),
+-    authOwnerGeneration: Generation,
+-    workspaceGrantId: OpaqueId,
+-    checkoutLeaseId: LeaseIdSchema,
+-    startSnapshotId: OpaqueId,
+-    executionLease: z.discriminatedUnion("kind", [
+-      HarnessOpeningCloudLeaseSchema,
+-      HarnessOpeningLocalLeaseSchema,
+-    ]),
+-  })
+-  .strict();
+-export type HarnessOpeningIntent = z.infer<typeof HarnessOpeningIntentSchema>;
+-export const HarnessOpeningCommitSchema = z
+-  .object({
+-    openingRef: OpaqueId,
+-    commandFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+-    processGeneration: z.string().uuid(),
+-    phase: z.enum(["reserved", "dispatching", "acknowledged", "cancelled_before_dispatch"]),
+-  })
+-  .strict();
+-export type HarnessOpeningCommit = z.infer<typeof HarnessOpeningCommitSchema>;
+-export const HarnessOpeningClaimFrameSchema = z
+-  .object({
+-    type: z.literal("opening_claim"),
+-    deliveryId: id,
+-    operation: z.enum(["reserve", "begin_dispatch", "cancel_before_dispatch"]),
+-    intent: HarnessOpeningIntentSchema,
+-  })
+-  .strict();
+-export const HarnessOpeningSessionFrameSchema = z
+-  .object({
+-    type: z.literal("opening_session"),
+-    deliveryId: id,
+-    intent: HarnessOpeningIntentSchema,
+-    session: HarnessSessionSchema,
+-  })
+-  .strict();
+-export const HarnessOpeningCommitFrameSchema = z
+-  .object({
+-    type: z.literal("opening_commit"),
+-    deliveryId: id,
+-    commit: HarnessOpeningCommitSchema,
+-  })
+-  .strict();
+-export async function fingerprintHarnessCommand(
+-  raw: HarnessStartCommand,
+-): Promise<string> {
+-  const command = HarnessStartCommandSchema.parse(raw);
+-  const digest = await crypto.subtle.digest(
+-    "SHA-256",
+-    new TextEncoder().encode(JSON.stringify(command)),
+-  );
+-  return Array.from(new Uint8Array(digest), (byte) =>
+-    byte.toString(16).padStart(2, "0"),
+-  ).join("");
+-}
+-export const HarnessOpeningFenceTargetSchema = z
+-  .object({
+-    userId: OpaqueId,
+-    workspaceId: OpaqueId,
+-    environmentId: OpaqueId,
+-    turnId: TurnIdSchema,
+-    runAttemptId: RunAttemptIdSchema,
+-    instanceId: OpaqueId,
+-    openingRef: OpaqueId,
+-    commandFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+-    processGeneration: z.string().uuid(),
+-    executionLease: HarnessOpeningIntentSchema.shape.executionLease,
+-  })
+-  .strict();
+-export type HarnessOpeningFenceTarget = z.infer<
+-  typeof HarnessOpeningFenceTargetSchema
+->;
+-export const HarnessOpeningFenceResultSchema = z
+-  .object({
+-    status: z.literal("unknown"),
+-    processGeneration: z.string().uuid(),
+-    reason: z.enum(["owner_unavailable", "scope_proof_unavailable"]),
+-  })
+-  .strict();
+-export type HarnessOpeningFenceResult = z.infer<
+-  typeof HarnessOpeningFenceResultSchema
+->;
+-export const HarnessServiceRequestSchema = z.discriminatedUnion("operation", [
+-  z
+-    .object({
+-      ...request,
+-      operation: z.literal("opening_fence"),
+-      target: HarnessOpeningFenceTargetSchema,
+-      timeoutMs: z.number().int().min(1).max(60000),
+-    })
+-    .strict(),
+-  z
+-    .object({
+-      ...request,
+-      operation: z.literal("open"),
+-      command: HarnessStartCommandSchema,
+-      executionLease: HarnessOpeningCloudLeaseSchema,
+-    })
+-    .strict(),
+-  z
+-    .object({
+-      ...request,
+-      operation: z.literal("execute"),
+-      command: HarnessStartCommandSchema,
+-      session: HarnessSessionSchema,
+-    })
+-    .strict(),
+-  z
+-    .object({
+-      ...request,
+-      operation: z.literal("observe"),
+-      session: HarnessSessionSchema,
+-    })
+-    .strict(),
+-  z
+-    .object({
+-      ...request,
+-      operation: z.literal("control"),
+-      command: HarnessControlCommandSchema,
+-    })
+-    .strict(),
+-  z
+-    .object({
+-      ...request,
+-      operation: z.literal("quiescence"),
+-      session: HarnessSessionSchema,
+-      timeoutMs: z.number().int().min(1).max(60_000),
+-    })
+-    .strict(),
+-]);
+-export type HarnessServiceRequest = z.infer<typeof HarnessServiceRequestSchema>;
+-const result = { type: z.literal("result"), requestId: id };
+-export const HarnessServiceResultSchema = z.discriminatedUnion("operation", [
+-  z
+-    .object({
+-      ...result,
+-      operation: z.literal("opening_fence"),
+-      value: HarnessOpeningFenceResultSchema,
+-    })
+-    .strict(),
+-  z
+-    .object({
+-      ...result,
+-      operation: z.literal("open"),
+-      value: HarnessSessionSchema,
+-    })
+-    .strict(),
+-  z
+-    .object({ ...result, operation: z.literal("execute"), value: z.null() })
+-    .strict(),
+-  z
+-    .object({ ...result, operation: z.literal("observe"), value: z.null() })
+-    .strict(),
+-  z
+-    .object({
+-      ...result,
+-      operation: z.literal("control"),
+-      value: z.object({ accepted: z.boolean() }).strict(),
+-    })
+-    .strict(),
+-  z
+-    .object({
+-      ...result,
+-      operation: z.literal("quiescence"),
+-      value: HarnessQuiescenceSchema,
+-    })
+-    .strict(),
+-]);
+-export const HarnessServiceObservationFrameSchema = z
+-  .object({
+-    type: z.literal("observation"),
+-    deliveryId: id,
+-    observation: HarnessObservationSchema,
+-  })
+-  .strict();
+-export const HarnessServiceAckFrameSchema = z
+-  .object({
+-    type: z.literal("ack"),
+-    deliveryId: id,
+-    ack: HarnessCommitAckSchema,
+-  })
+-  .strict();
+-export const HarnessServiceErrorFrameSchema = z
+-  .object({
+-    type: z.literal("error"),
+-    requestId: id,
+-    code: z.enum(["unavailable", "invalid_request", "recovery_required"]),
+-  })
+-  .strict();
+-export const HarnessServiceWorkerFrameSchema = z.union([
+-  HarnessServiceConnectSchema,
+-  HarnessServiceRequestSchema,
+-  HarnessServiceAckFrameSchema,
+-  HarnessOpeningCommitFrameSchema,
+-]);
+-export const HarnessServiceHostFrameSchema = z.union([
+-  z.object({ type: z.literal("connected") }).strict(),
+-  HarnessServiceResultSchema,
+-  HarnessServiceObservationFrameSchema,
+-  HarnessOpeningClaimFrameSchema,
+-  HarnessOpeningSessionFrameSchema,
+-  HarnessServiceErrorFrameSchema,
+-]);
+-export type HarnessServiceHostFrame = z.infer<
+-  typeof HarnessServiceHostFrameSchema
+->;
+-
+-export type HarnessServiceResult = z.infer<typeof HarnessServiceResultSchema>;
