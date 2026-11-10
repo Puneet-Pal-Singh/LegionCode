@@ -106,6 +106,9 @@ export function createWorkspaceRepository(
     selection: { userId, selectedWorkspaceId, selectedRepoId: repository.id, selectedBranch: "main", updatedAt: now },
   };
   return {
+    findWorkspaceConfiguration: async (owner, id) => owner === userId && (id === workspaceId || id === selectedWorkspaceId)
+      ? { repository, workspace: { ...workspace, id }, version: 1 } : null,
+    updateWorkspaceConfiguration: async () => { throw new Error("not used"); },
     selectWorkspace: async () => { throw new Error("not used"); },
     findWorkspaceSelection: async (owner) => owner === userId ? bootstrap : null,
     listWorkspaces: async (owner) => owner === userId

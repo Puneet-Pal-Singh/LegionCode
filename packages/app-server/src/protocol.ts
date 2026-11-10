@@ -1,6 +1,7 @@
 import { BYOKPreferenceSchema, BYOKPreferencesUpdateRequestSchema, BYOKResolutionSchema, BYOKResolveRequestSchema } from "@repo/shared-types";
 import { BYOKCredentialSchema, BYOKCredentialConnectRequestSchema, BYOKCredentialUpdateRequestSchema, BYOKCredentialValidateRequestSchema, BYOKCredentialValidateResponseSchema } from "@repo/shared-types";
 import {
+  HostedWorkspaceConfigurationReadRequestSchema, HostedWorkspaceConfigurationUpdateRequestSchema, HostedWorkspaceConfigurationSchema,
   HostedWorkspaceSelectRequestSchema, HostedWorkspaceListResponseSchema, HostedWorkspaceSelectResponseSchema,
   HostedSessionParamsSchema, HostedSessionCreateRequestSchema, HostedSessionRenameRequestSchema,
   HostedSessionWorkspaceContextRequestSchema, HostedSessionWorkspaceContextSchema,
@@ -491,6 +492,8 @@ export const AppServerMethodSchema = z.enum([
   "git/pullRequest",
   "artifact/codeContent",
 
+  "workspace/configuration/read",
+  "workspace/configuration/update",
   "workspace/list",
   "workspace/select",
   "repository/list",
@@ -535,6 +538,8 @@ const AppServerRequestShape = {
 };
 
 export const AppServerRequestSchema = z.discriminatedUnion("method", [
+  z.object({ ...AppServerRequestShape, method: z.literal("workspace/configuration/read"), params: HostedWorkspaceConfigurationReadRequestSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("workspace/configuration/update"), params: HostedWorkspaceConfigurationUpdateRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/list"), params: EmptyParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/select"), params: HostedWorkspaceSelectRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("repository/list"), params: RepositoryListRequestSchema }).strict(),
@@ -623,6 +628,8 @@ export type AppServerRequest = z.infer<typeof AppServerRequestSchema>;
 export type AppServerMethod = z.infer<typeof AppServerMethodSchema>;
 
 export const AppServerResultSchemas = {
+  "workspace/configuration/read": HostedWorkspaceConfigurationSchema,
+  "workspace/configuration/update": HostedWorkspaceConfigurationSchema,
   "workspace/list": HostedWorkspaceListResponseSchema,
   "workspace/select": HostedWorkspaceSelectResponseSchema,
   "repository/list": RepositoryListResponseSchema,
@@ -711,6 +718,8 @@ export const AppServerResultSchemas = {
 } as const;
 
 export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
+  success("workspace/configuration/read", AppServerResultSchemas["workspace/configuration/read"]),
+  success("workspace/configuration/update", AppServerResultSchemas["workspace/configuration/update"]),
   success("workspace/list", AppServerResultSchemas["workspace/list"]),
   success("workspace/select", AppServerResultSchemas["workspace/select"]),
   success("repository/list", AppServerResultSchemas["repository/list"]),
