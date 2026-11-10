@@ -33,6 +33,6 @@ export function projectApprovalPresentation(
 
 /** Quotes preserve empty arguments, whitespace and control characters without shell parsing. */
 function quoteLiteral(value: string): string {
-  return JSON.stringify(value).replace(/[\u007f-\u009f\u2028-\u202e\u2066-\u2069]/g,
+  return JSON.stringify(value).replace(/[\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]/g,
     (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`);
 }
