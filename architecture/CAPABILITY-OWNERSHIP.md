@@ -2433,3 +2433,9 @@ Desktop already consume that shared helper. Queue claims, durable publication,
 Native safe points and the constructor lookup wiring remain the existing queue
 and runtime owners' integration responsibility; this media leaf alone does not
 advertise queue or steering availability.
+
+### Native queue placement and applied-input history
+
+- The private Native command adapter uses shared policy, exact current Thread authorization, admitted-model vision checks, immutable queued media and the existing executor safe point. It requires an explicitly supplied queued-start owner; no optimistic default is composed or advertised.
+- Local media journal reconciliation reads the exact same SQLite input row/media revision. The actual Native runtime receives those existing ports and reconstructs applied Steer user messages in canonical lifecycle order; accepted-but-unapplied history is never silently delivered as a fresh prompt. Missing required canonical rows/media fail closed.
+- Full Queue activation still requires held-successor physical preparation before admission, accepted-image authenticated reads and final route/capability composition. No new tests or registrations.
