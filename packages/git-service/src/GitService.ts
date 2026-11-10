@@ -1,6 +1,7 @@
 import { RunIdSchema } from "@repo/platform-protocol";
 
 import type { GitCommandExecutor } from "./executor.js";
+import { readGitRepositoryHead } from "./repository-head.js";
 import { DEFAULT_GIT_COMMAND_TIMEOUT_MS } from "./executor.js";
 import { createGitCommandFailedError, GitServiceError } from "./errors.js";
 import {
@@ -40,6 +41,7 @@ import type {
   GitRepoIdentityInput,
   GitRepositoryProbeInput,
   GitRepositoryProbeResult,
+  GitRepositoryHead,
   GitSnapshotDiffInput,
   GitSnapshotInput,
   GitSnapshotPatchInput,
@@ -70,6 +72,10 @@ const GIT_OBJECT_ID_PATTERN = /^[a-f0-9]{40,64}$/u;
 
 export class DefaultGitService {
   constructor(private readonly executor: GitCommandExecutor) {}
+
+  readRepositoryHead(input: GitStatusInput): Promise<GitRepositoryHead> {
+    return readGitRepositoryHead(this.executor, input);
+  }
 
   async getStatus(input: GitStatusInput): Promise<GitStatusResult> {
     const runId = RunIdSchema.parse(input.runId);
