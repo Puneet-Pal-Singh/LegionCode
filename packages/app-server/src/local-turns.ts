@@ -374,11 +374,13 @@ export class LocalTurnService {
         "Local replay does not accept a hosted backend",
       );
     await this.getTurn(params.turnId);
-    return this.options.persistence.lifecycleEvents.replay({
+    const page = await this.options.persistence.lifecycleEvents.replay({
       turnId: params.turnId,
       afterSequence: params.afterSequence ?? null,
       limit: params.limit ?? 1_000,
     });
+    await this.getTurn(params.turnId);
+    return page;
   }
 
   async interruptTurn(params: LocalTurnInterruptParams) {

@@ -1539,3 +1539,6 @@ The required startup reconciliation port delegates lost Native Plan admissions t
 its Engine adapter with the same trusted worker, permission profile and lifecycle
 store. The sole App Server startup owner must invoke it before command readiness;
 this port does not run providers, reexecute tools or release captured resources.
+
+Lifecycle replay reauthorizes its canonical Turn after the asynchronous store read
+before returning event bytes, matching history and image-read scope checks.
