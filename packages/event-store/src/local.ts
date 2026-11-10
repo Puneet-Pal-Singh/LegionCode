@@ -1,3 +1,4 @@
+import { platformFingerprint } from "./local-platform-fingerprint.js";
 import type { LocalThreadRuntimeScope, LocalThreadRuntimeSummary } from "./local-thread-runtime-summary.js";
 import { parseStoredGrant, type StoredLocalWorkspaceGrant } from "./local-workspace-grant.js";
 import { LocalHarnessControlPlane, type LocalHarnessControlPlanePort } from "./local/harness-control-plane.js";
@@ -879,12 +880,6 @@ function parseLifecycleEvent(event: unknown): LifecycleEvent {
 function parseStoredLifecycleEvent(json: string): LifecycleEvent {
   try { return LifecycleEventSchema.parse(JSON.parse(json)); }
   catch { throw corruptStore("Stored lifecycle event is invalid"); }
-}
-
-function platformFingerprint(event: PlatformEvent): string {
-  const storeOwnedFields = new Set(["eventId", "sequence", "cursor", "createdAt"]);
-  const input = Object.fromEntries(Object.entries(event).filter(([key]) => !storeOwnedFields.has(key)));
-  return createStableEventFingerprint(input);
 }
 
 function isTerminal(event: LifecycleEvent): boolean {
