@@ -1,0 +1,67 @@
+--- a/apps/brain/src/runtime/CloudHarnessAdmissionPorts.ts
++++ b/apps/brain/src/runtime/CloudHarnessAdmissionPorts.ts
+@@ -1,4 +1,5 @@
++import type { HarnessAccountSetupReceipt } from "@repo/worker-protocol";
+ import type {
+   HarnessAdmissionSelection,
+   HarnessCapabilities,
+   HarnessSelection,
+@@ -19,8 +20,14 @@
+   readonly runAttemptId: RunAttemptId;
+   readonly runId: string;
+   readonly environmentId: string;
+ }
++/** Private selected-key route evidence; not provider identity or host readiness.
++ * Setup processA is historical. Opening processB MUST authenticate independently. */
++export interface HarnessAccountRouteEvidence {
++  readonly setupReceipt: HarnessAccountSetupReceipt;
++  readonly setupReceiptFingerprint: string;
++}
+ export type HarnessAccountFacts = Pick<
+   HarnessSelection,
+   | "harness"
+   | "instanceId"
+@@ -33,8 +40,9 @@
+   | "transport"
+ > & {
+   readonly providerId: ProviderId;
+   readonly capabilities: HarnessCapabilities;
++  readonly accountRouteEvidence: HarnessAccountRouteEvidence | null;
+ };
+ /** P12/P13 implement account/selection checks only, using their existing selected
+  * revision CAS, owned instance and connection authorities. No checkout/kernel. */
+ export interface HarnessAdmissionAccountPort {
+@@ -74,8 +82,11 @@
+     readonly selection: HarnessSelection;
+     readonly claimId: string;
+     readonly expectedSelection: HarnessAdmissionSelection;
+     readonly admissionFingerprint: string;
++    // Root binding owner checks this under configured-instance+credential locks
++    // in freezeAndClaim; never trusts a preflight receipt or provider response.
++    readonly accountRouteEvidence: HarnessAccountRouteEvidence | null;
+   }): Promise<"claimed" | "already_claimed" | "recovery_required" | "settled">;
+   observationsForAttempt(
+     principal: HarnessAdmissionPrincipal,
+     selection: HarnessSelection,
+--- a/apps/brain/src/runtime/CloudDelegatedRunPreparation.ts
++++ b/apps/brain/src/runtime/CloudDelegatedRunPreparation.ts
+@@ -184,8 +184,9 @@
+       );
+       const {
+         providerId: accountProviderId,
+         capabilities,
++        accountRouteEvidence,
+         ...bindingFacts
+       } = facts;
+       const selection = HarnessSelectionSchema.parse({
+         ...bindingFacts,
+@@ -201,8 +202,9 @@
+         policyId: policy.policyId,
+         policyRevision: policy.policyRevision,
+       });
+       const claimed = await bindings.freezeAndClaim({
++        accountRouteEvidence,
+         principal,
+         selection,
+         claimId,
+         expectedSelection: requested,

@@ -1,0 +1,101 @@
+--- a/packages/persistence/src/harness/PostgresHarnessControlPlaneRepository.ts
++++ b/packages/persistence/src/harness/PostgresHarnessControlPlaneRepository.ts
+@@ -1,5 +1,11 @@
+ import { randomUUID } from "node:crypto";
++import {
++  HarnessAccountSetupLeaseSchema,
++  HarnessAccountSetupReceiptSchema,
++  type HarnessAccountSetupLease,
++  type HarnessAccountSetupReceipt,
++} from "@repo/worker-protocol";
+ import {
+   HarnessSetupRequestSchema,
+   HarnessSelectRequestSchema,
+   HarnessSelectionReadRequestSchema,
+@@ -149,8 +155,74 @@
+       );
+       return record;
+     });
+   }
++  /** Root proposal: real lease is issued by the existing host lease owner.
++   * A setup mutation is never an admitted turn and carries no prompt. */
++  async claimAccountSetup(scope: HarnessControlPlaneScope, lease: HarnessAccountSetupLease): Promise<void> {
++    const parsed = HarnessAccountSetupLeaseSchema.parse(lease);
++    const p = parsed.principal;
++    assertScope(scope, p);
++    await this.client.transaction(async tx => {
++      await ownedWorkspace(tx, scope);
++      await lock(tx, ["harness-instance", scope, p.instanceId]);
++      await activeConnection(tx, scope, p.connectionId, p.authOwnerGeneration);
++      const current = await readInstance(tx, scope, p.instanceId, true);
++      if (!current || current.harness !== p.harness || current.connectionId !== p.connectionId ||
++          current.authOwnerGeneration !== p.authOwnerGeneration)
++        fail("instance_binding_conflict", "Account setup binding changed");
++      const result = await tx.query(
++        `UPDATE harness_configured_instances i SET account_setup_json=$5::jsonb
++         WHERE i.user_id::text=$1 AND i.workspace_id=$2 AND i.environment_id=$3 AND i.instance_id=$4
++         AND i.account_setup_json IS NULL AND EXISTS (
++           SELECT 1 FROM provider_credentials c WHERE c.id=i.connection_id AND c.user_id=i.user_id
++           AND c.auth_owner_generation=$6 AND c.token_material_version=$7
++           AND c.status='connected' AND c.deleted_at IS NULL AND c.refresh_claim_id IS NULL)
++         RETURNING instance_id`,
++        [scope.userId, scope.workspaceId, scope.environmentId, p.instanceId,
++         JSON.stringify({ stage: "reserved", lease: parsed }), p.authOwnerGeneration, p.tokenMaterialVersion]);
++      if (!result.rows[0]) fail("instance_binding_conflict", "Account setup requires recovery");
++    });
++  }
++  /** Called in the SAME custody transaction immediately before access-only
++   * projection. Locks canonical instance first, then credential row in factory. */
++  async beginAccountSetup(scope: HarnessControlPlaneScope, lease: HarnessAccountSetupLease): Promise<void> {
++    const parsed = HarnessAccountSetupLeaseSchema.parse(lease);
++    const p = parsed.principal;
++    assertScope(scope, p);
++    await ownedWorkspace(this.client, scope);
++    await lock(this.client, ["harness-instance", scope, p.instanceId]);
++    const r = await this.client.query(
++      `UPDATE harness_configured_instances SET account_setup_json=$5::jsonb
++       WHERE user_id::text=$1 AND workspace_id=$2 AND environment_id=$3 AND instance_id=$4
++       AND account_setup_json=$6::jsonb RETURNING instance_id`,
++      [scope.userId,scope.workspaceId,scope.environmentId,p.instanceId,
++       JSON.stringify({stage:"dispatching",lease:parsed}), JSON.stringify({stage:"reserved",lease:parsed})]);
++    if (!r.rows[0]) fail("instance_binding_conflict", "Account setup already dispatched or ambiguous");
++  }
++  async acknowledgeAccountSetup(scope: HarnessControlPlaneScope, receipt: HarnessAccountSetupReceipt): Promise<void> {
++    const parsed = HarnessAccountSetupReceiptSchema.parse(receipt);
++    const p = parsed.lease.principal;
++    assertScope(scope, p);
++    await this.client.transaction(async tx => {
++      await ownedWorkspace(tx, scope);
++      await lock(tx,["harness-instance",scope,p.instanceId]);
++      await activeConnection(tx,scope,p.connectionId,p.authOwnerGeneration);
++      const r = await tx.query(
++        `UPDATE harness_configured_instances i SET account_setup_json=$5::jsonb
++         WHERE user_id::text=$1 AND workspace_id=$2 AND environment_id=$3 AND instance_id=$4
++         AND account_setup_json=$6::jsonb AND EXISTS (
++           SELECT 1 FROM provider_credentials c WHERE c.id=i.connection_id AND c.user_id=i.user_id
++           AND c.auth_owner_generation=$7 AND c.token_material_version=$8
++           AND c.status='connected' AND c.deleted_at IS NULL AND c.refresh_claim_id IS NULL)
++         RETURNING instance_id`,
++        [scope.userId,scope.workspaceId,scope.environmentId,p.instanceId,
++         JSON.stringify({stage:"acknowledged",receipt:parsed}),
++         JSON.stringify({stage:"dispatching",lease:parsed.lease}),p.authOwnerGeneration,p.tokenMaterialVersion]);
++      if (!r.rows[0]) fail("instance_binding_conflict", "Account setup acknowledgement changed");
++    });
++  }
++
+   async listInstances(
+     scope: HarnessControlPlaneScope,
+   ): Promise<StoredHarnessInstance[]> {
+     return this.client.transaction(async (tx) => {
+--- /dev/null
++++ b/packages/persistence/src/migrations/0040-harness-account-setup.ts
+@@ -0,0 +1,9 @@
++// PROPOSED NUMBER ONLY: root selects next migration/ledger registration.
++import type { SqlMigration } from "./types.js";
++export const harnessAccountSetupMigration: SqlMigration = {
++  id: "0040_harness_account_setup",
++  description: "Explicit native account setup receipt on canonical configured instance",
++  statements: [
++    `ALTER TABLE harness_configured_instances ADD COLUMN account_setup_json JSONB`,
++  ],
++};

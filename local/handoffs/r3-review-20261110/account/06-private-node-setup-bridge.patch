@@ -1,0 +1,41 @@
+--- a/apps/secure-agent-api/harness-host/bridge.ts
++++ b/apps/secure-agent-api/harness-host/bridge.ts
+@@ -1,4 +1,6 @@
++import { HarnessAccountSetupRequestSchema, HarnessAccountSetupReceiptSchema,
++  type HarnessAccountSetupLease } from "@repo/worker-protocol";
+ import { randomUUID } from "node:crypto";
+ import type { WebSocket } from "ws";
+ import {
+   HarnessCommitAckSchema,
+@@ -304,4 +306,31 @@
+   });
+   socket.on("close", fence);
+   socket.on("error", fence);
+ }
++
++/** Invoked ONLY by root-owned /account-setup upgrade after verified per-lease
++ * bridge authentication. Never route it through attachCloudHarnessBridge. */
++export function attachCloudHarnessAccountSetupBridge(socket: WebSocket,
++  composition: CloudHarnessComposition, capturedLease: HarnessAccountSetupLease): void {
++  let dispatched = false;
++  let tail = Promise.resolve();
++  socket.on("message", raw => {
++    // Same bounded ws maxPayload/backpressure and fixed fencing as turn bridge.
++    tail = tail.then(async () => {
++      const request = HarnessAccountSetupRequestSchema.parse(JSON.parse(raw.toString()));
++      if (request.operation === "account_setup_prepare") throw new Error("Setup lease already allocated");
++      if (JSON.stringify(request.lease) !== JSON.stringify(capturedLease)) throw new Error("Setup lease mismatch");
++      if (request.operation === "account_setup_close") {
++        await composition.closeAccountSetup(capturedLease); return;
++      }
++      if (request.operation === "account_setup_authenticate") {
++        if (dispatched) throw new Error("Account authentication outcome requires recovery");
++        dispatched = true;
++      }
++      const receipt = request.operation === "account_setup_authenticate"
++        ? await composition.authenticateAccountSetup(capturedLease, request.material)
++        : await composition.inspectAccountSetup(capturedLease);
++      socket.send(JSON.stringify(HarnessAccountSetupReceiptSchema.parse(receipt)));
++    }).catch(() => { socket.close(1008,"Account setup recovery required"); });
++  });
++}

@@ -1,0 +1,124 @@
+--- a/packages/worker-protocol/src/harness.ts
++++ b/packages/worker-protocol/src/harness.ts
+@@ -335,6 +335,41 @@
+   .strict();
+ const id = z.string().uuid();
+ const request = { type: z.literal("request"), requestId: id };
++/** Private turn-opening coordination. These receipts never certify OS confinement. */
++export const HarnessOpeningIntentSchema = z.object({
++  openingRef: OpaqueId,
++  commandId: OpaqueId,
++  commandFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
++  runAttemptId: RunAttemptIdSchema,
++  instanceId: OpaqueId,
++  processGeneration: z.string().uuid(),
++  authOwnerGeneration: Generation,
++  workspaceGrantId: OpaqueId,
++  checkoutLeaseId: LeaseIdSchema,
++  startSnapshotId: OpaqueId,
++  executionLease: z.object({
++    leaseId: LeaseIdSchema, sandboxId: OpaqueId, generation: Generation,
++  }).strict(),
++}).strict();
++export type HarnessOpeningIntent = z.infer<typeof HarnessOpeningIntentSchema>;
++export const HarnessOpeningCommitSchema = z.object({
++  openingRef: OpaqueId,
++  commandFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
++  processGeneration: z.string().uuid(),
++  phase: z.enum(["reserved", "dispatching", "acknowledged"]),
++}).strict();
++export type HarnessOpeningCommit = z.infer<typeof HarnessOpeningCommitSchema>;
++export const HarnessOpeningClaimFrameSchema = z.object({
++  type: z.literal("opening_claim"), deliveryId: id,
++  operation: z.enum(["reserve", "begin_dispatch"]), intent: HarnessOpeningIntentSchema,
++}).strict();
++export const HarnessOpeningSessionFrameSchema = z.object({
++  type: z.literal("opening_session"), deliveryId: id,
++  intent: HarnessOpeningIntentSchema, session: HarnessSessionSchema,
++}).strict();
++export const HarnessOpeningCommitFrameSchema = z.object({
++  type: z.literal("opening_commit"), deliveryId: id, commit: HarnessOpeningCommitSchema,
++}).strict();
+ export const HarnessServiceRequestSchema = z.discriminatedUnion("operation", [
+   z
+     .object({
+@@ -430,11 +465,14 @@
+   HarnessServiceConnectSchema,
+   HarnessServiceRequestSchema,
+   HarnessServiceAckFrameSchema,
++  HarnessOpeningCommitFrameSchema,
+ ]);
+ export const HarnessServiceHostFrameSchema = z.union([
+   z.object({ type: z.literal("connected") }).strict(),
+   HarnessServiceResultSchema,
+   HarnessServiceObservationFrameSchema,
++  HarnessOpeningClaimFrameSchema,
++  HarnessOpeningSessionFrameSchema,
+   HarnessServiceErrorFrameSchema,
+ ]);
+ export type HarnessServiceHostFrame = z.infer<
+--- a/packages/harness-core/src/server/HarnessRegistry.ts
++++ b/packages/harness-core/src/server/HarnessRegistry.ts
+@@ -22,9 +22,18 @@
+   | "transport"
+ >;
+ 
++/** Trusted composition supplies the actual canonical writer, never a driver. */
++export interface HarnessOpeningAuthority {
++  reserve(input: { command: HarnessStartCommand; host: HarnessHost }): Promise<{
++    readonly beginDispatch: () => Promise<void>;
++    readonly acknowledge: (session: import("@repo/worker-protocol").HarnessSession) => Promise<void>;
++  }>;
++}
++
+ export interface HarnessInstance {
+   readonly scope: HarnessInstanceScope;
+   readonly driver: HarnessDriver;
++  readonly openingAuthority: HarnessOpeningAuthority;
+   /** Existing credential and grant authorities resolve host services for this admission. */
+   readonly createHost: (command: HarnessStartCommand) => Promise<HarnessHost>;
+ }
+--- a/packages/harness-core/src/server/HarnessSessionManager.ts
++++ b/packages/harness-core/src/server/HarnessSessionManager.ts
+@@ -129,6 +129,12 @@
+           throw new HarnessHostError("session_busy");
+         this.instanceDirectories.add(host.instanceDirectory);
+         this.journalDirectories.add(host.journalDirectory);
++        // Required trusted writer callback: successful reserve is not permission
++        // to resend after a crash. Persist dispatch BEFORE native process/RPC work.
++        const opening = await instance.openingAuthority.reserve({ command, host });
++        if (attachment.stopping) throw new HarnessHostError("stale_session");
++        await opening.beginDispatch();
++        if (attachment.stopping) throw new HarnessHostError("stale_session");
+         const live = await instance.driver.open({
+           command,
+           host,
+@@ -145,6 +151,9 @@
+         }
+         attachment.live = live;
+         attachment.session = session;
++        // Native acknowledged identity only. Lost CAS receipt is ambiguous;
++        // retain the opening and fence, never call driver.open again.
++        await opening.acknowledge(session);
+         const directory = host.journalDirectory;
+         attachment.journal = await this.openJournal(directory, session);
+         this.assertIntegrity(attachment);
+--- a/packages/persistence/src/schema/harness.ts
++++ b/packages/persistence/src/schema/harness.ts
+@@ -23,6 +23,7 @@
+     selectionJson: jsonb("selection_json").notNull(),
+     selectionFingerprint: text("selection_fingerprint").notNull(),
+     attachmentJson: jsonb("attachment_json"),
++    openingJson: jsonb("opening_json"),
+     externalTurnId: text("external_turn_id"),
+     lastObservationSequence: bigint("last_observation_sequence", {
+       mode: "number",
+--- a/packages/persistence/src/migrations/0040-harness-opening-intent.ts
++++ b/packages/persistence/src/migrations/0040-harness-opening-intent.ts
+@@ -0,0 +1,6 @@
++import type { SqlMigration } from "./types.js";
++export const harnessOpeningIntentMigration: SqlMigration = {
++  id: "0040_harness_opening_intent",
++  description: "Persist generation-scoped opening before native dispatch",
++  statements: ["ALTER TABLE harness_bindings ADD COLUMN opening_json JSONB"],
++};

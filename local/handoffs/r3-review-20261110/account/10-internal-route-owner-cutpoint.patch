@@ -1,0 +1,29 @@
+--- a/apps/secure-agent-api/src/index.ts
++++ b/apps/secure-agent-api/src/index.ts
+@@ -123,9 +123,9 @@
+ 
+ // solid compliant
+ // apps/secure-agent-api/src/index.ts
+ import { AgentRuntime } from "./core/AgentRuntime";
+-import { handleCloudHarnessCapability, handleCloudHarnessBridge } from "./harness/CloudHarnessService";
++import { handleCloudHarnessCapability, handleCloudHarnessBridge, handleCloudHarnessAccountSetup } from "./harness/CloudHarnessService";
+ import { HARNESS_SERVICE_CAPABILITY_PATH, HARNESS_SERVICE_BRIDGE_PATH } from "@repo/worker-protocol";
+ import { Sandbox } from "@cloudflare/sandbox";
+ import { LaunchRateLimiter } from "./runtime/LaunchRateLimiter";
+ import {
+@@ -259,8 +259,15 @@
+       } else if (url.pathname === HARNESS_SERVICE_BRIDGE_PATH && request.method === "GET") {
+         const authResponse = enforceInternalServiceBinding(request, env);
+         if (authResponse) response = authResponse;
+         else return handleCloudHarnessBridge(request, env);
++      } else if (url.pathname === "/api/v1/internal/harness/account-setup" && request.method === "POST") {
++        const authResponse = enforceInternalServiceBinding(request, env);
++        if (authResponse) response = authResponse;
++        else response = await handleCloudHarnessAccountSetup(request,
++          // ROOT/HOST OWNER must supply this real issuer on the existing
++          // AgentRuntime lease owner, not the ambient sessionId/default stub.
++          composeCloudAccountSetupAuthority(env));
+       } else if (url.pathname === "/api/debug/runtime" && request.method === "GET") {
+         response = Response.json(buildSecureRuntimeDebugPayload(env));
+       } else if (
+         url.pathname === "/api/v1/session" &&

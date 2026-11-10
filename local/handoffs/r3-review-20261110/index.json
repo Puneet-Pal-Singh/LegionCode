@@ -1,0 +1,115 @@
+{
+  "kind": "root_implementation_authorization_review",
+  "source_applied": false,
+  "production_ready": false,
+  "review_base": "c33ca811b04117843563828489fae32b83fb5d90",
+  "packets": {
+    "account": [
+      {
+        "file": "account/01-private-contract.patch",
+        "sha256": "111b6d6ba76fc617fefce90653271b69d9b93154f927ec09d8ae740a9b8b124e"
+      },
+      {
+        "file": "account/02-root-canonical-receipt.patch",
+        "sha256": "2fa3e584277b73f8acd48ee8c5f205e8c26da5f0016d285bb17418a21495c800"
+      },
+      {
+        "file": "account/03-existing-custody-consumer.patch",
+        "sha256": "4c2e6fca2389e7c1ff35767124b213cc6eef48edc210678f59ad6f7f4ce3ffea"
+      },
+      {
+        "file": "account/04-authenticated-setup-first-consumer.patch",
+        "sha256": "05fdadb717fb7e326ad0dd53847f363ea780f8c0a05373ca808746c818a2167f"
+      },
+      {
+        "file": "account/05-servicebinding-client-and-service.patch",
+        "sha256": "3143632e9fd8ecd816a653973bbd94bb7c94125a32e9a27eb155ed1ced902e4a"
+      },
+      {
+        "file": "account/06-private-node-setup-bridge.patch",
+        "sha256": "b478a816d333c4d0c480988220c827960e826611544f7d62b03b725ff99693b9"
+      },
+      {
+        "file": "account/07-host-composition-owned-hooks.patch",
+        "sha256": "c3298aa061042850f5c51262d6b52c6e14680b781e3732972592f183eecd18e1"
+      },
+      {
+        "file": "account/08-native-opencode-supported-route.patch",
+        "sha256": "196cedd03068f373b916ffaa067446e95e9c57c67fc7a274accb32dc9a6f2937"
+      },
+      {
+        "file": "account/09-native-codex-no-turn-consumer.patch",
+        "sha256": "b8ee0ab2e939211b3ce08d3a95741ca5b4068d71fc9580b0c094a639792f4155"
+      },
+      {
+        "file": "account/10-internal-route-owner-cutpoint.patch",
+        "sha256": "f24778d4f0185282dcdb7aa7414316324c5c478fab390af5e27e218804266f94"
+      },
+      {
+        "file": "account/11-private-admission-consumer-contract.patch",
+        "sha256": "d0cea8c8007015315dff45d03f44ded642877828087ee315c2b12c1e62496526"
+      },
+      {
+        "file": "account/12-trusted-node-entry-cutpoint.patch",
+        "sha256": "504928917198326c4b5cae77a09c79b7096638a7023d91a68cf08cada233a94e"
+      },
+      {
+        "file": "account/provenance.json",
+        "sha256": "0165774d5184982ffc8cd453db838116d9529c5e41f5867e25c13d2c08dbe1b2"
+      },
+      {
+        "file": "account/review-packet.json",
+        "sha256": "07a8024ee0276a5705709043d13ddbe14ded0d1b1ca87bab9c38ec3cd9f04e96"
+      }
+    ],
+    "opening": [
+      {
+        "file": "opening/opening-core-protocol-schema.proposed.patch",
+        "sha256": "d1d13f08db39a8bc3347821f2c802b76bd90ae7553a32b5d3d2fb794e70b7c44"
+      },
+      {
+        "file": "opening/consumer-hunks.json",
+        "sha256": "91251f15b4b5e54368a2e0375d81e0a3297b0cfba349bb4d8efd3191ed41746f"
+      }
+    ],
+    "packaging": [
+      {
+        "file": "packaging/01-compressed-assets-and-declared-links.patch",
+        "sha256": "1fc3a0ce408950c4f34be4e4d92516d4864f579b6d57a1984f95132cbcb0ea00"
+      },
+      {
+        "file": "packaging/resource-receipt.json",
+        "sha256": "b0e8f6eb6e46a2f557ddcc0775fbf53e4226dd8971050618a6cd84231dd287dd"
+      },
+      {
+        "file": "packaging/review-index.json",
+        "sha256": "d2ce65ba2df865be4e9b8b119f9a191495dad9b64b09986791c4a844d5a9e013"
+      },
+      {
+        "file": "packaging/selected-runtime-proposal.json",
+        "sha256": "9f4668bb08ea595c1ec40700502ee0855088ae62ecf85debf85555b972d9c5df"
+      },
+      {
+        "file": "packaging/selected-compiled-import-proof.json",
+        "sha256": "e4f801c4a0c58dcc34e60cd70e6df3dc04c0883f85121c8d743003d754dfb210"
+      }
+    ],
+    "opencode": [
+      {
+        "file": "opencode/audit.json",
+        "sha256": "2529cab56a1867fed64111798ea71f7281bd87b711b1650831c317c17cc3a552"
+      },
+      {
+        "file": "opencode/proposal-source-provenance-only.patch",
+        "sha256": "d1a012d9d59d5282c11ae6589c2e2fa3d7c6e385ff33d456fd58f2a206e7f79b"
+      }
+    ]
+  },
+  "gates": "Actual trusted root bootstrap/lease issuer/confinement remain unavailable; no provider path or deployment claim.",
+  "limitations": {
+    "account": "12 unified review fragments; not compile/apply-ready. Explicit setup has no Turn/Session; native B reauths rather than reusing setup A proof. Real root issuer required.",
+    "opening": "One additive opening column in existing bindings, pre-dispatch generation claim and post-native ACK CAS, pre-ACK revocation target; root schema/protocol/Core review required.",
+    "packaging": "Concrete two-owned-path compression/manifest patch; actual selected root pre-import/UID-drop consumer and measured platform resource policy required before application/image build.",
+    "opencode": "Provenance-only constant/comment proposal. Offline signature/cert/CT/Rekor checks passed using bundled trust material; current TUF freshness not verified. No runtime upgrade/lock/hash change."
+  }
+}

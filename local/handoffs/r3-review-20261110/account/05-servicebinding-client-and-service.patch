@@ -1,0 +1,107 @@
+--- /dev/null
++++ b/apps/brain/src/runtime/HostedAccountSetupClient.ts
+@@ -0,0 +1,41 @@
++import { createStableEventFingerprint } from "@repo/event-store";
++import { HarnessAccountSetupPrincipalSchema, HarnessAccountSetupLeaseSchema,
++  HarnessAccountSetupReceiptSchema, type HarnessAccountSetupPrincipal,
++  type HarnessAccountSetupLease } from "@repo/worker-protocol";
++import type { Env } from "../types/ai";
++
++export function createHostedAccountSetupClient(env: Env, signal: AbortSignal) {
++  const call = async (body: object) => {
++    signal.throwIfAborted();
++    const secret = env.INTERNAL_RUNTIME_EVENT_SECRET;
++    if (!secret) throw new Error("Account setup service authentication unavailable");
++    const response = await env.SECURE_API.fetch("http://internal/api/v1/internal/harness/account-setup", {
++      method: "POST", signal, headers: { "Content-Type": "application/json",
++        "X-Internal-Runtime-Secret": secret }, body: JSON.stringify(body) });
++    if (!response.ok) throw new Error("Account setup unavailable; recovery required");
++    return response.json(); // bounded response handling MUST reuse existing service limit helper
++  };
++  return {
++    async prepare(input: Omit<HarnessAccountSetupPrincipal, "commandFingerprint">) {
++      const principal = HarnessAccountSetupPrincipalSchema.parse({ ...input,
++        commandFingerprint: createStableEventFingerprint(input) });
++      const lease = HarnessAccountSetupLeaseSchema.parse(await call({operation:"account_setup_prepare",principal}));
++      if (JSON.stringify(lease.principal) !== JSON.stringify(principal))
++        throw new Error("Account setup lease binding mismatch");
++      return lease;
++    },
++    async authenticate(lease: HarnessAccountSetupLease, material: {type:"api_key";apiKey:string}) {
++      const receipt = HarnessAccountSetupReceiptSchema.parse(await call({operation:"account_setup_authenticate",lease,material}));
++      if (JSON.stringify(receipt.lease) !== JSON.stringify(lease))
++        throw new Error("Account setup receipt binding mismatch");
++      return receipt;
++    },
++    async close(lease: HarnessAccountSetupLease) {
++      await call({operation:"account_setup_close",lease});
++      // Not physical closure proof. Durable owner retains ambiguous descendants.
++    },
++    async inspect(lease: HarnessAccountSetupLease) {
++      return HarnessAccountSetupReceiptSchema.parse(await call({operation:"account_setup_inspect",lease}));
++    },
++  };
++}
+--- a/apps/secure-agent-api/src/harness/CloudHarnessService.ts
++++ b/apps/secure-agent-api/src/harness/CloudHarnessService.ts
+@@ -1,4 +1,7 @@
++import { HarnessAccountSetupRequestSchema, HarnessAccountSetupLeaseSchema,
++  HarnessAccountSetupReceiptSchema, type HarnessAccountSetupPrincipal,
++  type HarnessAccountSetupLease, type HarnessAccountSetupReceipt } from "@repo/worker-protocol";
+ import { getSandbox, type Sandbox } from "@cloudflare/sandbox";
+ import {
+   HarnessServiceCapabilityRequestSchema,
+   HarnessServiceCapabilitySchema,
+@@ -310,4 +313,52 @@
+   server.addEventListener("error", fence);
+   server.accept();
+   return new Response(null, { status: 101, webSocket: client });
+ }
++
++/** ROOT/HOST PROPOSED CONTRACT: implemented by EXISTING AgentRuntime physical
++ * lease owner + root resident bootstrap; not by a browser/config boolean.
++ * Existing turn lease/session methods MUST NOT be used with fake identities. */
++export interface CloudAccountSetupAuthority {
++  assertSetupOwner(principal: HarnessAccountSetupPrincipal): Promise<void>;
++  assertEnforced(): Promise<void>;
++  // Hydrates exact selected pinned runtime BEFORE import/UID drop; allocates a
++  // real process generation and persists its lease through existing owner.
++  prepareRootSetup(principal: HarnessAccountSetupPrincipal): Promise<HarnessAccountSetupLease>;
++  assertLease(lease: HarnessAccountSetupLease, phase: "authenticate" | "inspect" | "close"): Promise<void>;
++  authenticatePrivate(lease: HarnessAccountSetupLease, material: {type:"api_key";apiKey:string}): Promise<HarnessAccountSetupReceipt>;
++  inspectPrivate(lease: HarnessAccountSetupLease): Promise<HarnessAccountSetupReceipt>;
++  closePrivate(lease: HarnessAccountSetupLease): Promise<void>;
++}
++/** Caller is index.ts AFTER enforceInternalServiceBinding. Body is bounded by
++ * readBody; errors are fixed and never echo credentials/native HTTP payloads. */
++export async function handleCloudHarnessAccountSetup(request: Request, authority: CloudAccountSetupAuthority): Promise<Response> {
++  try {
++    const operation = HarnessAccountSetupRequestSchema.parse(await readBody(request));
++    if (operation.operation === "account_setup_prepare") {
++      await authority.assertSetupOwner(operation.principal);
++      await authority.assertEnforced();
++      const lease = HarnessAccountSetupLeaseSchema.parse(await authority.prepareRootSetup(operation.principal));
++      await authority.assertLease(lease, "inspect");
++      return Response.json(lease);
++    }
++    const phase = operation.operation === "account_setup_authenticate" ? "authenticate"
++      : operation.operation === "account_setup_inspect" ? "inspect" : "close";
++    await authority.assertLease(operation.lease, phase);
++    if (phase === "close") {
++      // Cleanup validates physical lease only, including revoked credentials.
++      // It cannot hydrate a runtime or start a replacement generation.
++      await authority.closePrivate(operation.lease);
++      return Response.json({closed:true}); // no physical-closure proof inferred
++    }
++    await authority.assertSetupOwner(operation.lease.principal);
++    await authority.assertEnforced();
++    const receipt = HarnessAccountSetupReceiptSchema.parse(
++      operation.operation === "account_setup_authenticate"
++        ? await authority.authenticatePrivate(operation.lease, operation.material)
++        : await authority.inspectPrivate(operation.lease));
++    await authority.assertLease(operation.lease, phase);
++    return Response.json(receipt);
++  } catch {
++    return Response.json({code:"unavailable"}, {status:503});
++  }
++}

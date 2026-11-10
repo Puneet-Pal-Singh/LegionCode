@@ -1,0 +1,59 @@
+--- a/apps/secure-agent-api/harness-host/main.ts
++++ b/apps/secure-agent-api/harness-host/main.ts
+@@ -1,10 +1,11 @@
++import type { HarnessAccountSetupLease } from "@repo/worker-protocol";
+ export { createCloudHarnessAuthenticator } from "./authentication";
+ import { createServer, type IncomingMessage } from "node:http";
+ import { pathToFileURL } from "node:url";
+ import { WebSocketServer } from "ws";
+ import type { CloudHarnessAuthenticatedContext } from "./authentication";
+-import { attachCloudHarnessBridge } from "./bridge";
++import { attachCloudHarnessBridge, attachCloudHarnessAccountSetupBridge } from "./bridge";
+ import { CloudHarnessComposition } from "./composition";
+ import { CLOUD_HARNESS_BRIDGE_LIMITS } from "../src/harness/CloudHarnessBridgeLimits";
+ import {
+   assertCloudHarnessLaunchAvailable,
+@@ -16,8 +17,15 @@
+  * enable execution or inject a driver/credential. A reviewed composition root
+  * must supply the existing durable authority; current launch still fails closed.
+  */
+ export function startCloudHarnessHost(options?: {
++  // Supplied ONLY by reviewed trusted root bootstrap, never CLI/env/HTTP flags.
++  // Root bootstrap hydrates pinned selected runtime before loading this module
++  // or dropping UID. Current status wrapper supplies NO issuer: deny safely.
++  authenticateAccountSetup?(request: IncomingMessage): Promise<{
++    readonly lease: HarnessAccountSetupLease;
++    readonly composition: CloudHarnessComposition;
++  }>;
+   authenticate(
+     request: IncomingMessage,
+   ): Promise<CloudHarnessAuthenticatedContext>;
+ }) {
+@@ -63,16 +71,26 @@
+         /* Keep cleanup errors private. */
+       }
+     };
+     socket.on("error", destroy);
+-    if (upgrading >= 8 || request.url !== "/bridge") {
++    if (upgrading >= 8 || (request.url !== "/bridge" && request.url !== "/account-setup")) {
+       destroy();
+       return;
+     }
+     upgrading++;
+     void (async () => {
+       // Deny BEFORE calling credential/custody authority or accepting a private
+       // execution connection. The status-only entry never boots provider state.
++      if (request.url === "/account-setup") {
++        // No cleanup grant or preexisting turn bridge can authorize setup.
++        assertCloudHarnessLaunchAvailable();
++        if (!options?.authenticateAccountSetup) throw new CloudHarnessUnavailableError();
++        const context = await options.authenticateAccountSetup(request);
++        await context.composition.launchPolicy.assertEnforced();
++        sockets.handleUpgrade(request,socket,head,connection =>
++          attachCloudHarnessAccountSetupBridge(connection,context.composition,context.lease));
++        return;
++      }
+       const cleanupOnly =
+         request.headers["x-legion-harness-intent"] === "cleanup";
+       if (!cleanupOnly) assertCloudHarnessLaunchAvailable();
+       if (!options) throw new Error("Cloud harness authority unavailable");

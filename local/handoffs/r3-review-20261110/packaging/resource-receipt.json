@@ -1,0 +1,12 @@
+{
+  "linux": "Linux",
+  "host": "8575502e05f6",
+  "source": "37d5a77548669d1661b2cf2db26314cc7213adb7",
+  "handoffVerifiedFiles": 19,
+  "catalog": "/workspace/LegionCode-R2-BUILD/node_modules/.pnpm/wrangler@4.70.0_@cloudflare+workers-types@4.20260702.1/node_modules/wrangler/wrangler-dist/cli.js",
+  "catalogSHA256": "098b797797edb8487a1d9c2f03c041f8ae0f2ff48dbe067af93c404a0efadf9a",
+  "catalogSnippet": "lite: {\n        vcpu: 0.0625,\n        memory_mib: 256,\n        disk_mb: 2e3\n      },\n      dev: {\n        vcpu: 0.0625,\n        memory_mib: 256,\n        disk_mb: 2e3\n    ",
+  "catalogMeaning": "Official installedWrangler4.70.0 static source, no CLI invocation, verifies advertisedlite shape. Does NOT prove physicalCPU/actualCFquota or whether disk includesreadonlylayers.",
+  "diskEvidence": "Pinnedbase saved layers establish image.Size606,197,204, not writablequota accounting. Docker overlay/vfs semantics onCloud cannot proveCF disk policy.",
+  "writableSource": "Owncleanworktree; no source edits; scratchpatch only"
+}

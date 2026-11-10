@@ -1,0 +1,120 @@
+{
+  "artifactSource": "ed22db6a86c1cf81a6bd7289de81bad8839eeb4f",
+  "sourceComparison": {
+    "main.ts": {
+      "37d5SHA256": "6cdbb200bb9d06b2a0613a7fabd4c15eaba04f2fcb237011ea6dcbcf61a64866",
+      "ed22SHA256": "6cdbb200bb9d06b2a0613a7fabd4c15eaba04f2fcb237011ea6dcbcf61a64866",
+      "equal": true
+    },
+    "composition.ts": {
+      "37d5SHA256": "8a39e472a6718d1da5133fde93dd42faf45e1007b18b819eddb553a5dc79c486",
+      "ed22SHA256": "8a39e472a6718d1da5133fde93dd42faf45e1007b18b819eddb553a5dc79c486",
+      "equal": true
+    },
+    "scripts/build.mjs": {
+      "37d5SHA256": "e385bc0ce4523262c107788f47a98c454b50225bc7552a9c367241f69fa3c2ee",
+      "ed22SHA256": "e385bc0ce4523262c107788f47a98c454b50225bc7552a9c367241f69fa3c2ee",
+      "equal": true
+    }
+  },
+  "metafileSHA256": "7d46e2431cf316cf6a00a744a1fc703b9b65650be99cd9c0e2b39244b96c6e45",
+  "compilerEqualityEvidenceSHA256": "c9d9d36dbdb1729a6d1d12e283dc133136e263f62cb9a33adb310b3461588aa9",
+  "closures": {
+    "host.mjs": {
+      "outputs": [
+        "apps/secure-agent-api/harness-host/dist/compiled/chunk-AK2TJ26K.mjs",
+        "apps/secure-agent-api/harness-host/dist/compiled/chunk-D72TLHOQ.mjs",
+        "apps/secure-agent-api/harness-host/dist/compiled/chunk-IHJMENJC.mjs",
+        "apps/secure-agent-api/harness-host/dist/compiled/host.mjs"
+      ],
+      "externals": [
+        "buffer",
+        "bufferutil",
+        "crypto",
+        "events",
+        "http",
+        "https",
+        "net",
+        "node:crypto",
+        "node:fs",
+        "node:fs/promises",
+        "node:http",
+        "node:path",
+        "node:url",
+        "stream",
+        "tls",
+        "url",
+        "utf-8-validate",
+        "zlib"
+      ]
+    },
+    "drivers/codex.mjs": {
+      "outputs": [
+        "apps/secure-agent-api/harness-host/dist/compiled/chunk-D72TLHOQ.mjs",
+        "apps/secure-agent-api/harness-host/dist/compiled/chunk-IHJMENJC.mjs",
+        "apps/secure-agent-api/harness-host/dist/compiled/drivers/codex.mjs"
+      ],
+      "externals": [
+        "node:crypto",
+        "node:fs/promises",
+        "node:path"
+      ]
+    },
+    "drivers/opencode.mjs": {
+      "outputs": [
+        "apps/secure-agent-api/harness-host/dist/compiled/chunk-D72TLHOQ.mjs",
+        "apps/secure-agent-api/harness-host/dist/compiled/chunk-IHJMENJC.mjs",
+        "apps/secure-agent-api/harness-host/dist/compiled/drivers/opencode.mjs"
+      ],
+      "externals": [
+        "node:crypto",
+        "node:fs/promises",
+        "node:path",
+        "node:timers/promises"
+      ]
+    },
+    "drivers/claude.mjs": {
+      "outputs": [
+        "apps/secure-agent-api/harness-host/dist/compiled/chunk-AK2TJ26K.mjs",
+        "apps/secure-agent-api/harness-host/dist/compiled/chunk-D72TLHOQ.mjs",
+        "apps/secure-agent-api/harness-host/dist/compiled/chunk-IHJMENJC.mjs",
+        "apps/secure-agent-api/harness-host/dist/compiled/drivers/claude.mjs"
+      ],
+      "externals": [
+        "@anthropic-ai/claude-agent-sdk",
+        "node:crypto",
+        "node:events",
+        "node:fs",
+        "node:fs/promises",
+        "node:path",
+        "node:stream"
+      ]
+    }
+  },
+  "actualOutputSHA256": {
+    "apps/secure-agent-api/harness-host/dist/compiled/host.mjs": "ff76706ad437c9b6c9bd016337a124e647123a9e3e7c6d9d4c9f5a42d272adba",
+    "apps/secure-agent-api/harness-host/dist/compiled/drivers/codex.mjs": "030ba1a87fb48372eae7a16fc28c38f0078fb3fc0865e2f71656a27b64ea37bd",
+    "apps/secure-agent-api/harness-host/dist/compiled/drivers/claude.mjs": "d713bc7b423174c27bbc3748dc3386c60c296e663cc982f8cf651d7c528701c3",
+    "apps/secure-agent-api/harness-host/dist/compiled/chunk-AK2TJ26K.mjs": "c3a73f8dd21300989ca8d1378f6e6551cc3fe393a743f95fc93e11f4f8a94e4b",
+    "apps/secure-agent-api/harness-host/dist/compiled/drivers/opencode.mjs": "c3bd85a77f667c17ea43c2e3f787736a9567bb6861b34fb1b833b973f39534f6",
+    "apps/secure-agent-api/harness-host/dist/compiled/chunk-IHJMENJC.mjs": "c1e082b3ea547d1de529631c45ab5c0bf9760dde2a2bbb99fa82b7809d0276d0",
+    "apps/secure-agent-api/harness-host/dist/compiled/httpApiScalar-HEWS4C3K.mjs": "9a2df6dec843e4b257559ca16387417c9c2f105b2a5b4c80a8a25aecbcb43cd9",
+    "apps/secure-agent-api/harness-host/dist/compiled/httpApiSwagger-LO7I6SDY.mjs": "859a70f0b504ce1a1d014e8f7e1449573726de4291cc84bb8fcbcb4c715bc2d0",
+    "apps/secure-agent-api/harness-host/dist/compiled/chunk-D72TLHOQ.mjs": "3b55fbe6ffa3c29d659f6a6b474431d50f887f037038860ba2607c88b38de73d"
+  },
+  "sdkSHA256": "4cd470a25da93b4339218708120b8b87e76d172b5798ba973898bac809333d01",
+  "sdkLookupSnippets": {
+    "platformLookup": "function l3(e,t={}){let n=t.platform??process.platform,r=t.arch??process.arch,o=t.exists??uJe,s=t.preferMusl??dJe(),i=\"claude\",a=n===\"win32\"?\".exe\":\"\",c=(n===\"android\"?[`${Xc}-linux-${r}-android`]:n===\"linux\"?s?[`${Xc}-linux-${r}-musl`,`${Xc}-linux-${r}`]:[`${Xc}-linux-${r}`,`${Xc}-linux-${r}-musl`]:[`${Xc}-${n}-${r}`]).map((d)=>`${d}/claude${a}`);for(let d of c)try{let p=e(d);if(o(p))return p}catch{}return null}function c3({supportedDialogKinds:e,onUserDialog:t}){if(e!==void 0&&e.length>0&&!t)throw Error(\"supportedDialogKinds requires an onUserDialog callback -- declaring dialog kinds without a handler would park dialogs nothing can answer. Provide onUserDialog, or omit supportedDialogKinds",
+    "queryResolution": "Yy=p.pathToClaudeCodeExecutable;if(!Yy){let jt=e5e(import.meta.url),In=JJe(jt),Gr=l3((Da)=>In.resolve(Da));if(!Gr)throw Error(`Native CLI binary for ${process.platform}-${process.arch} not found. Reinstall @anthropic-ai/claude-agent-sdk without --omit=optional, or set options.pathToClaudeCodeExecutable.`);Yy=Gr}let rk=Sf?.type===\"json_schema\"?Sf.schema:void 0,gt=L?{...L}:{...process.env};if(!gt.CLAUDE_CODE_ENTRYPOINT)gt.CLAUDE_CODE_ENTRYPOINT=\"sdk-ts\";if(!gt.CLAUDE_AGENT_SDK_VERSION)gt.CLAUDE_AGENT_SDK_VERSION=\"0.3.318\";if(q)gt.CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING=\"true\";if(!Object.keys(gt).some((jt)=>jt.toUpperCase()",
+    "nativeVsNode": "function iJe(e){return![\".js\",\".mjs\",\".tsx\",\".ts\",\".jsx\"].some((n)=>e.endsWith(n))}function aJe(e,t){let n=t?\"native binary\":\"executable\",r=df(e);if(Q",
+    "spawnConsumer": "let rt=iJe(l),At=rt?l:s,Yt=rt?[...i,...q]:[...i,l,...q],Be={command:At,args:Yt,cwd:o,env:c,signal:this.forwardedAbort.signal};if(this.options.spawnClaudeCodeProcess)on(`Spawning Claude Code (custom): ${At} ${Yt.join(\" \")}`),this.process=this.options.spawnClaudeCodeProcess(Be);else on(`Spawning Claude Code: ${At} ${Yt.join(\" \")}`),this.process=this.spawnLocalProcess(Be);if(this.processStdin=this.process.stdin,this.processStdout=this.process.stdout,this.processStdin.on(\"error\",(ge)=>{on(`[ProcessTransport] stdin write failed (child likely exited): ${ge.code??ge.message}`),this.ready=!1}),Fy.trac"
+  },
+  "findings": [
+    "Host staticclosure does not import any driver output or ClaudeSDK;3 driverentries are dynamic only. Nativefree disabledstatus supported by compiled graph.",
+    "Codex/OpenCode staticclosures do not import ClaudeSDK or eachotherdriver. Claudeclosure alone has external@anthropic-ai/claude-agent-sdk. Sharedchunks stay included.",
+    "SDK query resolves relative to import.meta.url via createRequire.resolve; platformlinuxx64 chooses glibcfirst thenmusl fallback and existscheck. Nativepath used ascommand; JS extension selectsNode wrapper. Full nativepackage+peer graph paths must remain exact.",
+    "Native lookup occurs inquery construction, not selectedotherdriver import; noCodex/OpenCode native references inlookup. Existencefallback must be constrained by verifiedselectedClaude asset; never rely onfallbackmusl.",
+    "Claude actual query customspawn adapter delegates options.command,args to opening.host.launch; selectedtrustedhostroot must validate exact approvedexecutable/cwd/scope BEFORE UIDdrop; currentdisabledstatus supplies noactiveconsumer."
+  ],
+  "limits": "Readonly metadata/byte trace only; no SDK/host/native imports. Relevantmain/composition/build equal37d5 vsed22, drivercode maydiffer so metadata belongs exacted22, not reproduced37build. No fullSDK top-level sideeffect/CF acceptance claim."
+}

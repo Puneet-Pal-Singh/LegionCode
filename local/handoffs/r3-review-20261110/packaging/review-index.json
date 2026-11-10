@@ -1,0 +1,43 @@
+{
+  "status": "SCRATCH REVIEW PACKAGE, NOT APPLIED; NOT READY TO LAUNCH",
+  "patch": "01-compressed-assets-and-declared-links.patch",
+  "patchSHA256": "1fc3a0ce408950c4f34be4e4d92516d4864f579b6d57a1984f95132cbcb0ea00",
+  "ownedChangedPaths": [
+    "apps/secure-agent-api/harness-host/scripts/runtime-assets.mjs",
+    "apps/secure-agent-api/harness-host/scripts/package-runtime.mjs"
+  ],
+  "remainingOwnedPaths": "No stage-node-dependencies change needed: retain complete102package SDKgraph/peers/licenses. No Docker entrypoint change proposed. launch-runtime hydration cannot be safely wired until actual trustedrootbootstrap contract reviewed.",
+  "resourceCatalog": "Official installedWrangler4.70.0 staticshape lite0.0625vCPU256MiB2000MBdisk independently found; resource-receipt.json hasexactpath+hash. CF actualquota/layeraccounting remains unmeasured.",
+  "buildLayerPolicy": "Compress and remove mainfiles before runtime.tar; existing bindmountedtar extraction means no rawmains in priorimage layer. Every finalimage layer must be scanned; image.Size estimate1,142,368,304 notfinalbuilt. ALL3compressed/assets retained.",
+  "selectedLogicalDisk": {
+    "codexImagePlusRaw": 1462944280,
+    "opencodeImagePlusRaw": 1395081440,
+    "claudeImagePlusRaw": 1480182336,
+    "allThreeImagePlusRaw": 2053471448,
+    "meaning": "image.Size sum+raw logical arithmetic only; notCF writablequota accounting; stagingrename avoids2ndrawcopy. Workspace/host/fs reserve additional. Cacheadmission must account existingownedversions; do notdelete active."
+  },
+  "sharedPrivateSetupProposal": {
+    "operationPrincipal": "turn_opening:runAttemptId/commandFingerprint/checkoutlease/startSnapshot OR account_setup:setupCommandId",
+    "common": "user/workspace/environment/instance/connection/provider/authOwnerGeneration/tokenMaterialVersion + exactruntimeId/version/protocolVersion/executableSha256/assetManifestHash + realprocessLeaseId/leaseGeneration/processGeneration/expiresAt",
+    "authority": "Authenticated existingBrain->SECURE_API binding->durable configuredinstancegenerationclaim->privateperlease bridgecredential->trustedrootsetup. Independent hostassertEnforced BEFORE keyread/nativeauth. This issuer/handler does NOTcurrentlyexist; no FD/CLI/env substitute.",
+    "requiredConsumedOrder": [
+      "Rootprivate handler independently validatesimmutableprincipal+processlease+hostenforcement",
+      "Derive selectedruntime from capturedcanonicalscope; assertpin+assetmanifest, no requestpath",
+      "Bounded root preparation opensprotectedancestors, locks exactversion, diskreservepreflight includesownstage/otherleases",
+      "Stream compressedprehash exactlength+hash, decode withbeforewritebound, finalhash/mode/fsync, oneversiondirectory rename, noactiveoverwrite/delete",
+      "Close privilegedFDs, originalUID/GID/envcleanup; onlythen dynamicselecteddriverimport+createHost",
+      "Pass exactverifiedruntimepath/receipt to hostlaunch; revalidatelease and selection beforeprovidercredentials"
+    ],
+    "currentViolation": "composition.ts registerCodex141/registerClaude147/registerOpenCode161 dynamicimport occurs before registry.createHost181->configureHost; currentmain isdisabledstatus and existingwrapper dropsUID first. AddinghydrateinsidecreateHost would be toolate; cannot safelymakealreadyUIDdroppedprocess root."
+  },
+  "exactRootOwnedHunkProposal": "Root must split current eagerregister driver import into trustedrootbootstrap preparation before processUIDdrop, using real privatehandler; then pass immutable preparedRuntime receipt into existing registration/open path. Supervisor.connect actualhook before credentials uses45soverall30sreadiness includingwatchsetup andcallerabort, stickyambiguity/recovery. Cleanup neverbootstrap, statusnativefree, WS10s separate. Names/transport must come from owner; no fabricatedreadycode.",
+  "launcherRequirements": "Exact selectedentry only; rootowned ancestors/lock checked; nofollow handles and boundedbytes/files; cachehit fullhash; exclusive0700stage ->0755exec rootowned; oneatomicdirpublish; monotonicdeadline/cancellation; closeFDs beforeUIDdrop; no stale takeover; processleasekeepsversion; no fallback/home/download. Currentpatch does not implementlauncher yet.",
+  "boundedVerificationAfterApproval": [
+    "Exactsource+19manifestcheck",
+    "Frozenproduction package:runtime onNode22 Linux; recordsource/lock/artifactsha, actualwholemanifest/filecaps; no host/native launch",
+    "Data-onlyselectedcodecverify/hash/time/memory and filesystemallocation accounting",
+    "One finalimage build only afterpatchapproval, inspectimage.Size <=1350000000 andalllayerheaders no rawmain copies",
+    "RootseparateauthorizedCF coldstart/quota proof needed; Cloudtime/catalog notacceptance"
+  ],
+  "decisionRequired": "Reviewgenerated3internallinkvalidator policy and actualtrustedrootbootstrap issuer/transport/callpath jointly withhost/account/opening; sourceuntoucheduntilapproval."
+}

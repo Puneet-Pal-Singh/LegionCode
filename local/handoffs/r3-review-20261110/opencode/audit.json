@@ -1,0 +1,167 @@
+{
+  "repository_source": "2b193c7334676bef7782b74eaff4c09571112316",
+  "linux_host": "8575502e05f6",
+  "approved_handoff_19": "37d5a77548669d1661b2cf2db26314cc7213adb7",
+  "runtime_version": "2.2.5",
+  "research_source_constant": "76ff9a6ab25fca4b8f0f5c43e4ef12bd0c10cc3e",
+  "upstream_tag": "9bbb8ce18c80f099e0e448775f59d965ead40a21",
+  "signed_build_source": "958f965d35ed44d32b018fd55b02a5357a7748fd",
+  "packages": [
+    {
+      "name": "@opencode/cli-linux-x64",
+      "version": "2.2.5",
+      "tar_sha256": "92690eee07a680d3cb760ca02ba43878de9eab1b4e5d5dfae8795518c53628f4",
+      "dist_integrity_verified": true,
+      "members": 2,
+      "installed_members_match": true
+    },
+    {
+      "name": "@opencode/client",
+      "version": "2.2.5",
+      "tar_sha256": "636641fb5f319e273419c5fa38e95175b7cc35f5e09b0adc14100736a46c83e7",
+      "dist_integrity_verified": true,
+      "members": 100,
+      "installed_members_match": true
+    },
+    {
+      "name": "@opencode/protocol",
+      "version": "2.2.5",
+      "tar_sha256": "f40c82c5ceeec25ef4b5e96e69b192bdb8afa6ce60ef21b4485c08223a80335a",
+      "dist_integrity_verified": true,
+      "members": 85,
+      "installed_members_match": true
+    },
+    {
+      "name": "@opencode/schema",
+      "version": "2.2.5",
+      "tar_sha256": "68b395496c3407ab4b478f6efe89f2bec631aba6b463398984fde82272a99758",
+      "dist_integrity_verified": true,
+      "members": 211,
+      "installed_members_match": true
+    }
+  ],
+  "provenance": {
+    "gitHead": "absent in all four registry records",
+    "offline_crypto": "all four SLSA DSSE/Fulcio chain + CT1/Rekor1 PASS using existing npm sigstore4.1.0 strict workflow SAN and GitHub issuer",
+    "subjects_match_computed_tar_sha512": true,
+    "release_workflow": "https://github.com/anomalyco/opencode/actions/runs/41135857908/attempts/1",
+    "freshness_limit": "Normal TUF initialization failed TUF_REFRESH_METADATA_ERROR; offline verification below uses bundled trusted_root.json directly, NOT a freshness-validated current TUF target",
+    "first_missing_proof": "Current freshness-validated TUF trust metadata (normal initialization failed TUF_REFRESH_METADATA_ERROR; bundled seed root13 expired2026-01-22). Runtime native behavior/OS confinement remains separately unverified."
+  },
+  "type_alias_ast_comparison": {
+    "analysis": "Static TypeScript type-alias AST comparison only; no emit, build, tests or vendor execution. Formatting and redundant type parentheses ignored; syntax kinds/identifiers/literal values retained.",
+    "installed_aliases": 812,
+    "sources": {
+      "tag": {
+        "source_aliases": 812,
+        "equal": 812,
+        "different": [],
+        "installed_only": [],
+        "source_only": []
+      },
+      "pin": {
+        "source_aliases": 821,
+        "equal": 808,
+        "different": [
+          "ProviderCache",
+          "IntegrationAttempt",
+          "ConfigEntry",
+          "ExperimentalMcpAddInput"
+        ],
+        "installed_only": [],
+        "source_only": [
+          "ProviderCacheWarming",
+          "JobStatus",
+          "JobTime",
+          "JobShell",
+          "JobSubagent",
+          "JobImage",
+          "JobInfo",
+          "ExperimentalJobListInput",
+          "ExperimentalJobListOutput"
+        ]
+      },
+      "release": {
+        "source_aliases": 812,
+        "equal": 812,
+        "different": [],
+        "installed_only": [],
+        "source_only": []
+      }
+    }
+  },
+  "used_methods": [
+    "permission.reply",
+    "server.info",
+    "session.active",
+    "session.create",
+    "session.form.cancel",
+    "session.form.reply",
+    "session.get",
+    "session.inbox.cancel",
+    "session.inbox.list",
+    "session.interrupt",
+    "session.list",
+    "session.prompt"
+  ],
+  "native_events_observed": [
+    "form.cancelled",
+    "form.created",
+    "form.replied",
+    "permission.asked",
+    "permission.rejected",
+    "permission.replied",
+    "provider.auth",
+    "provider.quota",
+    "pty.created",
+    "pty.deleted",
+    "pty.exited",
+    "pty.updated",
+    "server.connected",
+    "session.created",
+    "session.execution.failed",
+    "session.execution.interrupted",
+    "session.execution.started",
+    "session.execution.succeeded",
+    "session.inbox.enqueued",
+    "session.model.selected",
+    "session.moved",
+    "session.permissions",
+    "session.shell.ended",
+    "session.shell.started",
+    "session.step.started",
+    "session.text.delta",
+    "session.text.ended",
+    "session.tool.called",
+    "session.tool.failed",
+    "session.tool.input.started",
+    "session.tool.success",
+    "session.usage.updated",
+    "shell.created",
+    "shell.deleted",
+    "shell.exited"
+  ],
+  "used_api_notes": [
+    "Methods/event inventory unchanged from approved37 handoff",
+    "Driver does not call experimental.job, credential.list, integration.connect.key/get/list, or experimental.usage.limits",
+    "Server.info/PID/private Basic transport and SSE /api/event are used",
+    "Used event/server/permission/form protocol sources identical across both research/tag sources; session protocol differs only synthetic/compact middleware outside used methods; integration protocol diff is OAuth description",
+    "No API-path or type matching establishes provider/OS acceptance"
+  ],
+  "credential_precedence": "Signed958/tag source: saved active/newest credential rows reverse sorted before ENV; fresh owned native store and exact selected-vault generation remain required. credential.list is secret-bearing and was never called.",
+  "quota_limit": "experimental.usage.limits is OpenCode Console Go allowance/workspace budgets only, not OpenAI/Anthropic subscription quota.",
+  "staged_cache": "Original cached executable hash equals tar binary member. baseline-sdk material graph has no standalone @opencode packages; installed locked SDK members independently match downloaded npm tar members. No claim staged bundle represents current2b driver.",
+  "proposal": "Scratch proposal-source-provenance-only.patch changes only source-revision958 + provenance comment; no version/lock/hash/manifest/source mutation. Approved76 research snapshot docs retained.",
+  "not_run": [
+    "native CLI",
+    "credential API",
+    "providers",
+    "tests",
+    "builds",
+    "acceptance",
+    "install",
+    "image",
+    "deployment"
+  ],
+  "source_status": ""
+}

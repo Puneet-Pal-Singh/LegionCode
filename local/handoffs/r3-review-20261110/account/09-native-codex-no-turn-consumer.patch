@@ -1,0 +1,58 @@
+--- /dev/null
++++ b/packages/harness-codex/src/server/CodexAccountSetup.ts
+@@ -0,0 +1,47 @@
++import { createHash } from "node:crypto";
++import { readFile } from "node:fs/promises";
++import type { HarnessHost } from "@repo/harness-core/server";
++import { CodexAuthentication, codexApiKeyIdentityFingerprint } from "./CodexAuthentication.js";
++import { CodexStdioTransport } from "./transport/CodexStdioTransport.js";
++import { CodexUsageReader } from "./CodexUsageReader.js";
++import { initializeCodex } from "./initialize.js";
++import { codexRuntimePin } from "./runtime.js";
++
++/** Explicit account setup on actual processA. NO native thread/session/turn.
++ * Root/host owns enforcing launch and durable generation claim before entry. */
++export async function openCodexAccountSetup(host: HarnessHost, executable: string,
++  selectedKey: string, signal: AbortSignal) {
++  const pin = codexRuntimePin(process.platform, process.arch);
++  if (createHash("sha256").update(await readFile(executable)).digest("hex") !== pin.binarySha256)
++    throw new Error("Codex setup executable pin mismatch");
++  const fingerprint = codexApiKeyIdentityFingerprint(selectedKey);
++  const auth = new CodexAuthentication("api_key",fingerprint,
++    {OPENAI_API_KEY:selectedKey},"openai");
++  const child = await host.launch({executable,args:auth.launchArgs()});
++  let failed = false;
++  const transport = new CodexStdioTransport({input:child.child.stdin,output:child.child.stdout,
++    onNotification(method,params) { auth.observeNotification(method,params); },
++    onRequest(request) { request.reject(-32601); },
++    onClose() { failed=true; auth.cancel(); }});
++  const reader = new CodexUsageReader(transport);
++  try {
++    await child.ready;
++    signal.throwIfAborted();
++    const initialized = await initializeCodex(transport,"0.0.0",false);
++    if (initialized.codexHome !== host.instanceDirectory) throw new Error("Codex setup home changed");
++    await auth.establish(transport);
++    await auth.verify(reader);
++    if (failed) throw new Error("Codex setup process closed");
++  } catch {
++    host.fence(); transport.close();
++    // Physical descendant proof is the host owner's responsibility, not this close.
++    throw new Error("Codex native account setup requires recovery");
++  }
++  return {
++    processGeneration:host.processGeneration,
++    nativeCredentialId:null,
++    async verify() { if (failed) throw new Error("Codex setup process closed"); await auth.verify(reader); },
++    async close() { auth.cancel();transport.close();host.fence();
++      return host.terminateProcesses({graceMs:100,killWaitMs:1000}); },
++  };
++}
+--- a/packages/harness-codex/src/server.ts
++++ b/packages/harness-codex/src/server.ts
+@@ -15,4 +15,5 @@
+ export {
+   CodexUsageReader,
+   codexAccountIdentityFingerprint,
+ } from "./server/CodexUsageReader.js";
++export { openCodexAccountSetup } from "./server/CodexAccountSetup.js";

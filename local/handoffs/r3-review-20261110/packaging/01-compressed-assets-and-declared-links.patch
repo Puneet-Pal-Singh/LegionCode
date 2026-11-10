@@ -1,0 +1,117 @@
+--- a/apps/secure-agent-api/harness-host/scripts/runtime-assets.mjs
++++ b/apps/secure-agent-api/harness-host/scripts/runtime-assets.mjs
+@@ -2,7 +2,7 @@
+ import { createHash } from "node:crypto";
+ import { chmod, cp, mkdir, readFile, stat } from "node:fs/promises";
+ import { createRequire } from "node:module";
+-import { dirname, join } from "node:path";
++import { dirname, join, relative } from "node:path";
+ 
+ // Binary-only archive lock. These are exact official Linux x64 glibc releases;
+ // SDK/client transitive packages remain owned by the frozen root pnpm lock.
+@@ -152,6 +152,7 @@
+       executable: "runtimes/codex/vendor/x86_64-unknown-linux-musl/bin/codex",
+     },
+     claude: {
++      executable: relative(runtime, claudeBinary),
+       sdkVersion: sdkManifest.version,
+       cliVersion: sdkManifest.claudeCodeVersion,
+       platformPackage: platform.name,
+--- a/apps/secure-agent-api/harness-host/scripts/package-runtime.mjs
++++ b/apps/secure-agent-api/harness-host/scripts/package-runtime.mjs
+@@ -9,11 +9,18 @@
+   readFile,
+   readdir,
+   realpath,
++  readlink,
++  symlink,
++  stat,
+   rm,
+   writeFile,
+ } from "node:fs/promises";
++import { createReadStream, createWriteStream } from "node:fs";
++import { pipeline } from "node:stream/promises";
++import { Transform } from "node:stream";
++import { createBrotliCompress, constants as zlibConstants } from "node:zlib";
+ import { tmpdir } from "node:os";
+-import { isAbsolute, join, relative, sep } from "node:path";
++import { isAbsolute, join, relative, sep, dirname, resolve } from "node:path";
+ import {
+   compileHost,
+   hostDirectory as host,
+@@ -68,6 +75,59 @@
+   );
+   await cp(join(host, "scripts/launch-runtime.mjs"), join(runtime, "main.mjs"));
+   const assets = await installRuntimeAssets({ root, runtime, scratch });
++  // Review candidate: keep all official graphs/licenses; encode only three mains.
++  // No raw main enters runtime.tar or an earlier Docker image layer.
++  const nativeAssets = [];
++  const protectedLinks = new Map();
++  await mkdir(join(runtime, ".native-assets"), { recursive: true });
++  for (const id of ["codex", "claude", "opencode"]) {
++    const asset = assets[id];
++    const source = join(runtime, asset.executable);
++    const info = await stat(source);
++    if (!info.isFile() || info.size < 1 || info.size > 400_000_000)
++      throw new Error("Invalid native asset size");
++    const decodedHash = createHash("sha256");
++    const encodedHash = createHash("sha256");
++    let decodedBytes = 0, encodedBytes = 0;
++    const encodedPath = `.native-assets/${id}.br`;
++    await pipeline(
++      createReadStream(source),
++      new Transform({ transform(chunk, _encoding, done) {
++        decodedBytes += chunk.length;
++        if (decodedBytes > info.size) return done(new Error("Native source grew"));
++        decodedHash.update(chunk); done(null, chunk);
++      }}),
++      createBrotliCompress({ params: {
++        [zlibConstants.BROTLI_PARAM_QUALITY]: 5,
++        [zlibConstants.BROTLI_PARAM_LGWIN]: 22,
++      }}),
++      new Transform({ transform(chunk, _encoding, done) {
++        encodedBytes += chunk.length;
++        if (encodedBytes > 200_000_000) return done(new Error("Native encoding bound exceeded"));
++        encodedHash.update(chunk); done(null, chunk);
++      }}),
++      createWriteStream(join(runtime, encodedPath), { flags: "wx", mode: 0o644 }),
++    );
++    const sha256 = decodedHash.digest("hex");
++    if (decodedBytes !== info.size || sha256 !== asset.binarySha256)
++      throw new Error("Native source changed during encoding");
++    const encodedSha256 = encodedHash.digest("hex");
++    const version = `${id}-${sha256}`;
++    const target = `.hydrated/${version}/${id}`;
++    const link = relative(dirname(source), join(runtime, target));
++    // Exactly declared future internal targets; ordinary dependency guards remain.
++    protectedLinks.set(source, { link, target });
++    nativeAssets.push({ id, version, executable: asset.executable,
++      target, encoding: "brotli-q5-lgwin22", encodedPath,
++      encodedBytes, encodedSha256, decodedBytes, sha256, mode: 0o755 });
++    await rm(source);
++    await symlink(link, source);
++  }
++  const nativeManifest = { format: 1, platform: "linux-x64-glibc",
++    maxAssets: 3, maxDecodedBytes: 1_000_000_000,
++    maxEncodedBytes: 500_000_000, assets: nativeAssets };
++  await writeFile(join(runtime, "native-assets.json"), JSON.stringify(nativeManifest, null, 2) + "\n");
++
+   await writeFile(
+     join(runtime, "runtime-assets.json"),
+     JSON.stringify(
+@@ -92,6 +152,15 @@
+   async function finalize(path) {
+     const info = await lstat(path);
+     if (info.isSymbolicLink()) {
++      const future = protectedLinks.get(path);
++      if (future) {
++        const link = await readlink(path);
++        const target = relative(runtime, resolve(dirname(path), link));
++        if (link !== future.link || target !== future.target ||
++            !/^\.hydrated\/(codex|claude|opencode)-[a-f0-9]{64}\/(codex|claude|opencode)$/.test(target))
++          throw new Error("Generated native link differs from exact manifest target");
++        return;
++      }
+       const target = relative(runtime, await realpath(path));
+       if (
+         target === ".." ||

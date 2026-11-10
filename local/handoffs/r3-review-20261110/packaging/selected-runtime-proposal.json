@@ -1,0 +1,51 @@
+{
+  "status": "PROPOSAL ONLY; no source change",
+  "source": "37d5a77548669d1661b2cf2db26314cc7213adb7",
+  "perRuntimeMeasured": [
+    {
+      "runtime": "codex",
+      "bytes": 320575976,
+      "verifiedDecodeWriteHashFsyncSecondsNode22": 2.048852975,
+      "estimatedImagePlusOnlyThisRuntime": 1462944280,
+      "restoredSHA256": "cdcb45aaa01d0f14e298985e09465aebccd47f64ecd298aea44814af7b62bbda"
+    },
+    {
+      "runtime": "opencode",
+      "bytes": 252713136,
+      "verifiedDecodeWriteHashFsyncSecondsNode22": 1.5980236870000004,
+      "estimatedImagePlusOnlyThisRuntime": 1395081440,
+      "restoredSHA256": "8d060e1d2fbb9bb44cf09ae6ed1f3f6a7cff070b5227e2f90970132b23a92050"
+    },
+    {
+      "runtime": "claude",
+      "bytes": 337814032,
+      "verifiedDecodeWriteHashFsyncSecondsNode22": 2.4101843479999996,
+      "estimatedImagePlusOnlyThisRuntime": 1480182336,
+      "restoredSHA256": "708c77b204db30086ff6f1ed34577bda03e1be74ced80557cbf7b54249ebf0bd"
+    }
+  ],
+  "measurementLimit": "Individual phases of serialNode22 knownfullgraph run; not independent process RSS or CF timing. No new runtime/native/SDK launch.",
+  "importProof": {
+    "source": "main.ts imports composition; composition.ts only type imports3 drivers, dynamic imports lines141/147/161 in explicit register methods. Status constructs disabled composition, no registration calls. build.mjs splittingtrue ESM4entries, Claude SDK external.",
+    "conclusion": "Source supports credential-free status without native hydration: status should verify immutable host manifest only, never native query/fallback. Compiled final output metadata must corroborate staticgraph before production change; no compiled graph artifact retained yet.",
+    "SDKPaths": "Preserve complete staged node_modules/.store102package graph/internal peerlinks/licenses unchanged. ClaudeSession statically imports Claude SDK only when Claude driver chunk loads; SDK native lookup must be separately byte-traced before allowing onlyselected missing others. No cross-driver import seen in source; not full SDK sideeffect proof."
+  },
+  "actualConsumer": {
+    "current": "Supervisor.connect called by BridgeClient.connect(signal); bootstrapStatus uncalled. Node main status contains no trusted active composition bootstrap. Later registration needs actual authenticated configureHost root, currently gated/unimplemented.",
+    "needed": "Trusted rootowned setup consumer must receive validated immutable HarnessStartCommand selection from authority before privilegesdrop/driverimport, select exact pinnedruntime cache, verify atomic version and then drop privileges. CLI/env harness label alone NOT authority. Do not add privileged ambient lazyhelper or reacquireUID. Root must provide owned trustedlaunch path; cannot wire safely into alreadyUIDdropped statusprocess.",
+    "status": "Could run current disabledstatus nativefree; preserve executiongatefalse, do not confuse status with selectedruntime launch or readiness."
+  },
+  "layout": "ALL3 compressedpins kept immutableimage. Each runtime exclusive rootowned versioned cache/<pinSHA> contains exact selectednative, publish ONE directory atomically after streambounds/hash/fsync; never remove ownedruntime. Existingfull SDK peers/licenses inimage. Narrowinternalmanifestlink policy requires review; no fullgraphcopy, no silent driver removal.",
+  "disk": "Each one-selected image+raw estimate table; additional coexisting runtime generations raise total. Need runtimelease admission reserve/quota deny before hydration, not automatic deletion. All3coexisting still2,053,471,448 before overhead. Must source2GB accounting before claiming fit.",
+  "resources": "lite configured; reported1/16vCPU256MiB2GB not independently sourced dueofficialproxy403; CloudCPU/RSS notCFextrapolation. Need offlinecatalog/hash and image-layerdisk semantics.",
+  "reviewRequired": "Actualtrustedlaunch consumer ownership, finalcompiledmetadata and ClaudeSDKlookup trace, exactpeergraph/cachesymlinkvalidation, boundedselectedadmissiondisk/lease/concurrency, root45soverall30sreadiness cancellationpolicy. No source edit until review.",
+  "compiledEvidence": "/workspace/work/R3-PACKAGE-20261110/selected-compiled-import-proof.json",
+  "compiledEvidenceSHA256": "e4f801c4a0c58dcc34e60cd70e6df3dc04c0883f85121c8d743003d754dfb210",
+  "compiledConclusion": [
+    "Host staticclosure does not import any driver output or ClaudeSDK;3 driverentries are dynamic only. Nativefree disabledstatus supported by compiled graph.",
+    "Codex/OpenCode staticclosures do not import ClaudeSDK or eachotherdriver. Claudeclosure alone has external@anthropic-ai/claude-agent-sdk. Sharedchunks stay included.",
+    "SDK query resolves relative to import.meta.url via createRequire.resolve; platformlinuxx64 chooses glibcfirst thenmusl fallback and existscheck. Nativepath used ascommand; JS extension selectsNode wrapper. Full nativepackage+peer graph paths must remain exact.",
+    "Native lookup occurs inquery construction, not selectedotherdriver import; noCodex/OpenCode native references inlookup. Existencefallback must be constrained by verifiedselectedClaude asset; never rely onfallbackmusl.",
+    "Claude actual query customspawn adapter delegates options.command,args to opening.host.launch; selectedtrustedhostroot must validate exact approvedexecutable/cwd/scope BEFORE UIDdrop; currentdisabledstatus supplies noactiveconsumer."
+  ]
+}

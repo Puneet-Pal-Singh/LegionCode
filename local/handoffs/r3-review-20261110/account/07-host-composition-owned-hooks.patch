@@ -1,0 +1,68 @@
+--- a/apps/secure-agent-api/harness-host/composition.ts
++++ b/apps/secure-agent-api/harness-host/composition.ts
+@@ -1,4 +1,6 @@
++import { HarnessAccountSetupReceiptSchema, type HarnessAccountSetupLease,
++  type HarnessAccountSetupReceipt } from "@repo/worker-protocol";
+ import type { DelegatedHarnessPort } from "@repo/runtime-kernel";
+ import {
+   createHarnessHost,
+   HarnessExecutionPort,
+@@ -72,8 +74,23 @@
+   readonly execution: DelegatedHarnessPort = this.hostExecution;
+   readonly launchPolicy = new SandboxHarnessLaunchPolicy();
+   constructor(
+     private readonly authority: {
++      accountSetup: {
++        // Implemented by root-resident, authenticated real lease owner. Must
++        // compare capturedprincipal/runtimepins/lease, never process.env/UID.
++        assertLease(lease: HarnessAccountSetupLease, phase: "authenticate" | "inspect" | "close"): Promise<void>;
++        assertRuntimeProvenance(lease: HarnessAccountSetupLease): Promise<void>;
++        // Already prepared/hydrated BEFORE any driver import or UID drop.
++        // Returns actual same-generation supervised host, never a replacement.
++        host(lease: HarnessAccountSetupLease): Promise<import("@repo/harness-core/server").HarnessHost>;
++        // Actual no-turn native auth adapters, detailed in native hook patch.
++        authenticateNative(lease: HarnessAccountSetupLease, host: import("@repo/harness-core/server").HarnessHost,
++          material: {type:"api_key";apiKey:string}): Promise<HarnessAccountSetupReceipt>;
++        inspectNative(lease: HarnessAccountSetupLease): Promise<HarnessAccountSetupReceipt>;
++        // Reliable descendants + transport cleanup; ambiguity retains lease.
++        close(lease: HarnessAccountSetupLease): Promise<void>;
++      };
+       assertActive(target: CloudHarnessActiveTarget): Promise<void>;
+       /** Cleanup is authorized by durable lease/process ownership, not provider reauthentication. */
+       assertCleanup(target: CloudHarnessCleanupTarget): Promise<void>;
+       /** Resolve selected credentials only AFTER the enforcing capability gate. */
+@@ -103,8 +120,34 @@
+       ...input,
+       resolveObservationIntegrity: (request) =>
+         this.authority.resolveObservationIntegrity(request),
+     });
++  }
++
++  async authenticateAccountSetup(lease: HarnessAccountSetupLease,
++    material: {type:"api_key";apiKey:string}): Promise<HarnessAccountSetupReceipt> {
++    await this.authority.accountSetup.assertLease(lease,"authenticate");
++    // Current policy remains false. No credential may be used below this gate
++    // without actual mount/network/capability/control-port/descendant proof.
++    await this.launchPolicy.assertEnforced();
++    await this.authority.accountSetup.assertRuntimeProvenance(lease);
++    const host = await this.authority.accountSetup.host(lease);
++    if (host.processGeneration !== lease.processGeneration) throw new Error("Account setup process replaced");
++    const receipt = HarnessAccountSetupReceiptSchema.parse(
++      await this.authority.accountSetup.authenticateNative(lease,host,material));
++    await this.authority.accountSetup.assertLease(lease,"authenticate");
++    if (JSON.stringify(receipt.lease) !== JSON.stringify(lease)) throw new Error("Account setup receipt mismatch");
++    return receipt;
++  }
++  async inspectAccountSetup(lease: HarnessAccountSetupLease): Promise<HarnessAccountSetupReceipt> {
++    await this.authority.accountSetup.assertLease(lease,"inspect");
++    await this.launchPolicy.assertEnforced();
++    return HarnessAccountSetupReceiptSchema.parse(await this.authority.accountSetup.inspectNative(lease));
++  }
++  async closeAccountSetup(lease: HarnessAccountSetupLease): Promise<void> {
++    await this.authority.accountSetup.assertLease(lease,"close");
++    // Revocation must not disable cleanup or authorize replacement process.
++    await this.authority.accountSetup.close(lease);
+   }
+ 
+   status() {
+     return CLOUD_HARNESS_AVAILABILITY;

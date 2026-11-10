@@ -1,0 +1,58 @@
+--- a/apps/brain/src/services/harness/PostgresHostedHarnessControlPlane.ts
++++ b/apps/brain/src/services/harness/PostgresHostedHarnessControlPlane.ts
+@@ -1,4 +1,5 @@
++import { createHostedAccountSetupClient } from "../../runtime/HostedAccountSetupClient";
+ import {
+   AppServerEnvironmentIdSchema,
+   HarnessModelsResponseSchema,
+   HarnessInstanceStatusSchema,
+@@ -101,8 +102,16 @@
+             throw missing();
+           await authorizeEnvironment(context);
+         },
+         signal: context.signal,
++        async authorizeSetup(lease, transaction) {
++          const p = lease.principal;
++          if (p.userId !== context.userId || p.workspaceId !== context.workspaceId ||
++              p.environmentId !== context.environmentId || !transaction) throw missing();
++          await authorizeEnvironment(context, transaction);
++          await new PostgresHarnessControlPlaneRepository(transaction)
++            .beginAccountSetup(ownedScope(context), lease);
++        },
+         async authorizeAttempt(binding, transaction) {
+           await authorizeEnvironment(context, transaction);
+           const selected = await authorizeHostedHarnessAttempt(
+             env,
+@@ -337,10 +346,30 @@
+         });
+       });
+       if (!(await service.assertSetupAuthority(context, selected)))
+         throw conflict();
+-      // Native setup and host confinement remain independent, unavailable
+-      // authorities; a custody snapshot must never turn readiness on.
++      if (params.harness === "codex" || params.harness === "opencode") {
++        // This remains a separate user-initiated setup. No turn/session/prompt.
++        const setup = createHostedAccountSetupClient(env, context.signal);
++        // prepare revalidates authenticated owner and real host enforcement
++        // BEFORE this caller may acquire any selected credential material.
++        const lease = await setup.prepare({ ...ownedScope(context),
++          instanceId: record.instanceId, harness: params.harness,
++          connectionId: selected.connectionId, providerId: selected.providerId,
++          authOwnerGeneration: selected.ownerGeneration,
++          tokenMaterialVersion: selected.tokenMaterialVersion,
++          setupCommandId: params.clientCommandId });
++        await withRepository(repo => repo.claimAccountSetup(ownedScope(context), lease));
++        // Atomic canonical custody delivery also advances durable reserved ->
++        // dispatching. No SQL client/lock crosses the private native RPC.
++        const acquired = await service.resolveForSetup(lease);
++        if (!acquired || acquired.secret.type !== "api_key") throw conflict();
++        const receipt = await setup.authenticate(lease, acquired.secret);
++        // Post-native CAS cannot silently bind a revoked/replaced key. A lost
++        // result remains dispatching/recovery-required; no login retry here.
++        await withRepository(repo => repo.acknowledgeAccountSetup(ownedScope(context), receipt));
++      }
++      // Account route receipt alone does not enable execution/host readiness.
+       return unavailableInstance(record);
+     },
+     async listInstances(context) {
+       return (

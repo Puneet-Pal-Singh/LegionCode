@@ -1,0 +1,90 @@
+--- a/apps/brain/src/services/harness/HarnessConnectionService.ts
++++ b/apps/brain/src/services/harness/HarnessConnectionService.ts
+@@ -1,4 +1,5 @@
++import type { HarnessAccountSetupLease } from "@repo/worker-protocol";
+ import {
+   CredentialSecretSchema,
+   projectRuntimeCredentialMaterial,
+   type CredentialAcquisition,
+@@ -30,8 +31,9 @@
+  * No browser claim or provider login authorizes a LegionCode user session here.
+  */
+ export interface HarnessConnectionPolicy {
+   authorize(scope: HarnessConnectionScope): Promise<void>;
++  authorizeSetup(lease: HarnessAccountSetupLease, transaction?: SqlClient): Promise<void>;
+   authorizeAttempt(
+     binding: HarnessAttemptCredentialBinding,
+     transaction?: SqlClient,
+   ): Promise<void>;
+@@ -64,8 +66,13 @@
+ }
+ /** Private custody delivery. Projection must be synchronous inside the authority
+  * transaction; neither an SQL-backed port nor refresh material may escape it. */
+ export interface HarnessAttemptCredentialDeliveryPort {
++  deliverSetup(
++    lease: HarnessAccountSetupLease,
++    expected: CredentialAcquisition,
++    project: (record: ProviderCredentialRecord, secret: CredentialSecret) => HarnessRuntimeCredentialResolution | null,
++  ): Promise<HarnessRuntimeCredentialResolution | null>;
+   deliver(
+     binding: HarnessAttemptCredentialBinding,
+     expected: CredentialAcquisition,
+     project: (
+@@ -166,8 +173,27 @@
+       record.providerId,
+       record.credentialKind,
+     );
+     return metadata(record);
++  }
++
++  /** Explicit user setup, never a fake admitted turn. Real host enforcement and
++   * a durably claimed setup lease MUST precede this private call. */
++  async resolveForSetup(lease: HarnessAccountSetupLease) {
++    if (!this.delivery) throw new Error("Atomic setup custody delivery unavailable");
++    await this.policy.authorizeSetup(lease);
++    await this.policy.ensureReady();
++    const p = lease.principal;
++    const record = await this.store.getConnection(p.connectionId);
++    if (!record || record.credentialId !== p.connectionId || record.userId !== p.userId ||
++        record.providerId !== p.providerId || record.authOwnerGeneration !== p.authOwnerGeneration ||
++        record.tokenMaterialVersion !== p.tokenMaterialVersion || record.credentialKind !== "api_key" ||
++        record.status !== "connected" || record.deletedAt !== null || record.refreshClaimId !== null)
++      return null;
++    await this.policy.assertRouteAllowed(p, record.providerId, record.credentialKind);
++    return this.delivery.deliverSetup(lease, expected(record), (current, secret) =>
++      secret.type === "api_key" ? { metadata: metadata(current),
++        secret: projectRuntimeCredentialMaterial(secret) } : null);
+   }
+ 
+   async resolveForAttempt(binding: HarnessAttemptCredentialBinding) {
+     binding = { ...binding };
+--- a/apps/brain/src/services/providers/stores/PostgresStoreFactory.ts
++++ b/apps/brain/src/services/providers/stores/PostgresStoreFactory.ts
+@@ -119,8 +119,27 @@
+       ...policy,
+       ensureReady: () => runAutomaticMigrations(databaseConfig, client),
+     },
+     {
++      async deliverSetup(lease, expected, project) {
++        const result = await client.transaction(async tx => {
++          // Root-owned policy validates exact configured instance + reserved lease
++          // and advances reserved->dispatching on THIS tx before key delivery.
++          await policy.authorizeSetup(lease, tx);
++          const locked = await tx.query(
++            "SELECT id FROM provider_credentials WHERE user_id=$1 AND id=$2 AND provider_id=$3 FOR UPDATE",
++            [userId, expected.connectionId, expected.providerId]);
++          if (!locked.rows[0]) return null;
++          const acquired = await new PostgresCredentialStore(tx,userId,workspaceId,
++            encryption.masterKey,encryption.keyVersion,encryption.previousMasterKey).acquireConnection(expected);
++          if (!acquired || acquired.secret.type !== "api_key") return null;
++          await policy.assertRouteAllowed(lease.principal, acquired.record.providerId, acquired.record.credentialKind);
++          policy.signal?.throwIfAborted();
++          return project(acquired.record, acquired.secret);
++        });
++        policy.signal?.throwIfAborted();
++        return result;
++      },
+       async deliver(binding, expected, project) {
+         const result = await client.transaction(async (tx) => {
+           // The canonical owner locks turn/session/workspace/admission first.
+           // All nested repository transactions are savepoints on THIS client.

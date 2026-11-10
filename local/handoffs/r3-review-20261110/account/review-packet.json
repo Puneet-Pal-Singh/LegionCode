@@ -1,0 +1,252 @@
+{
+  "status": "SCRATCH REVIEW FRAGMENTS ONLY: not compile-ready, not apply-ready, no source applied",
+  "base": "adc62868015412343d8b9e0024429716f06d9f0b",
+  "second_cutpoint": "2b193c7334676bef7782b74eaff4c09571112316",
+  "first_consumer": {
+    "path": "apps/brain/src/services/harness/PostgresHostedHarnessControlPlane.ts",
+    "method": "existing setupInstance",
+    "patch": "04-authenticated-setup-first-consumer.patch"
+  },
+  "call_order": [
+    "Existing AppServer authenticated setup authorizes actual user/workspace/environment. Existing assertSetupAuthority exact metadata checks remain.",
+    "Existing configured-instance repository persists exact immutable instance binding and command receipt. No Turn/Session/StartCommand is created.",
+    "Brain client calls existing SECURE_API service binding with existing internal service authentication to account_setup_prepare.",
+    "Secure index authenticates INTERNAL service binding before parsing/account operation. Existing real lease owner must authorize exact canonical configured instance/vault snapshot.",
+    "Actual host assertEnforced succeeds before credential acquisition/native I/O. Currently fails closed. No flags/UID/cleanup token may satisfy it.",
+    "Trusted root bootstrap validates captured explicit setup principal, selected immutable runtime pins and real lease; packaging hydrates ONLY selected runtime BEFORE any registerCodex/registerOpenCode eager import and BEFORE UIDdrop. No unsupported FD/CLI/env authority is introduced.",
+    "Actual existing host/lease owner allocates processGeneration via actual host and issues real setup lease; canonical configured_instances claim CAS binds exact principal/commandFingerprint/runtime/lease before dispatch.",
+    "HarnessConnectionService.resolveForSetup -> existing PostgresStoreFactory custody transaction authorizes setup, advances reserved->dispatching, locks exact credential row, acquires exact connectionId/provider/authOwnerGeneration/tokenMaterialVersion and synchronously projects API-key material. No provider operation crosses SQL lock.",
+    "Private authenticated setup bridge sends exact captured lease and transient selected material to composition; host rechecks real lease and enforcing launch before native auth.",
+    "Codex starts actual pinned native processA, initialize then account/login/start+native notifications+account/read, NO thread/session/turn/prompt. OpenCode private processA verifies version/pid and uses integration.connect.key plus redacted integration.get to capture actual selected native credential ID, NO session/prompt. OpenCode artifact API compatibility/provenance validation is still outstanding.",
+    "Trusted receipt returns route API-key, exact vault generation/material version, actual processA/lease/runtime and native ID where available; providerAccountId null and quota unknown. Postgres acknowledges only exact dispatching receipt and still-current vault generation/material version.",
+    "Product caller MUST close setup processA after acknowledgement OR any ambiguous dispatch via lease-owned cleanup, then persist real descendant settlement separately while retaining historical receipt. Bridge close alone is not physical proof. Failure retains unresolved lease; does not release or retry login.",
+    "Admission reads historical setup route evidence and current exact vault under canonical authority; freezeAndClaim compares receipt fingerprint and vault generation/material version under same transaction and freezes private evidence with immutable admitted binding.",
+    "Current drivers create NEW processB. They MUST NOT reuse processA identity. Actual processB generation gets separate opening claim via opening-owner proposal before native work; after exact admitted custody delivery B performs its own native login/route verification BEFORE native thread/session/prompt and persists B receipt via canonical opening ACK. SetupA historical identity stays unchanged.",
+    "Before each prompt B revalidates actual same process generation, selected vault generation/material version and native auth route/active native credential ID. Revocation fences work but cleanup remains lease/process scoped. Global availability and all confinement/subscription gates remain unchanged."
+  ],
+  "matched_operation_types": {
+    "principal": [
+      "userId",
+      "workspaceId",
+      "environmentId",
+      "instanceId",
+      "harness",
+      "connectionId",
+      "providerId",
+      "authOwnerGeneration",
+      "tokenMaterialVersion",
+      "setupCommandId",
+      "commandFingerprint"
+    ],
+    "lease": [
+      "principal",
+      "leaseId",
+      "sandboxId",
+      "leaseGeneration",
+      "processGeneration",
+      "expiresAt",
+      "runtime.runtimeId",
+      "runtime.version",
+      "runtime.protocolVersion",
+      "runtime.executableSha256"
+    ],
+    "prohibited": [
+      "fakeTurnId",
+      "fakeSessionId",
+      "fakeHarnessStartCommand",
+      "providerAccountId inferred from credentialID",
+      "keyValid/readiness bool",
+      "provider account/quota from discovery/catalog"
+    ]
+  },
+  "owners_and_requested_hunks": [
+    {
+      "owner": "root protocol",
+      "paths": [
+        "packages/worker-protocol/src/harness-account-setup.ts",
+        "packages/worker-protocol/src/index.ts",
+        "apps/secure-agent-api/src/harness/CloudHarnessBridgeProtocol.ts"
+      ],
+      "patch": "01-private-contract.patch",
+      "decision": "canonical private schema package location/dependency boundary; no turn frame widening"
+    },
+    {
+      "owner": "root persistence",
+      "paths": [
+        "packages/persistence/src/harness/PostgresHarnessControlPlaneRepository.ts",
+        "packages/persistence/src/migrations/0040-harness-account-setup.ts"
+      ],
+      "patch": "02-root-canonical-receipt.patch",
+      "decision": "next migration number/registration; root dependency on canonical private schema; JSON shape validation and retirement CAS preserving receipt; readAuthority receipt snapshot+current vault under lock"
+    },
+    {
+      "owner": "root custody factory + account owner",
+      "paths": [
+        "apps/brain/src/services/providers/stores/PostgresStoreFactory.ts",
+        "apps/brain/src/services/harness/HarnessConnectionService.ts"
+      ],
+      "patch": "03-existing-custody-consumer.patch",
+      "decision": "authorizeSetup same-transaction signature and existing custody delivery extension; canonical BYOK/discovery/vault paths remain unchanged"
+    },
+    {
+      "owner": "account owner after root contract approval",
+      "paths": [
+        "apps/brain/src/services/harness/PostgresHostedHarnessControlPlane.ts",
+        "apps/brain/src/runtime/HostedAccountSetupClient.ts"
+      ],
+      "patches": [
+        "04-authenticated-setup-first-consumer.patch",
+        "05-servicebinding-client-and-service.patch"
+      ],
+      "decision": "wire real setup caller, bounded response read, exact command dedupe; add finally lease cleanup and retain unresolved ownership. No setup invocation for Claude/subscription."
+    },
+    {
+      "owner": "root Secure/physical lease owner",
+      "paths": [
+        "apps/secure-agent-api/src/index.ts",
+        "apps/secure-agent-api/src/core/AgentRuntime.ts",
+        "apps/secure-agent-api/src/harness/CloudHarnessService.ts"
+      ],
+      "patches": [
+        "05-servicebinding-client-and-service.patch",
+        "10-internal-route-owner-cutpoint.patch"
+      ],
+      "decision": "IMPLEMENT composeCloudAccountSetupAuthority; extend existing actual lease owner with explicit setup principal (no Session/Turn). Do not invent second process store. Validate authorized workspace/instance, runtime pin, immutable command fingerprint; issue/verify/retire actual lease, bounded durable cleanup."
+    },
+    {
+      "owner": "host owner with packaging",
+      "paths": [
+        "apps/secure-agent-api/harness-host/main.ts",
+        "apps/secure-agent-api/harness-host/authentication.ts",
+        "apps/secure-agent-api/harness-host/scripts/launch-runtime.mjs",
+        "apps/secure-agent-api/harness-host/bridge.ts",
+        "apps/secure-agent-api/harness-host/composition.ts"
+      ],
+      "patches": [
+        "06-private-node-setup-bridge.patch",
+        "07-host-composition-owned-hooks.patch",
+        "12-trusted-node-entry-cutpoint.patch"
+      ],
+      "decision": "trusted root-resident authenticated issuer is ABSENT currently. Supply private per-lease authenticator and actual root bootstrap before selected runtime import/hydration/UIDdrop. main default remains unsupported503. Root wrapper cannot gain privilege after UIDdrop. Composition methods require real host owner implementation, not injected verification boolean."
+    },
+    {
+      "owner": "OpenCode owner/account owner after API audit",
+      "paths": [
+        "packages/harness-opencode/src/server/OpenCodeClient.ts",
+        "packages/harness-opencode/src/server/OpenCodeAuthentication.ts",
+        "packages/harness-opencode/src/server/OpenCodeV2Driver.ts",
+        "packages/harness-opencode/src/server.ts"
+      ],
+      "patch": "08-native-opencode-supported-route.patch",
+      "decision": "consume setup hook in host native adapter and B first-prompt path. connectKeyForSetup is pre-session mutation with latch; never mutate via generic inspect. Require exact artifact API audit before enabling."
+    },
+    {
+      "owner": "Codex opening owner/account owner",
+      "paths": [
+        "packages/harness-codex/src/server/CodexAccountSetup.ts",
+        "packages/harness-codex/src/server.ts",
+        "packages/harness-codex/src/server/CodexDriver.ts"
+      ],
+      "patch": "09-native-codex-no-turn-consumer.patch",
+      "decision": "host native adapter consumes actual no-turn setupA handle; B existing establish/verify remains, extend exact private vault materialVersion+opening receipt fingerprint binding without attributing A identity to B."
+    },
+    {
+      "owner": "root admission/binding/opening owners",
+      "paths": [
+        "apps/brain/src/runtime/CloudHarnessAdmissionPorts.ts",
+        "apps/brain/src/runtime/CloudDelegatedRunPreparation.ts",
+        "packages/persistence/src/harness/PostgresHarnessAdmissionBindingPort.ts",
+        "packages/persistence/src/harness/PostgresHarnessBindingRepository.ts"
+      ],
+      "patch": "11-private-admission-consumer-contract.patch",
+      "decision": "private accountRouteEvidence consumed by freezeAndClaim. Root must implement locked canonical receipt comparison+immutable storage in existing binding/admission receipt; firstpromptB native route receipt through opening-owner same-generation ACK. No public HarnessSelection widening or fake capabilities."
+    }
+  ],
+  "externally_missing_authority": [
+    "Actual supported CF host confinement: current false gate, no kernel/control-port/namespace/cgroup receipt. Cannot replace with SDK createSession isolation flag or UID.",
+    "Trusted root-resident setup issuer/transport before UIDdrop and driver eager import does not exist in current entrypoint. It must be supplied by reviewed root/host bootstrap, authenticated per real operation lease.",
+    "OpenCode actual pinned executable API/source provenance compatibility still being statically audited by r3_opencode_denial; reviewed76ff and released2.2.5 tag9bbb8ce18c80f099e0e448775f59d965ead40a21 differ. Both version2.2.5 alone is NOT binary semantic proof."
+  ],
+  "routine_mapping_not_product_blockers": [
+    "Canonical typed store mapping is already established: CredentialConnectionStore.getConnection(connectionId) record.credentialId is connectionId; authOwnerGeneration/tokenMaterialVersion are exact CAS fields.",
+    "ProviderAccountId can truthfully remain null for explicit API-key engineering; key validity/entitlement/quota are not attested by native route proof.",
+    "PR783 discovery atomic key/config route remains untouched; no duplicate custody/model store required."
+  ],
+  "fragment_completion_before_any_apply": [
+    "These patches are interface/call-order review hunks, NOT an independently compiling series. No source application authorized by this packet.",
+    "01/02 canonical schema import location and package dependency manifests/exports/migration registration require root approval; persistence worker-protocol dependency is not assumed.",
+    "05 response body needs bounded decoder; 06 new queue must use existing maxFrames/maxPendingBytes and fixed fencing (sample dispatch hunk not full limiter integration).",
+    "07 accountSetup required constructor port needs real implementations and disabled root compositions updated to explicit unavailable functions; no fake available authority.",
+    "08 requires native no-turn host adapter wiring and API audit; 09 actual setup handle must be retained by real process owner and closed after acknowledgement; no helper-only adoption.",
+    "10 names required composeCloudAccountSetupAuthority intentionally not implemented until root grants actual lease-owner/root bootstrap scope.",
+    "11 producer/readAuthority/locked SQL comparison and immutable private route-proof persistence remain exact root-owned extension requests, not bypassed by preflight.",
+    "ProcessA cleanup and B firstprompt integrations must be included in any approved implementation slice; setupA receipt alone must never unlock B."
+  ],
+  "unchanged_gates": {
+    "global_available": false,
+    "host_verified": false,
+    "subscription_approved": false,
+    "provider_account_id": null,
+    "quota": "unknown"
+  },
+  "actions": {
+    "source_applied": false,
+    "tests": false,
+    "native_cli": false,
+    "provider_calls": false,
+    "credentials_read": false,
+    "db_calls": false,
+    "builds": false,
+    "agents_spawned": false
+  },
+  "patches": {
+    "01-private-contract.patch": {
+      "sha256": "111b6d6ba76fc617fefce90653271b69d9b93154f927ec09d8ae740a9b8b124e",
+      "bytes": 3916
+    },
+    "02-root-canonical-receipt.patch": {
+      "sha256": "2fa3e584277b73f8acd48ee8c5f205e8c26da5f0016d285bb17418a21495c800",
+      "bytes": 5594
+    },
+    "03-existing-custody-consumer.patch": {
+      "sha256": "4c2e6fca2389e7c1ff35767124b213cc6eef48edc210678f59ad6f7f4ce3ffea",
+      "bytes": 4558
+    },
+    "04-authenticated-setup-first-consumer.patch": {
+      "sha256": "05fdadb717fb7e326ad0dd53847f363ea780f8c0a05373ca808746c818a2167f",
+      "bytes": 3167
+    },
+    "05-servicebinding-client-and-service.patch": {
+      "sha256": "3143632e9fd8ecd816a653973bbd94bb7c94125a32e9a27eb155ed1ced902e4a",
+      "bytes": 6100
+    },
+    "06-private-node-setup-bridge.patch": {
+      "sha256": "b478a816d333c4d0c480988220c827960e826611544f7d62b03b725ff99693b9",
+      "bytes": 2054
+    },
+    "07-host-composition-owned-hooks.patch": {
+      "sha256": "c3298aa061042850f5c51262d6b52c6e14680b781e3732972592f183eecd18e1",
+      "bytes": 3970
+    },
+    "08-native-opencode-supported-route.patch": {
+      "sha256": "196cedd03068f373b916ffaa067446e95e9c57c67fc7a274accb32dc9a6f2937",
+      "bytes": 3746
+    },
+    "09-native-codex-no-turn-consumer.patch": {
+      "sha256": "b8ee0ab2e939211b3ce08d3a95741ca5b4068d71fc9580b0c094a639792f4155",
+      "bytes": 2916
+    },
+    "10-internal-route-owner-cutpoint.patch": {
+      "sha256": "f24778d4f0185282dcdb7aa7414316324c5c478fab390af5e27e218804266f94",
+      "bytes": 1726
+    },
+    "11-private-admission-consumer-contract.patch": {
+      "sha256": "d0cea8c8007015315dff45d03f44ded642877828087ee315c2b12c1e62496526",
+      "bytes": 2554
+    },
+    "12-trusted-node-entry-cutpoint.patch": {
+      "sha256": "504928917198326c4b5cae77a09c79b7096638a7023d91a68cf08cada233a94e",
+      "bytes": 2907
+    }
+  }
+}

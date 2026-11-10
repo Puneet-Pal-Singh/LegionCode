@@ -1,0 +1,76 @@
+--- a/packages/harness-opencode/src/server/OpenCodeClient.ts
++++ b/packages/harness-opencode/src/server/OpenCodeClient.ts
+@@ -34,8 +34,9 @@
+     activity: () => void,
+   ) => AsyncIterable<OpenCodeEvent>;
+   private readonly stream = new AbortController();
+   private verified = false;
++  private setupKeySubmitted = false;
+   private observationSealed = false;
+   private observationLost = false;
+   private processingObservation = false;
+   private disconnectedResolve!: (reason: "gap" | "closed") => void;
+@@ -174,8 +175,23 @@
+       throw new OpenCodeTransportError(operation, true);
+     }
+   }
+ 
++  /** Explicit authenticated setup only: after server.info, before sessions or
++   * native prompts. No retry following a lost outcome. Secret never returned. */
++  async connectKeyForSetup(integrationID: string, key: string, label: string): Promise<void> {
++    if (!this.verified || this.state !== "new" || this.setupKeySubmitted)
++      throw new OpenCodeTransportError("account setup", true);
++    this.setupKeySubmitted = true;
++    try {
++      await this.native.integration.connect.key({integrationID,key,label},
++        {signal: AbortSignal.timeout(10000)});
++    } catch {
++      this.fail();
++      throw new OpenCodeTransportError("account setup", true);
++    }
++  }
++
+   /** Provider state is recovery evidence, never canonical replay. */
+   async inspect<T>(
+     operation: string,
+     action: (api: NativeClient, signal: AbortSignal) => Promise<T>,
+--- a/packages/harness-opencode/src/server/OpenCodeAuthentication.ts
++++ b/packages/harness-opencode/src/server/OpenCodeAuthentication.ts
+@@ -1,4 +1,5 @@
++import type { OpenCodeClient } from "./OpenCodeClient.js";
+ import { randomBytes } from "node:crypto";
+ 
+ /** A transport password is independent of the selected provider credential. Never serialize it. */
+ export function createOpenCodeServerPassword(): string {
+@@ -28,4 +29,31 @@
+     OPENCODE_DB: "opencode.db",
+     OPENCODE_DISABLE_AUTOUPDATE: "1",
+   });
+ }
++
++/** Proposed exact pinned redacted route. Host provenance gate is mandatory:
++ * reviewed source76ff9a6 has not been cryptographically mapped to CLI2.2.5. */
++export async function establishOpenCodeApiKeySetup(client: OpenCodeClient,
++  integrationID: string, key: string, setupCommandId: string): Promise<string> {
++  const before = await client.inspect("integration.get", (api,signal) =>
++    api.integration.get({integrationID},{signal}));
++  const ids = new Set(before.data.connections.filter(c=>c.type==="credential").map(c=>c.id));
++  await client.connectKeyForSetup(integrationID,key,setupCommandId);
++  const after = await client.inspect("integration.get", (api,signal) =>
++    api.integration.get({integrationID},{signal}));
++  const selected = after.data.connections[0];
++  const added = after.data.connections.filter(c=>c.type==="credential" && !ids.has(c.id));
++  if (added.length !== 1 || !selected || selected.type !== "credential" ||
++      selected.method !== "key" || selected.label !== setupCommandId ||
++      ids.has(selected.id) || selected.status?.status === "needs_auth")
++    throw new Error("OpenCode selected native credential unavailable");
++  return selected.id; // actual native ID, never provider-account identity
++}
++export async function verifyOpenCodeApiKeySetup(client: OpenCodeClient,
++  integrationID: string, nativeCredentialId: string): Promise<void> {
++  const result = await client.inspect("integration.get", (api,signal) =>
++    api.integration.get({integrationID},{signal}));
++  const c = result.data.connections[0];
++  if (!c || c.type !== "credential" || c.id !== nativeCredentialId || c.method !== "key" ||
++      c.status?.status === "needs_auth") throw new Error("OpenCode selected credential changed");
++}

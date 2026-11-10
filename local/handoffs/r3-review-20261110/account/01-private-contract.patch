@@ -1,0 +1,89 @@
+--- /dev/null
++++ b/packages/worker-protocol/src/harness-account-setup.ts
+@@ -0,0 +1,59 @@
++import { z } from "zod";
++
++// PROPOSED ROOT-OWNED PRIVATE CONTRACT. No Turn/Session/StartCommand identity.
++const identity = z.string().min(1).max(256);
++const generation = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
++export const HarnessAccountSetupPrincipalSchema = z.object({
++  userId: identity,
++  workspaceId: identity,
++  environmentId: identity,
++  instanceId: identity,
++  harness: z.enum(["codex", "opencode"]),
++  connectionId: z.string().uuid(),
++  providerId: identity,
++  authOwnerGeneration: generation,
++  tokenMaterialVersion: generation,
++  setupCommandId: z.string().uuid(),
++  commandFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
++}).strict();
++export const HarnessAccountSetupLeaseSchema = z.object({
++  principal: HarnessAccountSetupPrincipalSchema,
++  leaseId: z.string().uuid(),
++  sandboxId: identity,
++  leaseGeneration: generation,
++  processGeneration: z.string().uuid(),
++  expiresAt: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
++  runtime: z.object({
++    runtimeId: z.enum(["codex", "opencode"]),
++    version: identity,
++    protocolVersion: identity,
++    executableSha256: z.string().regex(/^[a-f0-9]{64}$/),
++  }).strict(),
++}).strict().refine(x => x.runtime.runtimeId === x.principal.harness);
++export const HarnessAccountSetupReceiptSchema = z.object({
++  lease: HarnessAccountSetupLeaseSchema,
++  route: z.literal("api_key"),
++  nativeCredentialId: identity.nullable(),
++  providerAccountId: z.null(),
++  quota: z.literal("unknown"),
++}).strict().refine(x => x.lease.principal.harness === "codex"
++  ? x.nativeCredentialId === null : x.nativeCredentialId !== null);
++export type HarnessAccountSetupPrincipal = z.infer<typeof HarnessAccountSetupPrincipalSchema>;
++export type HarnessAccountSetupLease = z.infer<typeof HarnessAccountSetupLeaseSchema>;
++export type HarnessAccountSetupReceipt = z.infer<typeof HarnessAccountSetupReceiptSchema>;
++
++// Prepare returns only a real, durably claimed process lease; no secret or prompt.
++// Authenticate is accepted exactly once against that lease. Do not blindly retry.
++export const HarnessAccountSetupRequestSchema = z.discriminatedUnion("operation", [
++  z.object({ operation: z.literal("account_setup_prepare"),
++    principal: HarnessAccountSetupPrincipalSchema }).strict(),
++  z.object({ operation: z.literal("account_setup_authenticate"),
++    lease: HarnessAccountSetupLeaseSchema,
++    material: z.object({ type: z.literal("api_key"), apiKey: z.string().min(1).max(65536) }).strict(),
++  }).strict(),
++  z.object({ operation: z.literal("account_setup_inspect"),
++    lease: HarnessAccountSetupLeaseSchema }).strict(),
++  z.object({ operation: z.literal("account_setup_close"),
++    lease: HarnessAccountSetupLeaseSchema }).strict(),
++]);
++export type HarnessAccountSetupRequest = z.infer<typeof HarnessAccountSetupRequestSchema>;
+--- a/packages/worker-protocol/src/index.ts
++++ b/packages/worker-protocol/src/index.ts
+@@ -204,4 +204,5 @@
+   type WorkspaceSnapshotRequest,
+   type WorkspaceSnapshotResponse,
+ } from "./workspaces.js";
+ export * from "./harness.js";
++export * from "./harness-account-setup.js";
+--- a/apps/secure-agent-api/src/harness/CloudHarnessBridgeProtocol.ts
++++ b/apps/secure-agent-api/src/harness/CloudHarnessBridgeProtocol.ts
+@@ -100,4 +100,16 @@
+     a.externalSessionId === b.externalSessionId &&
+     a.processGeneration === b.processGeneration
+   );
+ }
++
++// Separate authenticated account operation family. Never accepted by turn frames.
++export {
++  HarnessAccountSetupPrincipalSchema,
++  HarnessAccountSetupLeaseSchema,
++  HarnessAccountSetupReceiptSchema,
++  HarnessAccountSetupRequestSchema,
++  type HarnessAccountSetupPrincipal,
++  type HarnessAccountSetupLease,
++  type HarnessAccountSetupReceipt,
++  type HarnessAccountSetupRequest,
++} from "@repo/worker-protocol";
