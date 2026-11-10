@@ -4,6 +4,7 @@ export const EVENT_STORE_ERROR_CODES = [
   "event_id_conflict",
   "idempotency_conflict",
   "invalid_replay_limit",
+  "history_row_too_large",
   "sequence_gap",
   "corrupt_event_stream",
   "terminal_stream",
