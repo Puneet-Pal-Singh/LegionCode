@@ -25,6 +25,7 @@ export function initializeAppServer(
     localWorkspaceFilesAvailable?: boolean;
     localTurnExecutionAvailable?: boolean;
     localTurnConfiguration?: LocalTurnConfigurationOptions;
+    localSavedReviewAvailable?: boolean;
   },
 ): AppServerInitializeResult {
   const parsed = AppServerInitializeRequestSchema.safeParse(body);
@@ -62,12 +63,14 @@ export function initializeAppServer(
               ...LOCAL_APP_SERVER_CAPABILITIES,
               ...(options.localWorkspaceFilesAvailable ? ["workspace-files-v1"] : []),
               ...(options.localTurnExecutionAvailable ? ["turn-execution-v1"] : []),
+              ...(options.localSavedReviewAvailable ? ["artifact-review-v1"] : []),
             ]
           : [],
       unavailableCapabilities:
         options.environment === "local"
           ? LOCAL_APP_SERVER_UNAVAILABLE_CAPABILITIES.filter((capability) =>
-              capability !== "turn-execution-v1" || !options.localTurnExecutionAvailable,
+              (capability !== "turn-execution-v1" || !options.localTurnExecutionAvailable) &&
+              (capability !== "artifact-review-v1" || !options.localSavedReviewAvailable),
             ).map((capability) => ({
               capability,
               reason: "This local capability is planned for a later slice",

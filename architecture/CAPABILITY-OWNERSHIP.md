@@ -1530,3 +1530,8 @@ with the trusted host and provider route owners.
 Initialize derives local execution capability and mode/permission choices
 from the actual injected Turn service. Hosted and unconfigured local
 compositions receive no invented runtime configuration or execution capability.
+
+The local turn/diff dispatch now delegates to LocalTurnArtifactReads over the
+actual authorized Turn service and same lifecycle/artifact stores. Missing
+published capture returns the reader's canonical absence rather than a live Git
+substitute. Initialize advertises saved review only with the actual reader port.

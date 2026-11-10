@@ -12,3 +12,4 @@ export {
   LocalThreadService,
   type LocalThreadServiceOptions,
 } from "./local-threads.js";
+export { LocalTurnArtifactReads } from "./local-turn-artifact-reads.js";
