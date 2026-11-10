@@ -63,7 +63,7 @@ export interface StoredHarnessBinding {
 }
 export const StoredHarnessOpeningSchema = z.object({
   intent: HarnessOpeningIntentSchema,
-  phase:z.enum(["reserved","dispatching","acknowledged","retired","cancelled_before_dispatch"]),
+  phase:z.enum(["reserved","dispatching","acknowledged","retired"]),
 }).strict();
 export type StoredHarnessOpening = z.infer<typeof StoredHarnessOpeningSchema>;
 export interface ReserveHarnessOpeningInput {
@@ -426,7 +426,7 @@ export function validateLocalHarnessBindings(
         const opening=StoredHarnessOpeningSchema.parse(JSON.parse(extra.opening_json));
         assertHarnessOpeningSelection(selection,opening.intent);
         if(!row.execution_claim_id ||
-          ((opening.phase==="reserved" || opening.phase==="dispatching" || opening.phase==="cancelled_before_dispatch" || opening.phase==="retired") && row.attachment_json!==null) ||
+          ((opening.phase==="reserved" || opening.phase==="dispatching" || opening.phase==="retired") && row.attachment_json!==null) ||
           (opening.phase==="acknowledged" && row.attachment_json===null))
           throw new LocalPersistenceError("corrupt","Local opening phase conflicts with durable claim or origin");
         if(row.attachment_json!==null)assertHarnessOpeningOrigin(opening,StoredHarnessAttachmentSchema.parse(JSON.parse(row.attachment_json)));

@@ -220,7 +220,7 @@ export function createPostgresHostedHarnessControlPlane(
                 )
                   continue;
                 const opening = await bindings.readOpening({userId: scope.userId, turnId: admission.turnId, runAttemptId: admission.runAttemptId});
-                if (opening && opening.phase !== "retired" && opening.phase !== "cancelled_before_dispatch") {
+                if (opening && opening.phase !== "retired") {
                   const checkout = await new PostgresTaskWorkspaceRepository(client).getByRunAttemptId(RunAttemptIdSchema.parse(admission.runAttemptId));
                   const intent = opening.intent;
                   if (!checkout || checkout.workspaceId !== selected.workspaceId || checkout.threadId !== admission.threadId ||
