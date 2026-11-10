@@ -22,7 +22,7 @@ if (!parentPort) {
   throw new Error("Local App Server requires an Electron utility process");
 }
 
-parentPort.on("message", ({ data }) => {
+parentPort.on("message", async ({ data }) => {
   if (!isStartMessage(data)) {
     parentPort?.postMessage({ type: "fatal" });
     return;
@@ -31,7 +31,7 @@ parentPort.on("message", ({ data }) => {
     return;
   }
   started = true;
-  runLocalAppServerProcess(parentPort, data, createWorkspaceFileComposition(data));
+  await runLocalAppServerProcess(parentPort, data, createWorkspaceFileComposition(data));
 });
 
 process.once("uncaughtException", () => {
