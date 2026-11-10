@@ -410,10 +410,8 @@ export class CodexDriver implements HarnessDriver {
       onNotification: notification,
       onRequest: request,
       onClose: (error) => {
-        // This transport conflates stdout EOF, destroyed streams and local close.
-        // None is an ordered observation-closure receipt. Quiescence below stays
-        // unknown/lost even when closure follows our own physical cleanup.
-        if (!terminal || error.reason !== "closed") fail();
+        if (error.reason !== "closed") fail();
+        else inspectClosedOutput();
       },
     });
     const native = new CodexNativeSession(transport);
@@ -422,9 +420,47 @@ export class CodexDriver implements HarnessDriver {
       await authentication.verify(accountReader);
       accountVerified = true;
     };
-    void child.exited.then(() => {
-      if (!terminal) fail();
-    });
+    // Process exit can precede buffered stdout and its final queued terminal.
+    // Only a natural frame-complete EOF followed by the ordered ACK drain may
+    // decide that the terminal was absent. Neither exit nor local close proves it.
+    let closureInspection: Promise<void> | undefined;
+    function inspectClosedOutput(): void {
+      if (!closureInspection) {
+        closureInspection = (async () => {
+          if (!(await drainClosedOutput(30_000)) || !terminal) fail();
+        })().catch(() => fail());
+      }
+    }
+    async function drainClosedOutput(timeoutMs: number): Promise<boolean> {
+      const deadline = performance.now() + timeoutMs;
+      const closure = await transport.awaitOutputClosure({ timeoutMs });
+      if (closure.kind !== "natural_eof") return false;
+      // At natural EOF every complete frame has synchronously entered this queue.
+      // Each action awaits the canonical observation ACK before this tail settles.
+      const orderedTail = queue;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const drained = await Promise.race([
+          orderedTail.then(() => true),
+          new Promise<boolean>((resolve) => {
+            timer = setTimeout(
+              () => resolve(false),
+              Math.max(0, deadline - performance.now()),
+            );
+          }),
+        ]);
+        return (
+          drained &&
+          !stopped &&
+          orderedTail === queue &&
+          pendingCount === 0 &&
+          pendingBytes === 0
+        );
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    }
+    void child.exited.then(inspectClosedOutput);
     try {
       await child.ready;
       if (stopped) throw new Error("Codex opening interrupted");
@@ -615,21 +651,52 @@ export class CodexDriver implements HarnessDriver {
               reason: "work_still_running",
             };
           signal.removeEventListener("abort", fail);
-          // The supervisor owns physical cleanup and may destroy stdout as soon
-          // as the process group is absent, before buffered frames reach us.
-          // There is no producer/transport closure barrier followed by canonical
-          // observation ACK drain before that destructive step in this contract.
-          // Cleanup/queue drain therefore cannot certify complete observations.
-          await host.terminateProcesses({
+          const deadline = performance.now() + timeoutMs;
+          const settlements = await host.terminateProcesses({
             graceMs: Math.min(100, timeoutMs),
             killWaitMs: Math.max(0, timeoutMs - 100),
           });
-          await queue;
+          const remaining = () =>
+            Math.max(0, Math.floor(deadline - performance.now()));
+          const [observationsClosed, pipes] = await Promise.all([
+            drainClosedOutput(remaining()),
+            child.awaitOutputClosure?.({ timeoutMs: remaining() }),
+          ]);
+          // Close only after the non-destructive EOF and ordered canonical ACK
+          // barrier. A missing receipt or destroyed/partial pipe remains lost.
           transport.close();
+          if (
+            !observationsClosed ||
+            pipes?.kind !== "natural_eof" ||
+            pipes.processGeneration !== learnedSession.processGeneration
+          ) {
+            return {
+              status: "unknown",
+              session: learnedSession,
+              reason: "observation_integrity_lost",
+            };
+          }
+          if (
+            !settlements.length ||
+            settlements.some(
+              (receipt) =>
+                receipt.kind !== "process_group_quiesced" ||
+                receipt.processGeneration !== learnedSession.processGeneration,
+            )
+          ) {
+            return {
+              status: "unknown",
+              session: learnedSession,
+              reason: "work_still_running",
+            };
+          }
+          // Natural output/ACK closure and group absence are separate evidence,
+          // not an attestation that descendants could not escape their scope.
+          // A real host confinement/quiescence authority is still required.
           return {
             status: "unknown",
             session: learnedSession,
-            reason: "observation_integrity_lost",
+            reason: "unsupported",
           };
         },
       };
