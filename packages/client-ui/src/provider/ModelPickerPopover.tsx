@@ -608,10 +608,7 @@ export function ModelPickerPopover({
             <div
               ref={popoverContentRef}
               className="fixed z-50"
-              style={{
-                ...popoverPosition,
-                maxWidth: `calc(100vw - ${VIEWPORT_PADDING_PX * 2}px)`,
-              }}
+              style={popoverPosition}
             >
           <div
             data-testid="model-picker-popover"

@@ -37,14 +37,23 @@ export function useViewportPopoverPosition(
 
   useLayoutEffect(() => {
     if (!isOpen) return;
+    const visualViewport = window.visualViewport;
     const updatePosition = () => {
       const trigger = triggerRef.current?.getBoundingClientRect();
       const panel = panelRef.current?.getBoundingClientRect();
       if (!trigger || !panel) return;
 
-      const availableWidth = Math.max(0, window.innerWidth - viewportPadding * 2);
-      const spaceRight = window.innerWidth - trigger.left - viewportPadding;
-      const spaceLeft = trigger.right - viewportPadding;
+      // Fixed positioning and client rects use layout-viewport coordinates.
+      // VisualViewport dimensions are already CSS pixels, including pinch zoom.
+      const viewportLeft = visualViewport?.offsetLeft ?? 0;
+      const viewportTop = visualViewport?.offsetTop ?? 0;
+      const viewportWidth = visualViewport?.width ?? window.innerWidth;
+      const viewportHeight = visualViewport?.height ?? window.innerHeight;
+      const viewportRight = viewportLeft + viewportWidth;
+      const viewportBottom = viewportTop + viewportHeight;
+      const availableWidth = Math.max(0, viewportWidth - viewportPadding * 2);
+      const spaceRight = viewportRight - trigger.left - viewportPadding;
+      const spaceLeft = trigger.right - viewportLeft - viewportPadding;
       const desiredWidth = preferredWidth ?? panel.width;
       const horizontal =
         align === "auto"
@@ -64,17 +73,17 @@ export function useViewportPopoverPosition(
               ),
             );
       const left = Math.max(
-        viewportPadding,
+        viewportLeft + viewportPadding,
         Math.min(
           horizontal === "start" ? trigger.left : trigger.right - width,
-          window.innerWidth - width - viewportPadding,
+          viewportRight - width - viewportPadding,
         ),
       );
-      const maxHeight = Math.max(0, window.innerHeight - viewportPadding * 2);
+      const maxHeight = Math.max(0, viewportHeight - viewportPadding * 2);
       const height = Math.min(panel.height, maxHeight);
       const spaceBelow =
-        window.innerHeight - trigger.bottom - gap - viewportPadding;
-      const spaceAbove = trigger.top - gap - viewportPadding;
+        viewportBottom - trigger.bottom - gap - viewportPadding;
+      const spaceAbove = trigger.top - viewportTop - gap - viewportPadding;
       const above =
         placement === "above"
           ? height <= spaceAbove || spaceAbove > spaceBelow
@@ -83,8 +92,8 @@ export function useViewportPopoverPosition(
         ? trigger.top - height - gap
         : trigger.bottom + gap;
       const top = Math.max(
-        viewportPadding,
-        Math.min(desiredTop, window.innerHeight - height - viewportPadding),
+        viewportTop + viewportPadding,
+        Math.min(desiredTop, viewportBottom - height - viewportPadding),
       );
       setPosition((current) => {
         const nextWidth = preferredWidth === undefined ? undefined : width;
@@ -92,6 +101,7 @@ export function useViewportPopoverPosition(
           current.left === left &&
           current.top === top &&
           current.maxHeight === maxHeight &&
+          current.maxWidth === availableWidth &&
           current.width === nextWidth &&
           current.visibility === "visible"
         ) return current;
@@ -100,6 +110,7 @@ export function useViewportPopoverPosition(
           left,
           top,
           maxHeight,
+          maxWidth: availableWidth,
           width: nextWidth,
           visibility: "visible",
         };
@@ -109,6 +120,8 @@ export function useViewportPopoverPosition(
     updatePosition();
     window.addEventListener("resize", updatePosition);
     window.addEventListener("scroll", updatePosition, true);
+    visualViewport?.addEventListener("resize", updatePosition);
+    visualViewport?.addEventListener("scroll", updatePosition);
     const resizeObserver =
       typeof ResizeObserver === "undefined"
         ? null
@@ -117,6 +130,8 @@ export function useViewportPopoverPosition(
     return () => {
       window.removeEventListener("resize", updatePosition);
       window.removeEventListener("scroll", updatePosition, true);
+      visualViewport?.removeEventListener("resize", updatePosition);
+      visualViewport?.removeEventListener("scroll", updatePosition);
       resizeObserver?.disconnect();
     };
   }, [

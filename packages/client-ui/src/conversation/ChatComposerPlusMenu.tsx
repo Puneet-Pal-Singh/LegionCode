@@ -158,7 +158,7 @@ export function ChatComposerPlusMenu({
               ref={menuRef}
               role="menu"
               className="ui-surface-popover fixed z-50 w-64 overflow-y-auto p-2"
-              style={{ ...menuStyle, maxWidth: "calc(100vw - 16px)" }}
+              style={menuStyle}
               onKeyDown={handleMenuKeyDown}
             >
               <button
