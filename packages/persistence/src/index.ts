@@ -84,6 +84,7 @@ export type {
 } from "./turn-admissions/types.js";
 export { MemoryRunRepository } from "./runs/MemoryRunRepository.js";
 export { PostgresRunRepository } from "./runs/PostgresRunRepository.js";
+export { buildThreadTitlePreview, sanitizePromptForTitle } from "./thread-titles/ThreadTitlePreview.js";
 export { MemoryThreadTitleRepository } from "./thread-titles/MemoryThreadTitleRepository.js";
 export { PostgresThreadTitleRepository } from "./thread-titles/PostgresThreadTitleRepository.js";
 export type {
