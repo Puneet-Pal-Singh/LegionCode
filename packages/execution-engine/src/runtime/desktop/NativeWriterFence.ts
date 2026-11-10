@@ -26,11 +26,13 @@ export async function acquireNativeWriterFence(input: {
   readonly leaseFile: FileHandle;
   readonly rootDirectory: FileHandle;
   readonly fenceDirectory: FileHandle;
+  /** True only when this owner created the named inode with O_EXCL. */
+  readonly initializeEmpty: boolean;
   readonly signal: AbortSignal;
 }): Promise<"acquired" | "busy"> {
   const { code, receipt } = await runFenceHelper({
     helperPath: input.helperPath, signal: input.signal,
-    args: ["--acquire-lease-fd", "6", "--root-fd", "5", "--namespace-fd", "7"],
+    args: ["--acquire-lease-fd", "6", "--root-fd", "5", "--namespace-fd", "7", "--initialize-empty", input.initializeEmpty ? "1" : "0"],
     pins: [
       { slot: 5, handle: input.rootDirectory, directory: true },
       { slot: 6, handle: input.leaseFile, directory: false },
