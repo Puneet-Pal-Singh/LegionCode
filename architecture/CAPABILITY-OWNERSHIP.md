@@ -1155,8 +1155,9 @@ never rendered as a successfully verified closed pull request.
   ordering, steering and resume settlement retain their server/runtime owners.
 
 The Native executor has a source-only private acceptThreadInputAttempt port. It
-checks the complete held attempt and combined stop signals before and after its
-kernel wait, then delegates to that same kernel's accepted/applied event and
+captures independent message parts, media bytes and provider options before any
+wait, checks the complete held attempt and combined stop signals before and after
+its kernel wait, then delegates to that same kernel's accepted/applied event and
 provider-buffer owners. The Native factory forwards the port without advertising
 a capability. Local durable inbox ownership and command dispatch are not yet
 composed; this port alone does not enable Desktop Queue or Steer.

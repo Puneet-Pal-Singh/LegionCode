@@ -5,6 +5,7 @@ import type {
 } from "./LocalTurnExecutionCapability.js";
 import { prepareLocalCapturedExecution } from "./LocalCapturedExecution.js";
 import { LocalTurnPreparationFailure } from "./LocalTurnPreparationFailure.js";
+import { captureLocalTurnInputMessage } from "./LocalTurnInputMessage.js";
 import type { RuntimeExecutionService } from "../types.js";
 import type { NativeProviderToolTracker } from "../engine/KernelAgenticProvider.js";
 import type { LocalReadOnlyWorkspaceBinding } from "./LocalReadOnlyWorkspaceBinding.js";
@@ -357,7 +358,10 @@ export class LocalTurnExecutor<
     input: LocalTurnAttemptInput,
   ): Promise<number> {
     const expected = { ...identity };
-    const accepted = { ...input.accepted };
+    const accepted = {
+      ...input.accepted,
+      message: captureLocalTurnInputMessage(input.accepted.message),
+    };
     const clientInputId = input.clientInputId;
     const transcriptMessageId = input.transcriptMessageId;
     const owned = this.turns.get(expected.turnId);
