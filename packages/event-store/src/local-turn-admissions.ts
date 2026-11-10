@@ -7,7 +7,7 @@ import { LifecycleEventSchema, type LifecycleEvent } from "@repo/platform-protoc
 import { EventStoreError, LocalPersistenceError } from "./errors.js";
 import { createStableEventFingerprint } from "./fingerprint.js";
 import type { AppendEventInput } from "./types.js";
-import { readLocalThreadRuntimeSummary, type LocalThreadRuntimeScope } from "./local-thread-runtime-summary.js";
+import { hasDelegatedOwnership, readLocalThreadParents, readLocalThreadRuntimeSummary, type LocalThreadRuntimeScope } from "./local-thread-runtime-summary.js";
 
 type AdmissionRow = {
   thread_id: string; request_id: string; workspace_id: string; run_id: string;
@@ -78,6 +78,13 @@ export class LocalTurnAdmissions {
         if (event) this.assertLifecycleIdentity(event);
         if (!event || !["turn.completed", "turn.failed", "turn.interrupted"].includes(event.type)) {
           throw new EventStoreError("idempotency_conflict", "Thread has an unsettled admitted Turn");
+        }
+      }
+      if (!hasDelegatedOwnership(candidate)) {
+        const scope = { threadId: candidate.run.threadId, userId: candidate.run.userId, workspaceId: candidate.run.workspaceId };
+        const parents = readLocalThreadParents(this.database, scope, this.readThreadSummary(scope));
+        if (candidate.turn.parentTurnId !== parents.parentTurnId || candidate.userMessage.parentItemId !== parents.parentItemId) {
+          throw new EventStoreError("idempotency_conflict", "Local conversation changed before admission");
         }
       }
       const duplicate = this.database.prepare(`SELECT 1 FROM turn_admissions WHERE run_id = ? OR turn_id = ? OR run_attempt_id = ? OR item_id = ?

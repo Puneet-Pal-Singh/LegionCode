@@ -55,8 +55,7 @@ export function readLocalThreadRuntimeSummary(
     if (admission.userMessage.type !== "user_message") throw corrupt();
     // Delegated selection is immutable ownership evidence. Its adapter keeps its
     // own producer identity; this Native reader never interprets driver details.
-    if (("harnessSelection" in admission.run && admission.run.harnessSelection !== undefined) ||
-      admission.userMessage.content.harnessSelection !== undefined) continue;
+    if (hasDelegatedOwnership(admission)) continue;
     let sequence = 0;
     let settled = false;
     let assistantLeaf: ItemId | undefined;
@@ -98,27 +97,73 @@ export function readLocalThreadRuntimeSummary(
     };
   }
   if (!summary) return null;
-  // A later external runtime can already have a platform terminal. Compare the
-  // shared event insertion order, never timestamps from independent producers.
-  const platformRow = database.prepare(`SELECT * FROM events WHERE family = 'platform'
+  // Compare shared insertion order, never independent producer timestamps.
+  const terminal = readPlatformTerminal(database, scope);
+  if (terminal && terminal.insertionOrder > terminalOrder) summary.lastTerminalTurnId = terminal.turnId;
+  return summary;
+}
+
+export function hasDelegatedOwnership(admission: TurnAdmission): boolean {
+  return ("harnessSelection" in admission.run && admission.run.harnessSelection !== undefined) ||
+    (admission.userMessage.type === "user_message" && admission.userMessage.content.harnessSelection !== undefined);
+}
+
+/** Synchronous admission precondition, using the same facts as Thread reads.
+ * This does not repair/reparent a candidate already frozen for execution. */
+export function readLocalThreadParents(
+  database: Database.Database,
+  scope: LocalThreadRuntimeScope,
+  summary: LocalThreadRuntimeSummary | null,
+): { parentTurnId: TurnId | null; parentItemId: ItemId | null } {
+  const itemQuery = `SELECT * FROM events WHERE family = 'platform' AND thread_id = ?
+    AND json_extract(event_json, '$.type') IN ('item.started', 'item.updated', 'item.completed')`;
+  const leafRow = database.prepare(`${itemQuery} ORDER BY insertion_order DESC LIMIT 1`)
+    .get(scope.threadId) as StoredEvent | undefined;
+  const leaf = leafRow ? readPlatformItem(database, scope, leafRow) : null;
+  // The existing platform projector retains the latest non-null item Run pointer.
+  const runRow = leaf?.runId ? undefined : database.prepare(`${itemQuery}
+    AND json_extract(event_json, '$.payload.item.runId') IS NOT NULL
+    ORDER BY insertion_order DESC LIMIT 1`).get(scope.threadId) as StoredEvent | undefined;
+  const latestRunId = leaf?.runId ?? (runRow ? readPlatformItem(database, scope, runRow).runId : null);
+  return {
+    parentTurnId: summary?.lastTerminalTurnId ?? readPlatformTerminal(database, scope)?.turnId ?? null,
+    parentItemId: summary && summary.latestAdmissionRunId === latestRunId
+      ? summary.activeLeafItemId : leaf?.id ?? null,
+  };
+}
+
+function readPlatformTerminal(database: Database.Database, scope: LocalThreadRuntimeScope) {
+  const row = database.prepare(`SELECT * FROM events WHERE family = 'platform'
     AND thread_id = ? AND json_extract(event_json, '$.type') IN ('turn.completed', 'turn.failed')
     ORDER BY insertion_order DESC LIMIT 1`).get(scope.threadId) as StoredEvent | undefined;
-  if (platformRow) {
-    const event = parsePlatform(platformRow.event_json);
-    if ((event.type !== "turn.completed" && event.type !== "turn.failed") ||
-      event.threadId !== scope.threadId || event.workspaceId !== scope.workspaceId ||
-      platformRow.thread_id !== scope.threadId || platformRow.stream_type !== event.scopeType ||
-      platformRow.stream_id !== event.scopeId || platformRow.sequence !== event.sequence) throw corrupt();
-    const runRow = database.prepare(`SELECT event_json FROM events WHERE family = 'platform'
-      AND stream_type = 'run' AND stream_id = ? AND sequence = 1`).get(event.runId) as { event_json: string } | undefined;
-    if (!runRow) throw corrupt();
-    const run = parsePlatform(runRow.event_json);
-    if (run.type !== "run.created" || run.threadId !== scope.threadId ||
-      run.workspaceId !== scope.workspaceId || run.runId !== event.runId ||
-      run.payload.run.userId !== scope.userId) throw corrupt();
-    if (platformRow.insertion_order > terminalOrder) summary.lastTerminalTurnId = event.payload.turn.id;
-  }
-  return summary;
+  if (!row) return null;
+  const event = parsePlatform(row.event_json);
+  if ((event.type !== "turn.completed" && event.type !== "turn.failed") ||
+    event.threadId !== scope.threadId || event.workspaceId !== scope.workspaceId ||
+    row.thread_id !== scope.threadId || row.stream_type !== event.scopeType ||
+    row.stream_id !== event.scopeId || row.sequence !== event.sequence) throw corrupt();
+  assertPlatformRunOwner(database, scope, event.runId);
+  return { turnId: event.payload.turn.id, insertionOrder: row.insertion_order };
+}
+
+function readPlatformItem(database: Database.Database, scope: LocalThreadRuntimeScope, row: StoredEvent) {
+  const event = parsePlatform(row.event_json);
+  if ((event.type !== "item.started" && event.type !== "item.updated" && event.type !== "item.completed") ||
+    event.threadId !== scope.threadId || event.workspaceId !== scope.workspaceId ||
+    row.thread_id !== scope.threadId || row.stream_type !== event.scopeType ||
+    row.stream_id !== event.scopeId || row.sequence !== event.sequence) throw corrupt();
+  if (event.runId !== null) assertPlatformRunOwner(database, scope, event.runId);
+  return event.payload.item;
+}
+
+function assertPlatformRunOwner(database: Database.Database, scope: LocalThreadRuntimeScope, runId: RunId | null) {
+  const row = database.prepare(`SELECT event_json FROM events WHERE family = 'platform'
+    AND stream_type = 'run' AND stream_id = ? AND sequence = 1`).get(runId) as { event_json: string } | undefined;
+  if (!row) throw corrupt();
+  const event = parsePlatform(row.event_json);
+  if (event.type !== "run.created" || event.threadId !== scope.threadId ||
+    event.workspaceId !== scope.workspaceId || event.runId !== runId ||
+    event.payload.run.userId !== scope.userId) throw corrupt();
 }
 
 function parseLifecycle(value: string) {

@@ -1683,6 +1683,10 @@ to that last settled Turn and its current canonical leaf. Native factory wiring
 must inject this narrow read port from its existing single LocalPersistence owner.
 No second admission store, lifecycle reducer, terminal writer or Thread table is
 introduced; root startup composition owns the same-store injection.
+The existing SQLite admission transaction also checks Native candidate parent
+Turn/item references against those same current facts after receipt lookup and
+unsettled-Turn refusal. Stale prepared candidates are rejected, never reparented;
+immutable delegated selections remain with their existing admission owner.
 
 ## Plan 057 — Canonical named repository HEAD evidence
 
