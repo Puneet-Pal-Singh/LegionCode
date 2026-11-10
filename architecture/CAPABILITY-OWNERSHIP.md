@@ -2329,8 +2329,9 @@ receipt for an exact admitted delegated attempt stopped before physical authorit
 was exposed. One immediate transaction validates the original canonical admission,
 immutable Run/user-message capture, complete contiguous lifecycle scope and producer,
 and the final failed/interrupted terminal with real SHA256 digests. It includes
-the actual current selection/claim/opening state: unbound, frozen but unclaimed,
-or exactly cancelled before dispatch. No opening intent, snapshot, metadata record,
+the actual frozen full selection and the exact preparation reservation cancelled
+before preparation began. Missing/legacy preparation, an unbound row, and an old
+cancelled opening alone never establish this positive proof. No opening intent, snapshot, metadata record,
 second registry or lifecycle event is synthesized.
 
 A generation, attachment, ingress/reply receipt, external turn, uncertain binding
@@ -2350,3 +2351,20 @@ CAS with the same canonical admission and event append, without nested asynchron
 transactions or a second admission owner. Existing scope, fingerprint, parent and
 unsettled-turn checks are unchanged. Canonical Thread ownership reads are shared
 with the local queue adapter and retain one-record streaming memory.
+
+## Plans 057 / 061 — Atomic delegated preparation reservation
+
+The existing LocalPersistence writer commits canonical admission and the full
+private selection's preparation reservation in one immediate transaction on the
+same harness binding row. A reserved-to-begun compare-and-swap is required before
+binding preparation, capture, claim, opening or dispatch; legacy rows cannot gain
+new execution authority. Existing admission retries read the winner's original
+private reservation and never rewrite it with another candidate's pins.
+
+The physical candidate owner seals new execution exposure before requesting the
+reserved-to-cancelled transition. Only that explicit cancelled-before-preparation
+state plus the original canonical failed/interrupted terminal can produce the
+pre-opening settlement receipt. SQLite state does not certify physical closure:
+the same original physical owner must drain publication and loans, prove no
+exposure, release its held lease and close its binding. A begun reservation keeps
+its normal execution/settlement owner; no replacement registry or table is added.
