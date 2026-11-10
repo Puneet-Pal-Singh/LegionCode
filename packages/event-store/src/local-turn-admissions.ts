@@ -46,10 +46,10 @@ export class LocalTurnAdmissions {
       }).immediate();
     }
     this.validateSchema();
-    const rows = this.database.prepare("SELECT * FROM turn_admissions").all() as AdmissionRow[];
+    const rows = this.database.prepare("SELECT * FROM turn_admissions").iterate() as Iterable<AdmissionRow>;
     for (const row of rows) this.reconstruct(row);
     const unindexed = this.database.prepare(`SELECT e.event_json FROM events e LEFT JOIN turn_admissions a ON a.run_event_id = e.event_id
-      WHERE e.family = 'platform' AND e.stream_type = 'run' AND e.sequence = 1 AND a.run_event_id IS NULL`).all() as { event_json: string }[];
+      WHERE e.family = 'platform' AND e.stream_type = 'run' AND e.sequence = 1 AND a.run_event_id IS NULL`).iterate() as Iterable<{ event_json: string }>;
     for (const { event_json } of unindexed) {
       const event = PlatformEventSchema.parse(JSON.parse(event_json));
       if (event.type === "run.created" && event.producer.kind === "runtime_kernel" && event.producer.id === "local-admission") {
@@ -113,6 +113,42 @@ export class LocalTurnAdmissions {
     TurnIdSchema.parse(turnId);
     const row = this.database.prepare("SELECT * FROM turn_admissions WHERE turn_id = ?").get(turnId) as AdmissionRow | undefined;
     return row ? this.reconstruct(row) : null;
+  }
+
+  /** Private startup enumeration: records stay in their canonical event streams.
+   * The exclusive persistence owner must finish reconciliation before commands. */
+  listForRecovery(input: { afterCursor: EventCursor | null; limit: number }): {
+    admissions: readonly TurnAdmission[]; nextCursor: EventCursor | null;
+  } {
+    if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 25) {
+      throw new EventStoreError("invalid_replay_limit", "Recovery admission limit must be between 1 and 25");
+    }
+    let afterOrder = 0;
+    if (input.afterCursor !== null) {
+      const cursor = EventCursorSchema.parse(input.afterCursor);
+      const anchor = this.database.prepare(`SELECT e.insertion_order FROM turn_admissions a
+        JOIN events e ON e.event_id = a.run_event_id WHERE e.cursor = ?`).get(cursor) as { insertion_order: number } | undefined;
+      if (!anchor) throw new EventStoreError("cursor_not_found", "Recovery cursor does not identify an admission");
+      afterOrder = anchor.insertion_order;
+    }
+    const rows = this.database.prepare(`SELECT a.*, e.cursor AS recovery_cursor FROM turn_admissions a
+      JOIN events e ON e.event_id = a.run_event_id WHERE e.insertion_order > ?
+      ORDER BY e.insertion_order LIMIT ?`).all(afterOrder, input.limit) as (AdmissionRow & { recovery_cursor: string })[];
+    const admissions: TurnAdmission[] = [];
+    let bytes = 0;
+    let nextCursor: EventCursor | null = null;
+    for (const row of rows) {
+      const admission = this.reconstruct(row);
+      const size = appServerJsonByteLength(admission);
+      if (bytes + size > APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES) {
+        if (!admissions.length) throw new EventStoreError("history_row_too_large", "Recovery admission exceeds the supported byte budget");
+        break;
+      }
+      admissions.push(admission);
+      bytes += size;
+      nextCursor = EventCursorSchema.parse(row.recovery_cursor);
+    }
+    return { admissions, nextCursor };
   }
 
   listByThread(input: { threadId: string; afterCursor: EventCursor | null; limit: number; latest?: boolean }): {
