@@ -293,8 +293,11 @@ export async function handleAppServerHttpRequest(
       ok: true,
       result,
     });
-    if (request.method === "thread/history" && appServerJsonByteLength(response) > APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES) {
-      throw new AppServerOperationError(503, "server_unavailable", "History page exceeds the supported response size", "history_page_too_large", false);
+    if ((request.method === "thread/history" || request.method === "turn/lifecycleEvents" || request.method === "turn/lifecycleEventChunk") &&
+        appServerJsonByteLength(response) > APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES) {
+      throw new AppServerOperationError(503, "server_unavailable",
+        request.method === "thread/history" ? "History page exceeds the supported response size" : "Lifecycle response exceeds the supported response size",
+        request.method === "thread/history" ? "history_page_too_large" : "lifecycle_response_too_large", false);
     }
     return { statusCode, headers: JSON_HEADERS, payload: response };
   } catch (error) {
