@@ -213,6 +213,8 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
             .filter((item) => item.type === "function_call")
             .map(completeStreamToolCall);
           if (
+            new Set(finalCalls.map((call) => call.toolCallId)).size !==
+              finalCalls.length ||
             finalCalls.length !== calls.size ||
             finalCalls.some(
               (call) =>

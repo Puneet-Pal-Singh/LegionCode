@@ -776,6 +776,55 @@ describe("OpenAIResponsesAdapter", () => {
       expect(chunks.some((chunk) => chunk.type === "tool-call")).toBe(false);
     }
 
+    const secondCall = { ...call, id: "fc_2", call_id: "call_2" };
+    const twoCallPrefix =
+      events.slice(0, -1).map(frame).join("") +
+      frame({ type: "response.output_item.done", item: secondCall });
+    // Equal lengths alone cannot establish exact terminal call identity.
+    for (const finalCalls of [
+      [call, call],
+      [call],
+      [call, { ...secondCall, call_id: "call_3" }],
+      [call, { ...secondCall, arguments: '{"path":"OTHER.md"}' }],
+    ]) {
+      const { error, chunks } = await drain(
+        twoCallPrefix +
+          frame({
+            type: "response.completed",
+            response: {
+              ...payload,
+              output: [payload.output[0], ...finalCalls],
+            },
+          }),
+      );
+      expect(error).toMatchObject({
+        code: "INVALID_RESPONSE_CONTRACT",
+        retryable: false,
+      });
+      expect(
+        chunks
+          .filter((chunk) => chunk.type === "tool-call")
+          .map((chunk) => chunk.toolCall?.toolCallId),
+      ).toEqual(["call_1", "call_2"]);
+    }
+    respond(
+      twoCallPrefix +
+        frame({
+          type: "response.completed",
+          response: {
+            ...payload,
+            output: [payload.output[0], secondCall, call],
+          },
+        }),
+      65536,
+    );
+    const distinct = adapter.generateStream(params);
+    let distinctResult = await distinct.next();
+    while (!distinctResult.done) distinctResult = await distinct.next();
+    expect(
+      distinctResult.value.toolCalls?.map((item) => item.toolCallId),
+    ).toEqual(["call_2", "call_1"]);
+
     for (const oversized of [
       "data: " + "x".repeat(16 * 1024 * 1024 + 1),
       ("data: " + "x".repeat(8 * 1024 * 1024) + "\n").repeat(2),
