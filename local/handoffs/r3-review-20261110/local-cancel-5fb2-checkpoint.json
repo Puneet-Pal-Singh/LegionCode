@@ -1,0 +1,143 @@
+{
+  "base": "e810c206478a8b93c6fefbc65f64191ec3ad615e",
+  "head": "5fb2f0e8aa6aa1d2b6e41d9df3705fc9dc2120fb",
+  "branch": "codex/fix-r3-local-reserved-cancel-20261111",
+  "source_leaf": "1f941d13795094c9b7fd77e6a1459529c3d52b18",
+  "changed_paths": [
+    "architecture/CAPABILITY-OWNERSHIP.md",
+    "packages/app-server/src/harness/LocalHarnessComposition.ts",
+    "packages/event-store/src/local.ts",
+    "packages/event-store/src/local/harness-bindings.ts",
+    "packages/harness-core/src/server/HarnessRegistry.ts",
+    "packages/harness-core/src/server/HarnessSessionManager.ts",
+    "packages/worker-protocol/src/harness.ts"
+  ],
+  "checks": [
+    {
+      "command": "corepack pnpm --filter @repo/platform-protocol build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-CANCEL-20261111/01-platform-protocol-build.log",
+      "sha256": "8a5da0dde8ff068642d28c0ba51edcb6a316a845f490a020d2b7e63c695adf64"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/worker-protocol build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-CANCEL-20261111/02-worker-protocol-build.log",
+      "sha256": "011368757fa9b59ede09c6ad9be9724f961cab4cfd24a6a95816e560afaf12e9"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/event-store build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-CANCEL-20261111/03-event-store-build.log",
+      "sha256": "6191517fa032b7fa5e248d5e58463193219749d7278aa119333dfdfffd1be303"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/runtime-kernel build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-CANCEL-20261111/04-runtime-kernel-build.log",
+      "sha256": "976350341c34f586457b464ade7705d7f21d1a001fa0f25d58434ce13ee8fdf5"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/harness-core build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-CANCEL-20261111/05-harness-core-build.log",
+      "sha256": "a49c6ac6095318a1ff4cb06b7f463985933623feb6632d4db12326e3026744e4"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/harness-codex build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-CANCEL-20261111/06-harness-codex-build.log",
+      "sha256": "6b3b43d0402bb184ece2dd423776118d7ac27ebe9b438b89851e1ca2c76b25bc"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/harness-opencode build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-CANCEL-20261111/07-harness-opencode-build.log",
+      "sha256": "ea6bbefe2e2761e472052d61a83e066af4ebf7e63e7a9baf66362a2dad53ae36"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/harness-claude build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-CANCEL-20261111/08-harness-claude-build.log",
+      "sha256": "473b3c0553cfbeab0bfd7321519cfa62ddc2b94ae3071fbd052b061d76cbc063"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/persistence build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-CANCEL-20261111/09-persistence-build.log",
+      "sha256": "c41b84a4c04f00f6f71bb7276d53b5a23a136a0ad4c3cfef3eb0ccaea9edcbd7"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/execution-engine build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-CANCEL-20261111/10-execution-engine-build.log",
+      "sha256": "b0d46be999f04acfb63990be86c916a45a605af2b874616b249f1039aa739de9"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/app-server build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-CANCEL-20261111/11-app-server-build.log",
+      "sha256": "f3c43da5b1ecffc33cb4a81aee1fe17825b48ae18fef2059f9570d5cba77d9e6"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/worker-protocol check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-CANCEL-20261111/12-worker-protocol-check-types.log",
+      "sha256": "9e4e36d91e31960bfcb0e17b484d6b1dd00d8d0299c71e72b952a5a4fd407d82"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/event-store check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-CANCEL-20261111/13-event-store-check-types.log",
+      "sha256": "fdcd93fb48d85a32112c9d581e82b5661ff1922ea2329a74608f7ba2f08a218f"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/harness-core check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-CANCEL-20261111/14-harness-core-check-types.log",
+      "sha256": "790559fa2b2a57793b68323d5bdd34c4090be71500ca014fc2ac83d1b2a45ed8"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/app-server check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-CANCEL-20261111/15-app-server-check-types.log",
+      "sha256": "f92de9fc1042af2b58e4a5bdf302381903de05838bf9a92f43c2fd14f656c503"
+    },
+    {
+      "command": "node scripts/gates/check-architecture-boundaries.mjs",
+      "changed_paths_base": "e810c206478a8b93c6fefbc65f64191ec3ad615e",
+      "exit_code": 1,
+      "log": "/workspace/work/R3-LOCAL-CANCEL-20261111/check-architecture-boundaries.log",
+      "sha256": "31d475301c0a0c56987139af15ef47303ad9f1c71aa424c692335e2282faa561"
+    },
+    {
+      "command": "node scripts/gates/check-rebuild-governance.mjs",
+      "changed_paths_base": "e810c206478a8b93c6fefbc65f64191ec3ad615e",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-CANCEL-20261111/check-rebuild-governance.log",
+      "sha256": "9a5c7cafae7b03c771af4ee23d69de18f537c9ba47d3b6bfc73080addf7513b1"
+    }
+  ],
+  "baseline_architecture_failure": {
+    "revision": "e810c206478a8b93c6fefbc65f64191ec3ad615e",
+    "exit_code": 1,
+    "log_sha256": "31d475301c0a0c56987139af15ef47303ad9f1c71aa424c692335e2282faa561",
+    "diagnostics": "ERROR: Architecture boundary check failed:\n- packages/event-store/package.json: @repo/event-store must not depend on @repo/worker-protocol; canonical dependencies: @repo/platform-protocol.\n- packages/runtime-kernel/package.json: @repo/runtime-kernel must not depend on @repo/worker-protocol; canonical dependencies: @repo/event-store, @repo/platform-protocol, @repo/workspace-core.\n- packages/harness-codex/src/server/protocol/generated/v2/SandboxPolicy.ts: policy file is missing from scripts/gates/harness-policy-inventory.json; classify it before adding behavior.\n- packages/harness-opencode/src/server/OpenCodePermissionPolicy.ts: policy file is missing from scripts/gates/harness-policy-inventory.json; classify it before adding behavior.\n"
+  },
+  "held_files_byte_identical": {
+    "packages/app-server/src/local-process.ts": "d3fdc17fb02de6208aed3a0f2ba6ec6c9cedde98f8adf33a915f130f878f5d81",
+    "packages/app-server/src/server.ts": "0a8e53bb17685e28ce38aa51ef642b2e107067f049a7eb3e9bfe6bd22fefa08d",
+    "packages/app-server/src/local-turns.ts": "c4378c26bebd368671a4c24d77c21ebdbb28299ef8cd555a9a765247b6f4bbcc",
+    "packages/app-server/src/local-workspace-writer-lease.ts": "50561318a16766eadec8d6f19d8bf7c0249cdaaeede8bd0d23b64852257a1d62",
+    "packages/app-server/src/harness/LocalWorkspaceLease.ts": "aae15ae4f3a8e70f5ed643ed118c65ec89585ac459bf431599d06d2d95e70f9a",
+    "packages/app-server/src/local-threads.ts": "f73c3f6737c08c9209f1b7941a9b5717bc3663da2f75f95faec30c042d4e749d",
+    "packages/event-store/src/local-thread-runtime-summary.ts": "712c18a57532828eec238d5fb8d3cde3e47bffda8545acf0e76f5981ed35c096",
+    "packages/event-store/src/local-turn-admissions.ts": "3b083fe52ea9536035d8dbcbc84a13d0d39dafdd7077d63e8cee131e5f4d4c06"
+  },
+  "status": "",
+  "node": "v24.22.1",
+  "physical_release": false,
+  "native_predecessor_fix": "awaiting canonical Native artifact + physical-settlement port from owner; no source edits",
+  "hosted_pg_custody_ui_changes": false,
+  "tests_or_provider_calls": false
+}
