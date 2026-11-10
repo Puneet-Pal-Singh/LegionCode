@@ -872,10 +872,10 @@ image-context boundaries changed by this work.
 
 | Responsibility                                      | Canonical owner                                            | Producers and consumers                                                                                      |
 | --------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Initial automatic title eligibility                 | Brain `scheduleInitialThreadTitle`                         | `HandleChatRequest`, after the first user message and its run are persisted                                  |
-| Title inference                                     | Shared AppServer `ThreadTitleGenerationCoordinator`         | Brain injects its frozen first-run provider/model adapters, persistence and Worker-owned background lifetime |
-| Title, version, and pending/ready/failed settlement | Brain `ThreadTitleService` through `ThreadTitleRepository` | Atomic session update and `thread.title.updated` event; user rename supersedes automatic results             |
-| Reload and live title display                       | Session and thread projections                             | Web renders persisted metadata and canonical events; it does not infer pending state from the preview source |
+| Initial automatic title eligibility                 | Brain scheduler / LocalTurnService                         | Persisted first user message/run, or newly confirmed first local admission with its frozen model snapshot    |
+| Title inference                                     | Shared AppServer `ThreadTitleGenerationCoordinator`         | Hosted adapters and Native protected adapter inject the frozen first route and their actual background owner |
+| Title, version, and pending/ready/failed settlement | Hosted title repository / existing local Thread queue       | Canonical first-message/source/version CAS and title event; manual rename supersedes automatic results       |
+| Reload and live title display                       | Session and Thread projections                             | Both clients use the shared bounded pending-title projection refresh; no client-generated title state        |
 
 The AppServer `thread-titles` package owns the existing prompt, bounded input,
 output validation, attempt/correction policy and generation coordinator. Brain's
@@ -2449,8 +2449,25 @@ same Thread mutation queue. Its one durable pending claim requires the exact
 first admission and canonical preview event identity/source/version; settlement
 checks the same first message, pending version and original grant generation
 again. Same-text manual renames retain user ownership and supersede a generated
-result. This private adapter adds no title table, inference activation or provider
-lifetime owner; those host ports must be joined before it is called.
+result. The explicit startup recovery path validates stored local user/workspace,
+first admission and canonical pending title event under the same metadata queue,
+then retains the preview and marks the old claim failed. Recovery needs no live
+filesystem grant, never runs inference and is never invoked from a read operation.
+Normal claims and publication still require their captured fresh grant.
+
+LocalTurnService owns lazy startup title recovery, pending claim preparation, title
+jobs and every original protected inference Promise. Only a newly confirmed first
+admission can schedule inference; receipt retries do not. The pending claim is
+awaited before admission ACK, while provider generation stays auxiliary. Native
+injects the existing protected adapter with the same frozen discovered model and
+credential resolver; it creates no public inference/session/key API or local
+platform fallback. Shutdown aborts title requests synchronously, joins existing
+admission preparations, then positively drains recovery, logical jobs and original
+provider Promises before its aggregate may release SQLite. A logical title timeout
+does not release an original request. Unknown drain retains actual owners and
+process liveness. The owned deferred startup composition must invoke the same
+initializeTitles Promise after shutdown owners are attached and before readiness;
+normal new admissions also await it.
 
 Shared client popovers measure the current VisualViewport, including pan,
 resize and keyboard-related offsets. Optional companion panels use the same

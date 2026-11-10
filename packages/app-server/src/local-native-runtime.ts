@@ -47,6 +47,7 @@ import type { LocalWorkspaceExecutionBinding } from "./local-workspace.js";
 import type { LocalTurnMediaPort } from "./local-turn-media.js";
 import { attachPreparedLocalImages, localUserProviderMessage } from "./local-turn-images.js";
 import { captureLocalTurnModel } from "./local-turn-model.js";
+import { createLocalNativeThreadTitleGenerator } from "./local-native-thread-titles.js";
 
 type LifecycleStore = LocalPersistence["lifecycleEvents"];
 type NativeMessages = Parameters<
@@ -107,6 +108,11 @@ export function createLocalNativeRuntime(
     );
   }
   return {
+    createTitleGenerator(admission, model) {
+      return createLocalNativeThreadTitleGenerator({
+        admission, model, resolveCredential: options.resolveRuntimeCredential,
+      });
+    },
     reconcileLostTurn(admission) {
       return reconcileLocalNativePlanTurn({
         admission,
