@@ -1654,3 +1654,7 @@ captured worker factory and requires the identical object in its kernel ports;
 validated permission policy resolution is cached once for that admitted profile.
 File auto-authorization depends on the separately reviewed worker consumer. This
 port does not itself enable permission modes, tools or broader host authority.
+
+After exact saved-receipt reconciliation, atomic admission conflicts return typed
+non-retryable 409 `local_admission_conflict`. Stale parents or unsettled/changed
+intent never cause automatic reparenting, request rewriting or execution retry.

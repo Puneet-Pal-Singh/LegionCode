@@ -256,6 +256,9 @@ export class LocalTurnService {
         }
         return validateSavedAdmission(saved, params, currentThread, preparedMedia?.fingerprint);
       }
+      if (error instanceof EventStoreError && error.code === "idempotency_conflict") {
+        throw new AppServerOperationError(409, "conflict", "Local Turn admission conflicts with its current thread state or request content", "local_admission_conflict", false);
+      }
       throw error;
     } finally {
       if (preparedMedia) {
