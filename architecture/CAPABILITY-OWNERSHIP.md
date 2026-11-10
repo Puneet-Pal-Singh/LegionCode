@@ -78,6 +78,9 @@ request also carries that exact grant's Workspace ID and grant timestamp; the
 canonical Thread owner compares it and freshly revalidates physical scope before
 appending the creation event. Unlinked historical groups
 remain visible with the existing unknown-workspace/recovery presentation.
+The existing shared Remove-project menu calls the canonical forget operation;
+Desktop reloads navigation and the current grant before retaining a selected
+conversation. The existing Revoke-access control still calls revoke only.
 
 `engine/KernelAgenticProvider` is the shared provider stepping/transcript/recovery
 owner used by both `RuntimeKernelNativeRunner` and `createLocalNativeProviderPorts`.

@@ -517,6 +517,7 @@ function DesktopApp(): React.JSX.Element {
         selectionToken: selection.selectionToken,
       });
     } catch (error: unknown) {
+      if (commandScope !== threadScope.current) return;
       setThreadError("Workspace access could not be confirmed. Choose a folder again before opening or creating a task.");
       setWorkspaceError(
         error instanceof AppServerClientError && error.code === "server_error" &&
@@ -550,6 +551,59 @@ function DesktopApp(): React.JSX.Element {
       projects.clear(intent);
     }
     if (granted.readiness === "ready") await refreshThreads();
+  }
+
+  async function removeProject(workspaceSelectionId: string): Promise<void> {
+    if (!appServerClient || !sdkReady || workspaceCommand.current || workspacePickerActive.current) return;
+    const project = projects.navigation?.projects.find((item) => item.workspaceId === workspaceSelectionId);
+    if (!project) {
+      setThreadError("The selected project could not be loaded.");
+      return;
+    }
+    workspaceCommand.current = true;
+    setWorkspaceBusy(true);
+    const wasCurrent = workspace?.workspaceId === project.workspaceId;
+    if (wasCurrent) {
+      threadScope.current += 1;
+      selectionRequest.current += 1;
+      threadListRequest.current += 1;
+      setSelectedThread(null);
+    }
+    const commandScope = threadScope.current;
+    let forgotten = false;
+    try {
+      await appServerClient.forgetLocalWorkspaceProject(project.workspaceId);
+      forgotten = true;
+      await projects.refresh();
+      const current = await appServerClient.getWorkspaceGrant();
+      if (commandScope !== threadScope.current) return;
+      const scopeChanged = wasCurrent || current?.workspaceId !== workspace?.workspaceId ||
+        current?.grantedAt !== workspace?.grantedAt || current?.readiness !== workspace?.readiness;
+      if (scopeChanged) {
+        threadScope.current += 1;
+        selectionRequest.current += 1;
+        threadListRequest.current += 1;
+        setWorkspace(current);
+        setSelectedThread(null);
+        setThreads([]);
+        setThreadLoadState("ready");
+        setThreadError("The project was removed from the sidebar. Select a task or choose a project to continue.");
+      }
+      if (projects.currentIntent.current?.workspaceId === project.workspaceId) {
+        projects.clear();
+        setThreadError("The project was removed from the sidebar. Select a task or choose a project to continue.");
+      }
+      if (scopeChanged && current?.readiness === "ready") await refreshThreads();
+    } catch {
+      if (commandScope !== threadScope.current) return;
+      if (forgotten) setSelectedThread(null);
+      setThreadError(forgotten
+        ? "The project was removed, but current workspace access could not be loaded. Choose a folder again to continue."
+        : "The project could not be removed from the sidebar.");
+    } finally {
+      workspaceCommand.current = false;
+      setWorkspaceBusy(false);
+    }
   }
 
   async function revokeWorkspace(): Promise<void> {
@@ -621,8 +675,8 @@ function DesktopApp(): React.JSX.Element {
               selectedThreadId={selectedThread?.id ?? null}
               loadState={workspaceBootstrapState.status === "error" ? "error" : projects.status}
               threadError={threadError ?? (projects.status === "error" ? "The local project list could not be loaded." : null) ?? (!selection ? workspaceError ?? (workspaceBootstrapState.status === "error" ? workspaceBootstrapState.message : null) : null)}
-              canManageWorkspace={(id) => sdkReady && !workspaceBusy && workspace?.workspaceId === id}
-              onRemoveWorkspace={async (id) => { if (workspace?.workspaceId === id) await revokeWorkspace(); }}
+              canManageWorkspace={(id) => sdkReady && !workspaceBusy && Boolean(projects.navigation?.projects.some((project) => project.workspaceId === id))}
+              onRemoveWorkspace={removeProject}
               onOpenSettings={() => {
                 closeCompactSidebar();
                 setSettingsTarget("general");
