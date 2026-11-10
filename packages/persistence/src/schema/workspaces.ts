@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   index,
+  integer,
   check,
   foreignKey,
   pgTable,
@@ -52,6 +53,7 @@ export const workspaces = pgTable(
     name: text("name").notNull(),
     defaultBranch: text("default_branch").notNull(),
     lastSelectedBranch: text("last_selected_branch").notNull(),
+    configurationVersion: integer("configuration_version").notNull().default(1),
     status: text("status").notNull().default("active"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
       .notNull()
@@ -72,6 +74,10 @@ export const workspaces = pgTable(
     uniqueIndex("workspaces_id_user_id_idx").on(table.id, table.userId),
     index("workspaces_user_updated_at_idx").on(table.userId, table.updatedAt),
     index("workspaces_repo_id_idx").on(table.repoId),
+    check(
+      "workspaces_configuration_version_positive_check",
+      sql`${table.configurationVersion} > 0`,
+    ),
     check(
       "workspaces_status_check",
       sql`${table.status} IN ('active', 'archived')`,

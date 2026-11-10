@@ -1,4 +1,9 @@
 import type { LocalThreadRuntimeScope, LocalThreadRuntimeSummary } from "./local-thread-runtime-summary.js";
+import { parseStoredGrant, type StoredLocalWorkspaceGrant } from "./local-workspace-grant.js";
+import { LocalHarnessControlPlane, type LocalHarnessControlPlanePort } from "./local/harness-control-plane.js";
+import { LocalHarnessObservationCommitPort } from "./local/harness-observation-port.js";
+import type { StoredHarnessSelection } from "./local/harness-bindings.js";
+import { initializeLocalHarnessBindings, validateLocalHarnessBindings, HarnessPersistenceError, LocalHarnessBindingRepository, type HarnessBindingRepository } from "./local/harness-bindings.js";
 import Database from "better-sqlite3";
 import { LocalProviderPreferencesRecords } from "./local-provider-preferences.js";
 import { LocalTurnAdmissions } from "./local-turn-admissions.js";
@@ -9,15 +14,13 @@ import { isAbsolute, join } from "node:path";
 import {
   EventCursorSchema,
   EventScopeSchema,
-  LocalWorkspaceGrantPathSchema,
-  LocalWorkspaceGrantSchema,
   PlatformEventSchema,
   ProviderIdSchema,
   type EventCursor,
   type EventId,
   type PlatformEvent,
-  type LocalWorkspaceGrant,
   type ProviderId,
+  type UserId,
   type WorkspaceId,
 } from "@repo/platform-protocol";
 import {
@@ -27,6 +30,7 @@ import {
 import { z } from "zod";
 import { EventStoreError, LocalPersistenceError } from "./errors.js";
 import { createStableEventFingerprint } from "./fingerprint.js";
+import { LifecycleReplayPage } from "./lifecycle-replay-page.js";
 import { createLocalTurnArtifactStore, validateLocalTurnArtifacts } from "./local-turn-artifacts.js";
 import type {
   AppendEventInput,
@@ -56,23 +60,7 @@ const LegacyPlatformFileSchema = z.object({
   version: z.literal(1),
   events: z.array(z.unknown()),
 }).strict();
-const StoredGrantSchema = z.object({
-  version: z.literal(1),
-  path: LocalWorkspaceGrantPathSchema,
-  grant: LocalWorkspaceGrantSchema,
-}).strict();
-
-export type StoredLocalWorkspaceGrant = {
-  readonly version: 1;
-  readonly path: string;
-  readonly grant: LocalWorkspaceGrant;
-} | {
-  readonly version: 2;
-  readonly path: string;
-  readonly grant: LocalWorkspaceGrant;
-  /** Opaque native identity; interpreted only by the canonical grant/NativeFS owner. */
-  readonly gitMetadataIdentity: string;
-};
+export type { StoredLocalWorkspaceGrant } from "./local-workspace-grant.js";
 
 export interface LocalPersistenceOptions {
   readonly storageDirectory: string;
@@ -108,6 +96,10 @@ type EventRow = {
 export class LocalPersistence {
   readonly events: EventStore & { listAll(): Promise<readonly PlatformEvent[]> };
   readonly lifecycleEvents: LifecycleEventStore;
+  readonly environmentId: string;
+  readonly harnessBindings: HarnessBindingRepository;
+  readonly readAttachmentRetirement: LocalHarnessBindingRepository["readAttachmentRetirement"];
+  readonly retireHarnessAttachment: (input: Parameters<LocalHarnessBindingRepository["retireHarnessAttachment"]>[0]) => Promise<void>;
   readonly turnArtifacts: ReturnType<typeof createLocalTurnArtifactStore>;
   readonly turnAdmissions: {
     admit(candidate: TurnAdmission): Promise<{ admission: TurnAdmission; newlyAdmitted: boolean }>;
@@ -132,6 +124,19 @@ export class LocalPersistence {
     clear(): Promise<void>;
   };
 
+  createHarnessControlPlane(userId: UserId): LocalHarnessControlPlanePort {
+    return new LocalHarnessControlPlane(this.database, { environmentId: this.environmentId, userId });
+  }
+
+  createHarnessObservationCommitPort(selection:StoredHarnessSelection) {
+    const port=new LocalHarnessObservationCommitPort(this.database,event=>this.appendLifecycleWithin(event),selection);
+    return {
+      recover:(session:Parameters<typeof port.recover>[0])=>this.guardHarnessStorage(()=>port.recover(session)),
+      claimReply:(origin:Parameters<typeof port.claimReply>[0])=>this.guardHarnessStorage(()=>port.claimReply(origin)),
+      lookup:(observation:Parameters<typeof port.lookup>[0])=>this.guardHarnessStorage(()=>port.lookup(observation)),
+      commit:(input:Parameters<typeof port.commit>[0])=>this.guardHarnessStorage(()=>port.commit(input)),
+    };
+  }
   readonly providerPreferences: {
     read(workspaceId: WorkspaceId): Promise<unknown | null>;
     write(workspaceId: WorkspaceId, preferences: unknown): Promise<void>;
@@ -159,14 +164,29 @@ export class LocalPersistence {
       this.database = new Database(databasePath, { timeout: 0 });
       if (!existed) chmodSync(databasePath, 0o600);
       this.assertArchiveMarkerInOpenDatabase();
-      if (existed) this.validateExistingDatabaseBeforeMutation();
+      if (existed) {
+        this.validateExistingDatabaseBeforeMutation();
+        const hasMetadata = this.database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='metadata'").get();
+        if (hasMetadata) {
+          validateLocalHarnessBindings(this.database);
+          this.readEnvironmentId();
+        }
+      }
       this.configureAndAcquireExclusiveLock();
       this.createSchemaIfNew();
       this.migrateOrValidate();
       this.validateDatabase();
       this.turnArtifacts = createLocalTurnArtifactStore(this.database, (operation) => this.guardStorage(operation));
       const admissions = new LocalTurnAdmissions(this.database, (input) => this.appendPlatformWithin(input));
-      admissions.initialize();
+      this.environmentId = this.database.transaction(() => {
+        admissions.initialize();
+        initializeLocalHarnessBindings(this.database);
+        const existingEnvironmentId = this.readEnvironmentId();
+        if (existingEnvironmentId !== null) return existingEnvironmentId;
+        const environmentId = `env_${randomUUID()}`;
+        this.database.prepare("INSERT INTO metadata(key,value) VALUES ('local_environment_id_v1',?)").run(environmentId);
+        return environmentId;
+      }).immediate();
       this.admissions = admissions;
       this.turnAdmissions = {
         admit: async (candidate) => this.guardStorage(() => admissions.admit(candidate)),
@@ -182,6 +202,23 @@ export class LocalPersistence {
       throw sanitizeOpenError(error);
     }
 
+    const harnessBindings = new LocalHarnessBindingRepository(this.database, (event) => this.appendLifecycleWithin(event), this.admissions);
+    this.readAttachmentRetirement = (scope) => this.guardHarnessStorage(() => harnessBindings.readAttachmentRetirement(scope));
+    this.retireHarnessAttachment = (input) => this.guardHarnessStorage(() => harnessBindings.retireHarnessAttachment(input));
+    this.harnessBindings = {
+      reserveOpening:(input)=>this.guardHarnessStorage(()=>harnessBindings.reserveOpening(input)),
+      beginOpeningDispatch:(input)=>this.guardHarnessStorage(()=>harnessBindings.beginOpeningDispatch(input)),
+      cancelReservedOpening:(input)=>this.guardHarnessStorage(()=>harnessBindings.cancelReservedOpening(input)),
+      acknowledgeOpening:(input)=>this.guardHarnessStorage(()=>harnessBindings.acknowledgeOpening(input)),
+      readOpening:(scope)=>this.guardHarnessStorage(()=>harnessBindings.readOpening(scope)),
+      freezeAndClaim: (input) => this.guardHarnessStorage(() => harnessBindings.freezeAndClaim(input)),
+      markRecoveryRequired: (input) => this.guardHarnessStorage(() => harnessBindings.markRecoveryRequired(input)),
+      freeze: (selection, events) => this.guardHarnessStorage(() => harnessBindings.freeze(selection, events)),
+      read: (scope) => this.guardHarnessStorage(() => harnessBindings.read(scope)),
+      attach: (input) => this.guardHarnessStorage(() => harnessBindings.attach(input)),
+      lookupObservation: (input) => this.guardHarnessStorage(() => harnessBindings.lookupObservation(input)),
+      appendObservation: (input) => this.guardHarnessStorage(() => harnessBindings.appendObservation(input)),
+    };
     this.events = {
       append: async (input) => this.appendPlatform(input),
       appendBatch: async (inputs) => this.appendPlatformBatch(inputs),
@@ -533,17 +570,15 @@ export class LocalPersistence {
       throw new EventStoreError("cursor_not_found", "Invalid lifecycle replay sequence");
     }
     const after = input.afterSequence ?? 0;
+    const page = new LifecycleReplayPage(input);
     const rows = this.database.prepare(`
       SELECT event_json FROM events WHERE family = 'lifecycle' AND stream_type = 'turn' AND stream_id = ? AND sequence > ?
       ORDER BY sequence LIMIT ?
-    `).all(input.turnId, after, input.limit) as { event_json: string }[];
-    const events = rows.map(({ event_json }) => parseStoredLifecycleEvent(event_json));
-    for (const [index, event] of events.entries()) {
-      if (event.sequence !== after + index + 1) {
-        throw new EventStoreError("corrupt_event_stream", "Lifecycle replay contains a sequence gap");
-      }
+    `).iterate(input.turnId, after, input.limit) as Iterable<{ event_json: string }>;
+    for (const { event_json } of rows) {
+      if (!page.append(parseStoredLifecycleEvent(event_json))) break;
     }
-    return { events, nextSequence: events.at(-1)?.sequence ?? null };
+    return page.result();
   }
 
   private listAllPlatform(): readonly PlatformEvent[] {
@@ -608,6 +643,23 @@ export class LocalPersistence {
     this.guardStorage(() => this.database.transaction(() => {
       this.database.prepare("DELETE FROM metadata WHERE key = ?").run(PROVIDER_SELECTION_METADATA_KEY);
     }).immediate());
+  }
+
+  private readEnvironmentId(): string | null {
+    const row = this.database.prepare("SELECT value FROM metadata WHERE key='local_environment_id_v1'").get() as { value: string } | undefined;
+    if (!row) return null;
+    if (!/^env_[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(row.value)) {
+      throw corruptStore("Stored local environment identity is invalid");
+    }
+    return row.value;
+  }
+
+  private async guardHarnessStorage<T>(operation: () => Promise<T>): Promise<T> {
+    try { return await operation(); }
+    catch (error) {
+      if (error instanceof EventStoreError || error instanceof LocalPersistenceError || error instanceof HarnessPersistenceError) throw error;
+      throw new LocalPersistenceError("unavailable", "Local harness persistence operation failed safely");
+    }
   }
 
   private guardStorage<T>(operation: () => T): T {
@@ -833,23 +885,6 @@ function platformFingerprint(event: PlatformEvent): string {
   const storeOwnedFields = new Set(["eventId", "sequence", "cursor", "createdAt"]);
   const input = Object.fromEntries(Object.entries(event).filter(([key]) => !storeOwnedFields.has(key)));
   return createStableEventFingerprint(input);
-}
-
-function parseStoredGrant(value: unknown): StoredLocalWorkspaceGrant {
-  // Legacy records remain readable, but only explicit grant can establish identity.
-  const grant = z.union([
-    StoredGrantSchema,
-    z.object({
-      version: z.literal(2),
-      path: LocalWorkspaceGrantPathSchema,
-      grant: LocalWorkspaceGrantSchema,
-      gitMetadataIdentity: z.string().min(1).max(512),
-    }).strict(),
-  ]).parse(value);
-  if (!isAbsolute(grant.path) || grant.path.includes("\0")) {
-    throw new Error("Workspace grant path is invalid");
-  }
-  return grant;
 }
 
 function isTerminal(event: LifecycleEvent): boolean {

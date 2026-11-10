@@ -2165,8 +2165,210 @@ original canonical publication before its exact absence read; unknown publicatio
 or cleanup retains the original binding and lease. This source does not activate
 delegated external execution or supply its missing physical process boundary.
 
-Crash-before-receipt recovery remains a concrete backend limitation: the Native
-process guardian retains the writer descriptor through normal exact-child reaping,
-but its target closes that descriptor before execution. An unexpectedly lost
-guardian therefore cannot be excluded solely by acquiring the old fence. No
-preparation label or new receipt is substituted for surviving-child exclusion.
+Missing Native resource receipts remain explicit recovery requirements. Legacy
+pre-intent guardians closed the target writer descriptor before execution, so
+acquiring their old fence alone cannot exclude a surviving child. The landed
+child-intent ABI separately proves physical exclusion for its own launches; this
+receipt reader does not backfill missing canonical resource evidence from that
+acquisition, a preparation label or terminal history.
+
+## Plan 057 — Canonical lifecycle event byte transport
+
+The existing lifecycle event store remains the only event authority. Local replay
+uses an exact UTF-8 result budget derived from the actual App Server response
+frame. A page returns its largest contiguous prefix without consuming an excluded
+row. If its first event exceeds the budget, the same admitted, authorized reader
+returns a small versioned reference to that immutable event, including its full
+UTF-8 byte length and SHA-256. `turn/lifecycleEventChunk` reads that same row;
+references do not create artifacts, projections, lifecycle events or another store.
+Admission scope and the current granted Thread are checked before and after reads.
+
+The SDK hydrates bounded byte chunks, validates exact reference/ranges, full digest,
+fatal UTF-8 decoding and canonical event identity/schema, and only then returns the
+unchanged replay result to the existing ordering owner. An aborted or incomplete
+read cannot advance the lifecycle cursor. Transport limits do not truncate tool
+inputs or lower public tool limits. Canonical events have no global size cap;
+complete event materialization uses memory proportional to the declared event and
+allocation/validation failure remains explicit. Original HTTP handlers remain
+owned by the server's persistence shutdown barrier even after a disconnect.
+
+The same server shutdown barrier also drains original HTTP handler promises.
+A disconnected/closed socket is not proof that its asynchronous grant, file,
+history or metadata operation finished. Handlers are registered before their
+first await and stay owned until their original promise settles. Shutdown fences
+new dispatch before and after body reads, preserves authentication checks and
+waits for those originals before SQLite closure and the private closed receipt.
+Existing HTTP fixtures await that positive shutdown contract rather than socket
+closure alone. No request lifecycle event, status store or forced cleanup is added.
+
+## Plan 057 — Native child intent recovery boundary
+
+The existing native writer inode carries a bounded append-only physical child
+intent WAL. A guardian durably appends and fsyncs the exact boot/PID/kernel unique
+process lifetime before releasing its child-owned EOF-safe start pipe. No argv,
+executable, credential or workspace path enters the WAL. Normal completion is
+appended only after exact-child waitpid has reaped the target. The filesystem
+helper still never forks; mutation/private-transaction loans validate the same
+held-root intent header and retain their inherited writer descriptor throughout.
+
+Darwin's public OFD byte-zero lock is the single inherited writer fence, released
+only on last close. A nonoverlapping POSIX byte-one lock serializes WAL appends;
+it is not another checkout/writer registry. Old whole-file flock holders conflict
+on the same inode. No writer path reopens, renames, unlinks or replaces the fence
+namespace, and no unsupported OFD operation selects a flock fallback.
+
+New writer acquisition reconciles pending intents before exposing authority.
+Inclusive stable-lifetime/status lookup and atomic audit-token signaling exclude
+only the exact recorded process across exec and PID reuse. Signal delivery or an
+old token's ESRCH is never exit proof. Unknown identity/API/permission/cleanup or
+deadline results retain the intent and original authority. Complete records have
+SHA-256 checksums; corrupt complete records fail closed. Only an incomplete final
+record, which never passed its fsync/start barrier, may be trimmed under the held
+writer fence. The WAL has a finite four MiB limit and no speculative compaction.
+
+The new process-helper acquisition receipt is ABI v2/intentVersion 1. The actual
+Desktop composition awaits the original bounded helper probe before constructing
+its shared writer owner or enabling captured Build and artifact commit. The probe
+verifies boot/stable-identity/signaling and actual OFD/old-flock/append-lock support
+using one private immediately removed probe inode, with no workspace, real lease,
+provider or target process. Unsupported support leaves capture unavailable; unknown
+helper closure retains the existing startup failure owner. Stable-identity structures follow the pinned Apple XNU ABI
+and unsupported platforms remain unavailable. The same namespace/inode is retained,
+but old binaries do not produce intents: all active writer profiles must migrate
+to this ABI, and mixed-old-binary crash recovery is not advertised as supported.
+Only the owner's actual fresh O_EXCL-created inode may initialize an empty WAL,
+through the required private --initialize-empty flag. An existing empty inode
+returns known busy before taking a new writer lock; it cannot certify legacy
+child exclusion. A partial initial header remains unverified rather than being
+rewritten. Existing complete WAL headers still undergo the same identity,
+checksum and pending-child reconciliation before any capability is exposed.
+
+A live Node owner already retains the same open description when a guardian is
+lost. This boundary addresses combined Node-host and guardian loss before target
+reaping. Its WAL establishes physical exclusion only; canonical recovery, terminal
+settlement, immutable artifacts and Native predecessor receipts retain their own
+existing owners. No process is relaunched and no lifecycle completion is invented.
+
+## Issue 810 — Versioned hosted workspace configuration
+
+The existing `WorkspaceRepository` owns saved configuration for one primary
+repository per user/workspace. Authenticated App Server
+`workspace/configuration/read` and `workspace/configuration/update`, exposed by
+SDK `readHostedWorkspaceConfiguration` / `updateHostedWorkspaceConfiguration`,
+read and edit only the existing name and selected branch. Repository identity
+comes from the exact owned active workspace; updates recheck its GitHub access
+and resolve an explicitly changed branch through the authenticated client.
+
+The existing Postgres workspace row holds the configuration version. Updates
+lock the canonical repository before the owned active workspace, compare the
+privately captured verified repository identity and expected version, then
+atomically change the saved branch and any matching current selection. Stale writes fail, including
+stale no-ops; current no-ops retain their version. Existing selection preserves
+configured names and increments the same version when branch, default branch
+or active state changes. Editing an unselected workspace never selects it.
+`MemoryWorkspaceRepository` implements the same contract for existing consumers.
+
+The existing repository UPSERT cannot rebind a namespace to another provider
+repository identity, including transitions to or from legacy unknown identity.
+Ingress and returned Memory records are detached from caller mutation. Identity
+conflicts are typed nonretryable errors; recovery requires an explicitly reviewed
+identity operation, not automatic reselection or a parallel repository registry.
+
+Workspace list/select renders saved names; session workspace context and
+`AuthorizedWorkspaceRepositoryContext` consume the saved branch for future
+work. Explicit admitted run branches and resume identity keep their existing
+owners and are not rewritten. Configuration reads perform no GitHub or execution
+probe. These records are saved settings, not prepared machines: this slice adds
+no allocation, scripts, network policy, setup secrets, preparation principal,
+Ready binding, runtime identity or alternate environment registry.
+
+## Plan 057 — Lifecycle replay cursor continuation
+
+The SDK's existing lifecycle ordering owner validates replay page progress against
+the last accepted contiguous canonical event. Saved conversation replay and live
+continuation share this check before projecting or yielding the page; page counts
+and omitted request limits no longer imply exhaustion. Empty pages with a
+continuation cursor and cursors beyond accepted events fail explicitly. A final
+nonempty/null page or accepted terminal event remains valid, while empty/null
+means caught up rather than terminal for live polling. Runtime event production,
+canonical terminal state, reducers and transport limits remain unchanged.
+
+## Plan 057 — Optional exact lifecycle replay byte paging
+
+The existing lifecycle event store optionally bounds the exact UTF-8 JSON result
+`{ events, nextSequence }`, with one shared budget and continuity helper for SQLite
+and memory replay. SQLite reads ordered rows incrementally and returns only the
+largest full-event prefix fitting both count and byte limits. The first excluded
+event remains canonical unread history; the cursor is the last returned sequence,
+and only an actual empty suffix returns null. Omitted byte budgets preserve the
+existing internal count-only replay contract.
+
+A first event that cannot fit raises a typed identity/sequence/encoded-size
+descriptor without copying its body, skipping it or claiming EOF. No append or
+lifecycle authority changes. Public HTTP byte paging remains inactive until the
+separately owned lossless event hydration and cursor-aware consumers are wired;
+this foundation alone does not make oversized public replay deliverable. Chunk
+bytes and their real wire digest remain read/transport responsibilities.
+
+## Plans 048 / 061 — Local harness protocol foundation
+
+The platform protocol owns harness family, immutable pre-admission selection,
+instance/operation and measured-usage contracts, canonical question descriptors
+and response normalization. Chat request and queued-input schemas remain unchanged and reject unsupported
+captured selection. Run capture lands with the Kernel's resolved-strategy guard;
+Chat capture requires routed admission, and queued capture requires its actual
+producer migration. Reference contracts
+alone never authorize a Native fallback. The existing lifecycle schema adds typed passive harness measurements
+and provider-limit observations, without introducing a producer or state store.
+
+The worker protocol consumes those public contracts for scoped host commands,
+observations, opening reservations, replies and positive quiescence receipts.
+These definitions do not enable a driver, create a host, resolve credentials or
+certify physical containment. Required initialize environment identity is deferred
+to its actual constructor/handshake consumer and existing fixture migration.
+The active SDK legacy question wrapper remains unchanged until that consumer
+migrates its shared route and removes the old DTO; this foundation alone does not
+claim that client/runtime integration. Native capture, current byte paging and
+provider custody retain their existing owners and exports.
+
+## Plans 048 / 061 — Same-writer local harness persistence foundation
+
+The existing exclusive LocalPersistence SQLite connection owns durable local
+harness bindings, observation ingress/reply claims, opening phases and verified
+attachment retirement. Its constructor validates and initializes those indexes
+and one environment identity; no second writer or runtime registry is introduced.
+Control-plane setup/selection uses that same writer and the caller's canonical
+local actor. It reuses the same strict versioned grant parser as LocalPersistence,
+including v2 Git metadata identity in its grant fingerprint. It stores no
+credentials and starts no provider or process.
+
+This foundation exposes private ports but does not activate a public local
+harness consumer. Binding validation parses captured selection from an opaque
+Run property; the Kernel strategy guard lands atomically with the canonical Run
+field before any public delegated admission is enabled. Missing capture never selects Native
+or reconstructs external ownership. Final constructor/driver wiring remains
+separate. Current Native admission/lineage, immutable artifacts, lifecycle byte
+paging and provider custody retain their existing source and exports.
+
+## Plans 048 / 061 — Kernel delegated execution foundation
+
+RuntimeKernel remains the sole canonical lifecycle, approval and terminal owner.
+It requires a nonnull frozen delegated Run selection and matches every captured
+field to the resolved execution strategy before any binding or runtime effect;
+exact scope and active binding remain independently required; it never routes that intent into Native
+execution or its preparation-failure fallback. Existing Native provider, guarded
+worker, restoration and artifact responsibilities remain on their current path.
+
+Delegated observation ingestion validates worker scope and commits through the
+existing lifecycle writer before its durable ACK. That transition owner rejects
+reused item, tool-call and approval identities before append, including already
+settled identities, so acknowledged history remains restorable. Recovery restores the same
+attempt and committed start snapshot; uncertain physical quiescence retains
+workspace ownership and cannot certify an immutable resume artifact. Canonical
+question/deadline handling and secret-safe public errors share the existing
+approval/lifecycle owner. Worker-protocol is the explicit package dependency.
+
+This is an execution foundation, not driver or public-route activation. Chat and
+queued-input capture, real host/driver construction and initialization identity
+remain with the final consumer slice. No credential resolver, process launcher,
+second event writer or client-owned lifecycle is introduced here.

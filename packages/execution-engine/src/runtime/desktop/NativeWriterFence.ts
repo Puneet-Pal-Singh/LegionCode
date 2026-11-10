@@ -24,10 +24,47 @@ export class NativeWriterFenceUnavailableError extends Error {
 export async function acquireNativeWriterFence(input: {
   readonly helperPath: string;
   readonly leaseFile: FileHandle;
+  readonly rootDirectory: FileHandle;
+  readonly fenceDirectory: FileHandle;
+  /** True only when this owner created the named inode with O_EXCL. */
+  readonly initializeEmpty: boolean;
   readonly signal: AbortSignal;
 }): Promise<"acquired" | "busy"> {
-  // Retain the handle object, not just a descriptor captured before async prep.
-  const { helperPath, leaseFile, signal } = input;
+  const { code, receipt } = await runFenceHelper({
+    helperPath: input.helperPath, signal: input.signal,
+    args: ["--acquire-lease-fd", "6", "--root-fd", "5", "--namespace-fd", "7", "--initialize-empty", input.initializeEmpty ? "1" : "0"],
+    pins: [
+      { slot: 5, handle: input.rootDirectory, directory: true },
+      { slot: 6, handle: input.leaseFile, directory: false },
+      { slot: 7, handle: input.fenceDirectory, directory: true },
+    ],
+  });
+  const acquired = Buffer.from('{"v":2,"event":"lease","state":"acquired","intentVersion":1}\n');
+  const busy = Buffer.from('{"v":2,"event":"lease","state":"busy","intentVersion":1}\n');
+  if (code === 0 && receipt.equals(acquired)) return "acquired";
+  if (code === 75 && receipt.equals(busy)) return "busy";
+  throw new NativeWriterFenceUnavailableError();
+}
+
+/** The same bounded original-helper lifetime, before advertising writer support.
+ * The native probe touches no workspace, provider or real writer lease. */
+export async function probeNativeWriterIntentABI(input: {
+  readonly helperPath: string;
+  readonly signal: AbortSignal;
+}): Promise<boolean> {
+  const { code, receipt } = await runFenceHelper({ ...input, args: ["--probe-writer-intent"], pins: [] });
+  return code === 0 && receipt.equals(Buffer.from(
+    '{"v":2,"event":"intent_probe","state":"supported","intentVersion":1}\n',
+  ));
+}
+
+type BorrowedPin = { readonly slot: number; readonly handle: FileHandle; readonly directory: boolean };
+
+async function runFenceHelper(input: {
+  readonly helperPath: string; readonly signal: AbortSignal;
+  readonly args: readonly string[]; readonly pins: readonly BorrowedPin[];
+}): Promise<{ readonly code: number | null; readonly receipt: Buffer }> {
+  const { helperPath, signal, pins } = input;
   try {
     if (
       signal.aborted ||
@@ -49,18 +86,22 @@ export async function acquireNativeWriterFence(input: {
     ) {
       throw new NativeWriterFenceUnavailableError();
     }
-    // fstat validates file type; it does not prove open-description/lock identity.
-    const lease = await leaseFile.stat();
-    const descriptor = leaseFile.fd;
-    if (signal.aborted || !lease.isFile() || descriptor < 0) {
-      throw new NativeWriterFenceUnavailableError();
+    // Retain the actual handle objects through every await and helper close.
+    for (const pin of pins) {
+      const stat = await pin.handle.stat();
+      if (pin.directory ? !stat.isDirectory() : !stat.isFile()) throw new NativeWriterFenceUnavailableError();
     }
-    // No await between reading the borrowed handle's current FD and inheritance.
-    const child = spawn(helperPath, ["--acquire-lease-fd", "6"], {
-      stdio: ["ignore", "pipe", "pipe", "ignore", "pipe", "ignore", descriptor],
-      env: {},
-      shell: false,
-      windowsHide: true,
+    const stdio: ("ignore" | "pipe" | number)[] = ["ignore", "pipe", "pipe", "ignore", "pipe"];
+    const descriptors = pins.map((pin) => {
+      const descriptor = pin.handle.fd;
+      if (descriptor < 0) throw new NativeWriterFenceUnavailableError();
+      stdio[pin.slot] = descriptor;
+      return descriptor;
+    });
+    if (signal.aborted) throw new NativeWriterFenceUnavailableError();
+    // No await between capturing each borrowed handle's current FD and inheritance.
+    const child = spawn(helperPath, [...input.args], {
+      stdio, env: {}, shell: false, windowsHide: true,
     });
     let failed = false;
     let stopping = false;
@@ -126,18 +167,11 @@ export async function acquireNativeWriterFence(input: {
       failed ||
       signal.aborted ||
       outcome.signal !== null ||
-      leaseFile.fd !== descriptor
+      pins.some((pin, index) => pin.handle.fd !== descriptors[index])
     ) {
       throw new NativeWriterFenceUnavailableError();
     }
-    // The trusted C ABI emits exactly one ASCII frame, with no trailing bytes.
-    const acquired = Buffer.from(
-      '{"v":1,"event":"lease","state":"acquired"}\n',
-    );
-    const busy = Buffer.from('{"v":1,"event":"lease","state":"busy"}\n');
-    if (outcome.code === 0 && receipt.equals(acquired)) return "acquired";
-    if (outcome.code === 75 && receipt.equals(busy)) return "busy";
-    throw new NativeWriterFenceUnavailableError();
+    return { code: outcome.code, receipt };
   } catch {
     throw new NativeWriterFenceUnavailableError();
   }

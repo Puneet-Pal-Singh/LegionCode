@@ -122,6 +122,7 @@ export type ResumeWorkspaceSnapshotRef = z.infer<
 >;
 
 export const ResumeWorkspaceUnavailableReasonSchema = z.enum([
+  "observation_integrity_lost",
   "worker_not_quiescent",
   "snapshot_unavailable",
   "snapshot_too_large",

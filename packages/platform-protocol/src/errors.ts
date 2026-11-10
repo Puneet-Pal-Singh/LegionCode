@@ -38,3 +38,98 @@ export const ProtocolErrorSchema = z
   })
   .strict();
 export type ProtocolError = z.infer<typeof ProtocolErrorSchema>;
+
+const PUBLIC_ERROR_MESSAGES = {
+  validation_failed: "The request could not be validated.",
+  unauthorized: "Authentication is required.",
+  forbidden: "This operation is not permitted.",
+  not_found: "The requested resource was not found.",
+  conflict: "The request conflicts with the current state.",
+  rate_limited: "The request is temporarily rate limited. Try again later.",
+  provider_unavailable: "The model provider request failed.",
+  model_unavailable: "The selected model is unavailable.",
+  worker_unavailable: "The execution environment is unavailable.",
+  workspace_prepare_failed: "The workspace could not be prepared.",
+  command_failed: "The operation failed.",
+  command_timed_out: "The operation timed out.",
+  command_cancelled: "The operation was cancelled.",
+  file_not_found: "The requested file was not found.",
+  path_denied: "The requested path is not permitted.",
+  artifact_upload_failed: "The artifact could not be saved.",
+  git_command_failed: "The Git operation failed.",
+  capability_unsupported: "This capability is unavailable.",
+  tool_unavailable_in_backend: "This tool is unavailable in the selected environment.",
+  policy_denied: "The operation was denied by policy. Do not repeat it or bypass the permission policy. Continue with permitted work.",
+  approval_required: "Approval is required for this operation.",
+  illegal_lifecycle_transition: "The operation conflicts with the current lifecycle state.",
+  internal_error: "The request could not be completed.",
+} satisfies Record<ProtocolErrorCode, string>;
+
+const PublicClassificationSchema = z.object({
+  code: ProtocolErrorCodeSchema,
+  retryable: z.boolean().optional(),
+});
+const PublicErrorDetailsSchema = z.object({
+  providerStatusCode: z.number().int().min(100).max(599).optional(),
+  reason: z.literal("observation_integrity_lost").optional(),
+});
+
+/** Public error text is a contract, never a redacted upstream diagnostic.
+ * The caller may supply its own correlation ID; an upstream ID is never adopted.
+ * Neither validation as ProtocolError nor an Error subclass makes prose safe.
+ */
+export function toPublicProtocolError(
+  input: unknown,
+  fallback: Pick<ProtocolError, "code" | "retryable"> = {
+    code: "internal_error",
+    retryable: false,
+  },
+  trustedCorrelationId: string | null = null,
+): ProtocolError {
+  try {
+    // Inspect data properties only. SDK objects can contain accessors; even
+    // descriptor lookup can throw for a Proxy, so reflection stays in this guard.
+    const classification = PublicClassificationSchema.safeParse({
+      code: readErrorData(input, "code"),
+      retryable: readErrorData(input, "retryable"),
+    });
+    const code = classification.success ? classification.data.code : fallback.code;
+    const retryable = classification.success
+      ? classification.data.retryable ?? fallback.retryable
+      : fallback.retryable;
+    const upstreamDetails = readErrorData(input, "details");
+    const details = PublicErrorDetailsSchema.safeParse({
+      providerStatusCode: readErrorData(upstreamDetails, "providerStatusCode"),
+      reason: readErrorData(upstreamDetails, "reason"),
+    });
+    const publicDetails: NonNullable<ProtocolError["details"]> = {};
+    if (details.success) {
+      if (details.data.providerStatusCode !== undefined)
+        publicDetails.providerStatusCode = details.data.providerStatusCode;
+      if (details.data.reason !== undefined)
+        publicDetails.reason = details.data.reason;
+    }
+    return {
+      code,
+      message: PUBLIC_ERROR_MESSAGES[code],
+      retryable,
+      correlationId: trustedCorrelationId,
+      details: Object.keys(publicDetails).length > 0 ? publicDetails : null,
+    };
+  } catch {
+    // Never inspect, stringify or log a value thrown by upstream reflection.
+    return {
+      code: fallback.code,
+      message: PUBLIC_ERROR_MESSAGES[fallback.code],
+      retryable: fallback.retryable,
+      correlationId: trustedCorrelationId,
+      details: null,
+    };
+  }
+}
+
+function readErrorData(value: unknown, key: string): unknown {
+  if (value === null || typeof value !== "object") return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(value, key);
+  return descriptor && "value" in descriptor ? descriptor.value : undefined;
+}

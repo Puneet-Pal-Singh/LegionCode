@@ -134,12 +134,14 @@ test("SDK replay/live lifecycle projection survives browser refresh", async ({
     if (replayMode === "initial" && afterSequence > 0) {
       await liveReplayGate;
     }
+    const initialSnapshot = replayMode === "initial" && afterSequence === 0;
     const source =
-      replayMode === "initial" && afterSequence === 0
+      initialSnapshot
         ? LIFECYCLE_EVENTS.slice(0, 5)
         : LIFECYCLE_EVENTS;
     const events = source.filter((event) => event.sequence > afterSequence);
-    await fulfillReplay(route, events);
+    // The gated later events are live, not another page of this saved snapshot.
+    await fulfillReplay(route, events, initialSnapshot);
   });
 
   await page.goto("/agents/runtime-lifecycle-golden.html");
@@ -166,6 +168,7 @@ test("SDK replay/live lifecycle projection survives browser refresh", async ({
 async function fulfillReplay(
   route: Route,
   events: readonly unknown[],
+  snapshotComplete = false,
 ): Promise<void> {
   await route.fulfill({
     contentType: "application/json",
@@ -175,7 +178,7 @@ async function fulfillReplay(
       ok: true,
       result: {
         events,
-        nextSequence: events.length
+        nextSequence: events.length && !snapshotComplete
           ? (events.at(-1) as { readonly sequence: number }).sequence
           : null,
       },

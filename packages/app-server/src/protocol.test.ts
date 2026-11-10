@@ -45,6 +45,33 @@ describe("App Server protocol", () => {
     }).success).toBe(true);
   });
   it("accepts only strict, versioned requests with canonical IDs and params", () => {
+    const configuration = {
+      protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+      method: "workspace/configuration/update",
+      params: {
+        workspaceId: "workspace-owned",
+        expectedVersion: 1,
+        patch: { name: "Configured", selectedBranch: "feature/configuration" },
+      },
+    };
+    expect(AppServerRequestSchema.safeParse(configuration).success).toBe(true);
+    for (const params of [
+      { ...configuration.params, expectedVersion: 0 },
+      { ...configuration.params, expectedVersion: Number.MAX_SAFE_INTEGER + 1 },
+      { ...configuration.params, expectedVersion: 1.5 },
+      { ...configuration.params, patch: {} },
+      { ...configuration.params, patch: { scripts: ["echo unsupported"] } },
+      { ...configuration.params, patch: { network: "all" } },
+      { ...configuration.params, patch: { secrets: ["hidden"] } },
+      { ...configuration.params, patch: { name: " " } },
+      { ...configuration.params, userId: "foreign" },
+      { ...configuration.params, runId: "run_unneeded" },
+    ])
+      expect(
+        AppServerRequestSchema.safeParse({ ...configuration, params }).success,
+      ).toBe(false);
+
+
     expect(
       AppServerRequestSchema.safeParse({
         protocolVersion: APP_SERVER_PROTOCOL_VERSION,
