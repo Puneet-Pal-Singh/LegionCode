@@ -40,6 +40,12 @@ export type LocalTurnAttemptIdentity = {
   readonly runAttemptId: StartTurnInput["runAttemptId"];
 };
 
+/** Private admitted input only; its target comes exclusively from the held attempt. */
+export type LocalTurnAttemptInput = Omit<
+  Parameters<RuntimeKernel["acceptThreadInput"]>[0],
+  "turnId"
+>;
+
 type KernelPorts = Omit<
   RuntimeKernelDependencies,
   "worker" | "artifactCapture" | "hooks" | "lifecycleEvents" | "producerId"
@@ -59,6 +65,7 @@ export class LocalTurnExecutor<
       readonly result: Promise<StartTurnResult>;
       readonly identity: LocalTurnAttemptIdentity;
       finished: boolean;
+      readonly isStopped: () => boolean;
       readonly isTerminal: () => boolean;
       readonly terminalStatus: () => ReturnType<
         RuntimeKernel["getTurnTerminalStatus"]
@@ -237,6 +244,10 @@ export class LocalTurnExecutor<
               admission.run.threadId,
               toolTracker,
             );
+        const kernelSignal = ports.signal
+          ? AbortSignal.any([executionSignal, ports.signal])
+          : executionSignal;
+        preflightSignal = kernelSignal;
         kernelOwner = new RuntimeKernel({
           ...ports,
           ...(captured
@@ -248,9 +259,7 @@ export class LocalTurnExecutor<
           lifecycleEvents: this.options.lifecycleEvents,
           producerId: this.options.producerId,
           artifactCapture: captured ? "required" : "omitted_read_only",
-          signal: ports.signal
-            ? AbortSignal.any([executionSignal, ports.signal])
-            : executionSignal,
+          signal: kernelSignal,
           worker: workerOwner,
         });
         return kernelOwner;
@@ -302,6 +311,7 @@ export class LocalTurnExecutor<
       kernel,
       result,
       finished: false,
+      isStopped: () => controller.signal.aborted || preflightSignal.aborted || workspaceBinding?.signal.aborted === true,
       controller,
       hasPreparationResourceProof: () => preparationFailure !== undefined,
       awaitQuiescence: (timeoutMs) =>
@@ -338,6 +348,41 @@ export class LocalTurnExecutor<
       },
     });
     return result;
+  }
+
+  /** Private admitted input port: the host must first durably own this exact input.
+   * Acceptance/application and the terminal race remain on the same kernel. */
+  async acceptThreadInputAttempt(
+    identity: LocalTurnAttemptIdentity,
+    input: LocalTurnAttemptInput,
+  ): Promise<number> {
+    const expected = { ...identity };
+    const accepted = { ...input.accepted };
+    const clientInputId = input.clientInputId;
+    const transcriptMessageId = input.transcriptMessageId;
+    const owned = this.turns.get(expected.turnId);
+    if (!owned) throw new RuntimeKernelError(
+      "turn_not_active", "Attempt is not owned by this executor",
+    );
+    const assertCurrent = () => {
+      if (this.turns.get(expected.turnId) !== owned ||
+          (Object.keys(owned.identity) as Array<keyof LocalTurnAttemptIdentity>).some(
+            (key) => owned.identity[key] !== expected[key],
+          ) || owned.finished || owned.isStopped() || owned.isTerminal()) {
+        throw new RuntimeKernelError(
+          "turn_not_active", "Attempt is no longer accepting input",
+        );
+      }
+    };
+    assertCurrent();
+    const kernel = await owned.kernel;
+    assertCurrent();
+    if (!kernel.isTurnReady(expected.turnId)) throw new RuntimeKernelError(
+      "turn_not_active", "Attempt has no ready model input owner",
+    );
+    return kernel.acceptThreadInput({
+      turnId: expected.turnId, accepted, clientInputId, transcriptMessageId,
+    });
   }
 
   async interrupt(

@@ -37,6 +37,7 @@ import { LocalApprovalService } from "./local-approvals.js";
 import type { LocalTurnMediaPort, LocalTurnPreparedMedia } from "./local-turn-media.js";
 import { localTurnImageReferences } from "./local-turn-images.js";
 import { captureLocalTurnModel } from "./local-turn-model.js";
+import type { LocalTurnAttemptIdentity, LocalTurnAttemptInput } from "@legioncode/execution-engine/runtime/desktop/LocalReadOnlyTurnExecutor";
 import { LocalTurnResources, type LocalTurnPreparation } from "./local-turn-resources.js";
 import { LocalThreadTitleGeneration } from "./local-thread-title-generation.js";
 import type { ThreadTitleGenerator } from "./thread-titles/index.js";
@@ -51,6 +52,8 @@ export type LocalTurnExecutor = {
   /** True only after physical quiescence and canonical terminal/capture settlement. */
   awaitResourceRelease(turnId: TurnId): Promise<boolean>;
   interrupt(turnId: TurnId, reason: string): Promise<void>;
+  /** Private, optional until a canonical local durable input consumer is composed. */
+  acceptThreadInputAttempt?(identity: LocalTurnAttemptIdentity, input: LocalTurnAttemptInput): Promise<number>;
   resolveApproval: ConstructorParameters<
     typeof LocalApprovalService
   >[0]["resolveApproval"];
