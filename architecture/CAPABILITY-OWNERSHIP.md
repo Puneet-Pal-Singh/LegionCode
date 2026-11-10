@@ -2887,3 +2887,15 @@ GitHub inventory, branch authorization and account state remain with the existin
 Web/SDK/server owners. The new configuration leaf remains awaiting the host-owned
 Web/Desktop mount and installed acceptance; it exposes no scripts, secrets,
 allocation or machine-readiness controls. Saving settings is not preparation.
+
+## Shared saved-history chat conversion
+
+Client UI `convertConversationHistoryMessages` owns the existing pure conversion
+from SDK-classified history records to chat messages. Web's authenticated
+`ChatHydrationService` now uses this shared helper for complete and partial saved
+history. Source IDs, user/assistant roles, timestamps, projected text parts, the
+existing `create_code_artifact` result mapping and all source metadata (including
+canonical identity and image references) retain their existing behavior. SDK
+history projection remains UI-neutral; authentication, paging, replay, runtime
+state and durable transcript ownership remain with their existing owners. This
+extraction adds no Native history consumer or message content inferred from ACKs.

@@ -166,3 +166,5 @@ export {
   HostedWorkspaceConfigurationEditor,
   type HostedWorkspaceConfigurationEditorProps,
 } from "./workspace/HostedWorkspaceConfigurationEditor.js";
+
+export { convertConversationHistoryMessages } from "./conversation/history/conversationHistoryMessages.js";
