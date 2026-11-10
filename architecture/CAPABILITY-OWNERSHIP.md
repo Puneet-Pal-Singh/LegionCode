@@ -1639,3 +1639,26 @@ SDK `readLocalChatImage` requires ordered ranges, immutable reference agreement
 and the complete SHA-256 before returning bytes, with abort checks before return.
 Clients own transient display URLs. No blob store, admission/lifecycle producer,
 capability advertisement or Desktop activation is added by this boundary.
+
+## Plan 057 — Native Plan process-loss reconciliation
+
+The runtime lifecycle coordinator remains the only terminal writer. Its shared
+restoration reducer retains the existing isolated approval-wait policy and adds
+strict Native read-only restoration, including tool names/batches, durable
+approval/tool receipts and context compaction. Recovery finishes already-durable
+item results before failing remaining work; a typed compaction failure now uses
+the canonical item failure envelope.
+
+The Engine's `LocalNativePlanRecovery` adapter validates the admitted worker,
+permission profile and immutable Plan configuration. It reads complete scoped
+lifecycle history in bounded pages, stages coordinator-produced repair and failure
+events, and appends them in one atomic batch. Durable terminal replay reconciles
+lost acknowledgements. Completed receipts remain unchanged. Oversized unsettled,
+corrupt, mutating or independently owned history does not authorize a partial
+restore. No provider, tool, credential, workspace or writer fence is reacquired,
+replayed or released. Startup must call this adapter only after the existing
+SQLite exclusive-lock owner is open and before new commands become ready.
+
+The private admission enumeration, native runtime port and App Server before-ready
+barrier are separately owned integration dependencies. This leaf does not claim
+to activate that startup barrier or recover captured Build resources.
