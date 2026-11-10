@@ -30,6 +30,9 @@ export type CloudOpeningFrame = Extract<CloudHarnessHostFrame, {type: "opening_c
 export type CloudOpeningCommitter = (frame: CloudOpeningFrame) => Promise<HarnessOpeningCommit>;
 export class CloudHarnessBridgeClient {
   private openingCommitter: CloudOpeningCommitter | null = null;
+  private openingIntent: string | null = null;
+  private openingPhase: "reserved" | "dispatching" | "acknowledged" | null = null;
+  private readonly openingDeliveries = new Set<string>();
   bindOpeningCommitter(committer: CloudOpeningCommitter): void {
     if (this.openingCommitter) throw new Error("Opening committer cannot be replaced");
     this.openingCommitter = committer;
@@ -117,15 +120,42 @@ export class CloudHarnessBridgeClient {
     const frame = CloudHarnessHostFrameSchema.parse(JSON.parse(encoded));
     if (this.closed) throw new Error("Cloud harness transport fenced");
     if (frame.type === "opening_claim" || frame.type === "opening_session") {
-      if (!this.openingCommitter || !this.transport) throw new Error("Opening commit authority unavailable");
-      // A late learned identity is cleanup data: PG's exact-intent CAS remains
-      // authoritative even after provider authorization is revoked.
-      if (frame.type === "opening_claim") await this.supervisor.authorize(this.target);
-      const commit = await this.openingCommitter(frame);
-      if (this.closed || commit.openingRef !== frame.intent.openingRef || commit.commandFingerprint !== frame.intent.commandFingerprint ||
-          commit.processGeneration !== frame.intent.processGeneration || commit.phase !== (frame.type === "opening_session" ? "acknowledged" : frame.operation === "reserve" ? "reserved" : "dispatching"))
+      const transport = this.transport, committer = this.openingCommitter;
+      if (!committer || !transport) throw new Error("Opening commit authority unavailable");
+      const captured = CloudHarnessHostFrameSchema.parse(frame);
+      if (captured.type !== "opening_claim" && captured.type !== "opening_session") throw new Error("Opening frame mismatch");
+      const intent = JSON.stringify(captured.intent);
+      const phase = captured.type === "opening_session" ? "acknowledged" : captured.operation === "reserve" ? "reserved" : "dispatching";
+      if (this.openingDeliveries.size >= 3 || this.openingDeliveries.has(captured.deliveryId) ||
+          (phase === "reserved" ? this.openingIntent !== null || this.openingPhase !== null :
+            this.openingIntent !== intent || this.openingPhase !== (phase === "dispatching" ? "reserved" : "dispatching")))
+        throw new Error("Opening delivery correlation mismatch");
+      if (captured.type === "opening_session" && (captured.session.runAttemptId !== captured.intent.runAttemptId ||
+          captured.session.instanceId !== captured.intent.instanceId || captured.session.processGeneration !== captured.intent.processGeneration))
+        throw new Error("Opening native identity mismatch");
+      this.openingDeliveries.add(captured.deliveryId);
+      const assertCurrent = () => {
+        if (this.closed || this.transport !== transport || this.openingCommitter !== committer)
+          throw new Error("Opening transport changed or closed");
+      };
+      // Late learned identity is cleanup data; the exact-intent durable CAS
+      // remains authoritative after provider authorization has been revoked.
+      if (captured.type === "opening_claim") {
+        await this.supervisor.authorize(this.target);
+        assertCurrent();
+      }
+      // Give the callback its own parsed copy; retain the original full intent
+      // and session for correlation across the asynchronous database commit.
+      const callbackFrame = CloudHarnessHostFrameSchema.parse(captured);
+      if (callbackFrame.type !== "opening_claim" && callbackFrame.type !== "opening_session") throw new Error("Opening frame mismatch");
+      const commit = await committer(callbackFrame);
+      assertCurrent();
+      if (commit.openingRef !== captured.intent.openingRef || commit.commandFingerprint !== captured.intent.commandFingerprint ||
+          commit.processGeneration !== captured.intent.processGeneration || commit.phase !== phase)
         throw new Error("Opening commit identity mismatch");
-      this.transport.send(encodeCloudHarnessBridgeFrame({type: "opening_commit", deliveryId: frame.deliveryId, commit}));
+      this.openingIntent = intent;
+      this.openingPhase = phase;
+      transport.send(encodeCloudHarnessBridgeFrame({type: "opening_commit", deliveryId: captured.deliveryId, commit}));
       return;
     }
     if (frame.type === "observation") {

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import {
-  HarnessCommitAckSchema,
+  HarnessCommitAckSchema, HarnessOpeningClaimFrameSchema, HarnessOpeningSessionFrameSchema,
   fingerprintHarnessCommand, HarnessStartCommandSchema,
   type HarnessOpeningIntent, type HarnessOpeningCommit, type HarnessOpeningFenceTarget,
   HarnessObservationSchema,
@@ -54,7 +54,10 @@ export function attachCloudHarnessBridge(
   let closed = false;
   let closeOpeningAuthority: (() => void) | undefined;
   const openingCommits = new Map<string, { intent: HarnessOpeningIntent; phase: HarnessOpeningCommit["phase"];
-    resolve(): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>();
+    bytes: number; resolve(): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>();
+  let openingBytes = 0;
+  let committedOpeningIntent: string | null = null;
+  let committedOpeningPhase: HarnessOpeningCommit["phase"] | null = null;
   let activeRequests = 0;
   const seenRequests = new Set<string>();
   const waitingAcks = new Map<
@@ -75,7 +78,7 @@ export function attachCloudHarnessBridge(
     closed = true;
     closeOpeningAuthority?.();
     for (const pending of openingCommits.values()) { clearTimeout(pending.timer); pending.reject(new Error("Opening commit outcome unknown")); }
-    openingCommits.clear();
+    openingCommits.clear(); openingBytes = 0;
     for (const pending of waitingAcks.values()) {
       clearTimeout(pending.timer);
       pending.reject(
@@ -104,15 +107,30 @@ export function attachCloudHarnessBridge(
       if (error) fence();
     });
   };
-  const commitOpening = (frame: {type: "opening_claim"; operation: "reserve" | "begin_dispatch"; intent: HarnessOpeningIntent} |
+  const commitOpening = async (rawFrame: {type: "opening_claim"; operation: "reserve" | "begin_dispatch"; intent: HarnessOpeningIntent} |
     {type: "opening_session"; intent: HarnessOpeningIntent; session: HarnessSession}, phase: HarnessOpeningCommit["phase"]): Promise<void> => {
-    if (closed || openingCommits.size >= 3) return Promise.reject(new Error("Opening commit unavailable"));
-    const deliveryId = randomUUID();
-    return new Promise((resolve, reject) => {
+    const frame = rawFrame.type === "opening_claim" ? HarnessOpeningClaimFrameSchema.parse({...rawFrame, deliveryId: randomUUID()}) :
+      HarnessOpeningSessionFrameSchema.parse({...rawFrame, deliveryId: randomUUID()});
+    const intent = JSON.stringify(frame.intent);
+    if (closed || socket.readyState !== 1 || openingCommits.size >= 3 ||
+        (phase === "reserved" ? committedOpeningIntent !== null || committedOpeningPhase !== null :
+          committedOpeningIntent !== intent || committedOpeningPhase !== (phase === "dispatching" ? "reserved" : "dispatching")))
+      throw new Error("Opening commit unavailable or phase mismatch");
+    if (frame.type === "opening_session" && (frame.session.runAttemptId !== frame.intent.runAttemptId ||
+        frame.session.instanceId !== frame.intent.instanceId || frame.session.processGeneration !== frame.intent.processGeneration))
+      throw new Error("Opening native identity mismatch");
+    const frameBytes = Buffer.byteLength(encodeCloudHarnessBridgeFrame(frame));
+    if (openingBytes + pendingBytes + pendingRequestBytes + frameBytes > CLOUD_HARNESS_BRIDGE_LIMITS.maxPendingBytes)
+      throw new Error("Opening commit backpressure");
+    const deliveryId = frame.deliveryId;
+    await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(fence, 60_000);
-      openingCommits.set(deliveryId, { intent: frame.intent, phase, resolve, reject, timer });
-      try { send({ ...frame, deliveryId }); } catch { fence(); }
+      openingCommits.set(deliveryId, { intent: frame.intent, phase, bytes: frameBytes, resolve, reject, timer });
+      openingBytes += frameBytes;
+      try { send(frame); } catch { fence(); }
     });
+    if (closed || socket.readyState !== 1) throw new Error("Opening connection closed after commit");
+    committedOpeningIntent = intent; committedOpeningPhase = phase;
   };
   const observe = async (
     raw: HarnessObservation,
@@ -129,7 +147,7 @@ export function attachCloudHarnessBridge(
     if (
       closed ||
       waitingAcks.size >= CLOUD_HARNESS_BRIDGE_LIMITS.maxPendingFrames ||
-      pendingBytes + bytes > CLOUD_HARNESS_BRIDGE_LIMITS.maxPendingBytes
+      openingBytes + pendingBytes + bytes > CLOUD_HARNESS_BRIDGE_LIMITS.maxPendingBytes
     )
       throw new Error("Cloud harness delivery backpressure; recovery required");
     // Core persisted this observation before invoking this callback.
@@ -284,9 +302,9 @@ export function attachCloudHarnessBridge(
     }
     if (frame.type === "opening_commit") {
       const pending = openingCommits.get(frame.deliveryId), commit = frame.commit;
-      if (!pending || commit.openingRef !== pending.intent.openingRef || commit.commandFingerprint !== pending.intent.commandFingerprint ||
+      if (closed || socket.readyState !== 1 || !pending || commit.openingRef !== pending.intent.openingRef || commit.commandFingerprint !== pending.intent.commandFingerprint ||
           commit.processGeneration !== pending.intent.processGeneration || commit.phase !== pending.phase) { fence(); return; }
-      openingCommits.delete(frame.deliveryId); clearTimeout(pending.timer); pending.resolve(); return;
+      openingCommits.delete(frame.deliveryId); openingBytes -= pending.bytes; clearTimeout(pending.timer); pending.resolve(); return;
     }
     if (frame.type === "ack") {
       const ackFrame = frame;
@@ -319,7 +337,7 @@ export function attachCloudHarnessBridge(
     }
     if (
       activeRequests >= 128 ||
-      pendingRequestBytes + pendingBytes + Buffer.byteLength(text) >
+      openingBytes + pendingRequestBytes + pendingBytes + Buffer.byteLength(text) >
         CLOUD_HARNESS_BRIDGE_LIMITS.maxPendingBytes ||
       seenRequests.size >= 512 ||
       seenRequests.has(frame.requestId)

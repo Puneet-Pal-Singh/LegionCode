@@ -113,7 +113,9 @@ export function handleCloudHarnessBridge(
   let pendingBytes = 0;
   const seen = new Set<string>();
   const openingCommits = new Map<string, {intent: HarnessOpeningIntent; phase: HarnessOpeningCommit["phase"];
-    resolve(commit: HarnessOpeningCommit): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout>}>();
+    connection: ReturnType<typeof HarnessServiceConnectSchema.parse>; acknowledging: boolean;
+    bytes: number; resolve(commit: HarnessOpeningCommit): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout>}>();
+  let openingBytes = 0;
   let connection:
     | ReturnType<typeof HarnessServiceConnectSchema.parse>
     | undefined;
@@ -124,7 +126,7 @@ export function handleCloudHarnessBridge(
     if (closed) return;
     closed = true;
     for (const pending of openingCommits.values()) { clearTimeout(pending.timer); pending.reject(new Error("Opening commit outcome unknown")); }
-    openingCommits.clear();
+    openingCommits.clear(); openingBytes = 0;
     clearTimeout(timer);
     try {
       server.close(1008, "Harness service recovery required");
@@ -215,17 +217,46 @@ export function handleCloudHarnessBridge(
       const current = await verify();
       if (operation.executionLease.leaseId !== current.lease.leaseId || operation.executionLease.sandboxId !== current.lease.sandboxId ||
           operation.executionLease.generation !== current.lease.generation) throw new Error("Opening checkout mismatch");
-      port.bindOpeningAuthority({ executionLease: operation.executionLease, commit: async (frame) => {
+      const openingConnection = connection;
+      if (!openingConnection) throw new Error("Opening connection unavailable");
+      let committedIntent: string | null = null;
+      let committedPhase: HarnessOpeningCommit["phase"] | null = null;
+      const deliveries = new Set<string>();
+      port.bindOpeningAuthority({ executionLease: operation.executionLease, commit: async (rawFrame) => {
+        const frame = HarnessServiceHostFrameSchema.parse(rawFrame);
+        if (frame.type !== "opening_claim" && frame.type !== "opening_session") throw new Error("Opening frame mismatch");
+        const phase = frame.type === "opening_session" ? "acknowledged" : frame.operation === "reserve" ? "reserved" : "dispatching";
+        const intent = JSON.stringify(frame.intent);
+        const assertCurrent = () => {
+          if (closed || connection !== openingConnection || server.readyState !== 1)
+            throw new Error("Opening connection changed or closed");
+        };
+        assertCurrent();
+        if (deliveries.size >= 3 || deliveries.has(frame.deliveryId) ||
+            (phase === "reserved" ? committedIntent !== null || committedPhase !== null :
+              committedIntent !== intent || committedPhase !== (phase === "dispatching" ? "reserved" : "dispatching")))
+          throw new Error("Opening delivery phase mismatch");
+        if (frame.type === "opening_session" && (frame.session.runAttemptId !== frame.intent.runAttemptId ||
+            frame.session.instanceId !== frame.intent.instanceId || frame.session.processGeneration !== frame.intent.processGeneration))
+          throw new Error("Opening session identity mismatch");
+        deliveries.add(frame.deliveryId);
         await verify();
+        assertCurrent();
         if (frame.intent.executionLease.kind !== "cloud" || JSON.stringify(frame.intent.executionLease) !== JSON.stringify(operation.executionLease))
           throw new Error("Opening host lease mismatch");
-        const phase = frame.type === "opening_session" ? "acknowledged" : frame.operation === "reserve" ? "reserved" : "dispatching";
-        if (openingCommits.size >= 3 || openingCommits.has(frame.deliveryId)) throw new Error("Opening commit capacity exceeded");
-        return new Promise((resolve, reject) => {
+        const frameBytes = bytes(encodeCloudHarnessBridgeFrame(frame));
+        if (openingCommits.size >= 3 || openingCommits.has(frame.deliveryId) || openingBytes + pendingBytes + frameBytes > CLOUD_HARNESS_BRIDGE_LIMITS.maxPendingBytes)
+          throw new Error("Opening commit capacity exceeded");
+        const commit = await new Promise<HarnessOpeningCommit>((resolve, reject) => {
           const timer = setTimeout(fence, 60_000);
-          openingCommits.set(frame.deliveryId, {intent: frame.intent, phase, resolve, reject, timer});
+          openingCommits.set(frame.deliveryId, {intent: frame.intent, phase, connection: openingConnection,
+            acknowledging: false, bytes: frameBytes, resolve, reject, timer});
+          openingBytes += frameBytes;
           try { send(frame); } catch { fence(); }
         });
+        assertCurrent();
+        committedIntent = intent; committedPhase = phase;
+        return commit;
       } });
       const value = await port.open({command: operation.command, signal: new AbortController().signal});
       await verify();
@@ -306,11 +337,13 @@ export function handleCloudHarnessBridge(
     }
     if (frame.type === "opening_commit") {
       const pending = openingCommits.get(frame.deliveryId), commit = frame.commit;
-      if (!pending || commit.openingRef !== pending.intent.openingRef || commit.commandFingerprint !== pending.intent.commandFingerprint ||
+      if (!pending || pending.acknowledging || pending.connection !== connection || commit.openingRef !== pending.intent.openingRef || commit.commandFingerprint !== pending.intent.commandFingerprint ||
           commit.processGeneration !== pending.intent.processGeneration || commit.phase !== pending.phase) { fence(); return; }
+      pending.acknowledging = true;
+      const capturedConnection = connection;
       void verify().then(() => {
-        if (closed || openingCommits.get(frame.deliveryId) !== pending) return;
-        openingCommits.delete(frame.deliveryId); clearTimeout(pending.timer); pending.resolve(commit);
+        if (closed || server.readyState !== 1 || connection !== capturedConnection || pending.connection !== capturedConnection || openingCommits.get(frame.deliveryId) !== pending) { fence(); return; }
+        openingCommits.delete(frame.deliveryId); openingBytes -= pending.bytes; clearTimeout(pending.timer); pending.resolve(commit);
       }).catch(fence);
       return;
     }
@@ -319,7 +352,7 @@ export function handleCloudHarnessBridge(
       activeRequests >= 64 ||
       seen.size >= 512 ||
       seen.has(frame.requestId) ||
-      pendingBytes + bytes(event.data) >
+      openingBytes + pendingBytes + bytes(event.data) >
         CLOUD_HARNESS_BRIDGE_LIMITS.maxPendingBytes
     ) {
       fence();
