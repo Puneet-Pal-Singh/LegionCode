@@ -7,6 +7,16 @@ import {
 
 type PopoverPosition = Omit<CSSProperties, "maxHeight"> & { maxHeight?: number };
 
+/** Visible CSS-pixel bounds in the layout coordinates used by fixed popovers. */
+export function getVisibleViewportBounds() {
+  const viewport = window.visualViewport;
+  const left = viewport?.offsetLeft ?? 0;
+  const top = viewport?.offsetTop ?? 0;
+  const width = viewport?.width ?? window.innerWidth;
+  const height = viewport?.height ?? window.innerHeight;
+  return { left, top, width, height, right: left + width, bottom: top + height };
+}
+
 /** One measured placement owner for fixed popovers, including portalled menus. */
 export function useViewportPopoverPosition(
   isOpen: boolean,
@@ -43,14 +53,15 @@ export function useViewportPopoverPosition(
       const panel = panelRef.current?.getBoundingClientRect();
       if (!trigger || !panel) return;
 
-      // Fixed positioning and client rects use layout-viewport coordinates.
       // VisualViewport dimensions are already CSS pixels, including pinch zoom.
-      const viewportLeft = visualViewport?.offsetLeft ?? 0;
-      const viewportTop = visualViewport?.offsetTop ?? 0;
-      const viewportWidth = visualViewport?.width ?? window.innerWidth;
-      const viewportHeight = visualViewport?.height ?? window.innerHeight;
-      const viewportRight = viewportLeft + viewportWidth;
-      const viewportBottom = viewportTop + viewportHeight;
+      const {
+        left: viewportLeft,
+        top: viewportTop,
+        width: viewportWidth,
+        height: viewportHeight,
+        right: viewportRight,
+        bottom: viewportBottom,
+      } = getVisibleViewportBounds();
       const availableWidth = Math.max(0, viewportWidth - viewportPadding * 2);
       const spaceRight = viewportRight - trigger.left - viewportPadding;
       const spaceLeft = trigger.right - viewportLeft - viewportPadding;

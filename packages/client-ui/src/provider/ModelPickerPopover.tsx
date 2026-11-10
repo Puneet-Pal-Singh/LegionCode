@@ -36,7 +36,7 @@ import { isProviderModelAvailable } from "./providerModelAvailability.js";
 import { formatModelDisplayName } from "./modelDisplayName.js";
 import { ModelPickerDetailsPanel } from "./ModelPickerDetailsPanel.js";
 import { useOutsideDismiss } from "../hooks/useOutsideDismiss.js";
-import { useViewportPopoverPosition } from "../hooks/useViewportPopoverPosition.js";
+import { getVisibleViewportBounds, useViewportPopoverPosition } from "../hooks/useViewportPopoverPosition.js";
 
 const VIEWPORT_PADDING_PX = 12;
 const POPOVER_GAP_PX = 8;
@@ -106,8 +106,12 @@ interface HoveredModelDetails {
 function resolveModelDetailsSide(
   popoverRect: DOMRect,
 ): "left" | "right" | null {
-  const spaceRight = window.innerWidth - popoverRect.right - VIEWPORT_PADDING_PX;
-  const spaceLeft = popoverRect.left - VIEWPORT_PADDING_PX;
+  const viewport = getVisibleViewportBounds();
+  const earliestTop = Math.max(viewport.top + VIEWPORT_PADDING_PX, popoverRect.top);
+  if (viewport.bottom - VIEWPORT_PADDING_PX - earliestTop < ESTIMATED_MODEL_DETAILS_HEIGHT_PX)
+    return null;
+  const spaceRight = viewport.right - popoverRect.right - VIEWPORT_PADDING_PX;
+  const spaceLeft = popoverRect.left - viewport.left - VIEWPORT_PADDING_PX;
   const requiredWidth = MODEL_DETAILS_WIDTH_PX + MODEL_DETAILS_GAP_PX;
 
   if (spaceRight >= requiredWidth) return "right";
@@ -119,12 +123,13 @@ function resolveModelDetailsTop(
   rowRect: DOMRect,
   popoverRect: DOMRect,
 ): number {
+  const viewport = getVisibleViewportBounds();
   const maxViewportTop = Math.max(
-    VIEWPORT_PADDING_PX,
-    window.innerHeight - ESTIMATED_MODEL_DETAILS_HEIGHT_PX - VIEWPORT_PADDING_PX,
+    viewport.top + VIEWPORT_PADDING_PX,
+    viewport.bottom - ESTIMATED_MODEL_DETAILS_HEIGHT_PX - VIEWPORT_PADDING_PX,
   );
   const viewportTop = Math.min(
-    Math.max(VIEWPORT_PADDING_PX, rowRect.top),
+    Math.max(viewport.top + VIEWPORT_PADDING_PX, rowRect.top),
     maxViewportTop,
   );
   return Math.max(0, viewportTop - popoverRect.top);
@@ -326,7 +331,20 @@ export function ModelPickerPopover({
     popoverPosition.top,
     popoverPosition.width,
     popoverPosition.maxHeight,
+    popoverPosition.maxWidth,
   ]);
+  useEffect(() => {
+    if (!isOpen) return;
+    const viewport = window.visualViewport;
+    const resetHoveredModel = () => setHoveredModel(null);
+    // A pan can clip the companion without changing the primary popup's position.
+    viewport?.addEventListener("resize", resetHoveredModel);
+    viewport?.addEventListener("scroll", resetHoveredModel);
+    return () => {
+      viewport?.removeEventListener("resize", resetHoveredModel);
+      viewport?.removeEventListener("scroll", resetHoveredModel);
+    };
+  }, [isOpen]);
   const connectedProviderIds = useMemo(
     () => buildConnectedProviderIds(credentials),
     [credentials],
