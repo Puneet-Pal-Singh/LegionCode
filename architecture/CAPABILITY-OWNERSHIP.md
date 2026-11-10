@@ -1696,3 +1696,13 @@ SDK `readLocalChatImage` requires ordered ranges, immutable reference agreement
 and the complete SHA-256 before returning bytes, with abort checks before return.
 Clients own transient display URLs. No blob store, admission/lifecycle producer,
 capability advertisement or Desktop activation is added by this boundary.
+
+## Plan 057 — Local server physical shutdown barrier
+
+The generic server exposes a closed promise distinct from HTTP socket closure.
+After connections drain it awaits the composed Native service shutdown before
+closing the sole SQLite writer. Unknown runtime/resource settlement rejects the
+promise, retains persistence and reports runtime-shutdown-failed; the utility
+process exits only after positive closed resolution. The Turn service remains
+the owner of preparation/executor cleanup and canonical interruption. This
+barrier adds no terminal writer, fence release policy or background-work owner.

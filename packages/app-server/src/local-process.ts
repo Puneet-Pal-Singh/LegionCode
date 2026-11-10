@@ -20,6 +20,7 @@ import { LocalThreadNotFoundError, LocalThreadService } from "./local-threads.js
 import { LocalProviderService, ProviderConfigurationSchema } from "./local-providers.js";
 import { LocalTurnService, type LocalTurnRuntime } from "./local-turns.js";
 import { reconcileLostLocalTurns } from "./local-turn-recovery.js";
+import { attachLocalServerShutdown } from "./local-server-shutdown.js";
 import { LocalProviderPreferences } from "./local-provider-preferences.js";
 import { LocalTurnArtifactReads } from "./local-turn-artifact-reads.js";
 import { LocalChatMediaStore } from "./local-chat-media-store.js";
@@ -114,9 +115,7 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
     const server = createServer((request, response) => {
       void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, turnService, providerPreferences, artifactReads, imageReads, artifactCommits);
     });
-    server.once("close", () => persistence.close());
-    server.once("error", () => persistence.close());
-    return server;
+    return attachLocalServerShutdown(server, persistence, turnService);
   } catch (error) {
     persistence.close();
     throw error;
@@ -136,15 +135,19 @@ export async function runLocalAppServerProcess(
     process.exit(1);
     return;
   }
+  server.once("runtime-shutdown-failed", () => parentPort.postMessage({ type: "fatal" }));
+  const exitAfterClose = () => {
+    void server.closed.then(() => process.exit(1), () => undefined);
+  };
   server.once("error", () => {
     parentPort.postMessage({ type: "fatal" });
-    server.close(() => process.exit(1));
+    server.close(exitAfterClose);
   });
   server.listen(0, "127.0.0.1", () => {
     const address = server.address();
     if (!address || typeof address === "string") {
       parentPort.postMessage({ type: "fatal" });
-      server.close(() => process.exit(1));
+      server.close(exitAfterClose);
       return;
     }
     parentPort.postMessage({
