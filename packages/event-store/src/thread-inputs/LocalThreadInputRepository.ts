@@ -23,7 +23,11 @@ const RecordSchema = ThreadInputQueueItemSchema.extend({
   mediaFingerprint: z.string().regex(/^[a-f0-9]{64}$/).nullable(), mediaRevision: z.number().int().positive().safe().nullable(),
 }).strict().superRefine((item, context) => {
   if (item.sessionId !== item.threadId || (item.delivery === "steer" && (!item.targetTurnId || !item.targetRunAttemptId)) ||
-      (item.mediaRefs.length > 0) !== (item.mediaFingerprint !== null && item.mediaRevision !== null))
+      (item.mediaRefs.length > 0) !== (item.mediaFingerprint !== null && item.mediaRevision !== null) ||
+      (item.delivery === "queue" && (item.targetTurnId !== null || item.targetRunAttemptId !== null)) ||
+      (item.receipt?.status === "started" && (item.delivery !== "queue" || item.state !== "consumed")) ||
+      (item.receipt?.status === "cancelled" && item.state !== "cancelled") ||
+      (item.receipt?.status === "conflict" && item.state !== "cancelled"))
     context.addIssue({ code: z.ZodIssueCode.custom, message: "Local input scope or immutable media ownership is inconsistent" });
 });
 type Row = { item_id: string; thread_id: string; user_id: string; workspace_id: string; client_input_id: string;
@@ -298,7 +302,7 @@ export class LocalThreadInputRepository implements ThreadInputRepository {
   private validateState(row: State, scope: ThreadInputScope): void {
     if (row.thread_id !== scope.threadId || row.user_id !== scope.userId || row.workspace_id !== scope.workspaceId ||
         !Number.isSafeInteger(row.revision) || row.revision < 0 || !Number.isSafeInteger(row.next_order) || row.next_order < 0 ||
-        ![0, 1].includes(row.paused) || (row.pause_reason !== null && (typeof row.pause_reason !== "string" || row.pause_reason.length > 2000))) throw corrupt("Local queue state is invalid");
+        ![0, 1].includes(row.paused) || (row.paused === 0 && row.pause_reason !== null) || (row.pause_reason !== null && (typeof row.pause_reason !== "string" || row.pause_reason.length > 2000))) throw corrupt("Local queue state is invalid");
   }
   private ensureState(scope: ThreadInputScope): State {
     this.database.prepare("INSERT OR IGNORE INTO local_thread_input_state(thread_id,user_id,workspace_id) VALUES (?,?,?)").run(scope.threadId, scope.userId, scope.workspaceId);

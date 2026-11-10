@@ -2404,3 +2404,5 @@ preparation label or new receipt is substituted for surviving-child exclusion.
 ### Queue admission physical boundary
 
 - Shared advancement selects only logically eligible queue intent. Physical idle is not represented as a separate boolean predicate: the actual Native start adapter must verify predecessor settlement under its already-held successor lease before atomic queue/admission publication. Unknown physical authority must pause and reject, preserving intent.
+
+- Saved known input conflicts/cancellations are terminal command receipts and are never re-delivered by the shared command owner. SQLite startup rejects conflicting queue/Steer target, receipt/state and pause representations.

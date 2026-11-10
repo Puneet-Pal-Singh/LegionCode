@@ -102,6 +102,7 @@ export class ThreadInputCommandService {
     if (item.delivery === "steer" && (item.targetTurnId !== command.expectedTurnId || item.targetRunAttemptId !== command.expectedRunAttemptId))
       return conflict("target_superseded", "This input is already bound to a different turn attempt.");
     if (isDeliveryReceipt(item.receipt)) return { statusCode: 200, result: item.receipt };
+    if (item.receipt?.status === "conflict") return { statusCode: 409, result: item.receipt };
     const targetConflict = await this.ports.assertSteeringTarget(scope, command, item.mediaRefs.length > 0);
     if (targetConflict) return { statusCode: 409, result: targetConflict };
     await this.ports.authorize(command);
@@ -116,6 +117,9 @@ export class ThreadInputCommandService {
 
   private async deliver(scope: ThreadInputScope, item: StoredThreadInput, statusCode: 200 | 202): Promise<ThreadInputCommandOutcome> {
     if (isDeliveryReceipt(item.receipt)) return { statusCode: 200, result: item.receipt };
+    if (item.receipt?.status === "conflict") return { statusCode: 409, result: item.receipt };
+    if (item.delivery !== "steer" || (item.state !== "pending" && item.state !== "consuming"))
+      return conflict("queue_item_consumed", "Queue item was already consumed or cancelled.");
     let delivered: Awaited<ReturnType<ThreadInputCommandPorts["deliverSteer"]>>;
     try { delivered = await this.ports.deliverSteer(scope, item); }
     catch {
