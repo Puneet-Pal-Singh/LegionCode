@@ -92,7 +92,6 @@ export class LocalTurnService {
   private startup: Promise<LocalHarnessInitializationResult> | undefined;
   private stopping = false;
   private readonly admissions = new Set<Promise<TurnAdmission>>();
-  private readonly settled = new Set<TurnId>();
   constructor(private readonly options: {
     readonly persistence: LocalPersistence;
     readonly threads: LocalThreadService;
@@ -387,7 +386,6 @@ export class LocalTurnService {
         // A retirement transaction may have committed despite a lost receipt.
         // This retries settlement proof/cleanup only, never prompt/native dispatch.
         await this.options.settleExecution(execution.admission);
-        this.settled.add(execution.admission.turn.id);
         this.active.delete(execution.admission.turn.id);
       } catch { /* Unknown ownership remains live and durable below. */ }
     }
@@ -395,7 +393,6 @@ export class LocalTurnService {
     const events = await this.options.persistence.events.listAll();
     for (const event of events) {
       if (event.type !== "turn.started") continue;
-      if (this.settled.has(event.payload.turn.id)) { retained.delete(event.payload.turn.id); continue; }
       const admission = await this.options.persistence.turnAdmissions.getByTurn(event.payload.turn.id);
       if (!admission) { retained.add(event.payload.turn.id); continue; }
       try {
@@ -471,7 +468,6 @@ export class LocalTurnService {
       throw error;
     } finally {
       await this.options.settleExecution(execution.admission); // Unknown retains the live/durable owner.
-      this.settled.add(execution.admission.turn.id);
       this.active.delete(execution.admission.turn.id);
     }
   }
