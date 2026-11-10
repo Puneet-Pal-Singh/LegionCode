@@ -142,3 +142,6 @@ export { ReviewDialogFrame, ReviewDialogCloseButton } from "./workspace/ReviewDi
 
 export { GitCommitDialogView, GitCommitSelectionControl } from "./workspace/GitCommitDialogView.js";
 export type { GitCommitDialogViewProps, CommitNextStep, GitFlowSuccessState, GitCommitStepOption } from "./workspace/GitCommitDialogView.js";
+
+export { useConversationTurnLifecycle, type ConversationLifecycleClient } from "./conversation/chat-interface/useConversationTurnLifecycle.js";
+export { ConversationContinuationNotice, type ConversationContinuationNoticeProps } from "./conversation/chat-interface/ConversationContinuationNotice.js";
