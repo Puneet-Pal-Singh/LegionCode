@@ -29,7 +29,7 @@ export type { ChatMessageMetadata } from "./conversation/chat-message/types.js";
 export { stripAssistantChangeCounts } from "./conversation/chat-message/markdownTransforms.js";
 export { ChatImageGallery, type ChatImagePreview } from "./conversation/ChatImageGallery.js";
 export { ChatImageAttachmentStrip } from "./conversation/ChatImageAttachmentStrip.js";
-export { useChatImageAttachmentDraft } from "./conversation/useChatImageAttachmentDraft.js";
+export { useChatImageAttachmentDraft, type ChatImageAttachmentDraftBinding } from "./conversation/useChatImageAttachmentDraft.js";
 export {
   CHAT_IMAGE_MIME_TYPES, isChatImageMimeType, validateNextImageAttachment,
   createChatImageAttachment, toImageParts, toRedactedImageMetadata,

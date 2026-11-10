@@ -2,13 +2,14 @@ import {
   ChatErrorNotice,
   ChatInputBar,
   useComposerPreferences,
+  type ChatImageAttachmentDraftBinding,
 } from "@legioncode/client-ui";
 import {
   type LocalWorkspaceGrant,
   type ThreadId,
   type WorkspaceId,
 } from "@repo/platform-protocol";
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   LocalTurnConfigurationSchema,
   type LocalTurnConfiguration,
@@ -27,10 +28,7 @@ import {
   type DesktopModelPickerClient,
 } from "./DesktopModelPicker";
 import {
-  createDesktopComposerDraft,
   type DesktopComposerDraftBinding,
-  type DesktopComposerDraftHandoff,
-  type DesktopComposerDraftValue,
 } from "./useDesktopComposerDraft";
 
 export interface DesktopComposerProps {
@@ -41,7 +39,8 @@ export interface DesktopComposerProps {
   threadId: ThreadId | null;
   providerReady?: boolean;
   unboundDraft?: DesktopComposerDraftBinding;
-  draftHandoff?: DesktopComposerDraftHandoff | null;
+  draft?: DesktopComposerDraftBinding;
+  imageDraft?: ChatImageAttachmentDraftBinding;
   busy: boolean;
   layout?: "hero" | "docked";
   isHidden?: boolean;
@@ -70,10 +69,13 @@ export interface DesktopComposerProps {
 
 /** Draft and delivery state only. The provider route is read from the App Server. */
 export function DesktopComposer(props: DesktopComposerProps) {
+  const draft = props.draft ?? props.unboundDraft;
+  if (!draft) throw new Error("Desktop composer requires its scoped draft binding.");
   return (
     <ThreadComposer
       key={props.workspaceId && props.threadId ? `${props.workspaceId}:${props.threadId}` : "unbound-composer"}
       {...props}
+      draft={draft}
     />
   );
 }
@@ -86,7 +88,8 @@ function ThreadComposer({
   threadId,
   providerReady = true,
   unboundDraft,
-  draftHandoff,
+  draft,
+  imageDraft,
   busy,
   layout,
   isHidden = false,
@@ -102,58 +105,24 @@ function ThreadComposer({
   pendingSelection,
   contextBudget = null,
   usage = null,
-}: DesktopComposerProps) {
+}: DesktopComposerProps & { draft: DesktopComposerDraftBinding }) {
   const preferences = useComposerPreferences();
   const scopeReady = Boolean(client && providerReady && workspaceId && grantedAt && threadId);
-  const editableDraft = !workspaceId || !grantedAt || !threadId ? unboundDraft : undefined;
-  const matchingHandoff = workspaceId && threadId &&
-    draftHandoff?.workspaceId === workspaceId && draftHandoff.threadId === threadId
-      ? draftHandoff
-      : null;
-  const [localDraft, setLocalDraft] = useState<DesktopComposerDraftValue>(() =>
-    matchingHandoff?.value ?? createDesktopComposerDraft(LocalTurnConfigurationSchema.parse({
-      mode:
-        initialConfiguration?.mode ??
-        (configurationOptions?.modes.includes("build") ? "build" : "plan"),
-    })),
-  );
-  const adoptedHandoff = useRef(matchingHandoff?.id ?? null);
-  const localDraftEdited = useRef(false);
-  const draft = editableDraft?.value ?? localDraft;
-  const updateDraft = (update: (current: DesktopComposerDraftValue) => DesktopComposerDraftValue) => {
-    if (editableDraft) editableDraft.update(update);
-    else {
-      localDraftEdited.current = true;
-      setLocalDraft(update);
-    }
-  };
-  useLayoutEffect(() => {
-    if (!matchingHandoff) return;
-    if (adoptedHandoff.current !== matchingHandoff.id) {
-      adoptedHandoff.current = matchingHandoff.id;
-      // Main normally supplies the transfer before mounting the new Thread.
-      // A late receipt must never overwrite text already typed in that Thread.
-      if (!localDraftEdited.current) setLocalDraft(matchingHandoff.value);
-    }
-    matchingHandoff.consume();
-  }, [matchingHandoff]);
+  const updateDraft = draft.update;
   const initialMode = initialConfiguration?.mode ?? (configurationOptions
     ? configurationOptions.modes.includes("build") ? "build" : "plan"
     : undefined);
   useEffect(() => {
-    if (adoptedHandoff.current !== null || draft.configurationTouched || !initialMode) return;
-    const update = (current: DesktopComposerDraftValue) =>
-      current.configuration.mode === initialMode
-        ? current
-        : { ...current, configuration: { ...current.configuration, mode: initialMode } };
-    if (editableDraft) editableDraft.update(update);
-    else setLocalDraft(update);
-  }, [initialMode, draft.configurationTouched, editableDraft]);
-  const configuration = pendingConfiguration ?? draft.configuration;
+    if (draft !== unboundDraft || draft.value.configurationTouched || !initialMode) return;
+    updateDraft((current) => current.configurationTouched || current.configuration.mode === initialMode
+      ? current
+      : { ...current, configuration: { ...current.configuration, mode: initialMode } });
+  }, [initialMode, draft, unboundDraft, updateDraft]);
+  const configuration = pendingConfiguration ?? draft.value.configuration;
   const availableProductModes = configurationOptions?.productModesByMode?.[configuration.mode]
     ?? configurationOptions?.productModes ?? [];
   const configurationLocked = busy || pendingConfiguration !== null;
-  const input = draft.input;
+  const input = draft.value.input;
   // Without a Thread this is only a DOM/list key, never an SDK identity.
   const inputDomId = useId();
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
@@ -229,6 +198,7 @@ function ThreadComposer({
         />
       ) : null}
       <ChatInputBar
+        imageDraft={imageDraft}
         isHidden={isHidden}
         {...mentions}
         onFileMentionQueryChange={setMentionQuery}

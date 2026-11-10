@@ -1,7 +1,10 @@
 import {
   ChatErrorNotice,
+  ConversationContinuationNotice,
+  ClientShellLoading,
   ChatInterfaceView,
   useCompletedTurnReview,
+  useChatImageAttachmentDraft,
   type ChatInterfaceEntry,
 } from "@legioncode/client-ui";
 import {
@@ -18,7 +21,7 @@ import {
 } from "./useDesktopImagePreviews";
 import { useDesktopConversation } from "./useDesktopConversation";
 import type { DesktopSavedReviewTurn } from "./useDesktopSavedReviewSelection";
-import type { DesktopComposerDraftHandoff } from "./useDesktopComposerDraft";
+import { useDesktopThreadComposerDraft, type DesktopComposerDraftHandoff } from "./useDesktopComposerDraft";
 
 export type DesktopExecutionAvailability =
   | { available: true }
@@ -44,7 +47,7 @@ interface Props {
 export function DesktopConversation(props: Props) {
   return (
     <SelectedConversation
-      key={`${props.thread.workspaceId}:${props.thread.id}`}
+      key={`${props.thread.workspaceId}:${props.workspaceGrantAt}:${props.thread.id}`}
       {...props}
     />
   );
@@ -93,13 +96,7 @@ function SelectedConversation({
       ? "Unarchive this task before sending a message."
       : !execution.available
         ? execution.reason
-        : conversation.loading
-          ? "Loading saved conversation before sending."
-          : conversation.error
-            ? "Reload saved history before sending another message."
-            : conversation.hasNewerPages
-              ? "Load newer turns before sending another message."
-              : undefined;
+        : conversation.submissionUnavailableReason;
 
   const admittedConfiguration =
     admission?.userMessage.type === "user_message" &&
@@ -113,6 +110,16 @@ function SelectedConversation({
   const initialConfiguration = admittedConfiguration?.success
     ? admittedConfiguration.data
     : null;
+  const draft = useDesktopThreadComposerDraft({
+    workspaceId: thread.workspaceId,
+    threadId: thread.id,
+    initialConfiguration,
+    configurationOptions,
+    handoff: draftHandoff,
+  });
+  // The visible input leases capture eligibility; this exact conversation owns
+  // attachment URLs and in-flight submission settlement across layout changes.
+  const imageDraft = useChatImageAttachmentDraft(false);
   const review = useCompletedTurnReview(
     projection ?? null,
     admission?.userMessage.id ?? null,
@@ -156,6 +163,8 @@ function SelectedConversation({
       return result;
     },
   );
+  const showHeroComposer = !conversation.initialLoading &&
+    !conversation.hasNewerPages && !conversation.firstPage && entries.length === 0;
   const unavailableArtifact = async (): Promise<never> => {
     throw new Error("This environment does not provide this saved artifact.");
   };
@@ -166,18 +175,12 @@ function SelectedConversation({
       runAttemptId={admission?.runAttemptId ?? null}
       projectName={projectName}
       onProjectClick={onProjectClick}
-      showHeroComposer={
-        !conversation.loading &&
-        !conversation.error &&
-        !conversation.hasNewerPages &&
-        !conversation.firstPage &&
-        entries.length === 0
-      }
-      showSessionPlaceholder={conversation.loading}
+      showHeroComposer={showHeroComposer}
+      showSessionPlaceholder={conversation.initialLoading}
       placeholderError={
-        conversation.error
+        conversation.historyError
           ? {
-              message: conversation.error,
+              message: conversation.historyError,
               remediation: "Reload saved history to continue.",
               actionLabel: "Reload saved history",
               onOpen: conversation.reload,
@@ -194,6 +197,34 @@ function SelectedConversation({
       onStopPendingTurn={conversation.stop}
       renderComposer={(layout) => (
         <>
+          {conversation.loading ? (
+            <div className="mb-3 [&>.lc-client-screen]:!h-auto [&>.lc-client-screen]:!w-full [&>.lc-client-screen]:!bg-transparent">
+              <ClientShellLoading label="Reading saved conversation…" />
+            </div>
+          ) : null}
+          {showHeroComposer && conversation.historyError ? (
+            <ChatErrorNotice
+              message={conversation.historyError}
+              remediation="Your draft has been kept. Reload saved history before sending."
+              actionLabel="Reload saved history"
+              onOpen={conversation.reload}
+            />
+          ) : null}
+          {conversation.deliveryError ? (
+            <ChatErrorNotice
+              message={conversation.deliveryError}
+              remediation="Your draft has been kept. Read saved history to confirm delivery before changing it."
+              actionLabel="Reload saved history"
+              onOpen={conversation.reload}
+            />
+          ) : null}
+          {conversation.continuation === "reconnecting" || conversation.continuation === "stopped" ? (
+            <ConversationContinuationNotice
+              status={conversation.continuation}
+              error={conversation.continuationError}
+              onRetry={conversation.retry}
+            />
+          ) : null}
           {isApprovalVisible && admission && projection && pendingApproval ? (
             <DesktopApproval
               client={client}
@@ -213,9 +244,10 @@ function SelectedConversation({
               grantedAt={workspaceGrantAt}
               fileAvailability={fileAvailability}
               threadId={thread.id}
-              draftHandoff={draftHandoff}
+              draft={draft}
+              imageDraft={imageDraft}
               providerReady={providerReady}
-              busy={execution.available && conversation.busy}
+              busy={execution.available && conversation.executionActive}
               submissionUnavailableReason={unavailableReason}
               onSubmit={conversation.submit}
               onStop={
@@ -238,6 +270,14 @@ function SelectedConversation({
       )}
       debugPanel={
         <>
+          {conversation.historicalReplayError ? (
+            <ChatErrorNotice
+              message={conversation.historicalReplayError}
+              remediation="An earlier turn's workflow is unavailable; the current turn continues independently."
+              actionLabel="Reload saved history"
+              onOpen={conversation.reload}
+            />
+          ) : null}
           {imagePreviews.error ? (
             <ChatErrorNotice
               message={imagePreviews.error}
@@ -270,13 +310,13 @@ function SelectedConversation({
       hydrationStatus={
         conversation.loading
           ? "loading"
-          : conversation.error
+          : conversation.historyError
             ? "failed"
             : entries.length
               ? "readable"
               : "empty"
       }
-      hydrationError={conversation.error}
+      hydrationError={conversation.historyError}
       retryHydration={conversation.reload}
       messageMetadataById={{}}
       modeLabel={
@@ -312,7 +352,7 @@ function SelectedConversation({
       loadCompletedTurnFileDiff={review.loadFileDiff}
       completedTurnReview={review}
       lifecycleProjection={projection ?? null}
-      pendingWorkflow={conversation.busy && !projection}
+      pendingWorkflow={conversation.awaitingActiveReplay}
     />
   );
 }

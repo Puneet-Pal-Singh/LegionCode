@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   LocalTurnConfigurationSchema,
   type LocalTurnConfiguration,
+  type LocalTurnConfigurationOptions,
 } from "@legioncode/sdk";
 import type { Thread, ThreadId, WorkspaceId } from "@repo/platform-protocol";
 
@@ -108,4 +109,57 @@ export function useDesktopComposerDraft() {
     cancelHandoff,
     handoffFor,
   };
+}
+
+/** One exact SelectedConversation scope owns its draft across composer layouts. */
+export function useDesktopThreadComposerDraft(input: {
+  workspaceId: WorkspaceId;
+  threadId: ThreadId;
+  initialConfiguration: LocalTurnConfiguration | null;
+  configurationOptions: LocalTurnConfigurationOptions | null;
+  handoff?: DesktopComposerDraftHandoff | null;
+}): DesktopComposerDraftBinding {
+  const matchingHandoff = input.handoff?.workspaceId === input.workspaceId &&
+    input.handoff.threadId === input.threadId ? input.handoff : null;
+  const initialMode = input.initialConfiguration?.mode ?? (input.configurationOptions
+    ? input.configurationOptions.modes.includes("build") ? "build" : "plan" : undefined);
+  const [value, setValue] = useState<DesktopComposerDraftValue>(() => matchingHandoff?.value ??
+    createDesktopComposerDraft(LocalTurnConfigurationSchema.parse({ mode: initialMode ?? "plan" })));
+  const current = useRef(value);
+  const active = useRef(true);
+  const edited = useRef(false);
+  const adoptedHandoff = useRef(matchingHandoff?.id ?? null);
+  const consumedHandoff = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    active.current = true;
+    return () => { active.current = false; };
+  }, []);
+  const update = useCallback((change: (draft: DesktopComposerDraftValue) => DesktopComposerDraftValue) => {
+    if (!active.current) return;
+    edited.current = true;
+    const next = change(current.current);
+    if (next === current.current) return;
+    current.current = next;
+    setValue(next);
+  }, []);
+  useLayoutEffect(() => {
+    if (!matchingHandoff || consumedHandoff.current === matchingHandoff.id) return;
+    consumedHandoff.current = matchingHandoff.id;
+    if (adoptedHandoff.current !== matchingHandoff.id) {
+      adoptedHandoff.current = matchingHandoff.id;
+      if (!edited.current) {
+        current.current = matchingHandoff.value;
+        setValue(matchingHandoff.value);
+      }
+    }
+    matchingHandoff.consume();
+  }, [matchingHandoff]);
+  useEffect(() => {
+    if (!active.current || adoptedHandoff.current !== null || current.current.configurationTouched || !initialMode) return;
+    if (current.current.configuration.mode === initialMode) return;
+    const next = { ...current.current, configuration: { ...current.current.configuration, mode: initialMode } };
+    current.current = next;
+    setValue(next);
+  }, [initialMode]);
+  return useMemo(() => ({ value, update }), [value, update]);
 }

@@ -1,4 +1,4 @@
-import { useRef, useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { useRef, useEffect, useLayoutEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import {
   X,
@@ -26,7 +26,7 @@ import {
 } from "./chatImageAttachments.js";
 import { ChatImageAttachmentStrip } from "./ChatImageAttachmentStrip.js";
 import { ChatImageDropOverlay } from "./ChatImageDropOverlay.js";
-import { useChatImageAttachmentDraft } from "./useChatImageAttachmentDraft.js";
+import { useChatImageAttachmentDraft, type ChatImageAttachmentDraftBinding } from "./useChatImageAttachmentDraft.js";
 import { useChatComposerTextareaAutosize } from "./useChatComposerTextareaAutosize.js";
 import type { ReviewCommentDraft } from "../review/reviewComments.js";
 import { getReviewCommentDisplayLabel } from "../review/reviewComments.js";
@@ -54,6 +54,7 @@ const PLAN_PLACEHOLDER =
   "Inspect the codebase and outline a safe plan without executing changes";
 
 export interface ChatInputBarProps {
+  imageDraft?: ChatImageAttachmentDraftBinding;
   composerPreferences?: ComposerPreferences;
   isHidden?: boolean;
   submissionUnavailableReason?: string;
@@ -104,7 +105,19 @@ export interface ChatInputBarProps {
   onPermissionModeChange?: (mode: ProductMode) => void;
 }
 
-export function ChatInputBar({
+export function ChatInputBar(props: ChatInputBarProps) {
+  return props.imageDraft
+    ? <ChatInputBarView {...props} imageDraft={props.imageDraft} />
+    : <OwnedImageDraftInputBar {...props} />;
+}
+
+function OwnedImageDraftInputBar(props: ChatInputBarProps) {
+  const imageDraft = useChatImageAttachmentDraft(!props.isHidden && (props.attachmentsAvailable ?? true));
+  return <ChatInputBarView {...props} imageDraft={imageDraft} />;
+}
+
+function ChatInputBarView({
+  imageDraft,
   composerPreferences = {
     plainTextComposer: true,
     sendShortcut: "enter",
@@ -151,12 +164,13 @@ export function ChatInputBar({
   availablePermissionModes,
   permissionEnvironment,
   onPermissionModeChange,
-}: ChatInputBarProps) {
+}: Omit<ChatInputBarProps, "imageDraft"> & { imageDraft: ChatImageAttachmentDraftBinding }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [isFocused, setIsFocused] = useState(false);
   const unavailableDescriptionId = useId();
-  const imageDraft = useChatImageAttachmentDraft(!isHidden && attachmentsAvailable);
+  useLayoutEffect(() => imageDraft.bindCapture(!isHidden && attachmentsAvailable),
+    [imageDraft.bindCapture, isHidden, attachmentsAvailable]);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [highlightedFileIndex, setHighlightedFileIndex] = useState(0);
   const [switchWarningMessage, setSwitchWarningMessage] = useState<
