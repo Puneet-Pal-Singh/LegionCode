@@ -31,6 +31,7 @@ import { LocalWorkspaceWriterLeaseError } from "./local-workspace-writer-lease.j
 
 const AVAILABLE_TOOL_IDS = [
   "read_file",
+  "list_files",
   "write_file",
   "edit_file",
   "run_executable",
@@ -214,6 +215,7 @@ export function createLocalCapturedExecutionCapability(
             attempt,
             binding: workerBinding,
             readFile: filesystem.readFile.bind(filesystem),
+            listDirectory: filesystem.listDirectory.bind(filesystem),
           }),
           attempt.threadId,
         );
@@ -242,6 +244,7 @@ export function createLocalCapturedExecutionCapability(
           ) {
             switch (tool.toolCall.toolName) {
               case "read_file":
+              case "list_files":
                 return reader.executeTool(tool);
               case "write_file":
               case "edit_file":

@@ -2570,3 +2570,26 @@ original operations through the existing combined server barrier. The read
 deadline requests abort only; unknown binding cleanup retains the exact binding,
 service and slot and prevents positive SQLite/process closure. No timeout, client
 disconnect, empty active map or forced exit releases those physical obligations.
+
+## Plan 062 — Native agent directory listing
+
+The existing canonical `list_files` definition is now consumed by both local
+Plan and captured Build through `LocalReadOnlyToolWorker`. The Native read
+adapter receives the real `NativeFilesystemBridge.listDirectory` method from
+the same held-root composition as file reads. The Build factory routes listing
+to that same reader and retains its existing policy, lease and capture owners.
+No shell, search tool, lifecycle producer or filesystem authority is added.
+
+The Linux read adapter enumerates only an authorized descriptor-opened directory,
+checks its identity and directory generation, and awaits directory/ancestor
+descriptor closure. It excludes entries identified by the unchanged NativeFS
+reserved-component predicate; Native listing retains its own reserved-entry
+projection. Symlinks are described without following their targets.
+
+Both adapters return a bounded first page of at most 200 entries and 24,000
+output bytes, with escaped filenames and explicit truncation. The existing
+path-only tool schema has no cursor argument, so truncated results request a
+narrower directory rather than fabricating resumability or restarting a stale
+cursor. Errors, revocation and cancellation propagate through the existing
+worker and canonical terminal settlement. Packaged Mac acceptance remains a
+separate delivery check.

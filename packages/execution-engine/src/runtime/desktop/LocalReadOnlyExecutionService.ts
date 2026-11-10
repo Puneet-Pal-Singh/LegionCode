@@ -1,4 +1,6 @@
 import { formatLocalReadFile } from "./LocalReadFileOutput.js";
+import { readLocalDirectory } from "./LocalReadOnlyDirectory.js";
+import { reservedComponent } from "./NativeFilesystemBridge.js";
 import { openLocalWorkspaceEntry } from "./LocalReadOnlyWorkspaceHandle.js";
 import { lstat, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
@@ -6,7 +8,7 @@ import type { LocalReadOnlyWorkspaceBinding } from "./LocalReadOnlyWorkspaceBind
 import { codingToolRegistry } from "../tools/CodingToolRegistry.js";
 import type { RuntimeExecutionService } from "../types.js";
 
-export const LOCAL_READ_ONLY_TOOL_IDS = ["read_file"] as const;
+export const LOCAL_READ_ONLY_TOOL_IDS = ["read_file", "list_files"] as const;
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 
 /** Host-only filesystem backend. It has no shell, mutation, provider or lifecycle port. */
@@ -18,7 +20,7 @@ export class LocalReadOnlyExecutionService implements RuntimeExecutionService {
   ) {
     if (process.platform !== "linux") {
       throw new Error(
-        "This platform requires the native descriptor-scoped read_file backend",
+        "This platform requires the native descriptor-scoped read backend",
       );
     }
   }
@@ -93,6 +95,8 @@ export class LocalReadOnlyExecutionService implements RuntimeExecutionService {
     if (isAbsolute(local) || local === ".." || local.startsWith(`..${sep}`)) {
       throw new Error("Workspace path escapes the granted root");
     }
+    if (local.split(sep).some(reservedComponent))
+      throw new Error("Reserved workspace directories are unavailable");
     // Do not follow symlinks, including aliases that point back inside the grant.
     let component = root;
     for (const part of local.split(sep).filter(Boolean)) {
@@ -123,12 +127,25 @@ export class LocalReadOnlyExecutionService implements RuntimeExecutionService {
       }
     };
     assertActive();
-    const entry = await openLocalWorkspaceEntry(root, local, "file");
+    const entry = await openLocalWorkspaceEntry(
+      root,
+      local,
+      definition.id === "list_files" ? "directory" : "file",
+    );
     const handle = entry.handle;
     try {
       const stat = await handle.stat();
       if (stat.dev !== initial.dev || stat.ino !== initial.ino) {
         throw new Error("Workspace file changed during open");
+      }
+      if (definition.id === "list_files") {
+        return await readLocalDirectory({
+          path: local || ".",
+          handle,
+          descriptorPath: entry.descriptorPath,
+          assertActive,
+          validateAfterOperation,
+        });
       }
       if (!stat.isFile() || stat.size > MAX_FILE_BYTES) {
         throw new Error("Read requires a regular text file of at most 4 MiB");
