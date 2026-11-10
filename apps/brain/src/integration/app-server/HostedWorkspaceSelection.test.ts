@@ -367,18 +367,18 @@ describe("authenticated hosted workspace selection", () => {
       patch: { name: "unauthorized change" },
     };
     const persist = vi.spyOn(workspaces, "updateWorkspaceConfiguration");
-    for (const [status, rateLimited, code, responseStatus, retryable] of [
-      [401, false, "unauthorized", 401, false],
-      [403, false, "forbidden", 403, false],
-      [404, false, "not_found", 404, false],
-      [422, false, "invalid_request", 422, false],
-      [403, true, "server_unavailable", 429, true],
-      [429, false, "server_unavailable", 429, true],
-      [503, false, "server_unavailable", 503, true],
+    for (const [failure, code, responseStatus, retryable] of [
+      [new GitHubAPIError(401, "private-provider-body", false), "unauthorized", 401, false],
+      [new GitHubAPIError(403, "private-provider-body", false), "forbidden", 403, false],
+      [new GitHubAPIError(404, "private-provider-body", false), "not_found", 404, false],
+      [new GitHubAPIError(422, "private-provider-body", false), "invalid_request", 422, false],
+      [new GitHubAPIError(403, "private-provider-body", true), "server_unavailable", 429, true],
+      [new GitHubAPIError(429, "private-provider-body", false), "server_unavailable", 429, true],
+      [new GitHubAPIError(503, "private-provider-body", false), "server_unavailable", 503, true],
+      [new TypeError("private-provider-body: fetch failed"), "server_unavailable", 503, true],
+      [new SyntaxError("private-provider-body: invalid JSON"), "server_unavailable", 503, true],
     ] as const) {
-      vi.mocked(GitHubAPIClient.prototype.getRepository).mockRejectedValue(
-        new GitHubAPIError(status, "private-provider-body", rateLimited),
-      );
+      vi.mocked(GitHubAPIClient.prototype.getRepository).mockRejectedValue(failure);
       const denied = await command(
         env,
         "workspace/configuration/update",
@@ -388,6 +388,12 @@ describe("authenticated hosted workspace selection", () => {
         ok: false,
         error: { code, statusCode: responseStatus, retryable },
       });
+      if (!(failure instanceof GitHubAPIError)) {
+        expect(denied).toMatchObject({ error: {
+          message: "GitHub repository validation is temporarily unavailable",
+          operationCode: "GITHUB_UNAVAILABLE",
+        } });
+      }
       expect(JSON.stringify(denied)).not.toContain("private-provider-body");
       expect(persist).not.toHaveBeenCalled();
       expect(
@@ -395,7 +401,7 @@ describe("authenticated hosted workspace selection", () => {
           USER,
           selected.workspace.id,
         ),
-      ).toMatchObject({ version: 1, workspace: { name: "acme/repo" } });
+      ).toMatchObject({ version: 1, workspace: { name: "acme/repo", lastSelectedBranch: "main" } });
     }
     vi.mocked(GitHubAPIClient.prototype.getRepository).mockResolvedValue(
       repository,

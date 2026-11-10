@@ -148,8 +148,14 @@ async function updateConfiguration(
         );
       }
     } catch (error) {
-      if (!(error instanceof GitHubAPIError)) throw error;
-      throw mapWorkspaceGitHubValidationError(error);
+      if (error instanceof GitHubAPIError) throw mapWorkspaceGitHubValidationError(error);
+      throw new AppServerOperationError(
+        503,
+        "server_unavailable",
+        "GitHub repository validation is temporarily unavailable",
+        "GITHUB_UNAVAILABLE",
+        true,
+      );
     }
     const result = await service.updateConfiguration({
       ...params,
