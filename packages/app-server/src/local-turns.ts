@@ -129,7 +129,7 @@ export class LocalTurnService {
         params.clientRequestId,
       );
     if (previous) {
-      // A receipt retry does not create records, acquire execution authority or resolve credentials.
+      // A receipt retry does not create admission records, acquire execution authority or resolve credentials.
       let preparation: LocalTurnPreparedMedia | undefined;
       try {
         preparation = await this.prepareImages(images);
@@ -137,7 +137,7 @@ export class LocalTurnService {
         throw new AppServerOperationError(409, "conflict", "Admission request key has different image content");
       }
       const currentThread = await this.options.threads.get(thread.id);
-      return validateSavedAdmission(previous, params, currentThread, preparation?.fingerprint);
+      return this.confirmAdmission(validateSavedAdmission(previous, params, currentThread, preparation?.fingerprint));
     }
     if (thread.status !== "active") {
       throw new AppServerOperationError(
@@ -258,7 +258,7 @@ export class LocalTurnService {
             );
           });
       }
-      return admission;
+      return this.confirmAdmission(admission);
     } catch (error) {
       // Another identical request can commit while this request prepares its
       // binding/provider or loses the repository's stricter fingerprint race.
@@ -275,7 +275,7 @@ export class LocalTurnService {
             "Local thread was not found in the granted workspace",
           );
         }
-        return validateSavedAdmission(saved, params, currentThread, preparedMedia?.fingerprint);
+        return this.confirmAdmission(validateSavedAdmission(saved, params, currentThread, preparedMedia?.fingerprint));
       }
       throw error;
     } finally {
@@ -317,6 +317,22 @@ export class LocalTurnService {
       afterCursor = page.nextCursor;
     } while (afterCursor !== null);
     return false;
+  }
+
+  private async confirmAdmission(admission: TurnAdmission): Promise<TurnAdmission> {
+    try {
+      await this.options.threads.previewFirstAdmission(admission, async () => {
+        const page = await this.options.persistence.turnAdmissions.listByThread({
+          threadId: admission.turn.threadId, afterCursor: null, limit: 1,
+        });
+        return page.admissions[0] ?? null;
+      });
+    } catch {
+      // Canonical admission/execution has already succeeded. Metadata failure
+      // cannot turn that receipt into an unconfirmed prompt or run failure.
+      console.warn("Local Thread title preview could not be persisted; admission remains confirmed");
+    }
+    return admission;
   }
 
   async getTurn(turnId: TurnId): Promise<TurnAdmission> {

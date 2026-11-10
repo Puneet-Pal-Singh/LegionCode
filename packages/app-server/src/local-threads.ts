@@ -1,5 +1,5 @@
 import type { LocalPersistence } from "@repo/event-store/local";
-import { projectThreadEvents } from "@repo/persistence";
+import { buildThreadTitlePreview, projectThreadEvents } from "@repo/persistence";
 import { LocalThreadPinService } from "./local-thread-pins.js";
 import { ThreadCreateParamsSchema, ThreadRenameParamsSchema } from "./protocol.js";
 import {
@@ -13,6 +13,7 @@ import {
   type PlatformEvent,
   type Thread,
   type ThreadId,
+  type TurnAdmission,
   type WorkspaceId,
 } from "@repo/platform-protocol";
 
@@ -95,6 +96,52 @@ export class LocalThreadService {
     return this.serializeMetadataMutation(id, (workspace) => this.renameCurrent(id, input, workspace));
   }
 
+  /** First-message metadata shares the exact queue used by explicit renames. */
+  previewFirstAdmission(
+    admission: TurnAdmission,
+    readFirstAdmission: () => Promise<TurnAdmission | null>,
+  ): Promise<Thread> {
+    return this.serializeMetadataMutation(admission.turn.threadId, async (workspace) => {
+      const thread = await this.readAuthorizedThread(admission.turn.threadId, workspace);
+      if (admission.run.workspaceId !== thread.workspaceId || admission.run.userId !== thread.userId ||
+          admission.run.threadId !== thread.id) throw new LocalThreadNotFoundError();
+      if (thread.titleSource !== "none" || thread.titleVersion !== 1) return thread;
+      const first = await readFirstAdmission();
+      if (!first || first.run.workspaceId !== thread.workspaceId || first.run.userId !== thread.userId ||
+          first.run.threadId !== thread.id || first.turn.threadId !== thread.id ||
+          first.turn.runId !== first.run.id || first.userMessage.type !== "user_message") {
+        throw new Error("Initial Thread title requires its first durable user admission");
+      }
+      const title = buildThreadTitlePreview(
+        typeof first.userMessage.content.text === "string" ? first.userMessage.content.text : "",
+      );
+      const titleVersion = thread.titleVersion + 1;
+      const payload = ThreadTitleUpdatedPayloadSchema.parse({
+        threadId: thread.id,
+        firstMessageId: first.userMessage.id,
+        title,
+        titleVersion,
+        source: "preview",
+        titleStatus: "ready",
+        timestamp: new Date().toISOString(),
+      });
+      await this.assertWorkspaceCurrent(workspace);
+      await this.eventStore.append({
+        threadId: thread.id,
+        workspaceId: thread.workspaceId,
+        runId: first.run.id,
+        scopeType: "thread",
+        scopeId: thread.id,
+        type: "thread.title.updated",
+        payload,
+        idempotencyKey: `thread-title:${thread.id}:${first.userMessage.id}:preview:${titleVersion}`,
+        producer: { kind: "control_plane", id: "local-app-server" },
+        schemaVersion: EVENT_SCHEMA_VERSION,
+      });
+      return this.readAuthorizedThread(thread.id, workspace);
+    });
+  }
+
   pin(threadId: string): Promise<Thread> {
     return this.pins.pin(threadId);
   }
@@ -109,7 +156,7 @@ export class LocalThreadService {
       ...(input && typeof input === "object" ? input : {}),
       threadId,
     });
-    if (thread.title === request.title) return thread;
+    if (thread.title === request.title && thread.titleSource === "user") return thread;
     const titleVersion = thread.titleVersion + 1;
     const timestamp = new Date().toISOString();
     const payload = ThreadTitleUpdatedPayloadSchema.parse({
