@@ -1718,3 +1718,8 @@ closure. requestShutdown fences Native admission and signals owned work before
 HTTP drain, then awaits the same cleanup promise. Grant-only profiles also
 refuse SQLite closure while the canonical workspace owner retains unknown
 resources. The retention set stores physical owners, not product lifecycle state.
+
+The same process-owned Thread service now reads Native terminal/assistant
+lineage through the existing SQLite admission summary port. This wires the
+canonical read projection into list/get and subsequent Native admission; it
+adds no platform terminal event, status table or second Thread owner.

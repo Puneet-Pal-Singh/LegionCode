@@ -80,6 +80,7 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
     const threadService = new LocalThreadService({
       events: persistence.events,
       getWorkspace: () => workspaceService.getAuthorizedCurrent(),
+      readRuntimeSummary: persistence.turnAdmissions.readThreadSummary,
     });
     const providerService = new LocalProviderService({
       selectionStore: persistence.providerSelection,
