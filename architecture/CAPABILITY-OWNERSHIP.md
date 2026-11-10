@@ -2158,6 +2158,48 @@ complete event materialization uses memory proportional to the declared event an
 allocation/validation failure remains explicit. Original HTTP handlers remain
 owned by the server's persistence shutdown barrier even after a disconnect.
 
+The same server shutdown barrier also drains original HTTP handler promises.
+A disconnected/closed socket is not proof that its asynchronous grant, file,
+history or metadata operation finished. Handlers are registered before their
+first await and stay owned until their original promise settles. Shutdown fences
+new dispatch before and after body reads, preserves authentication checks and
+waits for those originals before SQLite closure and the private closed receipt.
+Existing HTTP fixtures await that positive shutdown contract rather than socket
+closure alone. No request lifecycle event, status store or forced cleanup is added.
+
+## Issue 810 — Versioned hosted workspace configuration
+
+The existing `WorkspaceRepository` owns saved configuration for one primary
+repository per user/workspace. Authenticated App Server
+`workspace/configuration/read` and `workspace/configuration/update`, exposed by
+SDK `readHostedWorkspaceConfiguration` / `updateHostedWorkspaceConfiguration`,
+read and edit only the existing name and selected branch. Repository identity
+comes from the exact owned active workspace; updates recheck its GitHub access
+and resolve an explicitly changed branch through the authenticated client.
+
+The existing Postgres workspace row holds the configuration version. Updates
+lock the canonical repository before the owned active workspace, compare the
+privately captured verified repository identity and expected version, then
+atomically change the saved branch and any matching current selection. Stale writes fail, including
+stale no-ops; current no-ops retain their version. Existing selection preserves
+configured names and increments the same version when branch, default branch
+or active state changes. Editing an unselected workspace never selects it.
+`MemoryWorkspaceRepository` implements the same contract for existing consumers.
+
+The existing repository UPSERT cannot rebind a namespace to another provider
+repository identity, including transitions to or from legacy unknown identity.
+Ingress and returned Memory records are detached from caller mutation. Identity
+conflicts are typed nonretryable errors; recovery requires an explicitly reviewed
+identity operation, not automatic reselection or a parallel repository registry.
+
+Workspace list/select renders saved names; session workspace context and
+`AuthorizedWorkspaceRepositoryContext` consume the saved branch for future
+work. Explicit admitted run branches and resume identity keep their existing
+owners and are not rewritten. Configuration reads perform no GitHub or execution
+probe. These records are saved settings, not prepared machines: this slice adds
+no allocation, scripts, network policy, setup secrets, preparation principal,
+Ready binding, runtime identity or alternate environment registry.
+
 ## Plan 057 — Lifecycle replay cursor continuation
 
 The SDK's existing lifecycle ordering owner validates replay page progress against

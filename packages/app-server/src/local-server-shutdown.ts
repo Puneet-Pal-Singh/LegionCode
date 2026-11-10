@@ -2,6 +2,30 @@ import type { Server } from "node:http";
 
 export type LocalShutdownOwner = { shutdown(): Promise<void> };
 
+/** A closed HTTP connection does not settle its asynchronous request handler. */
+export function createLocalHttpRequestDrain() {
+  const pending = new Set<Promise<unknown>>();
+  let stopping = false;
+  let shutdown: Promise<void> | undefined;
+  return {
+    get stopping(): boolean { return stopping; },
+    track<T>(operation: () => Promise<T>): Promise<T> {
+      // Register the original handler before any body read or service call.
+      const original = Promise.resolve().then(operation);
+      pending.add(original);
+      void original.then(() => pending.delete(original), () => pending.delete(original));
+      return original;
+    },
+    shutdown(): Promise<void> {
+      stopping = true;
+      shutdown ??= (async () => {
+        while (pending.size) await Promise.allSettled([...pending]);
+      })();
+      return shutdown;
+    },
+  };
+}
+
 /** Fence every actual owner synchronously, then await all original cleanup.
  * Rejection is never transformed into a positive physical closure receipt. */
 export function combineLocalShutdownOwners(
