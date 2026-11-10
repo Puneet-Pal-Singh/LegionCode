@@ -1470,6 +1470,16 @@ selection and canonical Git mutation. Handler injection, local composition,
 capability advertisement and UI activation are not implemented by this boundary.
 No live-Git selector, fallback commit path or second artifact owner is introduced.
 
+## Plan 057 — Read-only local Git service construction
+
+`createLocalReadOnlyGitService` exposes only `probeRepository` and `getStatus`
+from `DefaultGitService` through the existing canonical Node Git executor and
+verified Mac transport. Every command uses read-only probe policy; private-index
+requests are rejected. The original host lender retains root lifetime and
+quarantine responsibility, with an optional turn signal combined inside its loan.
+This private builder/export creates no runner, pin, lease or mutation capability.
+Actual native runtime consumer composition remains separate integration work.
+
 ## Plan 057 — Local interruption command adapter
 
 `LocalInterruptionService` validates the requested workspace, Thread, Run, Turn
