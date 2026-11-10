@@ -33,7 +33,8 @@ export function prepareLocalNativeQueuedExecution(options: {
   const { persistence, leases, createCapturedCapability } = options;
   const admission = TurnAdmissionSchema.parse(input.admission);
   if (admission.userMessage.type !== "user_message" || admission.run.executionCapability !== "repository" ||
-      admission.run.harnessSelection !== undefined || admission.userMessage.content.harnessSelection !== undefined ||
+      ("harnessSelection" in admission.run && admission.run.harnessSelection !== undefined) ||
+      admission.userMessage.content.harnessSelection !== undefined ||
       binding.workspace.workspaceId !== admission.run.workspaceId) throw unavailable();
   const configuration = LocalTurnConfigurationSchema.parse(admission.userMessage.content.configuration);
   if (admission.run.mode !== (configuration.mode === "build" ? "auto_edit" : "plan")) throw unavailable();
