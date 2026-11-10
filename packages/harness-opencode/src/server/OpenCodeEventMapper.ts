@@ -561,6 +561,9 @@ export class OpenCodeEventMapper {
     );
     const payload = HarnessObservationPayloadSchema.parse({
       kind: "request_withdrawn",
+      // Verified closure drains a pre-existing request even after foreground
+      // terminal evidence; it never authorizes new work or another target.
+      background: true,
       requestType: request.requestType,
       requestId: request.requestId,
       itemId: request.itemId,
