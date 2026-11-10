@@ -27,6 +27,7 @@ import {
   type StartTurnInput,
   type StartTurnResult,
   type WorkerProtocolPort,
+  type ToolAuthorizationPort,
 } from "@repo/runtime-kernel";
 import { LocalReadOnlyExecutionService } from "./LocalReadOnlyExecutionService.js";
 import { LocalReadOnlyToolWorker } from "./LocalReadOnlyToolWorker.js";
@@ -50,6 +51,7 @@ export class LocalTurnExecutor<
     LocalReadOnlyWorkspaceBinding,
 > {
   private readonly capability: LocalTurnExecutionCapability<TBinding>;
+  private readonly toolAuthorization: ToolAuthorizationPort | undefined;
   private readonly turns = new Map<
     string,
     {
@@ -70,6 +72,8 @@ export class LocalTurnExecutor<
   constructor(
     private readonly options: {
       readonly capability?: LocalTurnExecutionCapability<TBinding>;
+      /** Captured workers and the kernel must receive this same policy owner. */
+      readonly toolAuthorization?: ToolAuthorizationPort;
       readonly bindWorkspace: (
         admission: TurnAdmission,
         signal: AbortSignal,
@@ -92,6 +96,13 @@ export class LocalTurnExecutor<
     this.capability = options.capability
       ? Object.freeze({ ...options.capability })
       : { artifactCapture: "omitted_read_only" };
+    this.toolAuthorization = options.toolAuthorization;
+    if (this.capability.artifactCapture === "required" && !this.toolAuthorization?.authorize) {
+      throw new RuntimeKernelError(
+        "tool_policy_denied",
+        "Captured execution requires its canonical tool authorization owner",
+      );
+    }
   }
 
   createAdmission(input: LocalTurnAdmissionInput): TurnAdmission {
@@ -147,11 +158,16 @@ export class LocalTurnExecutor<
         const capability = this.capability;
         let capturedPorts: LocalCapturedExecutionPorts | undefined;
         if (capability.artifactCapture === "required") {
+          const toolAuthorization = this.toolAuthorization;
+          if (!toolAuthorization?.authorize) throw new RuntimeKernelError(
+            "tool_policy_denied", "Captured execution requires its canonical tool authorization owner",
+          );
           try {
             capturedPorts = await capability.createExecutionPorts(
               admission,
               binding,
               signal,
+              toolAuthorization,
             );
           } catch (error) {
             if (
@@ -201,7 +217,7 @@ export class LocalTurnExecutor<
         );
         if (
           captured &&
-          (!ports.toolAuthorization?.authorize ||
+          (ports.toolAuthorization !== this.toolAuthorization ||
             !ports.approvals?.waitForDecision)
         ) {
           throw new RuntimeKernelError(
