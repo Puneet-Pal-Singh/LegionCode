@@ -19,18 +19,21 @@ import {
 export const LOCAL_USER_ID = UserIdSchema.parse("usr_localdesktop");
 export type LocalThreadServiceOptions = {
   events: LocalPersistence["events"];
+  readRuntimeSummary?: LocalPersistence["turnAdmissions"]["readThreadSummary"];
   getWorkspace: () => Promise<LocalWorkspaceGrant | null>;
 };
 
 export class LocalThreadService {
   private readonly eventStore: LocalThreadServiceOptions["events"];
   private readonly getWorkspace: LocalThreadServiceOptions["getWorkspace"];
+  private readonly readRuntimeSummary: LocalThreadServiceOptions["readRuntimeSummary"];
   private readonly metadataMutations = new Map<ThreadId, Promise<void>>();
   private readonly pins: LocalThreadPinService;
 
   constructor(options: LocalThreadServiceOptions) {
     this.eventStore = options.events;
     this.getWorkspace = options.getWorkspace;
+    this.readRuntimeSummary = options.readRuntimeSummary;
     this.pins = new LocalThreadPinService({
       events: this.eventStore,
       serializeMetadataMutation: (threadId, mutation) => this.serializeMetadataMutation(
@@ -42,7 +45,8 @@ export class LocalThreadService {
 
   async list(): Promise<Thread[]> {
     const workspace = await this.requireWorkspace();
-    const projections = await this.rebuildProjections();
+    const projections = await this.rebuildProjections(workspace.workspaceId);
+    await this.assertWorkspaceCurrent(workspace);
     return projections
       .filter(({ workspaceId }) => workspaceId === workspace.workspaceId)
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
@@ -82,12 +86,12 @@ export class LocalThreadService {
       producer: { kind: "control_plane", id: "local-app-server" },
       schemaVersion: EVENT_SCHEMA_VERSION,
     });
-    return await this.projectThread(thread.id, workspace.workspaceId);
+    return await this.readAuthorizedThread(thread.id, workspace);
   }
 
   async get(threadId: string): Promise<Thread> {
     const workspace = await this.requireWorkspace();
-    return await this.projectThread(ThreadIdSchema.parse(threadId), workspace.workspaceId);
+    return await this.readAuthorizedThread(ThreadIdSchema.parse(threadId), workspace);
   }
 
   rename(threadId: string, input: unknown): Promise<Thread> {
@@ -226,16 +230,31 @@ export class LocalThreadService {
     if (!snapshot || snapshot.thread.workspaceId !== workspaceId) {
       throw new LocalThreadNotFoundError();
     }
-    return snapshot.thread;
+    return this.withRuntimeSummary(snapshot.thread);
   }
 
-  private async rebuildProjections(): Promise<Thread[]> {
+  private async withRuntimeSummary(thread: Thread): Promise<Thread> {
+    const summary = await this.readRuntimeSummary?.({
+      threadId: thread.id, userId: thread.userId, workspaceId: thread.workspaceId,
+    });
+    if (!summary) return thread;
+    return ThreadSchema.parse({
+      ...thread,
+      lastTerminalTurnId: summary.lastTerminalTurnId ?? thread.lastTerminalTurnId,
+      ...(summary.latestAdmissionRunId === thread.activeRunId
+        ? { activeLeafItemId: summary.activeLeafItemId } : {}),
+      updatedAt: Date.parse(summary.updatedAt) > Date.parse(thread.updatedAt)
+        ? summary.updatedAt : thread.updatedAt,
+    });
+  }
+
+  private async rebuildProjections(workspaceId: WorkspaceId): Promise<Thread[]> {
     const events = await this.eventStore.listAll();
-    const projections = await this.collectProjections(events);
+    const projections = await this.collectProjections(events, workspaceId);
     return projections;
   }
 
-  private async collectProjections(events: readonly PlatformEvent[]): Promise<Thread[]> {
+  private async collectProjections(events: readonly PlatformEvent[], workspaceId: WorkspaceId): Promise<Thread[]> {
     const threadIds = new Set<ThreadId>();
     const grouped = new Map<ThreadId, { event: PlatformEvent; projectionSequence: number }[]>();
     for (const event of events) {
@@ -247,7 +266,7 @@ export class LocalThreadService {
     const threads: Thread[] = [];
     for (const threadId of threadIds) {
       const snapshot = projectThreadEvents(threadId, grouped.get(threadId) ?? []);
-      if (snapshot) threads.push(snapshot.thread);
+      if (snapshot?.thread.workspaceId === workspaceId) threads.push(await this.withRuntimeSummary(snapshot.thread));
     }
     return threads;
   }

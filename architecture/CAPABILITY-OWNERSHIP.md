@@ -1680,6 +1680,31 @@ The private admission enumeration, native runtime port and App Server before-rea
 barrier are separately owned integration dependencies. This leaf does not claim
 to activate that startup barrier or recover captured Build resources.
 
+## Plan 057 — Canonical local Thread runtime read summary
+
+The same SQLite admission owner streams validated admission references and scoped
+lifecycle records to derive Thread runtime facts without writing projection state
+or platform terminal events. An immutable harnessSelection tag on the Run or user
+message denotes delegated ownership and is skipped without parsing driver data;
+Native lifecycle facts must come from the admitted worker's canonical producer.
+Without indexed Native admissions this read leaves the base projection unchanged.
+The latest indexed Native admission supplies its user leaf
+until settled; a settled Turn may supply its completed final assistant item.
+The Thread service applies that leaf only when the admission Run matches its
+existing latest platform Run pointer, preserving newer external runtime leaves.
+Runtime and existing platform terminal facts use the shared event insertion order
+for lastTerminalTurnId; canonical activity timestamps never replace later metadata.
+Thread title, pin/archive metadata, activeRunId pointer and platform projection
+sequence retain their existing owners. The admission producer links the next Turn
+to that last settled Turn and its current canonical leaf. Native factory wiring
+must inject this narrow read port from its existing single LocalPersistence owner.
+No second admission store, lifecycle reducer, terminal writer or Thread table is
+introduced; root startup composition owns the same-store injection.
+The existing SQLite admission transaction also checks Native candidate parent
+Turn/item references against those same current facts after receipt lookup and
+unsettled-Turn refusal. Stale prepared candidates are rejected, never reparented;
+immutable delegated selections remain with their existing admission owner.
+
 ## Plan 057 — Canonical named repository HEAD evidence
 
 `DefaultGitService.readRepositoryHead` owns the read-only named-HEAD observation
