@@ -1738,3 +1738,22 @@ Run_executable still requires explicit approval and the unchanged no-fork port.
 No permission-mode string, profile suffix, synthesized approval, policy copy or
 second lifecycle authority bypasses these checks. Native mode advertisement and
 per-attempt policy construction remain separate composition work.
+
+## Plan 057 / 048 — Shared local canonical Thread lineage
+
+The existing SQLite admission summary reads canonical terminal and completed
+assistant facts for every local admitted runtime, using the admitted worker as
+the exact producer identity. Full scope, sequence, item-start and shared insertion
+order checks remain mandatory. Harness selection metadata is not a projection
+bypass or a producer receipt; the reader never parses driver IDs or trusts the
+first observed producer. Historical producer mismatches fail closed and no saved
+record is rewritten. The delegated host must enforce that admitted-worker rule
+for normal execution, preflight and restart before its integration is activated.
+
+The same atomic admission transaction checks parent Turn/item facts for all
+local candidates after receipt lookup and unsettled-Turn refusal. Captured
+selection metadata, including explicit Native selection, cannot bypass that
+check. Native and delegated admission producers consume the same current Thread
+parents; stale prepared candidates conflict rather than being reparented. No
+terminal mirror, projection table, second reducer or recovery authority is added.
+Native process-loss recovery retains its separate opaque delegated exclusion.
