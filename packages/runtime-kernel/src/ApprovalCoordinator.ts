@@ -134,11 +134,14 @@ export class ApprovalCoordinator {
 
   /** Reserve the existing canonical winner while a targeted native withdrawal
    * commits through the same observation append transaction. No second append. */
-  reserveNativeWithdrawal(approvalId: ApprovalRequestedPayload["approvalId"]): {
+  reserveNativeWithdrawal(approvalId: ApprovalRequestedPayload["approvalId"], stopped = false): {
     committed(): void;
     failed(error: unknown): void;
   } {
     const pending = this.pending.get(approvalId);
+    // Stop may have drained the waiter before the exact native cancellation
+    // arrives. The observation draft still verifies the canonical pending item.
+    if (!pending && stopped) return { committed: () => undefined, failed: () => undefined };
     if (!pending || pending.settlement)
       throw new RuntimeKernelError("approval_resolution_conflict", "Approval withdrawal no longer owns an unresolved request");
     let resolve!: () => void;

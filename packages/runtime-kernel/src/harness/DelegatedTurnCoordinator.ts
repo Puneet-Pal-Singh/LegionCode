@@ -476,7 +476,8 @@ export class DelegatedTurnCoordinator {
     if (!matches || this.replies.has(key) || this.withdrawnRequests.has(key))
       throw new RuntimeKernelError("approval_resolution_conflict", "Native withdrawal conflicts with a claimed or unknown request");
     const reservation = request.requestType === "approval"
-      ? this.options.approvals.reserveNativeWithdrawal(request.requestId as import("@repo/platform-protocol").ApprovalId)
+      ? this.options.approvals.reserveNativeWithdrawal(request.requestId as import("@repo/platform-protocol").ApprovalId,
+          this.stopRequested || this.options.signal.aborted)
       : undefined;
     this.withdrawnRequests.add(key);
     return {
