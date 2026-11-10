@@ -73,6 +73,8 @@ export class MemoryCredentialStore
       );
     if (!this.encryption.isValidKeyFormat(input.apiKey))
       throw new Error("Invalid API key format");
+    // Same ordering as PostgreSQL: fence every intent before its first await.
+    const epoch = this.epochs.get(input.providerId) ?? 0;
     const selection = await preferences.captureCredentialSelection();
     const bindSelection = selection.providerId === input.providerId;
     const selectedId = bindSelection ? selection.credentialId : undefined;
@@ -92,7 +94,6 @@ export class MemoryCredentialStore
     )
       throw new CredentialReconnectConflict();
     const owner = before ? structuredClone(before) : null;
-    const epoch = this.epochs.get(input.providerId) ?? 0;
     const prepared = this.newRecord(input, crypto.randomUUID(), !bindSelection);
     prepared.encryptedSecretJson = await this.codec.encode(
       { type: "api_key", apiKey: input.apiKey },
@@ -108,10 +109,7 @@ export class MemoryCredentialStore
         () => {
           // All validation/allocation precedes the synchronous final mutation.
           // No await can expose a new credential without its preference binding.
-          if (
-            prepared.isDefault &&
-            (this.epochs.get(input.providerId) ?? 0) !== epoch
-          )
+          if ((this.epochs.get(input.providerId) ?? 0) !== epoch)
             throw new CredentialReconnectConflict();
           const current = owner
             ? (this.records.get(owner.credentialId) ?? null)

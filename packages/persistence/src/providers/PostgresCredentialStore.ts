@@ -69,6 +69,14 @@ export class PostgresCredentialStore
       );
     if (!this.encryption.isValidKeyFormat(input.apiKey))
       throw new Error("Invalid API key format");
+    // Capture before any preference/owner lookup: a disconnect that wins while
+    // either read is pending must fence this already-started Connect intent.
+    const epoch = await new PostgresCredentialDefaultFence(this.client).capture(
+      {
+        userId: this.userId,
+        providerId: input.providerId,
+      },
+    );
     const selection = await preferences.captureCredentialSelection();
     const bindSelection = selection.providerId === input.providerId;
     const selectedId = bindSelection ? selection.credentialId : undefined;
@@ -89,12 +97,6 @@ export class PostgresCredentialStore
       throw new CredentialReconnectConflict();
     const owner = before ? structuredClone(before) : null;
     const isDefault = !bindSelection;
-    const epoch = isDefault
-      ? await new PostgresCredentialDefaultFence(this.client).capture({
-          userId: this.userId,
-          providerId: input.providerId,
-        })
-      : undefined;
     // New identity/AAD; never revive the selected tombstone or replace an
     // unrelated default. All encryption completes BEFORE the SQL transaction.
     const prepared = this.newRecord(input, crypto.randomUUID(), isDefault);
@@ -115,16 +117,14 @@ export class PostgresCredentialStore
           ).advanceInTransaction(
             { userId: this.userId, providerId: prepared.providerId },
             async () => {
-              if (epoch !== undefined) {
-                const currentEpoch = await client.query<{
-                  generation: string | number;
-                }>(
-                  "SELECT generation FROM provider_credential_default_epochs WHERE user_id=$1 AND provider_id=$2",
-                  [this.userId, prepared.providerId],
-                );
-                if (Number(currentEpoch.rows[0]?.generation) !== epoch + 1)
-                  throw new CredentialReconnectConflict();
-              }
+              const currentEpoch = await client.query<{
+                generation: string | number;
+              }>(
+                "SELECT generation FROM provider_credential_default_epochs WHERE user_id=$1 AND provider_id=$2",
+                [this.userId, prepared.providerId],
+              );
+              if (Number(currentEpoch.rows[0]?.generation) !== epoch + 1)
+                throw new CredentialReconnectConflict();
               const current = owner
                 ? await store.getConnection(owner.credentialId)
                 : await store.getCredential(prepared.providerId);
