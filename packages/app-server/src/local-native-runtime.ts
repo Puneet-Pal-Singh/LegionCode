@@ -494,7 +494,7 @@ async function readConversation(
           event.runAttemptId !== admission.runAttemptId || event.producer.id !== admission.run.workerId))
         throw new Error("Native history lifecycle crosses canonical admission scope");
       const nativeInputOwner = !("harnessSelection" in admission.run && admission.run.harnessSelection !== undefined) &&
-        admission.userMessage.content.harnessSelection === undefined;
+        admission.userMessage.type === "user_message" && admission.userMessage.content.harnessSelection === undefined;
       const inputs = nativeInputOwner ? await persistence.threadInputs?.listAcceptedForTurn({ sessionId: admission.run.threadId,
         threadId: admission.run.threadId, workspaceId: admission.run.workspaceId, userId: admission.run.userId,
         turnId: admission.turn.id, runAttemptId: admission.runAttemptId }) : undefined;
