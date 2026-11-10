@@ -1,3 +1,4 @@
+import { normalizeAttachmentName } from "@repo/chat-media/validation";
 import { DelegatedThreadInputPreacceptError, normalizeDelegatedThreadInputText } from "../../runtime/DelegatedRunExecution";
 import {
   ResumeTurnReceiptSchema,
@@ -214,7 +215,7 @@ async function steerTurn(input: {
       for (const [index, image] of command.content.images.entries()) {
         const attachmentId = `in_${(await sha256(`${command.clientInputId}:${index}:${image.dataUrl}`)).slice(0, 32)}`;
         const ref = prior.mediaRefs[index];
-        if (!ref || ref.attachmentId !== attachmentId || ref.name !== image.name || ref.mediaType !== image.mediaType) {
+        if (!ref || ref.attachmentId !== attachmentId || ref.name !== normalizeAttachmentName(image.name) || ref.mediaType !== image.mediaType) {
           throw new ThreadInputConflictError("Client input ID was reused with different content", "client_input_conflict");
         }
       }
