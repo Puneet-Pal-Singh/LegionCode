@@ -1631,3 +1631,13 @@ The canonical workspace owner retains pins whose directory close fails, and raw
 acquisition handles only when their close fails before a pin exists. Its narrow
 `hasUnsettledResources` fact distinguishes clean binding rejection from unknown
 physical ownership; no request failure or rejected Promise proves release.
+
+Native Turn shutdown uses the same single resource owner as ordinary completion.
+It fences preparation and admission dispatch, waits in-flight preparation, sends
+exact-admission Stop through the existing interruption adapter, and awaits the
+original execution cleanup promises. Runtime resource-release proof is required
+for every mode before one binding close; execution fulfillment or rejection is
+never release evidence. Unknown proof, failed binding close or workspace-owner
+quarantine rejects shutdown and retains the original resources. `shutdown()` and
+`hasActiveExecutions` let the generic server await this owner before SQLite close;
+that transport barrier is a separate integration dependency.

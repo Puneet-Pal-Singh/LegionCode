@@ -35,6 +35,7 @@ import { AppServerOperationError } from "./server.js";
 import { LocalApprovalService } from "./local-approvals.js";
 import type { LocalTurnMediaPort, LocalTurnPreparedMedia } from "./local-turn-media.js";
 import { localTurnImageReferences } from "./local-turn-images.js";
+import { LocalTurnResources, type LocalTurnPreparation } from "./local-turn-resources.js";
 import {
   LocalInterruptionService,
   LocalInterruptionAttemptNotActiveError,
@@ -44,7 +45,7 @@ import {
 export type LocalTurnExecutor = {
   execute(admission: TurnAdmission): Promise<unknown>;
   /** True only after physical quiescence and canonical terminal/capture settlement. */
-  awaitResourceRelease?(turnId: TurnId): Promise<boolean>;
+  awaitResourceRelease(turnId: TurnId): Promise<boolean>;
   interrupt(turnId: TurnId, reason: string): Promise<void>;
   resolveApproval: ConstructorParameters<
     typeof LocalApprovalService
@@ -77,13 +78,7 @@ export type LocalTurnServiceOptions = {
 export type LocalTurnRuntime = NonNullable<LocalTurnServiceOptions["runtime"]>;
 
 export class LocalTurnService {
-  private readonly executors = new Map<
-    TurnId,
-    {
-      executor: LocalTurnExecutor;
-      binding: LocalWorkspaceExecutionBinding;
-    }
-  >();
+  private readonly resources: LocalTurnResources;
   private readonly approvals: LocalApprovalService;
   private readonly interruption: LocalInterruptionService;
 
@@ -106,14 +101,35 @@ export class LocalTurnService {
           this.requireExecutor(turnId).interrupt(turnId, reason),
       },
     });
+    this.resources = new LocalTurnResources({
+      hasUnsettledWorkspaceResources: () => options.workspaces.hasUnsettledResources,
+      interrupt: async (admission) => {
+        await this.interruption.interruptTurn({
+          workspaceId: admission.run.workspaceId,
+          threadId: admission.run.threadId,
+          runId: admission.run.id,
+          turnId: admission.turn.id,
+          runAttemptId: admission.runAttemptId,
+          reason: "Local runtime is shutting down",
+        });
+      },
+    });
   }
+
+  get hasActiveExecutions(): boolean { return this.resources.hasActiveExecutions; }
+
+  shutdown(): Promise<void> { return this.resources.shutdown(); }
 
   getConfigurationOptions(): LocalTurnConfigurationOptions {
     return LocalTurnConfigurationOptionsSchema.parse(this.options.runtime?.configurationOptions);
   }
 
-  async startTurn(params: LocalTurnStartParams): Promise<TurnAdmission> {
-    params = LocalTurnStartParamsSchema.parse(params);
+  async startTurn(input: LocalTurnStartParams): Promise<TurnAdmission> {
+    const params = LocalTurnStartParamsSchema.parse(input);
+    return this.resources.prepare((preparation) => this.startPreparedTurn(params, preparation));
+  }
+
+  private async startPreparedTurn(params: LocalTurnStartParams, preparation: LocalTurnPreparation): Promise<TurnAdmission> {
     const images = params.images ?? [];
     const thread = await this.options.threads.get(params.threadId);
     if (thread.workspaceId !== params.workspaceId) {
@@ -132,7 +148,7 @@ export class LocalTurnService {
       // A receipt retry does not create records, acquire execution authority or resolve credentials.
       let preparation: LocalTurnPreparedMedia | undefined;
       try {
-        preparation = await this.prepareImages(images);
+        preparation = await this.prepareImages(images, this.resources.admissionSignal);
       } catch {
         throw new AppServerOperationError(409, "conflict", "Admission request key has different image content");
       }
@@ -163,14 +179,14 @@ export class LocalTurnService {
         !productModes.includes(configuration.productMode)) {
       throw new AppServerOperationError(503, "server_unavailable", "The selected local execution mode is unavailable");
     }
-    let preparedBinding: LocalWorkspaceExecutionBinding | undefined;
     let preparedMedia: LocalTurnPreparedMedia | undefined;
-    let executionOwnsBinding = false;
     try {
+      this.resources.assertAcceptingAdmission();
       const binding = await this.options.workspaces.bindForExecution(
         params.workspaceId,
       );
-      preparedBinding = binding;
+      preparation.binding = binding;
+      this.resources.assertAcceptingAdmission();
       const selection = await this.options.providers.getSelection();
       if (!selection)
         throw new AppServerOperationError(
@@ -184,8 +200,9 @@ export class LocalTurnService {
         .find((model) => model.id === selection.modelId)?.capabilities?.supportsVision !== true) {
         throw new AppServerOperationError(409, "conflict", "The selected model does not support image input", "local_image_model_unsupported", false);
       }
-      preparedMedia = await this.prepareImages(images, binding.signal);
+      preparedMedia = await this.prepareImages(images, AbortSignal.any([binding.signal, this.resources.admissionSignal]));
       binding.assertCurrent();
+      this.resources.assertAcceptingAdmission();
       let candidate: TurnAdmission;
       try {
         candidate = await runtime.createAdmission({
@@ -203,58 +220,23 @@ export class LocalTurnService {
         // Candidate preparation has not called the sole atomic admission owner.
         throw new AppServerOperationError(503, "server_unavailable", "Image attachments are unavailable", "local_image_unavailable", false);
       }
+      this.resources.assertAcceptingAdmission();
       // Construct ports before admission; providers execute only through execute().
       const executor = runtime.createExecutor(binding, candidate);
-      if (
-        candidate.run.mode === "auto_edit" &&
-        !executor.awaitResourceRelease
-      ) {
+      if (typeof executor.awaitResourceRelease !== "function") {
         throw new AppServerOperationError(
           503,
           "server_unavailable",
-          "Captured local execution requires runtime resource-settlement confirmation",
+          "Local execution requires runtime resource-settlement confirmation",
         );
       }
       binding.assertCurrent();
       assertProviderSelection(await this.options.providers.getSelection(), selection);
       binding.assertCurrent();
+      this.resources.assertAcceptingAdmission();
       const { admission, newlyAdmitted } =
         await this.options.persistence.turnAdmissions.admit(candidate);
-      if (newlyAdmitted) {
-        this.executors.set(admission.turn.id, { executor, binding });
-        // Runtime owns preflight failure and terminal settlement. Never infer a terminal here.
-        const execution = Promise.resolve().then(() =>
-          executor.execute(admission),
-        );
-        executionOwnsBinding = true;
-        let executionRejected = false;
-        void execution
-          .catch(() => {
-            executionRejected = true;
-            console.error(
-              "Local runtime execution did not return successfully; canonical replay remains authoritative",
-            );
-          })
-          .then(async () => {
-            const releasable = executor.awaitResourceRelease
-              ? await executor.awaitResourceRelease(admission.turn.id)
-              : !executionRejected;
-            if (!releasable) {
-              console.error(
-                "Local runtime resources retained pending physical quiescence and settlement",
-              );
-              return;
-            }
-            await binding.close();
-            if (this.executors.get(admission.turn.id)?.executor === executor)
-              this.executors.delete(admission.turn.id);
-          })
-          .catch(() => {
-            console.error(
-              "Local runtime resource release was not confirmed; binding retained",
-            );
-          });
-      }
+      if (newlyAdmitted) this.resources.ownExecution(preparation, admission, executor);
       return admission;
     } catch (error) {
       // Another identical request can commit while this request prepares its
@@ -287,7 +269,7 @@ export class LocalTurnService {
           console.error("Local image resources retained pending canonical admission reconciliation");
         }
       }
-      if (!executionOwnsBinding) await preparedBinding?.close();
+      await this.resources.closePreparation(preparation);
     }
   }
 
@@ -309,6 +291,7 @@ export class LocalTurnService {
   private async hasImageHistory(threadId: Thread["id"]): Promise<boolean> {
     let afterCursor: LocalThreadHistoryParams["afterCursor"] = null;
     do {
+      this.resources.assertAcceptingAdmission();
       const page = await this.options.persistence.turnAdmissions.listByThread({ threadId, afterCursor, limit: 100 });
       if (page.admissions.some((admission) => localTurnImageReferences(admission).length > 0)) return true;
       afterCursor = page.nextCursor;
@@ -402,9 +385,9 @@ export class LocalTurnService {
   }
 
   private requireExecutor(turnId: TurnId): LocalTurnExecutor {
-    const owned = this.executors.get(turnId);
-    if (!owned) throw new LocalInterruptionAttemptNotActiveError();
-    return owned.executor;
+    const executor = this.resources.getExecutor(turnId);
+    if (!executor) throw new LocalInterruptionAttemptNotActiveError();
+    return executor;
   }
 }
 
