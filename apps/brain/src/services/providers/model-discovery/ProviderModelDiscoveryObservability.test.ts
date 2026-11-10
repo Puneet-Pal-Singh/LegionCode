@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ProviderModelDiscoveryObservability } from "./ProviderModelDiscoveryObservability";
+import { ProviderModelDiscoveryObservability } from "@repo/provider-core/discovery";
 
 describe("ProviderModelDiscoveryObservability", () => {
   it("records latency, cache hits, stale requests, and adapter failures", () => {

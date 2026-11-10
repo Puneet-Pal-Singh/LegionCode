@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { ProviderCatalogService } from "./ProviderCatalogService";
+import { ProviderCatalogService } from "@repo/provider-core/discovery";
 import { ProviderRegistryService } from "./ProviderRegistryService";
-import { ProviderModelDiscoveryApiError } from "./model-discovery/errors";
+import { ProviderModelDiscoveryApiError } from "@repo/provider-core/discovery";
 
 function createDiscoveryStub() {
   return {

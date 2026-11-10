@@ -3,7 +3,7 @@ import {
   buildCloudflareAIRoute,
   buildCloudflareAIRouteHeaders,
   resolveCloudflareRuntimeModelId,
-} from "./CloudflareAIRouteBuilder";
+} from "@repo/provider-core/discovery";
 
 describe("CloudflareAIRouteBuilder", () => {
   it("builds direct Workers AI chat-completions routes", () => {
