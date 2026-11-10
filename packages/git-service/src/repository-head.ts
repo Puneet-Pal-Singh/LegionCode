@@ -59,6 +59,9 @@ export async function readGitRepositoryHead(
       ) throw unavailable();
       return { kind: "born", objectFormat, branchRef, headSha };
     }
+    if (
+      head.exitCode !== 1 || head.stdout.length !== 0 || head.stderr.length !== 0
+    ) throw unavailable();
     const branchRef = await readUnbornBranch(executor, runId, cwd);
     if (!branchRef) throw unavailable();
     // Explicit absent-HEAD guard, never a fabricated commit or baseline tree.
