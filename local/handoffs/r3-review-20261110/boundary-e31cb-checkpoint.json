@@ -1,0 +1,72 @@
+{
+  "head": "e31cb80571a99a292b8c761ac6f13a82e45b56cf",
+  "parent": "5fb2f0e8aa6aa1d2b6e41d9df3705fc9dc2120fb",
+  "branch": "codex/fix-r3-local-reserved-cancel-20261111",
+  "changed_paths": [
+    "architecture/CAPABILITY-OWNERSHIP.md",
+    "scripts/gates/architecture-policy.mjs",
+    "scripts/gates/harness-policy-inventory.json"
+  ],
+  "checks": [
+    {
+      "command": "node scripts/gates/check-architecture-boundaries.mjs",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-BOUNDARY-20261111/01.log",
+      "sha256": "91500b0d9dfbc3ce9fab62ce2f083e0c6d82c41531528f48c54ecaa9dfd763a0"
+    },
+    {
+      "command": "node scripts/gates/check-rebuild-governance.mjs",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-BOUNDARY-20261111/02.log",
+      "sha256": "9a5c7cafae7b03c771af4ee23d69de18f537c9ba47d3b6bfc73080addf7513b1"
+    },
+    {
+      "command": "node --test scripts/gates/check-architecture-boundaries.test.mjs scripts/gates/check-rebuild-governance.test.mjs",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-BOUNDARY-20261111/03.log",
+      "sha256": "dc144a059737702e106a185c8a03d031b76b5060413128d0e6d466ef26d78b9a"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/runtime-kernel check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-BOUNDARY-20261111/04.log",
+      "sha256": "6898d722f8d551273623b0cd07a7d0be826f3c2e9725f02baf4b26ae907b24d4"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/event-store check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-BOUNDARY-20261111/05.log",
+      "sha256": "fdcd93fb48d85a32112c9d581e82b5661ff1922ea2329a74608f7ba2f08a218f"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/harness-codex check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-BOUNDARY-20261111/06.log",
+      "sha256": "a7bd30e4bf7baaf150ea309ff201e97a9d2d43d6a048c8d866d1fda2f1a8cc34"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/harness-opencode check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-BOUNDARY-20261111/07.log",
+      "sha256": "5dd8b3a6ee86e77289f598c918c74a24cd23ac68cf6fe23dd1106d66fbda619e"
+    }
+  ],
+  "existing_gate_cases": 39,
+  "governance_changed_paths_base": "5fb2f0e8aa6aa1d2b6e41d9df3705fc9dc2120fb",
+  "approved_dependency_edges_added": [
+    [
+      "@repo/event-store",
+      "@repo/worker-protocol"
+    ],
+    [
+      "@repo/runtime-kernel",
+      "@repo/worker-protocol"
+    ]
+  ],
+  "proof": "Deep equality verified every other architecture-policy export and every pre-existing inventory entry unchanged. No manifest/lock/runtime/shared-contract changes.",
+  "approved_authority": "AGENTS.md dependency direction and exact37d HARNESS-INTEGRATION lines191/273/343",
+  "node": "v24.22.1",
+  "status": "",
+  "physical_release_or_feature_availability_changes": false,
+  "no_pr_or_merge": true
+}
