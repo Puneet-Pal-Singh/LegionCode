@@ -6,7 +6,7 @@ import { OpenCodeV2Driver } from "@repo/harness-opencode/server";
 import { RuntimeKernel, type RuntimeKernelDependencies, type DelegatedExecutionDependencies } from "@repo/runtime-kernel";
 import type { LocalPersistence } from "@repo/event-store/local";
 import type { StoredLocalWorkspaceGrant } from "@repo/event-store/local";
-import { HarnessSelectionSchema, type HarnessSelection, type ReplayLifecycleEventsRequest, type ReplayLifecycleEventsResponse, type ThreadId } from "@repo/platform-protocol";
+import { HarnessSelectionSchema, type HarnessSelection, type ThreadId } from "@repo/platform-protocol";
 import { AppServerOperationError } from "../server.js";
 import { LocalHarnessOperations } from "./LocalHarnessOperations.js";
 import { LocalWorkspaceLease } from "./LocalWorkspaceLease.js";
@@ -17,7 +17,7 @@ import { LocalHarnessExecution } from "./LocalHarnessExecution.js";
 import { settleLocalHarnessAttachment } from "./LocalHarnessSettlement.js";
 
 import type { LocalProviderService } from "../local-providers.js";
-import { LocalThreadNotFoundError, type LocalThreadService } from "../local-threads.js";
+import type { LocalThreadService } from "../local-threads.js";
 import type { LocalWorkspaceService } from "../local-workspace.js";
 
 // Private Node entry for the process owner; never a renderer/protocol export.
@@ -142,31 +142,6 @@ export class LocalHarnessComposition {
       if (!binding.openCodeOptions) throw new Error("OpenCode requires configured native policy and quiescence authorities");
       this.registerInstance(binding.scope, new OpenCodeV2Driver(binding.openCodeOptions), binding.configureHost);
     }
-  }
-
-  /** Reuses reviewed local replay authorization from PR617; no second event feed. */
-  async replayLifecycleEvents(params: ReplayLifecycleEventsRequest): Promise<ReplayLifecycleEventsResponse> {
-    if (params.backend && params.backend !== "execution-engine-v1") {
-      throw new AppServerOperationError(400, "invalid_request", "Hosted execution backends are unavailable locally");
-    }
-    const first = await this.persistence.lifecycleEvents.replay({
-      turnId: params.turnId, afterSequence: null, limit: 1,
-    });
-    const event = first.events[0];
-    if (!event) throw new AppServerOperationError(404, "not_found", "Local turn was not found");
-    try {
-      await this.threadService.get(event.threadId);
-    } catch (error) {
-      if (error instanceof LocalThreadNotFoundError) {
-        throw new AppServerOperationError(404, "not_found", "Local turn was not found in the granted workspace");
-      }
-      throw error;
-    }
-    return this.persistence.lifecycleEvents.replay({
-      turnId: params.turnId,
-      afterSequence: params.afterSequence ?? null,
-      limit: params.limit ?? 1_000,
-    });
   }
 
   /** The canonical kernel exclusively selects delegated versus native execution.

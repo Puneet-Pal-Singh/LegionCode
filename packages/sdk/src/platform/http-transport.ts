@@ -61,7 +61,7 @@ export function createPlatformHttpTransport(
           if (authorization !== null) headers.set("Authorization", authorization);
           return (options.fetchImpl ?? globalThis.fetch.bind(globalThis))(input, { ...init, headers });
         },
-        timeoutMs: null,
+        timeoutMs: method === "turn/lifecycleEvents" ? 5_000 : null,
         maxResponseBytes: null,
         responsePreviewLimit: options.responsePreviewLimit ?? DEFAULT_RESPONSE_PREVIEW_LIMIT,
         signal,
@@ -174,7 +174,7 @@ export function createPlatformHttpTransport(
         undefined,
         options,
       ),
-    replayLifecycleEvents: (payload, options) => hostedOperation("turn/lifecycleEvents", options?.signal, (client) => client.replayLifecycleEvents(payload)),
+    replayLifecycleEvents: (payload, options) => hostedOperation("turn/lifecycleEvents", options?.signal, (client) => client.replayLifecycleEvents(payload, { signal: options?.signal })),
     interruptTurn: (payload, options) =>
       hostedOperation("turn/interrupt", options?.signal, (client) => client.interruptTurn(payload)),
     compactTurn: (payload, options) => hostedOperation("turn/compact", options?.signal, (client) => client.compactTurn(payload)),

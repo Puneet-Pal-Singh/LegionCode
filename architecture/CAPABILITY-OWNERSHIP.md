@@ -2138,6 +2138,26 @@ deadline requests abort only; unknown binding cleanup retains the exact binding,
 service and slot and prevents positive SQLite/process closure. No timeout, client
 disconnect, empty active map or forced exit releases those physical obligations.
 
+## Plan 057 — Canonical lifecycle event byte transport
+
+The existing lifecycle event store remains the only event authority. Local replay
+uses an exact UTF-8 result budget derived from the actual App Server response
+frame. A page returns its largest contiguous prefix without consuming an excluded
+row. If its first event exceeds the budget, the same admitted, authorized reader
+returns a small versioned reference to that immutable event, including its full
+UTF-8 byte length and SHA-256. `turn/lifecycleEventChunk` reads that same row;
+references do not create artifacts, projections, lifecycle events or another store.
+Admission scope and the current granted Thread are checked before and after reads. Both local SDK replay aliases use the same `LocalLifecycleReplay` instance; the unused harness-specific first-event/count reader is removed. Saved Native/delegated command ownership and initialization/shutdown remain with their existing owners.
+
+The SDK hydrates bounded byte chunks, validates exact reference/ranges, full digest,
+fatal UTF-8 decoding and canonical event identity/schema, and only then returns the
+unchanged replay result to the existing ordering owner. An aborted or incomplete
+read cannot advance the lifecycle cursor. Transport limits do not truncate tool
+inputs or lower public tool limits. Canonical events have no global size cap;
+complete event materialization uses memory proportional to the declared event and
+allocation/validation failure remains explicit. Original HTTP handlers remain
+owned by the server's persistence shutdown barrier even after a disconnect.
+
 The same server shutdown barrier also drains original HTTP handler promises.
 A disconnected/closed socket is not proof that its asynchronous grant, file,
 history or metadata operation finished. Handlers are registered before their
