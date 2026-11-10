@@ -24,25 +24,26 @@ export function buildConversationTurns<TMessage extends ConversationMessage>(
   messages: TMessage[],
 ): ConversationTurn<TMessage>[] {
   const turns: ConversationTurn<TMessage>[] = [];
+  const latestUserByTurnId = new Map<string, ConversationTurn<TMessage>>();
   for (const message of collapseRepeatedMessageIds(messages)) {
     const messageAtMs = resolveMessageTimestamp(message);
     const canonicalTurnId = readCanonicalTurnId(message);
     if (message.role === "user") {
-      turns.push({
+      const turn: ConversationTurn<TMessage> = {
         key: message.id,
         ...(canonicalTurnId ? { turnId: canonicalTurnId } : {}),
         userMessage: message,
         userAtMs: messageAtMs,
-      });
+      };
+      turns.push(turn);
+      if (canonicalTurnId) latestUserByTurnId.set(canonicalTurnId, turn);
       continue;
     }
     if (message.role !== "assistant") {
       continue;
     }
     const matchingCanonicalUser = canonicalTurnId
-      ? turns.find(
-          (turn) => turn.userMessage && turn.turnId === canonicalTurnId,
-        )
+      ? latestUserByTurnId.get(canonicalTurnId)
       : undefined;
     if (matchingCanonicalUser) {
       matchingCanonicalUser.assistantMessages ??= [];

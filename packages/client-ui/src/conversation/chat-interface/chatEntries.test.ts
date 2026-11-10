@@ -33,6 +33,28 @@ describe("buildChatEntries", () => {
     expect(workspaceSnapshotNotice({ ...stopped, resumeSnapshotAvailable: true })).toBeNull();
     expect(workspaceSnapshotNotice({ ...stopped, executionCapability: "conversation" })).toBeNull();
 
+    const rootId = TurnIdSchema.parse("trn_orderroot01");
+    const continuationId = TurnIdSchema.parse("trn_orderresume01");
+    const rootUser = withTurnIdentity(createMessage("root-user", "user", "Original prompt"), rootId);
+    const steeringUser = withTurnIdentity(createMessage("steering-user", "user", "Follow-up input"), rootId);
+    const continuationAssistant = withTurnIdentity(createMessage("resume-assistant", "assistant", "Resumed output"), continuationId);
+    const rootProjection = {
+      ...createLifecycleProjection(rootId), lastSequence: 1, terminal: stopped.terminal,
+    };
+    const continuationProjection = {
+      ...createLifecycleProjection(continuationId), lastSequence: 1,
+      continuationOfTurnId: rootId, originalPromptId: rootUser.id,
+    };
+    const continued = buildChatEntries(buildConversationTurns([rootUser, steeringUser, continuationAssistant]), {
+      [rootId]: rootProjection, [continuationId]: continuationProjection,
+    }, continuationId);
+    expect(continued.map((entry) => entry.kind === "message" ? entry.message.id : entry.key)).toEqual([
+      "root-user", "steering-user", `workflow:${continuationId}`, "resume-assistant",
+    ]);
+    expect(continued[0]).toMatchObject({ editTargetTurnId: continuationId, editTargetTerminal: false });
+    expect(continued[1]).not.toHaveProperty("editTargetTurnId");
+    expect(continued[2]).toMatchObject({ workflowHistory: [{ turnId: rootId }] });
+    expect(continued[2]?.projection).toBe(continuationProjection);
   });
 
   it("preserves durable assistant text from a failed turn", () => {
@@ -71,14 +93,20 @@ describe("buildChatEntries", () => {
       },
       items: [assistantItem("itm_entries01")],
     };
+    const progress = withTurnIdentity(createMessage("progress-before-steer", "assistant", "Earlier progress"), turnId);
+    const otherUser = withTurnIdentity(createMessage("other-user", "user", "Another turn"), "trn_entries02");
+    const steeringUser = withTurnIdentity(createMessage("steering-user", "user", "Also inspect scripts"), turnId);
 
-    expect(
-      buildChatEntries(buildConversationTurns([user, assistant]), {
-        [turnId]: projection,
-      }).map((entry) =>
+    const entries = buildChatEntries(buildConversationTurns([user, progress, otherUser, steeringUser, assistant]), {
+      [turnId]: projection,
+    });
+    expect(entries.map((entry) =>
         entry.kind === "message" ? entry.message.id : entry.kind,
       ),
-    ).toEqual(["user-1", "workflow"]);
+    ).toEqual(["user-1", "progress-before-steer", "other-user", "steering-user", "workflow"]);
+    expect(entries.filter((entry) => entry.kind === "workflow")).toHaveLength(1);
+    expect(entries[4]).toMatchObject({ key: `workflow:${turnId}`, assistantMessage: { id: "assistant-1" } });
+    expect(entries[4]?.projection).toBe(projection);
   });
 
   it("uses terminal summary as canonical final output when assistant deltas are absent", () => {
