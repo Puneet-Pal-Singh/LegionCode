@@ -277,7 +277,11 @@ async function steerTurn(input: {
       mediaRefs,
       configuration: {},
     }),
-  );
+  ).catch((error) => {
+    if (error instanceof ThreadInputConflictError) throw error;
+    // COMMIT may have become durable before its acknowledgement was lost.
+    throw operationError(503, "server_unavailable", "Steering outcome is being reconciled. Retry with the same input ID.", "THREAD_INPUT_OUTCOME_UNKNOWN");
+  });
   const existing = stored.item.receipt;
   if (existing && ["accepted", "applied", "unconfirmed"].includes(existing.status)) {
     return outcome(existing);
@@ -526,7 +530,11 @@ async function steerQueuedThreadInput(input: {
         targetTurnId: command.expectedTurnId,
         targetRunAttemptId: command.expectedRunAttemptId,
       }),
-    );
+    ).catch((error) => {
+      if (error instanceof ThreadInputConflictError) throw error;
+      // Unknown claim COMMIT retains the original item/version for recovery.
+      throw operationError(503, "server_unavailable", "Steering outcome is being reconciled. Retry from the current queue snapshot.", "THREAD_INPUT_OUTCOME_UNKNOWN");
+    });
     if (claimed.status === "conflict") {
       return outcome(ThreadInputReceiptSchema.parse({
         status: "conflict",
