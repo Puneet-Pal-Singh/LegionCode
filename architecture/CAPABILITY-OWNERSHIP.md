@@ -2138,6 +2138,17 @@ deadline requests abort only; unknown binding cleanup retains the exact binding,
 service and slot and prevents positive SQLite/process closure. No timeout, client
 disconnect, empty active map or forced exit releases those physical obligations.
 
+## Plan 057 — Lifecycle replay cursor continuation
+
+The SDK's existing lifecycle ordering owner validates replay page progress against
+the last accepted contiguous canonical event. Saved conversation replay and live
+continuation share this check before projecting or yielding the page; page counts
+and omitted request limits no longer imply exhaustion. Empty pages with a
+continuation cursor and cursors beyond accepted events fail explicitly. A final
+nonempty/null page or accepted terminal event remains valid, while empty/null
+means caught up rather than terminal for live polling. Runtime event production,
+canonical terminal state, reducers and transport limits remain unchanged.
+
 ## Plan 057 — Optional exact lifecycle replay byte paging
 
 The existing lifecycle event store optionally bounds the exact UTF-8 JSON result
