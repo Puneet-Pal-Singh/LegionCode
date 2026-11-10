@@ -126,7 +126,7 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
       turns: turnService,
       persistence,
     }) : undefined;
-    const imageReads = turnService ? new LocalChatMediaReads({ turns: turnService, store: media }) : undefined;
+    const imageReads = turnService ? new LocalChatMediaReads({ turns: turnService, store: media, queuedInputs: persistence.threadInputs }) : undefined;
     const artifactCommits = artifactReads ? options?.createArtifactCommitService?.({
       persistence, workspaces: workspaceService, reads: artifactReads,
     }) : undefined;

@@ -2450,3 +2450,8 @@ never normalized or reencoded for review. The existing media/readImage owner
 must resolve the accepted/applied/unconfirmed input under the actual Turn and
 attempt and reauthorize after the read. This port adds no public endpoint or
 renderer-supplied host path and does not manufacture a Turn scope for steering.
+
+### Accepted input original image reader
+
+- Existing media/readImage authorizes the actual Turn, resolves initial-prompt or accepted/applied/unconfirmed input attachment references through canonical owners, and reauthorizes after the bounded read. Accepted inputs use the same queued-media original-byte reader with full immutable scope/fingerprint/ref-set checks.
+- No synthetic Turn scope, normalized replacement bytes, renderer body fallback or new endpoint is introduced. Pending queue previews remain a separate strict-scope consumer; Native route activation still waits for held-successor admission. No new tests.
