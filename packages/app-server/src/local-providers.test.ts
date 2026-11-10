@@ -56,7 +56,7 @@ describe("LocalProviderService", () => {
     const persisted = current();
     if (!persisted) throw new Error("Expected selected provider");
     persisted.modelId = "removed-from-registry";
-    await expect(service.getSelection()).rejects.toThrow("Provider model is unavailable");
+    await expect(service.getSelection()).resolves.toEqual(persisted);
     persisted.providerId = ProviderIdSchema.parse("cohere");
     await expect(service.getSelection()).rejects.toThrow("Provider is unavailable");
   });

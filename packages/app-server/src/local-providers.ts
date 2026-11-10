@@ -93,9 +93,13 @@ export class LocalProviderService {
   }
 
   async getSelection(): Promise<ProviderSelection | null> {
-    const selection = await this.options.selectionStore.read();
-    if (selection === null) return null;
-    return this.validateSelection(selection);
+    const stored = await this.options.selectionStore.read();
+    if (stored === null) return null;
+    // Saved selection is user intent. Model availability is checked when a new
+    // selection is saved and again at admission, so setup remains recoverable.
+    const selection = ProviderSelectionSchema.parse(stored);
+    this.requireProvider(selection.providerId);
+    return selection;
   }
 
   async select(
