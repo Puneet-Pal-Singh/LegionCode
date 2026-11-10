@@ -1620,3 +1620,9 @@ this port does not run providers, reexecute tools or release captured resources.
 
 Lifecycle replay reauthorizes its canonical Turn after the asynchronous store read
 before returning event bytes, matching history and image-read scope checks.
+
+Native manifest construction consumes the same read-only Git owner's tagged HEAD
+fact and verifies it against porcelain status, the named branch and held grant.
+Unborn repositories use its format-sized absent-HEAD guard, allowing the existing
+canonical capture/first-commit path without inventing a commit or widening the
+manifest schema. A changed or inconsistent HEAD fact aborts preparation.

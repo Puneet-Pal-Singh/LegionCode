@@ -74,8 +74,8 @@ export interface LocalNativeRuntimeOptions {
     binding: LocalWorkspaceExecutionBinding,
     signal: AbortSignal,
   ) =>
-    | Pick<DefaultGitService, "probeRepository" | "getStatus">
-    | Promise<Pick<DefaultGitService, "probeRepository" | "getStatus">>;
+    | Pick<DefaultGitService, "probeRepository" | "getStatus" | "readRepositoryHead">
+    | Promise<Pick<DefaultGitService, "probeRepository" | "getStatus" | "readRepositoryHead">>;
 }
 
 /** Concrete 6C composition. The host keeps the one root FD and closes it after execution. */
@@ -314,18 +314,30 @@ async function readManifest(
     runId: admission.run.id,
     workspaceRoot: binding.filesystemRoot,
   });
+  const head = await git.readRepositoryHead({
+    runId: admission.run.id,
+    workspaceRoot: binding.filesystemRoot,
+  });
   await assertHeldRoot(binding, signal);
+  const objectIdLength = head.objectFormat === "sha1" ? 40 : head.objectFormat === "sha256" ? 64 : 0;
+  const absentHead = "0".repeat(objectIdLength);
+  const headMatchesStatus = objectIdLength > 0 && head.headSha.length === objectIdLength && /^[0-9a-f]+$/.test(head.headSha) && (
+    head.kind === "born"
+      ? status.branch.oid === head.headSha && head.headSha !== absentHead
+      : head.kind === "unborn" && status.branch.oid === "(initial)" && head.headSha === absentHead
+  );
   if (
     probe.repositoryRoot !== binding.filesystemRoot ||
     probe.repositoryIdentity !== binding.workspace.repositoryIdentity ||
-    !status.branch.oid ||
+    !headMatchesStatus ||
+    head.branchRef !== `refs/heads/${status.branch.head}` ||
     !status.branch.head ||
     status.branch.detached ||
     probe.branch !== status.branch.head ||
     binding.workspace.branch !== status.branch.head
   ) {
     throw new Error(
-      "Native read-only execution requires the current granted repository, commit and named branch",
+      "Native execution requires the current granted repository, named branch and verified HEAD state",
     );
   }
   return parseWorkspaceManifest({
@@ -336,8 +348,10 @@ async function readManifest(
     repoUrl: pathToFileURL(binding.filesystemRoot).href,
     baseBranch: status.branch.head,
     workingBranch: status.branch.head,
-    baseSha: status.branch.oid,
-    headSha: status.branch.oid,
+    // For unborn repositories, this is the Git owner's format-sized absent-HEAD
+    // guard. It is never a synthesized commit or a claim that HEAD exists.
+    baseSha: head.headSha,
+    headSha: head.headSha,
     executionLocation: "desktop_local",
     workerId: admission.run.workerId,
     filesystemRoot: binding.filesystemRoot,
