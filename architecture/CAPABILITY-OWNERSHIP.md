@@ -1662,3 +1662,20 @@ SQLite exclusive-lock owner is open and before new commands become ready.
 The private admission enumeration, native runtime port and App Server before-ready
 barrier are separately owned integration dependencies. This leaf does not claim
 to activate that startup barrier or recover captured Build resources.
+
+## Plan 057 — Canonical local Thread runtime read summary
+
+The same SQLite admission owner streams validated admission references and scoped
+lifecycle records to derive Thread runtime facts without writing projection state
+or platform terminal events. The latest indexed admission supplies its user leaf
+until settled; a settled Turn may supply its completed final assistant item.
+The Thread service applies that leaf only when the admission Run matches its
+existing latest platform Run pointer, preserving newer external runtime leaves.
+Runtime and existing platform terminal facts use the shared event insertion order
+for lastTerminalTurnId; canonical activity timestamps never replace later metadata.
+Thread title, pin/archive metadata, activeRunId pointer and platform projection
+sequence retain their existing owners. The admission producer links the next Turn
+to that last settled Turn and its current canonical leaf. Native factory wiring
+must inject this narrow read port from its existing single LocalPersistence owner.
+No second admission store, lifecycle reducer, terminal writer or Thread table is
+introduced; root startup composition owns the same-store injection.
