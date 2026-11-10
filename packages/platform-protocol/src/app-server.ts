@@ -2,6 +2,12 @@ import { z } from "zod";
 import { LocalTurnConfigurationOptionsSchema } from "./local-turn-configuration.js";
 
 export const APP_SERVER_PROTOCOL_VERSION = "1.0.0" as const;
+export const APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES = 1_048_576;
+
+/** Counts the actual JSON wire encoding, including control/surrogate escapes. */
+export function appServerJsonByteLength(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+}
 
 export const AppServerCapabilitySchema = z.string().min(1).max(120);
 export type AppServerCapability = z.infer<typeof AppServerCapabilitySchema>;

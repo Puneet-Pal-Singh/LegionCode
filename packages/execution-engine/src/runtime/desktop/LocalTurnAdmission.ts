@@ -6,11 +6,15 @@ import {
   ThreadItemSchema,
   RunIdSchema,
   ItemIdSchema,
+  LocalTurnConfigurationSchema,
+  ContentDigestSchema,
   createTurnId,
   createRunAttemptId,
   type Run,
   type Thread,
   type WorkspaceId,
+  type RunMode,
+  type LocalTurnConfiguration,
 } from "@repo/platform-protocol";
 import type { TurnAdmission } from "@repo/platform-protocol/conversation";
 
@@ -23,14 +27,18 @@ export interface LocalTurnAdmissionInput {
   readonly modelId: Run["modelId"];
   readonly workerId: Run["workerId"];
   readonly permissionProfileId: Run["permissionProfileId"];
+  readonly configuration?: LocalTurnConfiguration;
+  readonly imageFingerprint?: string;
 }
 
 /** Runtime creates initial product records; callers supply trusted selection and identities. */
 export function createLocalTurnAdmission(
   input: LocalTurnAdmissionInput,
-  mode: "ask" | "auto_edit" = "ask",
+  mode: RunMode = "ask",
 ): TurnAdmission {
   const thread = ThreadSchema.parse(input.thread);
+  const imageFingerprint = input.imageFingerprint === undefined
+    ? undefined : ContentDigestSchema.parse(input.imageFingerprint);
   if (thread.workspaceId !== input.workspaceId || thread.status !== "active") {
     throw new Error(
       "Local turn requires an active thread in the granted workspace",
@@ -39,7 +47,7 @@ export function createLocalTurnAdmission(
   if (
     !input.clientRequestId.trim() ||
     input.clientRequestId.length > 200 ||
-    !input.prompt.trim() ||
+    (!input.prompt.trim() && imageFingerprint === undefined) ||
     input.prompt.length > 200_000
   ) {
     throw new Error("Local turn requires a bounded request key and prompt");
@@ -85,7 +93,13 @@ export function createLocalTurnAdmission(
     type: "user_message",
     role: "user",
     status: "completed",
-    content: { text: input.prompt },
+    content: {
+      text: input.prompt,
+      ...(imageFingerprint ? { imageFingerprint } : {}),
+      ...(input.configuration ? {
+        configuration: LocalTurnConfigurationSchema.parse(input.configuration),
+      } : {}),
+    },
     createdAt: now,
     completedAt: now,
     eventSequence: 0,

@@ -1470,6 +1470,40 @@ selection and canonical Git mutation. Handler injection, local composition,
 capability advertisement and UI activation are not implemented by this boundary.
 No live-Git selector, fallback commit path or second artifact owner is introduced.
 
+## Plan 057 — Local interruption command adapter
+
+`LocalInterruptionService` validates the requested workspace, Thread, Run, Turn
+and Run Attempt against durable admission, then delegates active Stop to the
+existing executor. Canonical lifecycle replay alone supplies a terminal receipt;
+delivery acknowledgement without terminal evidence reports only
+`interrupt_requested`. Replay validates the exact scope through the final page
+and rejects events after a terminal. The caller retains current Thread/grant
+authorization. RuntimeKernel remains the only terminal producer; this adapter
+adds no polling, state store or resource-release proof. LocalTurnService and App
+Server composition remain separate integration work.
+
+## Local original image bytes and resource disposition
+
+`LocalChatMediaStore` owns private original image bytes through the shared
+`@repo/chat-media` decoder, sniffer and normalizer. The six-field canonical
+admission scope and ordered image fingerprint bind immutable references, MIME,
+size and SHA256 verification; caller filenames remain labels, never paths.
+Provider hydration requires the admitted fingerprint and verifies the original
+bytes before creating a transient normalized provider image. Data URLs and
+normalized derivatives are not persisted as durable image evidence.
+
+The private media resource journal reserves bounded pending bytes before writes
+and records only byte disposition, never admission or lifecycle truth. The
+existing canonical admission lookup alone confirms accepted scope, fingerprint
+and references. Proven absence after settled admission permits cleanup; unknown
+outcomes retain their bytes and quota. Durable discarding markers make cleanup
+resumable without deleting unfamiliar evidence or accepted immutable batches.
+
+This prepared backend depends on the shared codec package and exported local
+media-limit contract. Actual admission, runtime/provider hydration and authorized
+read/API consumers remain separate composition work. No EventStore media journal,
+renderer transport, capability advertisement or second acceptance owner is added.
+
 ### Local workspace provider preferences
 
 `LocalProviderPreferences` owns secret-free model visibility and default metadata
@@ -1511,6 +1545,50 @@ This schema foundation does not select runtime behavior, project availability,
 validate actual composed ports or enable attachments, tools or mutations. The
 Turn service/runtime admission and handshake composition retain those obligations.
 Hosted request behavior and existing Git/provider contracts remain unchanged.
+
+## Plan 057 — Canonical local admission configuration metadata
+
+The existing runtime `createLocalTurnAdmission` producer may retain validated
+canonical configuration and a content-digest image fingerprint in the durable
+user-message JSON. It reuses RunMode and the existing configuration/digest schemas;
+optional fields preserve existing callers and the default ask mode. Empty text
+requires a valid digest, but digest syntax is not image authorization or evidence
+that image bytes exist. The actual trusted Turn/runtime caller remains responsible
+for composed mode/permission availability and deriving the fingerprint from real
+authorized images. No image bytes, media store, admission owner, lifecycle producer
+or capability is introduced by this metadata leaf.
+
+## Plan 057 — Shared App Server response budget
+
+The platform protocol owns the existing one-MiB default JSON response budget and
+its UTF-8 serialized-byte helper. The SDK HTTP transport reuses that same value;
+its explicit maxResponseBytes override and bounded response reader are unchanged.
+This foundation does not increase limits, alter history queries or add a second
+transport owner. Whole-Turn history selection and final server envelope checks
+remain separate consumers of this shared contract.
+
+## Plan 057 — Bounded local admission history storage
+
+`LocalTurnAdmissions.listByThread` remains the sole query over canonical admission
+and event references. Optional latest reads use insertion order, one bounded extra
+identity and chronological output; forward cursors keep their existing ownership.
+Both directions use the shared response budget to return whole fitting Turns,
+with an actual returned-row cursor and real earlier-history evidence. A single
+next/newest oversized Turn fails with `history_row_too_large`; no row is skipped
+or truncated. Thread authorization, public protocol and Turn-service translation
+remain their existing owners' separate integration responsibilities. No history
+payload copy, table, projection or lifecycle producer is added.
+
+## Plan 057 — Explicit bounded history transport contract
+
+The existing `thread/history` contract accepts explicit latest reads without an
+after cursor and carries optional `hasEarlier` evidence. The SDK requires that
+receipt for latest requests and documents cursor-based continuation rather than
+inferring completion from row count. App Server checks the final history envelope
+against the same existing one-MiB response budget. This adapter does not select
+history, authorize Threads or introduce a new endpoint; the actual Turn service
+must delegate to the canonical bounded query and reauthorize before returning.
+That service-method integration remains with its current owner.
 
 ## Plan 057 — Native turn service composition
 
