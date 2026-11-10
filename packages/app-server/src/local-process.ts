@@ -1,9 +1,10 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 import { LocalPersistence } from "@repo/event-store/local";
-import type { ReplayLifecycleEventsRequest } from "@repo/platform-protocol";
+import type { ReplayLifecycleEventsRequest, GetTurnDiffRequest } from "@repo/platform-protocol";
 import {
   AppServerRequestSchema,
+  LocalTurnStartParamsSchema,
   LOCAL_APP_SERVER_IMAGE_REQUEST_HEADER,
   MAX_LOCAL_APP_SERVER_IMAGE_REQUEST_BYTES,
   MAX_LOCAL_APP_SERVER_REQUEST_BYTES,
@@ -19,7 +20,8 @@ import type { VerifiedMacGitExecution, VerifiedMacGitOptions } from "./local-mac
 import { LocalThreadNotFoundError, LocalThreadService } from "./local-threads.js";
 import { LocalProviderService, ProviderConfigurationSchema } from "./local-providers.js";
 import type { LocalProviderModelCatalog } from "./local-provider-model-catalog.js";
-import { LocalTurnService, type LocalTurnRuntime } from "./local-turns.js";
+import { LocalHarnessComposition, type LocalHarnessBootstrap, type LocalHarnessInitializationResult } from "./harness/LocalHarnessComposition.js";
+import { LocalTurnService as NativeLocalTurnService, type LocalTurnRuntime } from "./local-turns.js";
 import { reconcileLostLocalTurns } from "./local-turn-recovery.js";
 import { attachLocalServerShutdown, combineLocalShutdownOwners, type LocalShutdownOwner } from "./local-server-shutdown.js";
 import { LocalProviderPreferences } from "./local-provider-preferences.js";
@@ -52,6 +54,7 @@ export type LocalAppServerParentPort = {
 };
 
 export type LocalAppServerCompositionOptions = {
+  harnessBootstrap?: LocalHarnessBootstrap;
   providerModelCatalog?: LocalProviderModelCatalog;
   createMetadataInspector?: LocalWorkspaceServiceOptions["createMetadataInspector"];
   createProbeExecution?: (authority: Pick<VerifiedMacGitOptions, "probeRoot" | "withRootAuthority">) => Promise<VerifiedMacGitExecution>;
@@ -94,6 +97,10 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
       selectionStore: persistence.providerSelection,
       modelCatalog: options?.providerModelCatalog,
     });
+    const harness = new LocalHarnessComposition(persistence, {
+      workspaceService, threadService, providerService,
+    }, config.storageDirectory);
+    if (options?.harnessBootstrap) harness.bootstrap(options.harnessBootstrap);
     const providerPreferences = new LocalProviderPreferences({
       getWorkspace: () => workspaceService.getAuthorizedCurrent(),
       store: persistence.providerPreferences,
@@ -105,8 +112,7 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
       lookupAdmission: (scope) => persistence.turnAdmissions.getByTurn(scope.turnId),
     });
     const runtime = options?.createTurnRuntime?.(persistence, media);
-    if (runtime) await reconcileLostLocalTurns(persistence, runtime);
-    const turnService = runtime ? new LocalTurnService({
+    const nativeTurnService = runtime ? new NativeLocalTurnService({
       persistence,
       workspaces: workspaceService,
       threads: threadService,
@@ -114,25 +120,80 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
       runtime,
       media,
     }) : undefined;
-    const artifactReads = turnService ? new LocalTurnArtifactReads({
+    const turnService = createLocalSavedOwnerRouting(harness.turnService, nativeTurnService, persistence);
+    const artifactReads = nativeTurnService ? new LocalTurnArtifactReads({
       turns: turnService,
       persistence,
     }) : undefined;
-    const imageReads = turnService ? new LocalChatMediaReads({ turns: turnService, store: media }) : undefined;
+    const imageReads = nativeTurnService ? new LocalChatMediaReads({ turns: turnService, store: media }) : undefined;
     const artifactCommits = artifactReads ? options?.createArtifactCommitService?.({
       persistence, workspaces: workspaceService, reads: artifactReads,
     }) : undefined;
     const server = createServer((request, response) => {
-      void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, turnService, providerPreferences, artifactReads, imageReads, artifactCommits);
+      void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, turnService, providerPreferences, artifactReads, imageReads, artifactCommits, harness);
     });
-    return attachLocalServerShutdown(
-      server, persistence, combineLocalShutdownOwners(turnService, artifactCommits),
+    const owner = attachLocalServerShutdown(
+      server, persistence, combineLocalShutdownOwners(nativeTurnService, artifactCommits, {
+        async shutdown() {
+          const result = await harness.turnService.shutdown();
+          if (result.status !== "settled" || !Array.isArray(result.retainedTurnIds) || result.retainedTurnIds.length !== 0)
+            throw new Error("Delegated local resources remain unsettled");
+        },
+      }),
       () => workspaceService.hasUnsettledResources,
     );
+    // The private process owner must await this outcome before listen and route
+    // retained work through its existing shutdown/closed path on this same owner.
+    const localHarnessInitialization: Promise<LocalHarnessInitializationResult> =
+      Promise.all([
+        runtime ? reconcileLostLocalTurns(persistence, runtime) : Promise.resolve(),
+        harness.turnService.initialize(),
+      ]).then(([, delegatedRecovery]) => delegatedRecovery);
+    // Keep the original rejection observable while the owner attaches observers.
+    void localHarnessInitialization.catch(() => undefined);
+    return Object.defineProperty(owner, "localHarnessInitialization", {
+      value: localHarnessInitialization,
+      enumerable: false,
+      writable: false,
+      configurable: false,
+    }) as typeof owner & { readonly localHarnessInitialization: Promise<LocalHarnessInitializationResult> };
   } catch (error) {
     persistence.close();
     throw error;
   }
+}
+
+function createLocalSavedOwnerRouting(
+  delegated: LocalHarnessComposition["turnService"],
+  native: NativeLocalTurnService | undefined,
+  persistence: Pick<LocalPersistence, "turnAdmissions">,
+) {
+  const requireNative = () => {
+    if (!native) throw new AppServerOperationError(503, "server_unavailable", "Native local execution is not configured", undefined, false);
+    return native;
+  };
+  const saved = async (turnId: Parameters<typeof delegated.savedTurnBackend>[0]) =>
+    (await delegated.savedTurnBackend(turnId)) === "delegated" ? delegated : requireNative();
+  return {
+    ...(native ? { getConfigurationOptions: () => native.getConfigurationOptions() } : {}),
+    startTurn: async (params: Parameters<NativeLocalTurnService["startTurn"]>[0]) => {
+      const request = LocalTurnStartParamsSchema.parse(params);
+      const previous = await persistence.turnAdmissions.findByRequest(request.threadId, request.clientRequestId);
+      if (previous && (await delegated.savedTurnBackend(previous.turn.id)) !== "native")
+        throw new AppServerOperationError(409, "invalid_request", "The saved request belongs to the delegated backend", undefined, false);
+      return requireNative().startTurn(request);
+    },
+    getTurn: async (turnId: Parameters<typeof delegated.getTurn>[0]) => (await saved(turnId)).getTurn(turnId),
+    readHistory: (params: Parameters<typeof delegated.readHistory>[0]) => (native ?? delegated).readHistory(params),
+    interruptTurn: async (params: Parameters<typeof delegated.interruptTurn>[0]) => (await saved(params.turnId)).interruptTurn(params),
+    submitLifecycleApproval: async (params: Parameters<typeof delegated.submitLifecycleApproval>[0]) =>
+      (await saved(params.turnId)).submitLifecycleApproval(params),
+    submitUserInputResponse: async (params: Parameters<typeof delegated.submitUserInputResponse>[0]) => {
+      if ((await delegated.savedTurnBackend(params.turnId)) !== "delegated")
+        throw new AppServerOperationError(503, "server_unavailable", "Native question responses are unavailable", undefined, false);
+      return delegated.submitUserInputResponse(params);
+    },
+  };
 }
 
 export async function runLocalAppServerProcess(
@@ -200,11 +261,12 @@ async function handleRequest(
   providerService: LocalProviderService,
   persistence: LocalPersistence,
   workspaceFilesService?: AppServerComposition["localWorkspaceFilesService"],
-  turnService?: LocalTurnService,
+  turnService?: ReturnType<typeof createLocalSavedOwnerRouting>,
   providerPreferences?: LocalProviderPreferences,
   artifactReads?: LocalTurnArtifactReads,
   imageReads?: LocalChatMediaReads,
   artifactCommits?: AppServerComposition["localTurnArtifactCommitService"],
+  harness?: LocalHarnessComposition,
 ): Promise<void> {
   const baseInput = {
     method: request.method ?? "",
@@ -213,6 +275,12 @@ async function handleRequest(
     origin: request.headers.origin,
     authorization: request.headers.authorization,
     contentType: request.headers["content-type"],
+  };
+  const readSavedDiff = async (params: GetTurnDiffRequest) => {
+    if (harness && (await harness.turnService.savedTurnBackend(params.turnId)) === "delegated")
+      return harness.turnService.getTurnDiff(params);
+    if (!artifactReads) throw new AppServerOperationError(503, "server_unavailable", "Native saved review is unavailable", undefined, false);
+    return artifactReads.getTurnDiff(params);
   };
   const composition = {
     environment: "local" as const,
@@ -223,9 +291,25 @@ async function handleRequest(
     localWorkspaceFilesService: workspaceFilesService,
     localTurnService: turnService,
     localProviderPreferenceService: providerPreferences,
-    localTurnArtifactReadsService: artifactReads,
+    localTurnArtifactReadsService: { getTurnDiff: readSavedDiff },
     localChatMediaService: imageReads,
-    localTurnArtifactCommitService: artifactCommits,
+    localTurnArtifactCommitService: artifactCommits ? {
+      commitTurnArtifact: async (params: Parameters<NonNullable<typeof artifactCommits>["commitTurnArtifact"]>[0]) => {
+        if (harness && (await harness.turnService.savedTurnBackend(params.turnId)) === "delegated")
+          throw new AppServerOperationError(503, "server_unavailable", "Delegated saved commits require their enforced writer authority", undefined, false);
+        return artifactCommits.commitTurnArtifact(params);
+      },
+    } : undefined,
+    environmentId: persistence.environmentId,
+    harnessOperations: harness?.harnessOperations,
+    hostedChatSubmissionService: harness?.turnService,
+    hostedLifecycleOperationsService: turnService ? {
+      replayLifecycleEvents: (params: ReplayLifecycleEventsRequest) => replayLocalLifecycle(persistence, threadService, params),
+      getTurnDiff: readSavedDiff,
+      submitLifecycleApproval: turnService.submitLifecycleApproval,
+      submitUserInputResponse: turnService.submitUserInputResponse,
+      compactTurn: async () => { throw new AppServerOperationError(503, "server_unavailable", "Local compaction is unavailable", undefined, false); },
+    } : undefined,
     threadService,
     localLifecycleReplayService: {
       replayLifecycleEvents: (params: ReplayLifecycleEventsRequest) =>
