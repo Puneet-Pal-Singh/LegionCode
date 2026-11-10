@@ -49,8 +49,14 @@ export class LocalThreadInputRepository implements ThreadInputRepository {
     const tables = this.database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('local_thread_inputs','local_thread_input_state')").all();
     if (marker ? marker.value !== "1" || tables.length !== 2 : tables.length !== 0) throw corrupt("Local input schema is incomplete");
     if (!marker) {
-      const history = this.database.prepare("SELECT 1 FROM events WHERE family='lifecycle' AND json_extract(event_json,'$.type') IN ('turn.input.accepted','turn.input.applied') LIMIT 1").get();
-      if (history) throw corrupt("Canonical local input history has no durable inbox");
+      const history = this.database.prepare("SELECT event_json FROM events WHERE family='lifecycle' AND json_extract(event_json,'$.type') IN ('turn.input.accepted','turn.input.applied')")
+        .iterate() as Iterable<{ event_json: string }>;
+      for (const row of history) {
+        const event = LifecycleEventSchema.parse(JSON.parse(row.event_json));
+        const admission = this.admissions.getByTurn(event.turnId);
+        if (!admission) throw corrupt("Input history has no canonical admission");
+        if (!isDelegated(admission)) throw corrupt("Canonical Native input history has no durable inbox");
+      }
       this.database.transaction(() => {
         this.database.exec(`CREATE TABLE local_thread_input_state (
           thread_id TEXT PRIMARY KEY NOT NULL,user_id TEXT NOT NULL,workspace_id TEXT NOT NULL,

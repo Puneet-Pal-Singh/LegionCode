@@ -2441,3 +2441,5 @@ advertise queue or steering availability.
 - Full Queue activation still requires held-successor physical preparation before admission, accepted-image authenticated reads and final route/capability composition. No new tests or registrations.
 
 - Native queue admission explicitly rejects delegated captures. Native accepted-user enrichment applies only inside the same opaque ownership boundary; shared delegated terminal/assistant summaries remain with their original reader and are not forced to manufacture Native inbox/platform records.
+
+- First Native inbox migration applies the same canonical opaque delegated-owner boundary before refusing orphan Native input events. Existing delegated history does not falsely require a Native inbox.
