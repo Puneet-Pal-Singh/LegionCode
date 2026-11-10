@@ -265,6 +265,9 @@ export function createLocalNativeRuntime(
             admission,
             messages,
             gateway,
+            ...(modelSnapshot.contextWindow !== undefined ? {
+              metadata: { contextWindowTokens: modelSnapshot.contextWindow },
+            } : {}),
             signal,
             execution,
           });

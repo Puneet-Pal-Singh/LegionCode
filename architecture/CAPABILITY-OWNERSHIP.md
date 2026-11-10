@@ -1822,6 +1822,9 @@ runtime route, freezes the validated private snapshot and uses its capabilities
 for image admission. The same captured values reach protected inference; volatile
 catalog metadata is not persisted in admission or request fingerprints. Canonical
 provider discovery and inference retain selection and runtime-route validation.
+Known captured model capacity reaches the existing Native metadata port as
+contextWindowTokens. The canonical context assembly and compaction owners retain
+budget calculation; missing capacity stays unknown without a fabricated default.
 
 Concurrent exact image retries derive a validation-only submitted fingerprint
 when another request commits before their image preparation. They use the same
