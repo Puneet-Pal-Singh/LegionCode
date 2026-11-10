@@ -50,4 +50,3 @@ function attachMessageMetadata(
 ): MessageWithMetadata {
   return { ...message, data: { metadata } } as MessageWithMetadata;
 }
-
