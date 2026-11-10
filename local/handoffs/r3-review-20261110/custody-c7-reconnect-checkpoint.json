@@ -1,0 +1,129 @@
+{
+  "status": "published clean; all16 held paths returned to root",
+  "base_approved_merge": "784257eb937d56b72f19e585ce65c102b3cd171a",
+  "approved_dev": "0353bb2765c61e5dd10bf7b99f35722c2034e7a6",
+  "head": "c7a732b07948b30a65b0685de971f69b65064b91",
+  "branch": "codex/fix-r3-selected-custody-consumers-20261110",
+  "worktree": "/workspace/LegionCode-R3-CUSTODY-CONSUMERS-20261110",
+  "commits": [
+    "7eb253bbbc728369b5f7a7e8717048173e0fc783",
+    "c7a732b07948b30a65b0685de971f69b65064b91"
+  ],
+  "source_changes_since_refresh": [
+    "apps/brain/src/services/providers/CloudCredentialVault.ts",
+    "apps/brain/src/services/providers/ProviderConfigService.ts",
+    "architecture/CAPABILITY-OWNERSHIP.md",
+    "packages/persistence/src/migrations/PostgresMigrationRunner.test.ts",
+    "packages/persistence/src/providers/MemoryProviderStores.ts",
+    "packages/persistence/src/providers/PostgresCredentialDefaultFence.ts",
+    "packages/persistence/src/providers/PostgresCredentialStore.ts",
+    "packages/persistence/src/providers/PostgresPreferenceStore.ts",
+    "packages/persistence/src/providers/connection-custody.ts",
+    "packages/persistence/src/providers/types.ts"
+  ],
+  "returned_owned_paths": [
+    "apps/brain/src/services/ai/AdapterSelectionService.test.ts",
+    "apps/brain/src/services/ai/AdapterSelectionService.ts",
+    "apps/brain/src/services/providers/CloudCredentialVault.test.ts",
+    "apps/brain/src/services/providers/CloudCredentialVault.ts",
+    "apps/brain/src/services/providers/ProviderConfigService.ts",
+    "apps/brain/src/services/providers/ProviderConnectionService.test.ts",
+    "apps/brain/src/services/providers/ProviderConnectionService.ts",
+    "apps/brain/src/services/providers/ProviderCredentialService.ts",
+    "architecture/CAPABILITY-OWNERSHIP.md",
+    "packages/persistence/src/migrations/PostgresMigrationRunner.test.ts",
+    "packages/persistence/src/providers/MemoryProviderStores.ts",
+    "packages/persistence/src/providers/PostgresCredentialDefaultFence.ts",
+    "packages/persistence/src/providers/PostgresCredentialStore.ts",
+    "packages/persistence/src/providers/PostgresPreferenceStore.ts",
+    "packages/persistence/src/providers/connection-custody.ts",
+    "packages/persistence/src/providers/types.ts"
+  ],
+  "first_consumer": "ProviderConfigService constructs CloudCredentialVault with mandatory selected reconnect callback to canonical CredentialStore.reconnectCredential(input, preferenceStore); actual existing PG factory supplies same client/user/workspace graph; Memory implements same concrete owner operation.",
+  "atomic_contract": {
+    "intent": "Snapshot provider/key/config/user before first await; capture private selection version/full tuple and exact old credential owner before AES staging.",
+    "postgres": "Existing preference advisory guard and xmin::text snapshot, then existing defaultEpoch via advanceInTransaction, then credential owner CAS/retirement/newUUID insert and preference bind on SAME SQL transaction/client. AES encryption before transaction; prepared ciphertext/insert remain private.",
+    "memory": "Version belongs to canonical preference-map entry, including shared wrappers; validate all before synchronous credential+preference map commit with no await.",
+    "history": "Fresh UUID/gen1/material1 for replacement, never revive old revoked credential; selecting nondefault B never replaces unrelated default A.",
+    "unknown_commit": "No fresh insertion retry; non-conflict transaction error reports unknown and requires reconciliation. Exception does not claim rollback.",
+    "other_provider": "Captured other-provider selection remains unchanged; intended provider default replacement remains fenced and validated against its captured old owner."
+  },
+  "canonical_pair_result_fields": [
+    "apiKey",
+    "connectionConfig",
+    "credentialId",
+    "ownerGeneration",
+    "tokenMaterialVersion"
+  ],
+  "checks": [
+    {
+      "command": "corepack pnpm --filter @repo/persistence check-types",
+      "revision": "c7a732b07948b30a65b0685de971f69b65064b91",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-ACCOUNT-20261110/custody-consumers/reconnect/persistence-types.log",
+      "sha256": "db2e2fa0d47e8cee35834a9c95a23787094f34b595096aa243ebd1fcd6e25bb1",
+      "environment": {}
+    },
+    {
+      "command": "corepack pnpm --filter @repo/persistence build",
+      "revision": "c7a732b07948b30a65b0685de971f69b65064b91",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-ACCOUNT-20261110/custody-consumers/reconnect/persistence-build.log",
+      "sha256": "074aeaa788b77047a00aa6815fe8c4ca320a0d3e6b8d36758f44649d57fbaf69",
+      "environment": {}
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/brain check-types",
+      "revision": "c7a732b07948b30a65b0685de971f69b65064b91",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-ACCOUNT-20261110/custody-consumers/reconnect/brain-types.log",
+      "sha256": "1b61a996eb8492fd8d630d0219f27816e1d92e7fd2ecf688b69cf45b3310ad18",
+      "environment": {}
+    },
+    {
+      "command": "node scripts/gates/check-architecture-boundaries.mjs",
+      "revision": "c7a732b07948b30a65b0685de971f69b65064b91",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-ACCOUNT-20261110/custody-consumers/reconnect/architecture.log",
+      "sha256": "91500b0d9dfbc3ce9fab62ce2f083e0c6d82c41531528f48c54ecaa9dfd763a0",
+      "environment": {}
+    },
+    {
+      "command": "node scripts/gates/check-rebuild-governance.mjs",
+      "revision": "c7a732b07948b30a65b0685de971f69b65064b91",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-ACCOUNT-20261110/custody-consumers/reconnect/governance.log",
+      "sha256": "9a5c7cafae7b03c771af4ee23d69de18f537c9ba47d3b6bfc73080addf7513b1",
+      "environment": {
+        "REBUILD_CHANGED_FILES": "actual git diff --name-only 0353bb2765c61e5dd10bf7b99f35722c2034e7a6..c7a732b07948b30a65b0685de971f69b65064b91"
+      }
+    },
+    {
+      "command": "node node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/cli.mjs --tsconfig apps/brain/tsconfig.json /tmp/lc-r3-custody-reconnect-probe.ts",
+      "revision": "c7a732b07948b30a65b0685de971f69b65064b91",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-ACCOUNT-20261110/custody-consumers/reconnect/probe.log",
+      "sha256": "33ccda098dd8c1be2fa7495cb9e35313eaf4db80eceb11e1163e9e0af03de54a",
+      "environment": {}
+    }
+  ],
+  "probe_check_count": 20,
+  "probe_result_sha256": "236bc154993fa34579818d99d4847d4a36495923e37282f9c1cf3289a9a2e66a",
+  "probe_script_sha256": "43c9ea12720bafe1bdc67ec5b4b7ab47f965b8b9d4b47add694b51851b1fe5c5",
+  "migration_fixture": {
+    "path": "packages/persistence/src/migrations/PostgresMigrationRunner.test.ts",
+    "existing_title": "applies only pending migrations",
+    "new_registrations": 0,
+    "change": "Actual0037 runner input, applied/ledger/statements once and second-run skip; no SQL-string mirror assertions."
+  },
+  "source_status": "",
+  "node": "v24.22.1",
+  "pnpm": "9.0.0",
+  "limits": [
+    "Real PostgreSQL reconnect/picker ABA/rollback/COMMIT-unknown validation remains root-owned; Cloud probe uses actual Memory/AES and actual consumer source, no real DB.",
+    "No native/provider/network calls or runtime/host/account acceptance.",
+    "No Cloud repository test suite run; existing migration fixture changed without registrations or titles.",
+    "No PR, merge to dev or deployment.",
+    "No new schema/table/model store/public API or model/discovery algorithm changes."
+  ]
+}
