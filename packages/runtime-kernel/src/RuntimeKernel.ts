@@ -282,10 +282,11 @@ export class RuntimeKernel {
         throw new RuntimeKernelError("invalid_turn_identity", "Delegated selection does not match admitted execution");
       }
       const admittedSelection = run.harnessSelection;
-      if (admittedSelection && (admittedSelection.environmentId !== selection.environmentId ||
-        admittedSelection.selectionRevision !== selection.selectionRevision || admittedSelection.selection === null ||
+      if (!admittedSelection || admittedSelection.selection === null ||
+        admittedSelection.environmentId !== selection.environmentId ||
+        admittedSelection.selectionRevision !== selection.selectionRevision ||
         admittedSelection.selection.harness !== selection.harness || admittedSelection.selection.instanceId !== selection.instanceId ||
-        admittedSelection.selection.connectionId !== selection.connectionId || admittedSelection.selection.modelId !== selection.modelId)) {
+        admittedSelection.selection.connectionId !== selection.connectionId || admittedSelection.selection.modelId !== selection.modelId) {
         throw new RuntimeKernelError("invalid_turn_identity", "Resolved harness binding differs from frozen admitted selection");
       }
       await this.dependencies.delegated.assertActive({ selection, leaseId: delegatedInput.leaseId,
