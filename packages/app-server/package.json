@@ -20,6 +20,7 @@
     "./local-capture-git": "./src/local-capture-git.ts",
     "./local-artifact-git": "./src/local-artifact-git.ts",
     "./local-native-runtime": "./src/local-native-runtime.ts",
+    "./local-native-queued-preparation": "./src/local-native-queued-preparation.ts",
     "./local-native-settlement": "./src/local-native-settlement.ts",
     "./local-provider-model-discovery": "./src/local-provider-model-discovery.ts",
     "./local-readonly-git": "./src/local-readonly-git.ts",
