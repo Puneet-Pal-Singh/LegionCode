@@ -2138,6 +2138,117 @@ deadline requests abort only; unknown binding cleanup retains the exact binding,
 service and slot and prevents positive SQLite/process closure. No timeout, client
 disconnect, empty active map or forced exit releases those physical obligations.
 
+## Plan 057 — Native predecessor resource settlement evidence
+
+The existing `LocalTurnResources` owner records Native resource settlement only
+after the original executor's combined terminal/capture/quiescence proof, the
+same writer owner's positive release and the original binding's successful close.
+The existing immutable Turn-artifact metadata authority stores the exact admission,
+terminal/publication digests, root and Git metadata identity, grant provenance and
+actual released namespace/writer-file identity. It creates no lifecycle event or
+public review artifact. Unknown write acknowledgements require an exact durable
+record read before the same owned entry is removed; unreadable or absent evidence
+retains that owner and prevents positive shutdown.
+
+The private Native predecessor reader validates those canonical references under
+the successor's already-held physical writer, using a metadata-only tracked loan
+that exposes no file descriptor or execution capability. It never acquires or
+releases a replacement fence. Missing legacy or crash-before-receipt evidence is
+explicit `native_predecessor_recovery_required`; terminal history, artifacts and
+an absent executor map never establish physical settlement. There is no automatic
+historical backfill from a freshly acquired fence.
+
+Unused prepared acquisitions have a separate positive cleanup path on the same
+writer entry. Sticky physical exposure prevents that path after any broad authority
+loan or tracked execution. The trusted first consumer must fence and await its
+original canonical publication before its exact absence read; unknown publication
+or cleanup retains the original binding and lease. This source does not activate
+delegated external execution or supply its missing physical process boundary.
+
+Missing Native resource receipts remain explicit recovery requirements. Legacy
+pre-intent guardians closed the target writer descriptor before execution, so
+acquiring their old fence alone cannot exclude a surviving child. The landed
+child-intent ABI separately proves physical exclusion for its own launches; this
+receipt reader does not backfill missing canonical resource evidence from that
+acquisition, a preparation label or terminal history.
+
+## Plan 057 — Canonical lifecycle event byte transport
+
+The existing lifecycle event store remains the only event authority. Local replay
+uses an exact UTF-8 result budget derived from the actual App Server response
+frame. A page returns its largest contiguous prefix without consuming an excluded
+row. If its first event exceeds the budget, the same admitted, authorized reader
+returns a small versioned reference to that immutable event, including its full
+UTF-8 byte length and SHA-256. `turn/lifecycleEventChunk` reads that same row;
+references do not create artifacts, projections, lifecycle events or another store.
+Admission scope and the current granted Thread are checked before and after reads.
+
+The SDK hydrates bounded byte chunks, validates exact reference/ranges, full digest,
+fatal UTF-8 decoding and canonical event identity/schema, and only then returns the
+unchanged replay result to the existing ordering owner. An aborted or incomplete
+read cannot advance the lifecycle cursor. Transport limits do not truncate tool
+inputs or lower public tool limits. Canonical events have no global size cap;
+complete event materialization uses memory proportional to the declared event and
+allocation/validation failure remains explicit. Original HTTP handlers remain
+owned by the server's persistence shutdown barrier even after a disconnect.
+
+The same server shutdown barrier also drains original HTTP handler promises.
+A disconnected/closed socket is not proof that its asynchronous grant, file,
+history or metadata operation finished. Handlers are registered before their
+first await and stay owned until their original promise settles. Shutdown fences
+new dispatch before and after body reads, preserves authentication checks and
+waits for those originals before SQLite closure and the private closed receipt.
+Existing HTTP fixtures await that positive shutdown contract rather than socket
+closure alone. No request lifecycle event, status store or forced cleanup is added.
+
+## Plan 057 — Native child intent recovery boundary
+
+The existing native writer inode carries a bounded append-only physical child
+intent WAL. A guardian durably appends and fsyncs the exact boot/PID/kernel unique
+process lifetime before releasing its child-owned EOF-safe start pipe. No argv,
+executable, credential or workspace path enters the WAL. Normal completion is
+appended only after exact-child waitpid has reaped the target. The filesystem
+helper still never forks; mutation/private-transaction loans validate the same
+held-root intent header and retain their inherited writer descriptor throughout.
+
+Darwin's public OFD byte-zero lock is the single inherited writer fence, released
+only on last close. A nonoverlapping POSIX byte-one lock serializes WAL appends;
+it is not another checkout/writer registry. Old whole-file flock holders conflict
+on the same inode. No writer path reopens, renames, unlinks or replaces the fence
+namespace, and no unsupported OFD operation selects a flock fallback.
+
+New writer acquisition reconciles pending intents before exposing authority.
+Inclusive stable-lifetime/status lookup and atomic audit-token signaling exclude
+only the exact recorded process across exec and PID reuse. Signal delivery or an
+old token's ESRCH is never exit proof. Unknown identity/API/permission/cleanup or
+deadline results retain the intent and original authority. Complete records have
+SHA-256 checksums; corrupt complete records fail closed. Only an incomplete final
+record, which never passed its fsync/start barrier, may be trimmed under the held
+writer fence. The WAL has a finite four MiB limit and no speculative compaction.
+
+The new process-helper acquisition receipt is ABI v2/intentVersion 1. The actual
+Desktop composition awaits the original bounded helper probe before constructing
+its shared writer owner or enabling captured Build and artifact commit. The probe
+verifies boot/stable-identity/signaling and actual OFD/old-flock/append-lock support
+using one private immediately removed probe inode, with no workspace, real lease,
+provider or target process. Unsupported support leaves capture unavailable; unknown
+helper closure retains the existing startup failure owner. Stable-identity structures follow the pinned Apple XNU ABI
+and unsupported platforms remain unavailable. The same namespace/inode is retained,
+but old binaries do not produce intents: all active writer profiles must migrate
+to this ABI, and mixed-old-binary crash recovery is not advertised as supported.
+Only the owner's actual fresh O_EXCL-created inode may initialize an empty WAL,
+through the required private --initialize-empty flag. An existing empty inode
+returns known busy before taking a new writer lock; it cannot certify legacy
+child exclusion. A partial initial header remains unverified rather than being
+rewritten. Existing complete WAL headers still undergo the same identity,
+checksum and pending-child reconciliation before any capability is exposed.
+
+A live Node owner already retains the same open description when a guardian is
+lost. This boundary addresses combined Node-host and guardian loss before target
+reaping. Its WAL establishes physical exclusion only; canonical recovery, terminal
+settlement, immutable artifacts and Native predecessor receipts retain their own
+existing owners. No process is relaunched and no lifecycle completion is invented.
+
 ## Issue 810 — Versioned hosted workspace configuration
 
 The existing `WorkspaceRepository` owns saved configuration for one primary

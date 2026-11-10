@@ -63,6 +63,9 @@ import {
   InterruptTurnRequestSchema,
   type InterruptTurnRequest,
   type InterruptTurnResponse,
+  ReplayLifecycleEventsRequestSchema,
+  LifecycleEventBytesRequiredMetadataSchema,
+  LIFECYCLE_EVENT_BYTE_READ_REQUIRED,
   type ReplayLifecycleEventsRequest,
   type ReplayLifecycleEventsResponse,
   type GetTurnDiffRequest,
@@ -95,6 +98,7 @@ import type {
 } from "@repo/shared-types";
 import { z } from "zod";
 import { ConversationScopeHttpError } from "./conversation-scope-error.js";
+import { LifecycleEventBytesError, readLifecycleEventBytes } from "./lifecycle-event-bytes.js";
 
 export type { AppServerRequest } from "@legioncode/app-server/protocol";
 
@@ -226,7 +230,7 @@ export type AppServerClient = {
   removeThreadInput(params: Extract<ThreadInputCommand, { operation: "thread.input.remove" }>): Promise<ThreadInputReceipt>;
   steerQueuedThreadInput(params: Extract<ThreadInputCommand, { operation: "thread.input.steer" }>): Promise<ThreadInputReceipt>;
   startQueuedThreadInput(params: Extract<ThreadInputCommand, { operation: "thread.input.start" }>): Promise<ThreadInputReceipt>;
-  replayLifecycleEvents(params: ReplayLifecycleEventsRequest): Promise<ReplayLifecycleEventsResponse>;
+  replayLifecycleEvents(params: ReplayLifecycleEventsRequest, options?: { readonly signal?: AbortSignal }): Promise<ReplayLifecycleEventsResponse>;
   getTurnDiff(params: GetTurnDiffRequest): Promise<GetTurnDiffResponse>;
   submitLifecycleApproval(params: SubmitLifecycleApprovalRequest): Promise<LifecycleEvent>;
   compactTurn(params: CompactTurnRequest): Promise<CompactTurnResponse>;
@@ -444,9 +448,44 @@ export function createAppServerClient(
     startQueuedThreadInput: (params) => request(options, {
       method: "thread/input/start", params,
     }, AppServerResultSchemas["thread/input/start"]),
-    replayLifecycleEvents: async (params) => request(options, {
-      method: "turn/lifecycleEvents", params,
-    }, AppServerResultSchemas["turn/lifecycleEvents"]),
+    replayLifecycleEvents: async (params, operationOptions) => {
+      const signal = operationOptions?.signal;
+      signal?.throwIfAborted();
+      const verified = ReplayLifecycleEventsRequestSchema.parse(params);
+      try {
+        const result = await request(options, {
+          method: "turn/lifecycleEvents", params: verified,
+        }, AppServerResultSchemas["turn/lifecycleEvents"]);
+        signal?.throwIfAborted();
+        return result;
+      } catch (error) {
+        signal?.throwIfAborted();
+        if (!(error instanceof AppServerClientError) || error.code !== "server_error" ||
+            error.method !== "turn/lifecycleEvents" || error.serverError?.statusCode !== 413 ||
+            !("operationCode" in error.serverError) ||
+            error.serverError.operationCode !== LIFECYCLE_EVENT_BYTE_READ_REQUIRED) throw error;
+        const metadata = LifecycleEventBytesRequiredMetadataSchema.safeParse(
+          "metadata" in error.serverError ? error.serverError.metadata : undefined,
+        );
+        if (!metadata.success || metadata.data.reference.turnId !== verified.turnId ||
+            metadata.data.reference.sequence !== (verified.afterSequence ?? 0) + 1) {
+          throw invalidResponse("turn/lifecycleEvents", "Canonical lifecycle byte reference did not match the replay cursor");
+        }
+        try {
+          const event = await readLifecycleEventBytes(metadata.data.reference, (chunk) => request(options, {
+            method: "turn/lifecycleEventChunk", params: chunk,
+          }, AppServerResultSchemas["turn/lifecycleEventChunk"]), { signal, backend: verified.backend });
+          signal?.throwIfAborted();
+          return { events: [event], nextSequence: event.sequence };
+        } catch (readError) {
+          signal?.throwIfAborted();
+          if (readError instanceof LifecycleEventBytesError) {
+            throw invalidResponse("turn/lifecycleEvents", readError.message);
+          }
+          throw readError;
+        }
+      }
+    },
     getTurnDiff: async (params) => request(options, {
       method: "turn/diff", params,
     }, AppServerResultSchemas["turn/diff"]),
