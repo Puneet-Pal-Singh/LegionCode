@@ -2227,3 +2227,43 @@ lifecycle authority changes. Public HTTP byte paging remains inactive until the
 separately owned lossless event hydration and cursor-aware consumers are wired;
 this foundation alone does not make oversized public replay deliverable. Chunk
 bytes and their real wire digest remain read/transport responsibilities.
+
+## Plans 048 / 061 — Local harness protocol foundation
+
+The platform protocol owns harness family, immutable pre-admission selection,
+instance/operation and measured-usage contracts, canonical question descriptors
+and response normalization. Active Run, Chat request and queued-input schemas
+remain unchanged and reject unsupported captured selection. Run capture must land
+with the Kernel's resolved-strategy guard; Chat capture requires routed admission,
+and queued capture requires its actual producer migration. Reference contracts
+alone never authorize a Native fallback. The existing lifecycle schema adds typed passive harness measurements
+and provider-limit observations, without introducing a producer or state store.
+
+The worker protocol consumes those public contracts for scoped host commands,
+observations, opening reservations, replies and positive quiescence receipts.
+These definitions do not enable a driver, create a host, resolve credentials or
+certify physical containment. Required initialize environment identity is deferred
+to its actual constructor/handshake consumer and existing fixture migration.
+The active SDK legacy question wrapper remains unchanged until that consumer
+migrates its shared route and removes the old DTO; this foundation alone does not
+claim that client/runtime integration. Native capture, current byte paging and
+provider custody retain their existing owners and exports.
+
+## Plans 048 / 061 — Same-writer local harness persistence foundation
+
+The existing exclusive LocalPersistence SQLite connection owns durable local
+harness bindings, observation ingress/reply claims, opening phases and verified
+attachment retirement. Its constructor validates and initializes those indexes
+and one environment identity; no second writer or runtime registry is introduced.
+Control-plane setup/selection uses that same writer and the caller's canonical
+local actor. It reuses the same strict versioned grant parser as LocalPersistence,
+including v2 Git metadata identity in its grant fingerprint. It stores no
+credentials and starts no provider or process.
+
+This foundation exposes private ports but does not activate a public local
+harness consumer. Binding validation parses captured selection from an opaque
+Run property; the unchanged strict Run schema still rejects that field until its
+Kernel strategy guard is merged atomically. Missing capture never selects Native
+or reconstructs external ownership. Final constructor/driver wiring remains
+separate. Current Native admission/lineage, immutable artifacts, lifecycle byte
+paging and provider custody retain their existing source and exports.
