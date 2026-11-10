@@ -1541,3 +1541,10 @@ and authorized original-image reads. Its recovery admission lookup uses the
 same process-owned SQLite store independently of the selected workspace. The
 Turn service and runtime share the same media port; no second media journal,
 admission writer or credential store is constructed.
+
+The trusted host may inject saved-artifact commit composition using the same
+persistence, grant authority and immutable reader. Runtime capture receives
+the existing artifact persistence port. Initialize exposes artifact-commit-v1
+only when the actual commit service was constructed; review availability grants
+no mutation authority. Native writer lease and resource proof remain their
+existing owners; generic composition adds no Git runner or lifecycle writer.

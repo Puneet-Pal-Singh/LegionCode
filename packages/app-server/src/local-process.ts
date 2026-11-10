@@ -40,7 +40,12 @@ export type LocalAppServerCompositionOptions = {
   createMetadataInspector?: LocalWorkspaceServiceOptions["createMetadataInspector"];
   createProbeExecution?: (authority: Pick<VerifiedMacGitOptions, "probeRoot" | "withRootAuthority">) => Promise<VerifiedMacGitExecution>;
   createWorkspaceFilesService?(workspaces: LocalWorkspaceService): NonNullable<AppServerComposition["localWorkspaceFilesService"]>;
-  createTurnRuntime?(persistence: Pick<LocalPersistence, "turnAdmissions" | "lifecycleEvents">, media?: LocalTurnMediaPort): LocalTurnRuntime;
+  createTurnRuntime?(persistence: Pick<LocalPersistence, "turnAdmissions" | "lifecycleEvents" | "turnArtifacts">, media?: LocalTurnMediaPort): LocalTurnRuntime;
+  createArtifactCommitService?(input: {
+    persistence: Pick<LocalPersistence, "turnAdmissions" | "lifecycleEvents" | "turnArtifacts" | "workspaceGrants">;
+    workspaces: LocalWorkspaceService;
+    reads: LocalTurnArtifactReads;
+  }): NonNullable<AppServerComposition["localTurnArtifactCommitService"]>;
 };
 
 export function createLocalAppServer(config: LocalAppServerStartConfig, options?: LocalAppServerCompositionOptions) {
@@ -95,8 +100,11 @@ export function createLocalAppServer(config: LocalAppServerStartConfig, options?
       persistence,
     }) : undefined;
     const imageReads = turnService ? new LocalChatMediaReads({ turns: turnService, store: media }) : undefined;
+    const artifactCommits = artifactReads ? options?.createArtifactCommitService?.({
+      persistence, workspaces: workspaceService, reads: artifactReads,
+    }) : undefined;
     const server = createServer((request, response) => {
-      void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, turnService, providerPreferences, artifactReads, imageReads);
+      void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, turnService, providerPreferences, artifactReads, imageReads, artifactCommits);
     });
     server.once("close", () => persistence.close());
     server.once("error", () => persistence.close());
@@ -151,6 +159,7 @@ async function handleRequest(
   providerPreferences?: LocalProviderPreferences,
   artifactReads?: LocalTurnArtifactReads,
   imageReads?: LocalChatMediaReads,
+  artifactCommits?: AppServerComposition["localTurnArtifactCommitService"],
 ): Promise<void> {
   const baseInput = {
     method: request.method ?? "",
@@ -171,6 +180,7 @@ async function handleRequest(
     localProviderPreferenceService: providerPreferences,
     localTurnArtifactReadsService: artifactReads,
     localChatMediaService: imageReads,
+    localTurnArtifactCommitService: artifactCommits,
     threadService,
     localLifecycleReplayService: {
       replayLifecycleEvents: (params: ReplayLifecycleEventsRequest) =>
