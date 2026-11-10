@@ -1,0 +1,115 @@
+{
+  "source": "15bde679e35af79d120c563e195a9346771c66b6",
+  "base_evidence_reused": "97baba33c0f7f811edadedfc06e67184ff08a7cc",
+  "handoff": "2c61f920cb7ba197dfe9d564510443d657f1c2a3",
+  "manifest_sha256": "97ea115ad92803beced687c0335643cf5e3773842cdc54cef4e025892ff329b3",
+  "handoff_hashes_and_lengths_verified": 19,
+  "executor": "8575502e05f6",
+  "node": "v24.22.1",
+  "node_abi": "137",
+  "engine_output_reuse": {
+    "package": "packages/execution-engine",
+    "source_tree": "cef5ded8d60fac741473ff63e07f556e2fc69ded",
+    "reused_revision": "97baba33c0f7f811edadedfc06e67184ff08a7cc",
+    "files": 768,
+    "output_tree_sha256": "4ab9eb921d5995712eed6c2f108dc8415f2de281769dc59239da27787ab31f6a",
+    "reason": "Exact unchanged Cloud-built execution-engine package needed for real private export resolution; no stubs."
+  },
+  "native_dependency": {
+    "package": "better-sqlite3",
+    "version": "12.8.0",
+    "binary_bytes": 2226328,
+    "binary_sha256": "acc62d357832055089d6b358e5568d8b8bbe542f250dbde06543a080dd32dc3b",
+    "synthetic_memory_select_1": "PASS"
+  },
+  "checks": [
+    {
+      "command": "corepack pnpm --filter @legioncode/app-server build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-HTTP-15BDE-20261111/check-01.log",
+      "sha256": "c9d295e00704018a39bf1f32e7f8de7ab33c73ad05cb12c8f3c36d6b6daafd43"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/app-server check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-HTTP-15BDE-20261111/check-02.log",
+      "sha256": "33362872c3a356344b28d64c248e0321afa50bc3f25c22f6437a97f8f0c359b8"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/desktop build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-HTTP-15BDE-20261111/check-03.log",
+      "sha256": "68d8f06808749859e44e98796129035349bd67b5d95a12001bebb55abbad6410"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/desktop check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-HTTP-15BDE-20261111/check-04.log",
+      "sha256": "8bb6986727fe1e63c88c8c49a02db5536d874f403f694ed7263494e0903b4172"
+    },
+    {
+      "command": "node scripts/gates/check-architecture-boundaries.mjs",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-HTTP-15BDE-20261111/check-05.log",
+      "sha256": "91500b0d9dfbc3ce9fab62ce2f083e0c6d82c41531528f48c54ecaa9dfd763a0"
+    },
+    {
+      "command": "node scripts/gates/check-rebuild-governance.mjs",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-HTTP-15BDE-20261111/check-06.log",
+      "sha256": "9a5c7cafae7b03c771af4ee23d69de18f537c9ba47d3b6bfc73080addf7513b1"
+    },
+    {
+      "command": "node --test scripts/gates/check-architecture-boundaries.test.mjs scripts/gates/check-rebuild-governance.test.mjs",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-HTTP-15BDE-20261111/check-07.log",
+      "sha256": "012d2a1ee5eb5e43415d596ae19af16688769c5ce88354ad1cd445080b44045c"
+    },
+    {
+      "name": "frozen_install",
+      "command": "ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm_config_cache=/workspace/work/npm-cache npm_config_devdir=/workspace/work/node-gyp corepack pnpm install --frozen-lockfile --offline --ignore-scripts --store-dir /workspace/work/pnpm-store --cache-dir /workspace/work/pnpm-cache",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-HTTP-15BDE-20261111/install.log",
+      "sha256": "41c89c6bd9474f6a3352c6d3330d1295ce6e6dc03560752a5c951f1cfc5c094d"
+    },
+    {
+      "name": "http_initial",
+      "command": "corepack pnpm --filter @legioncode/app-server test -- src/local-process.integration.test.ts",
+      "exit_code": 1,
+      "log": "/workspace/work/R3-HTTP-15BDE-20261111/http-integration.log",
+      "sha256": "47441d9f80a0c601438fc3cb6a7f6c81e2139f962a9f74cd86ace4dfe7f14ed7"
+    },
+    {
+      "name": "rebuild_initial",
+      "command": "corepack pnpm --filter @repo/event-store rebuild better-sqlite3",
+      "exit_code": 1,
+      "log": "/workspace/work/R3-HTTP-15BDE-20261111/sqlite-rebuild.log",
+      "sha256": "469183eed1706f2851db14edd308b9394efdcaf1dfc9367c35a33734efa4f9de"
+    },
+    {
+      "name": "rebuild_scoped",
+      "command": "npm_config_devdir=/workspace/work/node-gyp corepack pnpm --store-dir /workspace/work/pnpm-store --filter @repo/event-store rebuild better-sqlite3",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-HTTP-15BDE-20261111/sqlite-rebuild-scoped.log",
+      "sha256": "7e21ad21162cbce0329ae5f891fc58de2c8ed5f69a93971aba1c1f3da524c6da"
+    },
+    {
+      "name": "http_final",
+      "command": "corepack pnpm --filter @legioncode/app-server test -- src/local-process.integration.test.ts",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-HTTP-15BDE-20261111/http-integration-final.log",
+      "sha256": "7bd8ff38e88df2256da50ef6515ac16d6f404a8f8d4b1971a53e0daa51c28d89"
+    }
+  ],
+  "final_http_cases_passed": 7,
+  "existing_gate_cases_passed": 39,
+  "initial_failures": "Initial HTTP 6/7 failed because native binding was absent after ignore-scripts install; no Claude SDK collection problem. Initial rebuild rejected a mismatched default pnpm store. Scoped store rebuild produced real binding and unchanged HTTP7 passed.",
+  "source_changed_paths": [],
+  "source_status": "",
+  "limitations": [
+    "Linux Node24.22.1 build/test evidence only; no installed Mac, provider/account or physical-confinement acceptance.",
+    "No Native/private ownership source edits, no schema/behavior changes, no new tests or registrations.",
+    "No CF proposal applied or authenticated diagnostic/probe, no PR/deployment.",
+    "No later819/821 or moving dev merged."
+  ]
+}
