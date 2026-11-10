@@ -1,0 +1,78 @@
+{
+  "base": "224baba074387d232e39c7d93190d0405c9556a3",
+  "merge": "8300487a5cf3ca733709e7c362615d61bc2b9f98",
+  "proposal_only": true,
+  "entries": [
+    {
+      "path": "architecture/CAPABILITY-OWNERSHIP.md",
+      "stages": {
+        "1": {
+          "blob": "9a0d8903210ca451c379a081b803b65b2bfa3aa7",
+          "sha256": "89847eec9f4b2adf2319b0a375cf230169dcd1eeac9be29335b1c9ec50a54526",
+          "bytes": 184660
+        },
+        "2": {
+          "blob": "c95ddfdab7e7eadbac55e133da774769c0d979eb",
+          "sha256": "a17447d44e2835e6decc9bcf3d9a7ee65fc6eac5c31c70cd80bad5357e036920",
+          "bytes": 194044
+        },
+        "3": {
+          "blob": "c5ef5046d49a4af553197e29c3e1093b828ae8dd",
+          "sha256": "6ccc918e0a173386c0b20dfecd86f9eb78896edc33d2906c561187936d5a3bb8",
+          "bytes": 193378
+        }
+      },
+      "proposed_blob": "7da08680221bcfcce9b1d25194aa1d9aa0d9c4fe",
+      "proposed_sha256": "1a21dd457ddfbd95ff1f27ad21e1483a7085a47f5685357c5c6fb2ab7822a49f"
+    },
+    {
+      "path": "packages/app-server/src/local-process.ts",
+      "stages": {
+        "1": {
+          "blob": "c2fe807832b46f1d876b01b8190149a1effdd22e",
+          "sha256": "333b16278c6e96dcbc6cf2b2dde5603abe49e697a3494f5ae1ca7b499db86a16",
+          "bytes": 16462
+        },
+        "2": {
+          "blob": "d4082cf6b9360cd33cb580a26c19f2335d3bc69a",
+          "sha256": "1f3c602ec8df2f9144cfe56679ec3104935f73968eaeae7ed5e51cc610b365a3",
+          "bytes": 23028
+        },
+        "3": {
+          "blob": "8a780583621750b2da5f6e98c08ba36acc177176",
+          "sha256": "f65edb1ea5c437497fcc961ac86d76a112ff74e5efa515165d4304a614cb3c4b",
+          "bytes": 16934
+        }
+      },
+      "proposed_blob": "d402ea495275f2f7af55b8413c64ad6c856d3305",
+      "proposed_sha256": "82e32898d205404d073dd2fc2d6e943bc3913a9cbe745dffde39719fe0d0270f"
+    },
+    {
+      "path": "packages/event-store/src/local/harness-bindings.ts",
+      "stages": {
+        "1": {
+          "blob": "72417d3a5fae6e965065ffc9a3fb5f364008a967",
+          "sha256": "c3e94510102640b638006a4c3553492e4d22c7c54c1744511be733ca4e2c1251",
+          "bytes": 64870
+        },
+        "2": {
+          "blob": "1036e129cbfd1dc0007da99eaca6be6b22cc9228",
+          "sha256": "59793fdafbaa171cf64d07d4bf33bda107b7e893ccf17b17c1c2a8e032ab1243",
+          "bytes": 65067
+        },
+        "3": {
+          "blob": "7b85ae0d1095946ce19a4923e4e8006adac6f7cb",
+          "sha256": "9f822114552669593a7c45b9aa9a73458c90999ae143a403f6d15be867b8794e",
+          "bytes": 79870
+        }
+      },
+      "proposed_blob": "7b85ae0d1095946ce19a4923e4e8006adac6f7cb",
+      "proposed_sha256": "9f822114552669593a7c45b9aa9a73458c90999ae143a403f6d15be867b8794e"
+    }
+  ],
+  "resolutions": [
+    "local-process retains original request drain import AND adds physical candidate type; retains harnessBootstrap AND physical candidate factory option",
+    "binding retains incoming requirePreparationBegun guard for event-bearing freeze; allRootcancel/security nonconflicts retained",
+    "ledger retains both append-only sections; corrects stale incoming guardian-alone assertion to bothNode+guardianloss, perRootexplicitcorrection"
+  ]
+}
