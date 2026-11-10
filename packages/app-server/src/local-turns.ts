@@ -1,3 +1,4 @@
+import type { LocalTurnAttemptIdentity, LocalTurnAttemptInput } from "@legioncode/execution-engine/runtime/desktop/LocalReadOnlyTurnExecutor";
 import type { BYOKDiscoveredProviderModel } from "@repo/shared-types";
 import {
   ModelIdSchema,
@@ -49,6 +50,8 @@ export type LocalTurnExecutor = {
   /** True only after physical quiescence and canonical terminal/capture settlement. */
   awaitResourceRelease(turnId: TurnId): Promise<boolean>;
   interrupt(turnId: TurnId, reason: string): Promise<void>;
+  /** Private exact-attempt input; the durable input service owns admission first. */
+  acceptThreadInputAttempt?(identity: LocalTurnAttemptIdentity, input: LocalTurnAttemptInput): Promise<number>;
   resolveApproval: ConstructorParameters<
     typeof LocalApprovalService
   >[0]["resolveApproval"];

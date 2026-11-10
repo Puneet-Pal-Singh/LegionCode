@@ -2248,3 +2248,13 @@ The active SDK legacy question wrapper remains unchanged until that consumer
 migrates its shared route and removes the old DTO; this foundation alone does not
 claim that client/runtime integration. Native capture, current byte paging and
 provider custody retain their existing owners and exports.
+
+## Plan 057 — Native input safe-point prerequisite
+
+The existing Native executor exposes the published Desktop exact-attempt input
+port to its held RuntimeKernel. It snapshots provider message data before awaits
+and rejects superseded, stopped, finished or terminal attempts. Canonical accepted
+and applied events remain Kernel-owned. This optional private port alone enables
+no queue, route or client dispatch; the same-writer durable input service must
+admit the exact input before calling it. The existing preparation-resource proof
+and positive physical shutdown responsibilities remain unchanged.

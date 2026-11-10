@@ -309,6 +309,7 @@ export function createLocalNativeRuntime(
           return executor.execute(admission);
         },
         interrupt: executor.interrupt.bind(executor),
+        acceptThreadInputAttempt: executor.acceptThreadInputAttempt.bind(executor),
         resolveApproval: executor.resolveApproval,
         async awaitResourceRelease(turnId) {
           if (!(await proveRelease(turnId))) return false;
