@@ -74,6 +74,7 @@ describe("OpenAIResponsesAdapter", () => {
     const native = createProtectedProviderAdapter({
       providerId: "openai",
       modelId,
+      model: { id: modelId, name: modelId, providerId: "openai", availability: "available" },
       resolveCredential,
     });
     const fetchSpy = vi.mocked(globalThis.fetch);

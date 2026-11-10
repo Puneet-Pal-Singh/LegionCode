@@ -425,6 +425,27 @@ async function start(storageDirectory: string) {
     repositoryRoot: workspaceRoot, repositoryIdentity: "github.com/example/repository", branch: "main", isDirty: false,
   }));
   const server = await createLocalAppServer({ credential, serverVersion: "test", storageDirectory }, {
+    providerModelCatalog: {
+      getDiscoveredModels: async (providerId, query) => {
+        const models = builtinProviderRegistry.listModels(providerId).map((model) => ({
+          id: model.modelId, name: model.displayName, providerId,
+          ...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
+          capabilities: {
+            supportsTools: model.supportsTools, supportsVision: model.supportsVision,
+            supportsReasoning: model.supportsReasoning,
+          },
+        }));
+        return {
+          providerId, view: query.view, models,
+          page: { limit: Math.max(1, models.length), hasMore: false },
+          metadata: { fetchedAt: new Date().toISOString(), stale: false, source: "registry", status: "available" },
+        };
+      },
+      refreshDiscoveredModels: async (providerId) => ({
+        providerId, refreshedAt: new Date().toISOString(), source: "provider_api",
+        cacheInvalidated: true, modelsCount: builtinProviderRegistry.listModels(providerId).length,
+      }),
+    },
     createMetadataInspector: (rootDirectory) => ({
       async inspectGitMetadataLayout() {
         const root = await rootDirectory.stat({ bigint: true });

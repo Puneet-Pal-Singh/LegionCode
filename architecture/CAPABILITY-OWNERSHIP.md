@@ -1867,3 +1867,131 @@ no commit, terminal or resource-proof authority.
 Private notification-channel or shutdown-observer failure is not a physical
 closure signal. Unknown shutdown remains retained even if fatal delivery throws;
 failed ready delivery requests the same owned shutdown barrier.
+## Plan 057 — Shared discovered local provider models
+
+LocalProviderService consumes the server-only provider catalog port for model
+listing, refresh and exact-model selection; bounded paged inventory remains
+request-local and coalesces concurrent lookups. The existing shared discovery
+service owns catalog retrieval and caching. The local process accepts this one
+injected catalog; protected credential access remains in its existing host port.
+Saved selection and preference reads validate structure and supported-provider
+identity without catalog access. Preference updates validate only introduced
+model references through the same discovery service; unchanged or removed saved
+references remain recoverable during outages.
+The shared catalog's static refresh reuses the same declared-model helper as
+static reads and returns the existing refresh DTO without adapter discovery,
+credential resolution or provider API calls.
+
+ProtectedProviderInference requires the admitted discovered model identity and
+uses the canonical provider route resolver with the protected connection config.
+It retains provider/model/availability checks and validates Cloudflare routing
+against that same protected config before inference. No static model allowlist,
+second catalog, credential store or app-local routing algorithm replaces these
+owners. Shared provider discovery/routing is now merged, and the private utility
+consumer below supplies the catalog. Native runtime activation and installed
+acceptance remain separately sequenced integration requirements.
+
+### Local discovery's protected utility-process consumer
+
+The existing Desktop utility startup now injects that same shared discovery
+factory alongside workspace file composition. Main alone reads an atomic
+OS-protected key/config value and lends a delivery lease bound to the vault's
+mutation epoch. The supervisor rechecks the exact child, generation, provider
+and current lease immediately before private delivery. Lookup and delivery
+queues are bounded; timed-out work remains counted until its resolver settles.
+Stop and process loss clear delivery timers and prevent late secret delivery.
+No credential-read renderer IPC, Native runtime activation, mode advertisement
+or competing vault is added. The existing packaged credential case remains
+unchanged and exercises this actual first catalog consumer.
+
+## Plan 057 — Native turn service composition
+
+`LocalTurnService` consumes the canonical admission repository and delegates
+approval and interruption to their existing adapters. A matching saved request
+returns its original admission without resolving a new provider or creating an
+executor. Runtime constructs records; the existing repository owns atomic admission
+and RuntimeKernel owns lifecycle events. Immutable admitted configuration selects
+Plan's read-only ports or Build's actually supplied captured ports. Build exposes
+all four existing permission modes through the same validated per-attempt policy;
+the same provider and registry remain execution owners.
+The runtime image helper persists references through the original-byte media port
+before admission and hydrates verified originals only for provider delivery.
+History reads use the canonical bounded repository and reauthorize before return.
+
+These modules do not activate Desktop execution. Read-only activation requires
+the actual grant-held root, protected provider and read-only Git host composition.
+Captured activation additionally requires a physical writer fence and actual
+capture/artifact ports. The same executor supplies positive resource-settlement
+proof; the host retains uncertain resources. Transport completion does not
+establish terminal or physical truth.
+The configuration, Engine admission, bounded history, image-start contract and
+original-byte media ports are real dependencies. Their presence and this service
+source do not advertise availability or wire startup, handshake or HTTP dispatch.
+
+The required startup reconciliation port delegates lost Native Plan admissions to
+its Engine adapter with the same trusted worker, permission profile and lifecycle
+store. The sole App Server startup owner must invoke it before command readiness;
+this port does not run providers, reexecute tools or release captured resources.
+
+Lifecycle replay reauthorizes its canonical Turn after the asynchronous store read
+before returning event bytes, matching history and image-read scope checks.
+
+Native manifest construction consumes the same read-only Git owner's tagged HEAD
+fact and verifies it against porcelain status, the named branch and held grant.
+Unborn repositories use its format-sized absent-HEAD guard, allowing the existing
+canonical capture/first-commit path without inventing a commit or widening the
+manifest schema. A changed or inconsistent HEAD fact aborts preparation.
+
+The canonical workspace owner retains pins whose directory close fails, and raw
+acquisition handles only when their close fails before a pin exists. Its narrow
+`hasUnsettledResources` fact distinguishes clean binding rejection from unknown
+physical ownership; no request failure or rejected Promise proves release.
+
+Native Turn shutdown uses the same single resource owner as ordinary completion.
+It fences preparation and admission dispatch, waits in-flight preparation, sends
+exact-admission Stop through the existing interruption adapter, and awaits the
+original execution cleanup promises. Runtime resource-release proof is required
+for every mode before one binding close; execution fulfillment or rejection is
+never release evidence. Unknown proof, failed binding close or workspace-owner
+quarantine rejects shutdown and retains the original resources. `shutdown()` and
+`hasActiveExecutions` let the generic server await this owner before SQLite close;
+that transport barrier is a separate integration dependency.
+
+A settled read-only preflight may release only with an explicit same-attempt
+factory quiescence proof: kernel ports never returned, no NativeFS tool could
+start, and every requested Git operation returned positive closure. The Engine
+still requires exact durable terminal evidence. Worker absence is not proof;
+unknown Git closure and the captured preparation proof path remain unchanged.
+
+Captured execution receives one immutable per-attempt registry authorization
+instance from the Native factory. The Engine forwards that same object to the
+captured worker factory and requires the identical object in its kernel ports;
+validated permission policy resolution is cached once for that admitted profile.
+The canonical guarded file worker validates write/edit authorization through that
+same instance, including before commit. Supervised file edits require approval;
+the other existing policies may authorize those edits directly. Run_executable
+continues to require explicit exact-command approval in every mode. The actual
+captured ports, writer fence, tool allowlist and no-fork constraints remain required.
+
+After exact saved-receipt reconciliation, atomic admission conflicts return typed
+non-retryable 409 `local_admission_conflict`. Stale parents or unsettled/changed
+intent never cause automatic reparenting, request rewriting or execution retry.
+
+Native Plan recovery refuses any defined opaque harness selection on the Run or
+immutable admitted user content before schema, worker, producer or history checks.
+Those records remain with their independent harness owner; no driver ID parsing,
+selection remapping or delegated lifecycle mutation is introduced.
+
+Native execution captures an available matching discovered model with an explicit
+runtime route, freezes the validated private snapshot and uses its capabilities
+for image admission. The same captured values reach protected inference; volatile
+catalog metadata is not persisted in admission or request fingerprints. Canonical
+provider discovery and inference retain selection and runtime-route validation.
+Known captured model capacity reaches the existing Native metadata port as
+contextWindowTokens. The canonical context assembly and compaction owners retain
+budget calculation; missing capacity stays unknown without a fabricated default.
+
+Concurrent exact image retries derive a validation-only submitted fingerprint
+when another request commits before their image preparation. They use the same
+codec as initial receipt retries without persisting media or resolving providers;
+current Thread authorization and immutable saved-intent checks still gate return.

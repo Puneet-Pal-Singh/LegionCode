@@ -77,6 +77,12 @@ export class LocalWorkspaceService {
   private readonly createProbeService: LocalWorkspaceServiceOptions["createProbeService"];
   // Strong references are intentional: unknown physical closure must not let GC close/reuse an FD.
   private readonly quarantinedPins = new Set<LocalWorkspaceRootPin>();
+  private readonly quarantinedHandles = new Set<FileHandle>();
+
+  /** Physical ownership only: a failed close never becomes release evidence. */
+  get hasUnsettledResources(): boolean {
+    return this.quarantinedPins.size > 0 || this.quarantinedHandles.size > 0;
+  }
 
   constructor(options: LocalWorkspaceServiceOptions) {
     this.workspaceGrants = options.workspaceGrants;
@@ -471,7 +477,7 @@ export class LocalWorkspaceService {
   }
 
   private assertProbingAvailable(): void {
-    if (this.quarantinedPins.size) throw new Error("Repository probing is quarantined until host restart");
+    if (this.hasUnsettledResources) throw new Error("Repository probing is quarantined until host restart");
   }
 
   private async openRootPin(path: string, generation: number, signal: AbortSignal): Promise<LocalWorkspaceRootPin> {
@@ -496,7 +502,16 @@ export class LocalWorkspaceService {
       await pin.assertPathCurrent();
       return pin;
     } catch (error) {
-      if (!pin?.quarantined) await rootDirectory.close();
+      if (pin) {
+        if (!pin.quarantined) await pin.close();
+      } else {
+        try { await rootDirectory.close(); }
+        catch (closeError) {
+          this.quarantinedHandles.add(rootDirectory);
+          this.executionController.abort("Workspace descriptor closure was not proved");
+          throw closeError;
+        }
+      }
       throw error;
     }
   }
