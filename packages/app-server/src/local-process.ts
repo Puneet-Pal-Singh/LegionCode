@@ -115,7 +115,7 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
     const server = createServer((request, response) => {
       void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, turnService, providerPreferences, artifactReads, imageReads, artifactCommits);
     });
-    return attachLocalServerShutdown(server, persistence, turnService);
+    return attachLocalServerShutdown(server, persistence, turnService, () => workspaceService.hasUnsettledResources);
   } catch (error) {
     persistence.close();
     throw error;
@@ -137,19 +137,18 @@ export async function runLocalAppServerProcess(
   }
   server.once("runtime-shutdown-failed", () => parentPort.postMessage({ type: "fatal" }));
   const exitAfterSettlement = (exitCode: number) => {
-    void server.closed.then(() => process.exit(exitCode), () => undefined);
+    void server.requestShutdown().then(() => process.exit(exitCode), () => undefined);
   };
-  const exitAfterClose = () => exitAfterSettlement(1);
   server.once("error", () => {
     parentPort.postMessage({ type: "fatal" });
-    server.close(exitAfterClose);
+    exitAfterSettlement(1);
   });
-  process.once("SIGTERM", () => server.close(() => exitAfterSettlement(0)));
+  process.once("SIGTERM", () => exitAfterSettlement(0));
   server.listen(0, "127.0.0.1", () => {
     const address = server.address();
     if (!address || typeof address === "string") {
       parentPort.postMessage({ type: "fatal" });
-      server.close(exitAfterClose);
+      exitAfterSettlement(1);
       return;
     }
     parentPort.postMessage({

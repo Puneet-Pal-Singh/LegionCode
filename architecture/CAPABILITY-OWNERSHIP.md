@@ -1711,3 +1711,10 @@ The utility process routes its normal SIGTERM request through this same HTTP
 close/runtime shutdown/closed barrier. The existing supervisor can observe
 actual process exit after settlement; this handler does not synthesize exit
 evidence, force termination or clear an uncertain writer fence.
+
+The shutdown barrier strongly retains its actual server, runtime, workspace
+resource check and persistence with a referenced keep-alive until positive
+closure. requestShutdown fences Native admission and signals owned work before
+HTTP drain, then awaits the same cleanup promise. Grant-only profiles also
+refuse SQLite closure while the canonical workspace owner retains unknown
+resources. The retention set stores physical owners, not product lifecycle state.
