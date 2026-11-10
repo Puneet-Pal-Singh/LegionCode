@@ -175,7 +175,7 @@ function createLocalSavedOwnerRouting(
   const saved = async (turnId: Parameters<typeof delegated.savedTurnBackend>[0]) =>
     (await delegated.savedTurnBackend(turnId)) === "delegated" ? delegated : requireNative();
   return {
-    ...(native ? { getConfigurationOptions: () => native.getConfigurationOptions() } : {}),
+    getConfigurationOptions: () => requireNative().getConfigurationOptions(),
     startTurn: async (params: Parameters<NativeLocalTurnService["startTurn"]>[0]) => {
       const request = LocalTurnStartParamsSchema.parse(params);
       const previous = await persistence.turnAdmissions.findByRequest(request.threadId, request.clientRequestId);
