@@ -520,6 +520,8 @@ function DesktopApp(): React.JSX.Element {
     />
   ) : null;
 
+  const renderedThreadScope = threadScope.current;
+
   function closeCompactSidebar(): void {
     if (window.matchMedia("(max-width: 1023px)").matches) setSidebarOpen(false);
   }
@@ -704,6 +706,12 @@ function DesktopApp(): React.JSX.Element {
               onManageModels={() => setSettingsTarget("manage-models-only")}
               providerRevision={providerRevision}
               configurationOptions={turnConfigurationOptions}
+              onAdmissionConfirmed={(admission) => {
+                if (renderedThreadScope !== threadScope.current ||
+                    admission.run.workspaceId !== workspace.workspaceId ||
+                    admission.turn.threadId !== selectedThread.id) return;
+                void refreshThreads();
+              }}
               onReviewTurn={(turn) => {
                 savedReview.select(turn);
                 setRightPanelOpen(true);

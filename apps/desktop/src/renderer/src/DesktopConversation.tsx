@@ -12,7 +12,7 @@ import {
   type LocalTurnConfigurationOptions,
   type AppServerClient,
 } from "@legioncode/sdk";
-import type { Thread } from "@repo/platform-protocol";
+import type { Thread, TurnAdmission } from "@repo/platform-protocol";
 import { DesktopApproval } from "./DesktopApproval";
 import { DesktopComposer } from "./DesktopComposer";
 import {
@@ -40,6 +40,7 @@ interface Props {
   projectName?: string;
   onProjectClick?: () => void;
   onReviewTurn?: (turn: DesktopSavedReviewTurn) => void;
+  onAdmissionConfirmed?: (admission: TurnAdmission) => void;
   draftHandoff?: DesktopComposerDraftHandoff | null;
   providerReady?: boolean;
 }
@@ -64,6 +65,7 @@ function SelectedConversation({
   workspaceGrantAt,
   fileAvailability,
   onReviewTurn,
+  onAdmissionConfirmed,
   projectName,
   onProjectClick,
   draftHandoff,
@@ -75,6 +77,7 @@ function SelectedConversation({
     client,
     thread,
     execution.available,
+    onAdmissionConfirmed,
   );
   const imagePreviews = useDesktopImagePreviews(
     client,

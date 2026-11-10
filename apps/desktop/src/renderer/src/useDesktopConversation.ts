@@ -18,7 +18,14 @@ const HISTORY_PAGE_SIZE = 25;
 const REPLAY_CONCURRENCY = 2;
 
 /** Scoped SDK reads and command delivery; lifecycle truth stays in SDK replay. */
-export function useDesktopConversation(client: AppServerClient, thread: Thread, enabled: boolean) {
+export function useDesktopConversation(
+  client: AppServerClient,
+  thread: Thread,
+  enabled: boolean,
+  onAdmissionConfirmed?: (admission: TurnAdmission) => void,
+) {
+  const admissionConfirmed = useRef(onAdmissionConfirmed);
+  admissionConfirmed.current = onAdmissionConfirmed;
   const lifecycleClient = useMemo(() => createAppServerLifecycleClient(client), [client]);
   const [admissions, setAdmissions] = useState<TurnAdmission[]>([]);
   const [replayedProjections, setProjections] = useState<Record<string, LifecycleProjection>>({});
@@ -271,6 +278,13 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
         ),
       );
       pendingRequest.current = null;
+      try {
+        admissionConfirmed.current?.(admission);
+      } catch {
+        // A metadata refresh is read-only follow-up to an already-confirmed
+        // admission. It must never retain/resend this successfully sent draft.
+        console.warn("Confirmed Thread metadata refresh could not be started");
+      }
       return true;
     } catch (error) {
       if (!controller.signal.aborted && scope.current === controller) {
