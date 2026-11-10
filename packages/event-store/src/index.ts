@@ -8,6 +8,12 @@ export { MemoryEventStore } from "./MemoryEventStore.js";
 export { MemoryLifecycleEventStore } from "./MemoryLifecycleEventStore.js";
 export { createStableEventFingerprint } from "./fingerprint.js";
 export {
+  LocalNativeResourceSettlementSchema,
+  type LocalNativeResourceSettlement,
+  type LocalNativeFileIdentity,
+  type LocalNativeReleasedFence,
+} from "./local-native-settlement-record.js";
+export {
   type AppendEventInput,
   type EventStore,
   type EventStoreClock,
