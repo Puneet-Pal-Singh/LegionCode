@@ -1480,6 +1480,45 @@ original binding, and cleanup uncertainty never discards a real commit receipt.
 This backend factory does not activate Electron services or advertise mutation
 capability; trusted host construction and installed acceptance remain separate.
 
+## Desktop current-file mention suggestions
+
+SDK `listWorkspaceFileMentions` uses local `workspace/fileMentions` over the
+existing `LocalWorkspaceFilesService` native read owner. One borrowed, revocable
+physical root covers the entire query and remains held through native cleanup.
+The catalog contains current regular-file names only, never Git objects, file
+contents or immutable review evidence. Symlinks, special and reserved entries are
+not traversed or offered. Candidate policy excludes `.git`, `.legioncode`,
+`node_modules`, `.pnpm-store`, `.yarn`, `.venv`, `__pycache__`, `.next`, `.nuxt`,
+`.turbo`, `.cache` and `coverage` directories at every level. It honors opaque
+native directory pages without retaining a server-side tree/index or cursor.
+Each query is bounded to 128 pages, 20,000 examined entries, 4,000 files, 256 KiB
+of serialized result, 24 nested directory levels and five seconds. A limit
+returns an explicit truncation reason; it never claims a complete empty tree.
+The Desktop-owned mention hook and composer binding remain separate consumer
+integration. This backend change introduces no renderer filesystem access,
+attachment contents or new persistent filename index.
+## Plan 057 — Read-only local Git service construction
+
+`createLocalReadOnlyGitService` exposes only `probeRepository` and `getStatus`
+from `DefaultGitService` through the existing canonical Node Git executor and
+verified Mac transport. Every command uses read-only probe policy; private-index
+requests are rejected. The original host lender retains root lifetime and
+quarantine responsibility, with an optional turn signal combined inside its loan.
+This private builder/export creates no runner, pin, lease or mutation capability.
+Actual native runtime consumer composition remains separate integration work.
+
+## Plan 057 — Local interruption command adapter
+
+`LocalInterruptionService` validates the requested workspace, Thread, Run, Turn
+and Run Attempt against durable admission, then delegates active Stop to the
+existing executor. Canonical lifecycle replay alone supplies a terminal receipt;
+delivery acknowledgement without terminal evidence reports only
+`interrupt_requested`. Replay validates the exact scope through the final page
+and rejects events after a terminal. The caller retains current Thread/grant
+authorization. RuntimeKernel remains the only terminal producer; this adapter
+adds no polling, state store or resource-release proof. LocalTurnService and App
+Server composition remain separate integration work.
+
 ## Local original image bytes and resource disposition
 
 `LocalChatMediaStore` owns private original image bytes through the shared
@@ -1522,6 +1561,23 @@ Profile isolation remains the existing Desktop user-data SQLite owner. Runtime
 factory composition owns injecting this service with the same grant authority and
 SQLite instance. These source changes do not claim installed persistence proof.
 
+## Plan 057 — Canonical local request byte budgets
+
+The existing local HTTP reader enforces the protocol-exported 256 KiB request
+budget after authentication and before schema validation/dispatch. This replaces
+its private 32 KiB literal so valid 24,000-code-unit text prompts fit their JSON
+envelope. Timeouts, response limits, prompt validation and uncertain-delivery
+semantics retain their existing owners. The same protocol owner gives image-bearing
+`turn/start` envelopes a bounded opt-in budget: four images and at most 10 MiB
+decoded in aggregate, with base64 expansion plus the text envelope budget. The SDK
+sets the private opt-in only for authenticated loopback transport; the local HTTP
+reader authenticates before accepting that capacity, then requires the canonical
+start schema and an image-bearing method before dispatch. Other methods keep the
+text budget. The start contract reuses canonical image/text-presence validation
+and may carry an expected provider/model assertion; actual media normalization,
+quota, immutable storage, provider-route checks and runtime admission remain with
+their composed owners. These request contracts enable no execution mode.
+
 ## Plan 057 — Local approval command adapter
 
 `LocalApprovalService` reauthorizes the recorded Thread through the current
@@ -1543,6 +1599,18 @@ This schema foundation does not select runtime behavior, project availability,
 validate actual composed ports or enable attachments, tools or mutations. The
 Turn service/runtime admission and handshake composition retain those obligations.
 Hosted request behavior and existing Git/provider contracts remain unchanged.
+
+## Plan 057 — Canonical local admission configuration metadata
+
+The existing runtime `createLocalTurnAdmission` producer may retain validated
+canonical configuration and a content-digest image fingerprint in the durable
+user-message JSON. It reuses RunMode and the existing configuration/digest schemas;
+optional fields preserve existing callers and the default ask mode. Empty text
+requires a valid digest, but digest syntax is not image authorization or evidence
+that image bytes exist. The actual trusted Turn/runtime caller remains responsible
+for composed mode/permission availability and deriving the fingerprint from real
+authorized images. No image bytes, media store, admission owner, lifecycle producer
+or capability is introduced by this metadata leaf.
 
 ## Plan 057 — Shared App Server response budget
 
@@ -1575,3 +1643,89 @@ against the same existing one-MiB response budget. This adapter does not select
 history, authorize Threads or introduce a new endpoint; the actual Turn service
 must delegate to the canonical bounded query and reauthorize before returning.
 That service-method integration remains with its current owner.
+
+## Plan 057 — Private bounded startup admission enumeration
+
+LocalTurnAdmissions exposes a private cursor page over its existing canonical
+admission references, limited to 25 records and one MiB of reconstructed data.
+It validates the actual run-event cursor and resumes after the last returned
+record, without a copied status table or recovery writer. Startup admission
+index validation streams existing rows instead of collecting the whole index.
+The sole LocalPersistence owner guards the query; Native runtime policy and
+before-ready reconciliation remain separate consumers and own settlement.
+
+## Local chat image read and SDK hydration boundary
+
+`LocalChatMediaReads` delegates current grant/Thread authorization to the existing
+Turn owner before and after each read, checks canonical user-message membership
+and fingerprint, and reads verified originals from the existing media store.
+The shared `media/readImage` contract transfers bounded 256 KiB chunks without
+host paths. Its optional App Server port rejects absent or nonlocal composition
+with non-retryable 503; actual host injection remains separate.
+SDK `readLocalChatImage` requires ordered ranges, immutable reference agreement
+and the complete SHA-256 before returning bytes, with abort checks before return.
+Clients own transient display URLs. No blob store, admission/lifecycle producer,
+capability advertisement or Desktop activation is added by this boundary.
+
+## Plan 057 — Native Plan process-loss reconciliation
+
+The runtime lifecycle coordinator remains the only terminal writer. Its shared
+restoration reducer retains the existing isolated approval-wait policy and adds
+strict Native read-only restoration, including tool names/batches, durable
+approval/tool receipts and context compaction. Recovery finishes already-durable
+item results before failing remaining work; a typed compaction failure now uses
+the canonical item failure envelope.
+
+The Engine's `LocalNativePlanRecovery` adapter validates the admitted worker,
+permission profile and immutable Plan configuration. It reads complete scoped
+lifecycle history in bounded pages, stages coordinator-produced repair and failure
+events, and appends them in one atomic batch. Durable terminal replay reconciles
+lost acknowledgements. Completed receipts remain unchanged. Oversized unsettled,
+corrupt, mutating or independently owned history does not authorize a partial
+restore. No provider, tool, credential, workspace or writer fence is reacquired,
+replayed or released. Startup must call this adapter only after the existing
+SQLite exclusive-lock owner is open and before new commands become ready.
+
+The private admission enumeration, native runtime port and App Server before-ready
+barrier are separately owned integration dependencies. This leaf does not claim
+to activate that startup barrier or recover captured Build resources.
+
+## Plan 057 — Canonical local Thread runtime read summary
+
+The same SQLite admission owner streams validated admission references and scoped
+lifecycle records to derive Thread runtime facts without writing projection state
+or platform terminal events. An immutable harnessSelection tag on the Run or user
+message denotes delegated ownership and is skipped without parsing driver data;
+Native lifecycle facts must come from the admitted worker's canonical producer.
+Without indexed Native admissions this read leaves the base projection unchanged.
+The latest indexed Native admission supplies its user leaf
+until settled; a settled Turn may supply its completed final assistant item.
+The Thread service applies that leaf only when the admission Run matches its
+existing latest platform Run pointer, preserving newer external runtime leaves.
+Runtime and existing platform terminal facts use the shared event insertion order
+for lastTerminalTurnId; canonical activity timestamps never replace later metadata.
+Thread title, pin/archive metadata, activeRunId pointer and platform projection
+sequence retain their existing owners. The admission producer links the next Turn
+to that last settled Turn and its current canonical leaf. Native factory wiring
+must inject this narrow read port from its existing single LocalPersistence owner.
+No second admission store, lifecycle reducer, terminal writer or Thread table is
+introduced; root startup composition owns the same-store injection.
+The existing SQLite admission transaction also checks Native candidate parent
+Turn/item references against those same current facts after receipt lookup and
+unsettled-Turn refusal. Stale prepared candidates are rejected, never reparented;
+immutable delegated selections remain with their existing admission owner.
+
+## Plan 057 — Canonical named repository HEAD evidence
+
+`DefaultGitService.readRepositoryHead` owns the read-only named-HEAD observation
+used by native workspace manifests. Git reports the actual SHA-1 or SHA-256
+format; born HEAD must resolve to the same nonzero commit, while unborn HEAD
+reuses the snapshot owner's existing missing-HEAD, symbolic branch and absent-ref
+classifier. Its format-sized zero object ID is an explicit absent-HEAD guard,
+never a fabricated commit or captured tree. Two complete observations reject an
+observed change without claiming an atomic hostile-namespace snapshot.
+
+The existing read-only App Server Git adapter forwards this narrow port through
+the same held-root executor and closure checks. No command runner, ref parser,
+GitService interface migration, lifecycle writer or Desktop host authority is
+added. The native runtime consumes the fact in its separately owned composition.

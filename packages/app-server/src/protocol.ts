@@ -13,6 +13,7 @@ import {
   RepositoryTreeRequestSchema, RepositoryTreeResponseSchema,
   APP_SERVER_PROTOCOL_VERSION,
   ChatRequestBodySchema,
+  ChatImageAttachmentRefSchema,
   LocalTurnConfigurationSchema,
   HostedChatSubmissionResultSchema,
   ConversationHistoryRequestSchema,
@@ -24,6 +25,9 @@ import {
   LocalWorkspaceGrantResponseSchema,
   LocalWorkspaceGrantSchema,
   ProviderIdSchema,
+  ModelIdSchema,
+  ThreadInputImageSchema,
+  ThreadInputContentSchema,
   ThreadIdSchema,
   WorkspaceIdSchema,
   EventCursorSchema,
@@ -160,15 +164,58 @@ export const ThreadRenameParamsSchema = z
   .object({ threadId: ThreadIdSchema, title: z.string().trim().min(1).max(80) })
   .strict();
 
+// A 24k UTF-16 prompt can require six JSON bytes per code unit, plus envelope metadata.
+export const MAX_LOCAL_APP_SERVER_REQUEST_BYTES = 256 * 1024;
+export const MAX_LOCAL_APP_SERVER_IMAGES = 4;
+export const LOCAL_APP_SERVER_IMAGE_REQUEST_HEADER = "x-legioncode-image-request";
+// Four images, at most 5 MiB each and 10 MiB decoded in total. Base64 is ASCII;
+// the normal request budget separately covers text and escaped image metadata.
+export const MAX_LOCAL_APP_SERVER_IMAGE_REQUEST_BYTES =
+  4 * Math.ceil((10 * 1024 * 1024) / 3) + MAX_LOCAL_APP_SERVER_REQUEST_BYTES;
+
+/** Budget eligibility only. The canonical start schema and shared media codec
+ * still validate/decode/normalize every image before storage or admission. */
+export function isLocalAppServerImageRequest(request: AppServerRequest): boolean {
+  return request.method === "turn/start" && "images" in request.params &&
+    Array.isArray(request.params.images) && request.params.images.length > 0 &&
+    request.params.images.length <= MAX_LOCAL_APP_SERVER_IMAGES;
+}
+export function localAppServerRequestByteLimit(request: AppServerRequest): number {
+  return isLocalAppServerImageRequest(request)
+    ? MAX_LOCAL_APP_SERVER_IMAGE_REQUEST_BYTES : MAX_LOCAL_APP_SERVER_REQUEST_BYTES;
+}
+export function assertLocalAppServerRequestBudget(request: AppServerRequest, serialized?: string): void {
+  const body = serialized ?? JSON.stringify(request);
+  const limit = localAppServerRequestByteLimit(request);
+  if (body.length > limit || new TextEncoder().encode(body).byteLength > limit) {
+    throw new Error("Local App Server request exceeds its method byte budget");
+  }
+}
+
+
 /** Local operations carry intent; the runtime supplies canonical admission records. */
 export const LocalTurnStartParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   threadId: ThreadIdSchema,
   clientRequestId: EventIdempotencyKeySchema,
-  prompt: z.string().min(1).max(24_000).refine((value) => value.trim().length > 0),
+  prompt: z.string().max(24_000),
+  images: z.array(ThreadInputImageSchema).max(MAX_LOCAL_APP_SERVER_IMAGES).optional(),
   mode: LocalTurnConfigurationSchema.shape.mode.optional(),
   productMode: LocalTurnConfigurationSchema.shape.productMode.optional(),
-}).strict();
+  expectedSelection: z.object({
+    providerId: ProviderIdSchema,
+    modelId: ModelIdSchema,
+  }).strict().optional(),
+}).strict().superRefine((value, context) => {
+  // Local field bounds above stay stricter; the shared content owner decides
+  // whether text/image input is present, including image-only submissions.
+  const content = ThreadInputContentSchema.safeParse({ text: value.prompt, images: value.images ?? [] });
+  if (!content.success) {
+    for (const issue of content.error.issues) {
+      if (issue.path.length === 0) context.addIssue({ ...issue, path: ["prompt"] });
+    }
+  }
+});
 export type LocalTurnStartParams = z.infer<typeof LocalTurnStartParamsSchema>;
 export const LocalThreadHistoryParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
@@ -313,6 +360,51 @@ export type LocalWorkspaceListFilesResult = z.infer<typeof LocalWorkspaceListFil
 export type LocalWorkspaceListFilesParams = z.infer<typeof LocalWorkspaceListFilesParamsSchema>;
 export type LocalWorkspaceReadFileParams = z.infer<typeof LocalWorkspaceReadFileParamsSchema>;
 
+/** Current filename suggestions only; no content, Git object or saved-artifact identity. */
+export const LOCAL_WORKSPACE_MENTION_CATALOG_MAX_BYTES = 256 * 1024;
+export const LocalWorkspaceFileMentionsParamsSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  path: LocalWorkspaceRelativePathSchema,
+}).strict();
+export const LocalWorkspaceFileMentionsResultSchema = z.object({
+  path: LocalWorkspaceRelativePathSchema,
+  files: z.array(LocalWorkspaceRelativePathSchema.refine((path) => path !== ".")).max(4_000),
+  truncated: z.boolean(),
+  truncationReason: z.enum(["pages", "entries", "files", "bytes", "depth", "deadline"]).nullable(),
+}).strict().refine(
+  (result) => result.truncated === (result.truncationReason !== null) &&
+    new Set(result.files).size === result.files.length &&
+    result.files.every((path) => result.path === "." || path.startsWith(`${result.path}/`)) &&
+    new TextEncoder().encode(JSON.stringify(result)).byteLength <= LOCAL_WORKSPACE_MENTION_CATALOG_MAX_BYTES,
+  "Filename catalog must preserve its bounded relative scope and truncation receipt",
+);
+export type LocalWorkspaceFileMentionsParams = z.infer<typeof LocalWorkspaceFileMentionsParamsSchema>;
+export type LocalWorkspaceFileMentionsResult = z.infer<typeof LocalWorkspaceFileMentionsResultSchema>;
+/** Original image preview bytes are transferred in chunks beneath the existing
+ * response-body cap; no filesystem path or durable data URL crosses this port. */
+export const LOCAL_CHAT_IMAGE_CHUNK_MAX_BYTES = 256 * 1024;
+export const LocalChatImageReadParamsSchema = z.object({
+  turnId: TurnIdSchema,
+  attachmentId: ChatImageAttachmentRefSchema.shape.attachmentId,
+  offset: z.number().int().min(0).max(5 * 1024 * 1024),
+  limit: z.number().int().min(1).max(LOCAL_CHAT_IMAGE_CHUNK_MAX_BYTES).optional(),
+}).strict();
+export const LocalChatImageReadResultSchema = z.object({
+  reference: ChatImageAttachmentRefSchema,
+  sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+  offset: z.number().int().min(0).max(5 * 1024 * 1024),
+  byteLength: z.number().int().min(1).max(LOCAL_CHAT_IMAGE_CHUNK_MAX_BYTES),
+  dataBase64: z.string().min(4).max(4 * Math.ceil(LOCAL_CHAT_IMAGE_CHUNK_MAX_BYTES / 3)).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u),
+  nextOffset: z.number().int().positive().max(5 * 1024 * 1024).nullable(),
+}).strict().refine((chunk) =>
+  chunk.dataBase64.length === 4 * Math.ceil(chunk.byteLength / 3) &&
+  chunk.offset + chunk.byteLength <= chunk.reference.byteSize &&
+  chunk.nextOffset === (chunk.offset + chunk.byteLength < chunk.reference.byteSize ? chunk.offset + chunk.byteLength : null),
+  "Image chunk must preserve its exact byte range and immutable reference",
+);
+export type LocalChatImageReadParams = z.infer<typeof LocalChatImageReadParamsSchema>;
+export type LocalChatImageReadResult = z.infer<typeof LocalChatImageReadResultSchema>;
+
 
 const GitStatusParamsSchema = GitRequestContextSchema;
 const GitDiffParamsSchema = GitRequestContextSchema.extend({
@@ -395,6 +487,8 @@ export const AppServerMethodSchema = z.enum([
   "repository/tree",
   "repository/contents",
   "workspace/listFiles",
+  "workspace/fileMentions",
+  "media/readImage",
   "workspace/readFile",
   "workspace/current",
   "workspace/grant",
@@ -485,6 +579,8 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("session/history"), params: ConversationHistoryRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("initialize"), params: z.object({ client: ClientSchema, requestedCapabilities: z.array(z.string().min(1).max(120)).max(100) }).strict() }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/listFiles"), params: LocalWorkspaceListFilesParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("workspace/fileMentions"), params: LocalWorkspaceFileMentionsParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("media/readImage"), params: LocalChatImageReadParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/readFile"), params: LocalWorkspaceReadFileParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/current"), params: EmptyParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/grant"), params: WorkspaceGrantSourceSchema }).strict(),
@@ -571,6 +667,8 @@ export const AppServerResultSchemas = {
   "session/history": ConversationHistoryResponseSchema,
   initialize: AppServerInitializeResponseSchema,
   "workspace/listFiles": LocalWorkspaceListFilesResultSchema,
+  "workspace/fileMentions": LocalWorkspaceFileMentionsResultSchema,
+  "media/readImage": LocalChatImageReadResultSchema,
   "workspace/readFile": LocalWorkspaceReadFileResultSchema,
   "workspace/current": LocalWorkspaceGrantResponseSchema,
   "workspace/grant": LocalWorkspaceGrantResponseSchema,
@@ -657,6 +755,8 @@ export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
   success("session/history", AppServerResultSchemas["session/history"]),
   success("initialize", AppServerResultSchemas.initialize),
   success("workspace/listFiles", AppServerResultSchemas["workspace/listFiles"]),
+  success("workspace/fileMentions", AppServerResultSchemas["workspace/fileMentions"]),
+  success("media/readImage", AppServerResultSchemas["media/readImage"]),
   success("workspace/readFile", AppServerResultSchemas["workspace/readFile"]),
   success("workspace/current", AppServerResultSchemas["workspace/current"]),
   success("workspace/grant", AppServerResultSchemas["workspace/grant"]),
