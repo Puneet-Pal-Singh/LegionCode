@@ -84,7 +84,8 @@ export async function reconcileLocalNativePlanTurn(input: {
   for (const event of before.events) {
     if (
       event.type === "tool_call.started" &&
-      !readOnlyTools.has(event.payload.toolName)
+      (typeof event.payload.toolName !== "string" ||
+        !readOnlyTools.has(event.payload.toolName))
     ) {
       throw new LocalNativePlanRecoveryError("invalid_history");
     }

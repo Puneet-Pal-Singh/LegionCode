@@ -317,7 +317,11 @@ export function restoreRuntimeLifecycle(
         "active",
       );
       state.toolCallItems[event.toolCallId] = event.itemId;
-      state.toolCallNames[event.toolCallId] = event.payload.toolName;
+      const toolName = event.payload.toolName;
+      if (typeof toolName === "string")
+        state.toolCallNames[event.toolCallId] = toolName;
+      else if (policy === "process_loss")
+        throw invalid(event, "Native tool history has no canonical tool name");
       if (event.payload.callBatchId)
         state.toolCallBatches[event.toolCallId] = event.payload.callBatchId;
     } else if (
