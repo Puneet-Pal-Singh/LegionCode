@@ -12,6 +12,7 @@
     "./handshake": "./src/handshake.ts",
     "./local-process": "./src/local-process.ts",
     "./local-workspace-files": "./src/local-workspace-files.ts",
+    "./local-workspace-git-reads": "./src/local-workspace-git-reads.ts",
     "./local-mac-git-execution": "./src/local-mac-git-execution.ts",
     "./local-native-runtime": "./src/local-native-runtime.ts",
     "./local-provider-model-discovery": "./src/local-provider-model-discovery.ts",
