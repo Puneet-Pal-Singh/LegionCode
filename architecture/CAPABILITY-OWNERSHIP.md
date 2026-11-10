@@ -2135,3 +2135,24 @@ The local composition consumes the same mandatory callback. A cancelled opening
 remains owned until genuine same-generation physical closure and canonical
 terminal/immutable-artifact retirement are verified. Cancellation is not a lease
 release receipt; missing enforcing-owner proof remains unknown.
+
+
+## Private harness contract dependencies and translation inventory
+
+The exact canonical dependency entries for RuntimeKernel and EventStore include
+`@repo/worker-protocol`, matching the approved `37d5a77548669d1661b2cf2db26314cc7213adb7`
+HARNESS-INTEGRATION directory/ownership decisions at lines 191, 273 and 343 and
+the dependency direction in AGENTS.md. RuntimeKernel's delegated coordinator and
+observation ingress consume private command/session/observation facts. The same
+SQLite owner consumes the canonical private opening/binding and observation
+schemas in `event-store/src/local/harness-bindings.ts` and
+`event-store/src/local/harness-observation-port.ts`. These are real consumers,
+not a blanket Node-package exception or a public-protocol relocation.
+
+The Codex generated SandboxPolicy union remains pinned native RPC translation
+data used by TurnStartParams/CodexDriver. OpenCodePermissionPolicy captures and
+compares the native permission representation for its driver, session and event
+mapper; canonical resolution/attestation remains with the injected authority.
+Both files are inventoried as permission typed-protocol projectors, without
+changing their implementations, permissions, launch availability or physical
+release requirements. All other architecture dependency rules are unchanged.
