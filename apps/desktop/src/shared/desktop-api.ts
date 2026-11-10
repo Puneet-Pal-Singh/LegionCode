@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { BYOKConnectRequestSchema, ProviderIdSchema } from "@repo/shared-types";
 import type { AppServerRequest } from "@legioncode/app-server/protocol";
+import type { LocalAppServerMessage } from "@legioncode/app-server/local-process";
 import type { AppServerEnvironmentSnapshot } from "@repo/platform-protocol";
 
 export const APP_SERVER_REQUEST_CHANNEL = "desktop:app-server-request";
@@ -65,22 +66,17 @@ export type DesktopEnvironmentConnection = {
   credential: string;
 };
 
-export type LocalAppServerReadyMessage = {
-  type: "ready";
-  baseUrl: string;
-};
+export type { LocalAppServerMessage };
+export type LocalAppServerReadyMessage = Extract<LocalAppServerMessage, { type: "ready" }>;
+export type LocalAppServerFatalMessage = Extract<LocalAppServerMessage, { type: "fatal" }>;
 
-export type LocalAppServerFatalMessage = {
-  type: "fatal";
-};
-
-export type LocalAppServerMessage =
-  | LocalAppServerReadyMessage
-  | LocalAppServerFatalMessage;
+/** Main-to-utility control only; never a renderer/App Server command. */
+export type LocalAppServerShutdownMessage = { type: "shutdown" };
 
 /** Private main/supervisor/utility configuration, never exposed by DesktopApi. */
 export type LocalAppServerHostConfig = {
   protectedHostRoots: readonly string[];
+  nativeWriterFenceDirectory?: string;
   nativeFilesystemHelperPath?: string;
   nativeProcessHelperPath?: string;
 };
@@ -91,6 +87,7 @@ export type LocalAppServerStartMessage = {
   serverVersion: string;
   storageDirectory: string;
   protectedHostRoots?: readonly string[];
+  nativeWriterFenceDirectory?: string;
   nativeFilesystemHelperPath?: string;
   nativeProcessHelperPath?: string;
 };

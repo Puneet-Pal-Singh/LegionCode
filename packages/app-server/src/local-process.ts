@@ -19,6 +19,14 @@ import type { VerifiedMacGitExecution, VerifiedMacGitOptions } from "./local-mac
 import { LocalThreadNotFoundError, LocalThreadService } from "./local-threads.js";
 import { LocalProviderService, ProviderConfigurationSchema } from "./local-providers.js";
 import type { LocalProviderModelCatalog } from "./local-provider-model-catalog.js";
+import { LocalTurnService, type LocalTurnRuntime } from "./local-turns.js";
+import { reconcileLostLocalTurns } from "./local-turn-recovery.js";
+import { attachLocalServerShutdown, combineLocalShutdownOwners, type LocalShutdownOwner } from "./local-server-shutdown.js";
+import { LocalProviderPreferences } from "./local-provider-preferences.js";
+import { LocalTurnArtifactReads } from "./local-turn-artifact-reads.js";
+import { LocalChatMediaStore } from "./local-chat-media-store.js";
+import { LocalChatMediaReads } from "./local-chat-media-reads.js";
+import type { LocalTurnMediaPort } from "./local-turn-media.js";
 
 export type LocalAppServerStartConfig = {
   credential: string;
@@ -31,20 +39,32 @@ export type LocalAppServerStartConfig = {
 
 export type LocalAppServerMessage =
   | { type: "ready"; baseUrl: string }
-  | { type: "fatal" };
+  | { type: "closed" }
+  | { type: "fatal"; reason?: "runtime-shutdown-failed" };
+
+/** Private utility-process control, never an HTTP or renderer capability. */
+export type LocalAppServerProcessControl = {
+  requestShutdown(): Promise<void>;
+};
 
 export type LocalAppServerParentPort = {
   postMessage(message: LocalAppServerMessage): void;
 };
 
-export type LocalWorkspaceFilesCompositionOptions = {
+export type LocalAppServerCompositionOptions = {
   providerModelCatalog?: LocalProviderModelCatalog;
   createMetadataInspector?: LocalWorkspaceServiceOptions["createMetadataInspector"];
   createProbeExecution?: (authority: Pick<VerifiedMacGitOptions, "probeRoot" | "withRootAuthority">) => Promise<VerifiedMacGitExecution>;
   createWorkspaceFilesService?(workspaces: LocalWorkspaceService): NonNullable<AppServerComposition["localWorkspaceFilesService"]>;
+  createTurnRuntime?(persistence: Pick<LocalPersistence, "turnAdmissions" | "lifecycleEvents" | "turnArtifacts">, media?: LocalTurnMediaPort): LocalTurnRuntime;
+  createArtifactCommitService?(input: {
+    persistence: Pick<LocalPersistence, "turnAdmissions" | "lifecycleEvents" | "turnArtifacts" | "workspaceGrants">;
+    workspaces: LocalWorkspaceService;
+    reads: LocalTurnArtifactReads;
+  }): NonNullable<AppServerComposition["localTurnArtifactCommitService"]> & LocalShutdownOwner;
 };
 
-export function createLocalAppServer(config: LocalAppServerStartConfig, options?: LocalWorkspaceFilesCompositionOptions) {
+export async function createLocalAppServer(config: LocalAppServerStartConfig, options?: LocalAppServerCompositionOptions) {
   if (options?.createWorkspaceFilesService && !config.protectedHostRoots?.length) {
     throw new Error("Workspace file queries require trusted protected host roots");
   }
@@ -68,53 +88,107 @@ export function createLocalAppServer(config: LocalAppServerStartConfig, options?
     const threadService = new LocalThreadService({
       events: persistence.events,
       getWorkspace: () => workspaceService.getAuthorizedCurrent(),
+      readRuntimeSummary: persistence.turnAdmissions.readThreadSummary,
     });
     const providerService = new LocalProviderService({
       selectionStore: persistence.providerSelection,
       modelCatalog: options?.providerModelCatalog,
     });
-    const workspaceFilesService = options?.createWorkspaceFilesService?.(workspaceService);
-    const server = createServer((request, response) => {
-      void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService);
+    const providerPreferences = new LocalProviderPreferences({
+      getWorkspace: () => workspaceService.getAuthorizedCurrent(),
+      store: persistence.providerPreferences,
+      providers: providerService,
     });
-    server.once("close", () => persistence.close());
-    server.once("error", () => persistence.close());
-    return server;
+    const workspaceFilesService = options?.createWorkspaceFilesService?.(workspaceService);
+    const media = new LocalChatMediaStore({
+      storageDirectory: config.storageDirectory,
+      lookupAdmission: (scope) => persistence.turnAdmissions.getByTurn(scope.turnId),
+    });
+    const runtime = options?.createTurnRuntime?.(persistence, media);
+    if (runtime) await reconcileLostLocalTurns(persistence, runtime);
+    const turnService = runtime ? new LocalTurnService({
+      persistence,
+      workspaces: workspaceService,
+      threads: threadService,
+      providers: providerService,
+      runtime,
+      media,
+    }) : undefined;
+    const artifactReads = turnService ? new LocalTurnArtifactReads({
+      turns: turnService,
+      persistence,
+    }) : undefined;
+    const imageReads = turnService ? new LocalChatMediaReads({ turns: turnService, store: media }) : undefined;
+    const artifactCommits = artifactReads ? options?.createArtifactCommitService?.({
+      persistence, workspaces: workspaceService, reads: artifactReads,
+    }) : undefined;
+    const server = createServer((request, response) => {
+      void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, turnService, providerPreferences, artifactReads, imageReads, artifactCommits);
+    });
+    return attachLocalServerShutdown(
+      server, persistence, combineLocalShutdownOwners(turnService, artifactCommits),
+      () => workspaceService.hasUnsettledResources,
+    );
   } catch (error) {
     persistence.close();
     throw error;
   }
 }
 
-export function runLocalAppServerProcess(
+export async function runLocalAppServerProcess(
   parentPort: LocalAppServerParentPort,
   config: LocalAppServerStartConfig,
-  options?: LocalWorkspaceFilesCompositionOptions,
-): void {
-  let server: ReturnType<typeof createLocalAppServer>;
+  options?: LocalAppServerCompositionOptions,
+): Promise<LocalAppServerProcessControl | undefined> {
+  let server: Awaited<ReturnType<typeof createLocalAppServer>>;
   try {
-    server = createLocalAppServer(config, options);
+    server = await createLocalAppServer(config, options);
   } catch {
-    parentPort.postMessage({ type: "fatal" });
+    postFatal();
     process.exit(1);
     return;
   }
+  server.once("runtime-shutdown-failed", () => postFatal("runtime-shutdown-failed"));
+  let finalExitCode = 0;
+  let stopRequested = false;
+  let exitAfterClosed: Promise<void> | undefined;
+  const exitAfterSettlement = (exitCode: number): Promise<void> => {
+    stopRequested = true;
+    if (exitCode !== 0) finalExitCode = 1;
+    const closed = server.requestShutdown();
+    exitAfterClosed ??= closed.then(() => {
+      // Physical closure receipt is separate from observing child process exit.
+      try { parentPort.postMessage({ type: "closed" }); }
+      finally { process.exit(finalExitCode); }
+    }, () => undefined);
+    return closed;
+  };
   server.once("error", () => {
-    parentPort.postMessage({ type: "fatal" });
-    server.close(() => process.exit(1));
+    postFatal();
+    exitAfterSettlement(1);
   });
+  process.on("SIGTERM", () => exitAfterSettlement(0));
   server.listen(0, "127.0.0.1", () => {
+    if (stopRequested) return;
     const address = server.address();
     if (!address || typeof address === "string") {
-      parentPort.postMessage({ type: "fatal" });
-      server.close(() => process.exit(1));
+      postFatal();
+      exitAfterSettlement(1);
       return;
     }
-    parentPort.postMessage({
-      type: "ready",
-      baseUrl: `http://127.0.0.1:${address.port}`,
-    });
+    try {
+      parentPort.postMessage({
+        type: "ready",
+        baseUrl: `http://127.0.0.1:${address.port}`,
+      });
+    } catch { void exitAfterSettlement(1); }
   });
+  return { requestShutdown: () => exitAfterSettlement(0) };
+
+  function postFatal(reason?: "runtime-shutdown-failed"): void {
+    try { parentPort.postMessage({ type: "fatal", ...(reason ? { reason } : {}) }); }
+    catch { /* Losing the notification channel is not physical closure. */ }
+  }
 }
 
 async function handleRequest(
@@ -126,6 +200,11 @@ async function handleRequest(
   providerService: LocalProviderService,
   persistence: LocalPersistence,
   workspaceFilesService?: AppServerComposition["localWorkspaceFilesService"],
+  turnService?: LocalTurnService,
+  providerPreferences?: LocalProviderPreferences,
+  artifactReads?: LocalTurnArtifactReads,
+  imageReads?: LocalChatMediaReads,
+  artifactCommits?: AppServerComposition["localTurnArtifactCommitService"],
 ): Promise<void> {
   const baseInput = {
     method: request.method ?? "",
@@ -142,6 +221,11 @@ async function handleRequest(
     credential: config.credential,
     workspaceService,
     localWorkspaceFilesService: workspaceFilesService,
+    localTurnService: turnService,
+    localProviderPreferenceService: providerPreferences,
+    localTurnArtifactReadsService: artifactReads,
+    localChatMediaService: imageReads,
+    localTurnArtifactCommitService: artifactCommits,
     threadService,
     localLifecycleReplayService: {
       replayLifecycleEvents: (params: ReplayLifecycleEventsRequest) =>

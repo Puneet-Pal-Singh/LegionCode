@@ -30,7 +30,7 @@ import {
 import { getBuiltinRegistry, builtinProviderRegistry } from "@repo/provider-core";
 
 const credential = "local-test-credential";
-const liveServers: ReturnType<typeof createLocalAppServer>[] = [];
+const liveServers: Awaited<ReturnType<typeof createLocalAppServer>>[] = [];
 const temporaryDirectories: string[] = [];
 const fixtureMetadataDirectories = new Map<string, string>();
 
@@ -246,7 +246,7 @@ describe("local App Server HTTP integration", () => {
 
     let startupError: unknown;
     try {
-      createLocalAppServer({ credential, serverVersion: "test", storageDirectory });
+      await createLocalAppServer({ credential, serverVersion: "test", storageDirectory });
     } catch (error) {
       startupError = error;
     }
@@ -444,7 +444,7 @@ async function start(storageDirectory: string) {
   vi.spyOn(DefaultGitService.prototype, "probeRepository").mockImplementation(async ({ workspaceRoot }) => ({
     repositoryRoot: workspaceRoot, repositoryIdentity: "github.com/example/repository", branch: "main", isDirty: false,
   }));
-  const server = createLocalAppServer({ credential, serverVersion: "test", storageDirectory }, {
+  const server = await createLocalAppServer({ credential, serverVersion: "test", storageDirectory }, {
     providerModelCatalog: {
       getDiscoveredModels: async (providerId, query) => {
         const models = builtinProviderRegistry.listModels(providerId).map((model) => ({
@@ -494,13 +494,13 @@ async function start(storageDirectory: string) {
   return server;
 }
 
-async function close(server: ReturnType<typeof createLocalAppServer>) {
+async function close(server: Awaited<ReturnType<typeof createLocalAppServer>>) {
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   const index = liveServers.indexOf(server);
   if (index >= 0) liveServers.splice(index, 1);
 }
 
-function serverUrl(server: ReturnType<typeof createLocalAppServer>): string {
+function serverUrl(server: Awaited<ReturnType<typeof createLocalAppServer>>): string {
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Local test server did not bind");
   return `http://127.0.0.1:${address.port}`;
