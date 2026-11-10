@@ -82,7 +82,27 @@ export function restoreRuntimeLifecycle(
   let lastEvent: LifecycleEvent | undefined;
 
   for (const event of events) {
-    if (policy === "process_loss") assertNativeProcessLossEvent(event, state);
+    if (policy === "process_loss") {
+      if (
+        event.producer.kind !== "runtime_kernel" ||
+        event.producer.id !== options.producerId
+      ) {
+        throw invalid(
+          event,
+          "Lifecycle history belongs to another runtime producer",
+        );
+      }
+      if (
+        event.type === "run_attempt.started" &&
+        event.payload.executionCapability !== options.executionCapability
+      ) {
+        throw invalid(
+          event,
+          "Run attempt changed its admitted execution capability",
+        );
+      }
+      assertNativeProcessLossEvent(event, state);
+    }
     assertNextLifecycleSequence(
       { lastSequence: state.sequence },
       event.sequence,

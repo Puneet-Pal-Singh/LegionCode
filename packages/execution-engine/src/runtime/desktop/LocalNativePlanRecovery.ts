@@ -55,10 +55,15 @@ export async function reconcileLocalNativePlanTurn(input: {
   const admission = TurnAdmissionSchema.parse(input.admission);
   if (
     admission.run.workerId !== WorkerIdSchema.parse(input.workerId) ||
-    admission.run.mode !== "plan"
+    admission.run.mode !== "plan" ||
+    admission.run.executionCapability !== "repository"
   )
     return "unsupported";
-  const before = await readHistory(input.lifecycleEvents, admission);
+  const before = await readHistory(
+    input.lifecycleEvents,
+    admission,
+    input.producerId,
+  );
   if (before.terminal) return "already_terminal";
   if (admission.userMessage.type !== "user_message")
     throw new LocalNativePlanRecoveryError("invalid_history");
@@ -129,11 +134,19 @@ export async function reconcileLocalNativePlanTurn(input: {
     // Atomic append includes every pending receipt, open item, attempt and Turn.
     await input.lifecycleEvents.appendBatch(constructed);
   } catch {
-    const after = await readHistory(input.lifecycleEvents, admission);
+    const after = await readHistory(
+      input.lifecycleEvents,
+      admission,
+      input.producerId,
+    );
     if (after.terminal) return "already_terminal";
     throw new LocalNativePlanRecoveryError("settlement_unconfirmed");
   }
-  const after = await readHistory(input.lifecycleEvents, admission);
+  const after = await readHistory(
+    input.lifecycleEvents,
+    admission,
+    input.producerId,
+  );
   if (!after.terminal)
     throw new LocalNativePlanRecoveryError("settlement_unconfirmed");
   return "settled";
@@ -144,6 +157,7 @@ export async function reconcileLocalNativePlanTurn(input: {
 async function readHistory(
   store: RecoveryStore,
   admission: TurnAdmission,
+  producerId: string,
 ): Promise<{
   events: readonly LifecycleEvent[];
   terminal: TerminalEvent | null;
@@ -168,8 +182,16 @@ async function readHistory(
         event.threadId !== admission.run.threadId ||
         event.turnId !== admission.turn.id ||
         event.runAttemptId !== admission.runAttemptId ||
+        event.producer.kind !== "runtime_kernel" ||
+        event.producer.id !== producerId ||
         event.sequence !== sequence + 1 ||
         terminal
+      ) {
+        throw new LocalNativePlanRecoveryError("invalid_history");
+      }
+      if (
+        event.type === "run_attempt.started" &&
+        event.payload.executionCapability !== admission.run.executionCapability
       ) {
         throw new LocalNativePlanRecoveryError("invalid_history");
       }
