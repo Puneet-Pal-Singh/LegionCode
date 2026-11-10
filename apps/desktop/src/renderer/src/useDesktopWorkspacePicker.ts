@@ -13,10 +13,12 @@ export function useDesktopWorkspacePicker(input: {
   onError: () => void;
 }) {
   const current = useRef(input);
+  const inFlight = useRef(false);
   current.current = input;
   const choose = useCallback(async (preserveProjectIntent = false): Promise<void> => {
     const context = current.current;
-    if (!context.enabled || context.commandActive.current || context.pickerActive.current) return;
+    if (inFlight.current || !context.enabled || context.commandActive.current || context.pickerActive.current) return;
+    inFlight.current = true;
     context.pickerActive.current = true;
     context.onOpenChange(true);
     try {
@@ -39,6 +41,7 @@ export function useDesktopWorkspacePicker(input: {
     } finally {
       context.pickerActive.current = false;
       context.onOpenChange(false);
+      inFlight.current = false;
     }
   }, []);
 
