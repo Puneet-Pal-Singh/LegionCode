@@ -25,7 +25,6 @@ export function AuthorizedRepositoryPicker({
   onRepoSelect,
   onClose,
 }: AuthorizedRepositoryPickerProps) {
-  const searchRef = useRef<HTMLInputElement>(null);
   const repositoryRequestRef = useRef(0);
   const branchRequestRef = useRef(0);
   const { user } = useAuth();
@@ -71,7 +70,6 @@ export function AuthorizedRepositoryPicker({
       setRepositoryAccountId(currentAccountId);
       setRepos(nextRepos);
       setRepoState("ready");
-      requestAnimationFrame(() => searchRef.current?.focus());
     } catch {
       if (requestId === repositoryRequestRef.current) setRepoState("error");
     }
@@ -90,7 +88,6 @@ export function AuthorizedRepositoryPicker({
         setBranchState("ready");
         setRepos(nextRepos);
         setRepoState("ready");
-        requestAnimationFrame(() => searchRef.current?.focus());
       })
       .catch(() => {
         if (requestId !== repositoryRequestRef.current) return;
@@ -203,7 +200,6 @@ export function AuthorizedRepositoryPicker({
             size={16}
           />
           <input
-            ref={searchRef}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             aria-label="Search repositories"
