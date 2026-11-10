@@ -2368,3 +2368,11 @@ pre-opening settlement receipt. SQLite state does not certify physical closure:
 the same original physical owner must drain publication and loans, prove no
 exposure, release its held lease and close its binding. A begun reservation keeps
 its normal execution/settlement owner; no replacement registry or table is added.
+
+Delegated retries use one pure EventStore client-intent fingerprint shared with
+the physical candidate caller. The facade checks the canonical request receipt
+inside the same transaction before strict Native admission: owner/request, exact
+prompt, matching public selection capture, explicit content configuration and
+immutable image digest must agree. Server-derived runtime pins, lineage and
+attachment identifiers do not change a saved request. The original Native
+admission fingerprint and its checks remain unchanged.

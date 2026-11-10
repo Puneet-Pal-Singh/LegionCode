@@ -1,4 +1,5 @@
 import { platformFingerprint } from "./local-platform-fingerprint.js";
+import { fingerprintLocalHarnessClientIntent } from "./local-harness-client-intent.js";
 import type { LocalThreadRuntimeScope, LocalThreadRuntimeSummary } from "./local-thread-runtime-summary.js";
 import { parseStoredGrant, type StoredLocalWorkspaceGrant } from "./local-workspace-grant.js";
 import { LocalHarnessControlPlane, type LocalHarnessControlPlanePort } from "./local/harness-control-plane.js";
@@ -214,6 +215,14 @@ export class LocalPersistence {
     this.admitHarnessPreparation = (input) => this.guardHarnessStorage(() => this.database.transaction(() => {
       if (!this.admissions)
         throw new HarnessPersistenceError("admission_required", "Canonical admission writer is unavailable");
+      const fingerprint = fingerprintLocalHarnessClientIntent(input.admission);
+      const previous = this.admissions.findByRequest(input.admission.run.threadId, input.admission.clientRequestId);
+      if (previous) {
+        if (fingerprintLocalHarnessClientIntent(previous) !== fingerprint)
+          throw new EventStoreError("idempotency_conflict", "Admission request key has different client intent");
+        return { admission: previous, newlyAdmitted: false,
+          preparation: harnessBindings.readAdmittedPreparationWithin(previous) };
+      }
       const result = this.admissions.admitWithin(input.admission);
       const preparation = result.newlyAdmitted
         ? harnessBindings.reservePreparationWithin(input, true)
