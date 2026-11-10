@@ -1,3 +1,7 @@
+import {
+  BYOKConnectRequestSchema,
+  BYOKDisconnectRequestSchema,
+} from "@repo/shared-types";
 /**
  * ProviderCredentialService
  * Single Responsibility: Manage provider API credentials (connect, disconnect, isConnected, getApiKey)
@@ -58,6 +62,7 @@ export class ProviderCredentialService {
    */
   async connect(request: BYOKConnectRequest): Promise<BYOKConnectResponse> {
     try {
+      request = BYOKConnectRequestSchema.parse(request);
       const { providerId, apiKey } = request;
       ensureProviderAllowsManualCredential(this.registryService, providerId);
       const normalizedApiKey = apiKey.trim();
@@ -144,6 +149,7 @@ export class ProviderCredentialService {
     request: BYOKDisconnectRequest,
   ): Promise<{ status: "disconnected"; providerId: ProviderId }> {
     try {
+      request = BYOKDisconnectRequestSchema.parse(request);
       const { providerId } = request;
       ensureProviderAllowsManualCredential(this.registryService, providerId);
 

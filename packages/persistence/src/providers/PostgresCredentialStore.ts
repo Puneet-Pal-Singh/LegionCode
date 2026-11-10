@@ -388,6 +388,7 @@ export class PostgresCredentialStore
     providerId: ProviderId,
     updates: Parameters<CredentialStore["updateCredentialMetadata"]>[1],
   ): Promise<void> {
+    updates = { ...updates };
     if (updates.status === "revoked") return this.deleteCredential(providerId);
     const record = await this.getCredential(providerId);
     if (!record || record.status !== "connected") return;

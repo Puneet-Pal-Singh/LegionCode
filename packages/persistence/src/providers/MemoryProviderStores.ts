@@ -310,6 +310,7 @@ export class MemoryCredentialStore
     providerId: ProviderId,
     updates: Parameters<CredentialStore["updateCredentialMetadata"]>[1],
   ): Promise<void> {
+    updates = { ...updates };
     if (updates.status === "revoked") return this.deleteCredential(providerId);
     const before = this.findDefault(providerId);
     if (!before || before.status !== "connected") return;

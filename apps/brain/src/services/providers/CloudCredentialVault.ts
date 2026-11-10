@@ -1,3 +1,4 @@
+import { ProviderConnectionConfigSchema } from "@repo/shared-types";
 /**
  * Cloud Credential Vault
  *
@@ -29,6 +30,9 @@ export class CloudCredentialVault implements CredentialVault {
     apiKey: string,
     connectionConfig?: ProviderConnectionConfig,
   ): Promise<void> {
+    connectionConfig = connectionConfig
+      ? ProviderConnectionConfigSchema.parse(connectionConfig)
+      : undefined;
     const selected = await this.selectedConnection?.(providerId);
     let expected: CredentialAcquisition | undefined;
     if (selected !== undefined) {
