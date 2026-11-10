@@ -1,0 +1,237 @@
+{
+  "source": "514d23fa69de118e7e00b36283f38aaf071992fa",
+  "node": "v24.22.1",
+  "executor": "8575502e05f6",
+  "handoff": "d220226e760326991be6b87f9b3e59697b4f4fc6",
+  "manifest_sha256": "20d78f60ebe9fef18cbdf936f6ea2ee5e3d2f2c620370bdb342361134e2fe9b7",
+  "approved_hashes_and_lengths_verified": 19,
+  "checks": [
+    {
+      "command": "ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm_config_cache=/workspace/work/npm-cache npm_config_devdir=/workspace/work/node-gyp corepack pnpm install --frozen-lockfile --offline --ignore-scripts --store-dir /workspace/work/pnpm-store --cache-dir /workspace/work/pnpm-cache",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/install.log",
+      "sha256": "3784e628bba3300017fd4a186928dcf7b30770b06555cf6d2def652ee110c3ff"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/platform-protocol build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/platform-protocol-build.log",
+      "sha256": "581e6c4a9426767f134b5d46b3986cea9101a36f0a30b3b7a0b59e6bff011a1f"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/worker-protocol build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/worker-protocol-build.log",
+      "sha256": "55864ab169e712f5ae8246db999c2ca15690781c7f4ae423fbecc1d211c30fc2"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/event-store build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/event-store-build.log",
+      "sha256": "77fcc34f2e22a4837d33f1859461896d1abce3773fd43654dab08cc52c648504"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/runtime-kernel build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/runtime-kernel-build.log",
+      "sha256": "c8a6c791d42362f6034fbd50c108c3f848027759434ed77b0a692c090b8c959d"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/provider-core build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/provider-core-build.log",
+      "sha256": "e30e32e585d412318bcc767c920d996c172d2ef724d6b657ed99e8f8e4c3b5b7"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/persistence build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/persistence-build.log",
+      "sha256": "1e8ea5417560db35bc6aa9a12df254e5c1007ff346460e2725852f45f049e52e"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/harness-core build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/harness-core-build.log",
+      "sha256": "a476f7a5fd362a91bf3972036d8f488c0c1565cfc999bba0f23e506c8f1fde23"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/harness-codex build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/harness-codex-build.log",
+      "sha256": "e6aef37eba8f3656ffdb3d5a55b320100c7f9993e67462a8517e87743bade435"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/harness-opencode build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/harness-opencode-build.log",
+      "sha256": "6931c0fa61ce1ed81d3c83221deb9323f9388ec2581150220247776764016bf1"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/harness-claude build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/harness-claude-build.log",
+      "sha256": "13b0c9d64e5dcf6f88396e62d7d830e2a7bcccad7087cb60100c9f8ccb06aa37"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/execution-engine build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/execution-engine-build.log",
+      "sha256": "d4eda66ad18d7c282597bef71fc61b990808b1381d0c7b70839924606f8d60e5"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/app-server build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/app-server-build.log",
+      "sha256": "7128d59f5f4c19211c37d753755a99e4c34a0ad3de116f793f386ea2788cd13a"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/sdk build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/sdk-build.log",
+      "sha256": "a34b7b019aae56484b1fc0f66a58785b97760dab07cd441dac1dcec10445634b"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/client-ui build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/client-ui-build.log",
+      "sha256": "d6b413764e51d4e1a6d463197eefa5460a596dfaa2bc189950d3c404c6cff32e"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/web build",
+      "exit_code": 1,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/web-build.log",
+      "sha256": "9d3ee301433f46d9c07338fbf03f68e790f1026da5beef6a8d5df1a8cb943ccc"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/shared-types check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/shared-types-types.log",
+      "sha256": "d0b77397b0d7bc8a4c375a8f7e07856bd7c63a536a24dc3ee0e192969e8c1bf4"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/platform-protocol check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/platform-protocol-types.log",
+      "sha256": "2b31836d24f7e4a87d2c849de3174a02ca59bc2072ea67aee26d9748b65ce962"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/worker-protocol check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/worker-protocol-types.log",
+      "sha256": "1355fd46623f49b81fab705b2b23454bcd7f0205b801b489172cfd1468f92827"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/event-store check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/event-store-types.log",
+      "sha256": "55d446addf5d4003c56a1e8188f3c93add5a90689c16eb30cc82d8356257455b"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/runtime-kernel check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/runtime-kernel-types.log",
+      "sha256": "b1128df163d29a93f89d32cd950c05ab13583f1a539d49da845d85b53a098929"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/provider-core check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/provider-core-types.log",
+      "sha256": "4c2e9352e089badfb2ccd0383598fe9654d1f28f2880263a665b11546e28a459"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/persistence check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/persistence-types.log",
+      "sha256": "67de117315ee56a5757ca3e146d280d46aca7e0a256ec49bbe6b9055a8ee0983"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/harness-core check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/harness-core-types.log",
+      "sha256": "2356f6af5da28b9dd2344108fd7334cfebc9deccace4fa3c9f56bf6af26212c2"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/harness-codex check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/harness-codex-types.log",
+      "sha256": "b61ca88683d885606859774993cfe3a07891f8c5dee8dcb777adafb1a8af8ec1"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/harness-opencode check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/harness-opencode-types.log",
+      "sha256": "86024cfe48bf4cd350bf365c8e74586014cf4d2871110b8896ebc29bf4442326"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/harness-claude check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/harness-claude-types.log",
+      "sha256": "12233a6384827f30825429edb2cd9f1301d802ce9d9b3d4ca4ab98b5b740edab"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/app-server check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/app-server-types.log",
+      "sha256": "9a4460097d208d7ab97116680bf7cf0581f466f56f7d0259fce4012e4bbb81ed"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/sdk check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/sdk-types.log",
+      "sha256": "15b304253815d565358448a20d3d938b94a3ad8a70c8e4c6aa780389815d73f2"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/client-ui check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/client-ui-types.log",
+      "sha256": "25f993795df04d2d9645955136edb18990bcd74eabc0ff9f8e499d4bf4afb874"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/web check-types",
+      "exit_code": 2,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/web-types.log",
+      "sha256": "c96306c452506007872490b03060bb3692d2e886557df71833e9d0b6a1ba4b4d"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/desktop check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/desktop-types.log",
+      "sha256": "57abcd12876a91ddc52c00ed0d5991a4281d89f64d91f1906c1eb982bdd176d7"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/brain check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/brain-types.log",
+      "sha256": "917721c96e626e79f99bed905f59647408863c8a7365d63d2a67bbcb614e511b"
+    },
+    {
+      "command": "node scripts/gates/check-architecture-boundaries.mjs",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/architecture.log",
+      "sha256": "91500b0d9dfbc3ce9fab62ce2f083e0c6d82c41531528f48c54ecaa9dfd763a0"
+    },
+    {
+      "command": "node scripts/gates/check-rebuild-governance.mjs",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/governance.log",
+      "sha256": "9a5c7cafae7b03c771af4ee23d69de18f537c9ba47d3b6bfc73080addf7513b1"
+    },
+    {
+      "command": "node --test scripts/gates/check-architecture-boundaries.test.mjs scripts/gates/check-rebuild-governance.test.mjs",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/existing-gate-checks.log",
+      "sha256": "f7a7e21286b5b64dc185bd754e9c4c7795206f262bf80b6a0ec003dc2aaaf850"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/desktop build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/desktop-build.log",
+      "sha256": "0fe4a556186849c285e945d28a0c14bda0de495f298cedd2d0ef13be00612d7a"
+    }
+  ],
+  "failure": "Web build and types: packages/sdk/src/platform/lifecycle-types.ts(12,3) TS6133 unused TurnIdSchema import",
+  "status": "",
+  "no_source_edits": true,
+  "no_provider_or_os_acceptance": true,
+  "native_predecessor_and_reserved_cancel_physical_authority": "owner port unavailable; no fabricated FD capability or release proof"
+}
