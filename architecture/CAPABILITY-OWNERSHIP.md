@@ -2138,6 +2138,40 @@ deadline requests abort only; unknown binding cleanup retains the exact binding,
 service and slot and prevents positive SQLite/process closure. No timeout, client
 disconnect, empty active map or forced exit releases those physical obligations.
 
+## Plan 057 — Native predecessor resource settlement evidence
+
+The existing `LocalTurnResources` owner records Native resource settlement only
+after the original executor's combined terminal/capture/quiescence proof, the
+same writer owner's positive release and the original binding's successful close.
+The existing immutable Turn-artifact metadata authority stores the exact admission,
+terminal/publication digests, root and Git metadata identity, grant provenance and
+actual released namespace/writer-file identity. It creates no lifecycle event or
+public review artifact. Unknown write acknowledgements require an exact durable
+record read before the same owned entry is removed; unreadable or absent evidence
+retains that owner and prevents positive shutdown.
+
+The private Native predecessor reader validates those canonical references under
+the successor's already-held physical writer, using a metadata-only tracked loan
+that exposes no file descriptor or execution capability. It never acquires or
+releases a replacement fence. Missing legacy or crash-before-receipt evidence is
+explicit `native_predecessor_recovery_required`; terminal history, artifacts and
+an absent executor map never establish physical settlement. There is no automatic
+historical backfill from a freshly acquired fence.
+
+Unused prepared acquisitions have a separate positive cleanup path on the same
+writer entry. Sticky physical exposure prevents that path after any broad authority
+loan or tracked execution. The trusted first consumer must fence and await its
+original canonical publication before its exact absence read; unknown publication
+or cleanup retains the original binding and lease. This source does not activate
+delegated external execution or supply its missing physical process boundary.
+
+Missing Native resource receipts remain explicit recovery requirements. Legacy
+pre-intent guardians closed the target writer descriptor before execution, so
+acquiring their old fence alone cannot exclude a surviving child. The landed
+child-intent ABI separately proves physical exclusion for its own launches; this
+receipt reader does not backfill missing canonical resource evidence from that
+acquisition, a preparation label or terminal history.
+
 ## Plan 057 — Canonical lifecycle event byte transport
 
 The existing lifecycle event store remains the only event authority. Local replay
@@ -2280,10 +2314,10 @@ bytes and their real wire digest remain read/transport responsibilities.
 
 The platform protocol owns harness family, immutable pre-admission selection,
 instance/operation and measured-usage contracts, canonical question descriptors
-and response normalization. Active Run, Chat request and queued-input schemas
-remain unchanged and reject unsupported captured selection. Run capture must land
-with the Kernel's resolved-strategy guard; Chat capture requires routed admission,
-and queued capture requires its actual producer migration. Reference contracts
+and response normalization. Chat request and queued-input schemas remain unchanged and reject unsupported
+captured selection. Run capture lands with the Kernel's resolved-strategy guard;
+Chat capture requires routed admission, and queued capture requires its actual
+producer migration. Reference contracts
 alone never authorize a Native fallback. The existing lifecycle schema adds typed passive harness measurements
 and provider-limit observations, without introducing a producer or state store.
 
@@ -2296,6 +2330,68 @@ The active SDK legacy question wrapper remains unchanged until that consumer
 migrates its shared route and removes the old DTO; this foundation alone does not
 claim that client/runtime integration. Native capture, current byte paging and
 provider custody retain their existing owners and exports.
+
+## Plans 048 / 061 — Same-writer local harness persistence foundation
+
+The existing exclusive LocalPersistence SQLite connection owns durable local
+harness bindings, observation ingress/reply claims, opening phases and verified
+attachment retirement. Its constructor validates and initializes those indexes
+and one environment identity; no second writer or runtime registry is introduced.
+Control-plane setup/selection uses that same writer and the caller's canonical
+local actor. It reuses the same strict versioned grant parser as LocalPersistence,
+including v2 Git metadata identity in its grant fingerprint. It stores no
+credentials and starts no provider or process.
+
+This foundation exposes private ports but does not activate a public local
+harness consumer. Binding validation parses captured selection from an opaque
+Run property; the Kernel strategy guard lands atomically with the canonical Run
+field before any public delegated admission is enabled. Missing capture never selects Native
+or reconstructs external ownership. Final constructor/driver wiring remains
+separate. Current Native admission/lineage, immutable artifacts, lifecycle byte
+paging and provider custody retain their existing source and exports.
+
+## Plans 048 / 061 — Kernel delegated execution foundation
+
+RuntimeKernel remains the sole canonical lifecycle, approval and terminal owner.
+It requires a nonnull frozen delegated Run selection and matches every captured
+field to the resolved execution strategy before any binding or runtime effect;
+exact scope and active binding remain independently required; it never routes that intent into Native
+execution or its preparation-failure fallback. Existing Native provider, guarded
+worker, restoration and artifact responsibilities remain on their current path.
+
+Delegated observation ingestion validates worker scope and commits through the
+existing lifecycle writer before its durable ACK. That transition owner rejects
+reused item, tool-call and approval identities before append, including already
+settled identities, so acknowledged history remains restorable. Recovery restores the same
+attempt and committed start snapshot; uncertain physical quiescence retains
+workspace ownership and cannot certify an immutable resume artifact. Canonical
+question/deadline handling and secret-safe public errors share the existing
+approval/lifecycle owner. Worker-protocol is the explicit package dependency.
+
+This is an execution foundation, not driver or public-route activation. Chat and
+queued-input capture, real host/driver construction and initialization identity
+remain with the final consumer slice. No credential resolver, process launcher,
+second event writer or client-owned lifecycle is introduced here.
+
+## Plans 048 / 061 — Private Node harness host foundation
+
+The private harness-core server facade composes pinned driver lookup, scoped
+sessions, host process ownership and an immutable delivery journal. RuntimeKernel
+remains the canonical lifecycle and approval writer; host observations are
+journaled before delivery and acknowledged only after canonical commit. Reply
+claims remain single-use even when external delivery is ambiguous.
+
+Host creation requires an injected launch policy to prove the real filesystem,
+Git, shell and descendant boundary. Path resolution and process-group cleanup
+alone do not establish that proof. Unknown launch or cleanup keeps the host fenced;
+physical quiescence and observation integrity remain distinct receipts. Instance
+auth/config and journal directories are separate from review/snapshot roots, and
+selected credentials never enter public client metadata.
+
+This package has no active local constructor, driver registration or public-route
+consumer yet. Its client facade exports protocol types only; Node SDK and process
+services stay behind the server export. Final driver/constructor wiring is the
+activation boundary, and no Native provider fallback is introduced.
 
 ## Plan 057 — Native input safe-point prerequisite
 
@@ -2345,56 +2441,6 @@ with the local queue adapter and retain one-record streaming memory.
 - Native queued starts reuse the existing LocalTurnService binding/model/image preparation and canonical admission path, substituting only the same-writer queue/admission CAS. Image promotion supplies the existing preparation token without data URL reconstruction.
 - Exact-attempt Steer forwards to the already published executor safe-point port; it does not write acceptance or application events itself. The existing resource owner invokes its completion callback only after physical release and binding closure, within the original tracked cleanup operation and behind the shutdown fence.
 - These are private caller seams. Native Queue remains unavailable until held successor-lease predecessor proof and complete transport/media/history composition are wired. No standalone idle boolean or missing-executor inference is introduced. No new tests.
-## Plans 048 / 061 — Same-writer local harness persistence foundation
-
-The existing exclusive LocalPersistence SQLite connection owns durable local
-harness bindings, observation ingress/reply claims, opening phases and verified
-attachment retirement. Its constructor validates and initializes those indexes
-and one environment identity; no second writer or runtime registry is introduced.
-Control-plane setup/selection uses that same writer and the caller's canonical
-local actor. It reuses the same strict versioned grant parser as LocalPersistence,
-including v2 Git metadata identity in its grant fingerprint. It stores no
-credentials and starts no provider or process.
-
-This foundation exposes private ports but does not activate a public local
-harness consumer. Binding validation parses captured selection from an opaque
-Run property; the unchanged strict Run schema still rejects that field until its
-Kernel strategy guard is merged atomically. Missing capture never selects Native
-or reconstructs external ownership. Final constructor/driver wiring remains
-separate. Current Native admission/lineage, immutable artifacts, lifecycle byte
-paging and provider custody retain their existing source and exports.
-## Plan 057 — Native predecessor resource settlement evidence
-
-The existing `LocalTurnResources` owner records Native resource settlement only
-after the original executor's combined terminal/capture/quiescence proof, the
-same writer owner's positive release and the original binding's successful close.
-The existing immutable Turn-artifact metadata authority stores the exact admission,
-terminal/publication digests, root and Git metadata identity, grant provenance and
-actual released namespace/writer-file identity. It creates no lifecycle event or
-public review artifact. Unknown write acknowledgements require an exact durable
-record read before the same owned entry is removed; unreadable or absent evidence
-retains that owner and prevents positive shutdown.
-
-The private Native predecessor reader validates those canonical references under
-the successor's already-held physical writer, using a metadata-only tracked loan
-that exposes no file descriptor or execution capability. It never acquires or
-releases a replacement fence. Missing legacy or crash-before-receipt evidence is
-explicit `native_predecessor_recovery_required`; terminal history, artifacts and
-an absent executor map never establish physical settlement. There is no automatic
-historical backfill from a freshly acquired fence.
-
-Unused prepared acquisitions have a separate positive cleanup path on the same
-writer entry. Sticky physical exposure prevents that path after any broad authority
-loan or tracked execution. The trusted first consumer must fence and await its
-original canonical publication before its exact absence read; unknown publication
-or cleanup retains the original binding and lease. This source does not activate
-delegated external execution or supply its missing physical process boundary.
-
-Crash-before-receipt recovery remains a concrete backend limitation: the Native
-process guardian retains the writer descriptor through normal exact-child reaping,
-but its target closes that descriptor before execution. An unexpectedly lost
-guardian therefore cannot be excluded solely by acquiring the old fence. No
-preparation label or new receipt is substituted for surviving-child exclusion.
 
 ### Accepted Native input lineage
 

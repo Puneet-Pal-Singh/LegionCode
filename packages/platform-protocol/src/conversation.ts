@@ -1,3 +1,4 @@
+import { HarnessAdmissionSelectionSchema } from "./harness/selection.js";
 import { z } from "zod";
 import { LifecycleToolDisplaySchema } from "./lifecycle.js";
 import {
@@ -143,6 +144,7 @@ export type Thread = z.infer<typeof ThreadSchema>;
 
 export const RunSchema = z
   .object({
+    harnessSelection: HarnessAdmissionSelectionSchema.optional(),
     id: RunIdSchema,
     threadId: ThreadIdSchema,
     userId: UserIdSchema,

@@ -232,7 +232,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
       outcome: {
         failure: {
           code: "provider_unavailable",
-          message: "Provider route rejected [redacted]",
+          message: "The model provider request failed.",
         },
       },
     });
@@ -259,8 +259,8 @@ describe("RuntimeKernel canonical lifecycle", () => {
     expect(failed?.payload).toMatchObject({
       outcome: {
         failure: {
-          code: "provider_unavailable",
-          message: expect.stringContaining("temporarily rate limited"),
+          code: "rate_limited",
+          message: "The request is temporarily rate limited. Try again later.",
         },
       },
     });
@@ -393,11 +393,8 @@ describe("RuntimeKernel canonical lifecycle", () => {
           failure: {
             code: "worker_unavailable",
             retryable: true,
-            correlationId: "secure-correlation-1",
-            details: {
-              secureStatus: "sandbox_unavailable",
-              secureCode: "SANDBOX_UNAVAILABLE",
-            },
+            correlationId: null,
+            details: null,
           },
         },
       },
@@ -417,7 +414,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
             toolCallId: ToolCallIdSchema.parse("toolcall_runtime001"),
             failure: expect.objectContaining({
               code: "not_found",
-              message: "README.missing was not found",
+              message: "The requested resource was not found.",
             }),
           }),
         ]);
@@ -956,7 +953,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
       outcome: {
         failure: {
           code: "policy_denied",
-          details: { runtimeKernelCode: "tool_policy_denied" },
+          details: null,
         },
       },
     });
@@ -1166,7 +1163,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
       payload: {
         outcome: {
           status: "interrupted",
-          reason: "User stopped before execution",
+          reason: "The operation was cancelled.",
         },
       },
     });
