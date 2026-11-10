@@ -1723,3 +1723,9 @@ The same process-owned Thread service now reads Native terminal/assistant
 lineage through the existing SQLite admission summary port. This wires the
 canonical read projection into list/get and subsequent Native admission; it
 adds no platform terminal event, status table or second Thread owner.
+
+The trusted host may inject the shared ProviderCatalogService modelCatalog
+port independently of Native Git availability. LocalProviderService and its
+Native consumer share that discovery authority; each admitted executor receives
+a validated frozen model snapshot without adding discovery data to durable
+request fingerprints or resolving credentials in the renderer.
