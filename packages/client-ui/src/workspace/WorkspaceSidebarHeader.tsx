@@ -1,8 +1,9 @@
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { Maximize2, PanelRight } from "lucide-react";
 import { cn } from "../classnames.js";
 import type { WorkspaceContentTab } from "./WorkspaceTabStrip.js";
 import { WorkspaceSurfaceHeader } from "./WorkspaceSurfaceHeader.js";
+import { useWorkspaceSummaryLayout } from "./WorkspaceSummaryLayout.js";
 
 interface WorkspaceSidebarHeaderProps {
   sidebarWidth?: number | string;
@@ -17,7 +18,6 @@ interface WorkspaceSidebarHeaderProps {
   onOpenChanges: () => void;
   onExpand?: () => void;
   onCloseSidebar?: () => void;
-  environmentSummary?: ReactNode;
   position?: "fixed" | "inline";
 }
 
@@ -34,11 +34,31 @@ export function WorkspaceSidebarHeader({
   onOpenChanges,
   onExpand,
   onCloseSidebar,
-  environmentSummary,
   position,
 }: WorkspaceSidebarHeaderProps) {
+  const headerRef = useRef<HTMLElement>(null);
+  const registerHeaderInset = useWorkspaceSummaryLayout()?.registerHeaderInset;
+  useLayoutEffect(() => {
+    const header = headerRef.current;
+    if (!header || !registerHeaderInset) return;
+    const registration = registerHeaderInset();
+    const measure = () => registration.update(
+      window.getComputedStyle(header).position === "fixed"
+        ? header.getBoundingClientRect().width : 0,
+    );
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(header);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+      registration.release();
+    };
+  }, [position, sidebarWidth, registerHeaderInset]);
   return (
     <WorkspaceSurfaceHeader
+      headerRef={headerRef}
       variant="sidebar"
       position={position}
       width={sidebarWidth}
@@ -55,7 +75,6 @@ export function WorkspaceSidebarHeader({
       addTabLabel="Add sidebar tab"
       trailingActions={
         <>
-          {environmentSummary}
           <IconButton
             label="Fullscreen review"
             onClick={onExpand}

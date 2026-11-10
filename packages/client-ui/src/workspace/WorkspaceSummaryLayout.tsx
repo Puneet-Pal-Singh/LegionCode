@@ -10,7 +10,13 @@ import {
 } from "react";
 import { getVisibleViewportBounds } from "../hooks/useViewportPopoverPosition.js";
 
+interface HeaderInsetRegistration {
+  update: (width: number) => void;
+  release: () => void;
+}
 interface SummaryLayout {
+  headerInset: number;
+  registerHeaderInset: () => HeaderInsetRegistration;
   inlineEligible: boolean;
   inlineVisible: boolean;
   popupOpen: boolean;
@@ -29,6 +35,24 @@ export const useWorkspaceSummaryLayout = () => useContext(SummaryLayoutContext);
 
 /** Transient presentation preference only; environment data remains in host adapters. */
 export function WorkspaceSummaryProvider({ children }: { children: ReactNode }) {
+  const [headerInset, setHeaderInset] = useState(0);
+  const headerOwner = useRef<symbol | null>(null);
+  const registerHeaderInset = useCallback((): HeaderInsetRegistration => {
+    const owner = Symbol("fixed-pane-header");
+    headerOwner.current = owner;
+    setHeaderInset(0);
+    return {
+      update(width) {
+        if (headerOwner.current !== owner || !Number.isFinite(width) || width < 0) return;
+        setHeaderInset((current) => current === width ? current : width);
+      },
+      release() {
+        if (headerOwner.current !== owner) return;
+        headerOwner.current = null;
+        setHeaderInset(0);
+      },
+    };
+  }, []);
   const [inlineEligible, setEligible] = useState(false);
   const eligibleRef = useRef(false);
   const [inlineHidden, setInlineHidden] = useState(false);
@@ -65,6 +89,8 @@ export function WorkspaceSummaryProvider({ children }: { children: ReactNode }) 
     else setPopupOpen((open) => !open);
   }, []);
   const value = useMemo(() => ({
+    headerInset,
+    registerHeaderInset,
     inlineEligible,
     inlineVisible: hasSummary && inlineEligible && !inlineHidden,
     popupOpen,
@@ -77,7 +103,7 @@ export function WorkspaceSummaryProvider({ children }: { children: ReactNode }) 
     registerTrigger,
     toggle,
     dismissPopup,
-  }), [inlineEligible, hasSummary, inlineHidden, popupOpen, inlineTarget, overlayTarget,
+  }), [headerInset, registerHeaderInset, inlineEligible, hasSummary, inlineHidden, popupOpen, inlineTarget, overlayTarget,
     setInlineTarget, setOverlayTarget, setInlineEligible, registerTrigger, toggle, dismissPopup]);
   return <SummaryLayoutContext.Provider value={value}>{children}</SummaryLayoutContext.Provider>;
 }

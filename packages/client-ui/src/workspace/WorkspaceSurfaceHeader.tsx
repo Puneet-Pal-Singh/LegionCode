@@ -1,10 +1,11 @@
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import { cn } from "../classnames.js";
 import type { WorkspaceContentTab } from "./WorkspaceTabStrip.js";
 import { WorkspaceAddMenu } from "./WorkspaceAddMenu.js";
 import { WorkspaceTabStrip } from "./WorkspaceTabStrip.js";
 
 interface WorkspaceSurfaceHeaderProps {
+  headerRef?: Ref<HTMLElement>;
   id?: string;
   ariaLabel: string;
   variant: "sidebar" | "fullscreen";
@@ -24,6 +25,7 @@ interface WorkspaceSurfaceHeaderProps {
 }
 
 export function WorkspaceSurfaceHeader({
+  headerRef,
   id,
   ariaLabel,
   variant,
@@ -45,6 +47,7 @@ export function WorkspaceSurfaceHeader({
 
   return (
     <header
+      ref={headerRef}
       className={cn(
         "relative z-[80] flex h-12 shrink-0 items-center border-b border-zinc-800 bg-[#111113] shadow-sm shadow-black/20",
         isSidebar &&
