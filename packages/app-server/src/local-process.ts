@@ -144,13 +144,11 @@ export async function runLocalAppServerProcess(
   try {
     server = await createLocalAppServer(config, options);
   } catch {
-    parentPort.postMessage({ type: "fatal" });
+    postFatal();
     process.exit(1);
     return;
   }
-  server.once("runtime-shutdown-failed", () => parentPort.postMessage({
-    type: "fatal", reason: "runtime-shutdown-failed",
-  }));
+  server.once("runtime-shutdown-failed", () => postFatal("runtime-shutdown-failed"));
   let finalExitCode = 0;
   let stopRequested = false;
   let exitAfterClosed: Promise<void> | undefined;
@@ -166,7 +164,7 @@ export async function runLocalAppServerProcess(
     return closed;
   };
   server.once("error", () => {
-    parentPort.postMessage({ type: "fatal" });
+    postFatal();
     exitAfterSettlement(1);
   });
   process.on("SIGTERM", () => exitAfterSettlement(0));
@@ -174,16 +172,23 @@ export async function runLocalAppServerProcess(
     if (stopRequested) return;
     const address = server.address();
     if (!address || typeof address === "string") {
-      parentPort.postMessage({ type: "fatal" });
+      postFatal();
       exitAfterSettlement(1);
       return;
     }
-    parentPort.postMessage({
-      type: "ready",
-      baseUrl: `http://127.0.0.1:${address.port}`,
-    });
+    try {
+      parentPort.postMessage({
+        type: "ready",
+        baseUrl: `http://127.0.0.1:${address.port}`,
+      });
+    } catch { void exitAfterSettlement(1); }
   });
   return { requestShutdown: () => exitAfterSettlement(0) };
+
+  function postFatal(reason?: "runtime-shutdown-failed"): void {
+    try { parentPort.postMessage({ type: "fatal", ...(reason ? { reason } : {}) }); }
+    catch { /* Losing the notification channel is not physical closure. */ }
+  }
 }
 
 async function handleRequest(

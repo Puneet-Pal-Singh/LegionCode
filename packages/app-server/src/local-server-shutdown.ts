@@ -79,7 +79,10 @@ export function attachLocalServerShutdown(
   });
   // Rejection retains persistence and its referenced keep-alive. Reporting fatal
   // must not convert an unknown physical outcome into successful shutdown.
-  void closed.catch(() => server.emit("runtime-shutdown-failed"));
+  void closed.catch(() => {
+    try { server.emit("runtime-shutdown-failed"); }
+    catch { /* A failed observer cannot release uncertain physical owners. */ }
+  });
   return Object.assign(server, {
     closed,
     requestShutdown(): Promise<void> {

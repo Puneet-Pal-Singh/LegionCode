@@ -1863,3 +1863,7 @@ commit receipt with uncertain cleanup cannot authorize SQLite closure. The gener
 combiner calls every owner synchronously before HTTP drain, awaits all original
 shutdown results, and retains the actual compositions on any rejection. It adds
 no commit, terminal or resource-proof authority.
+
+Private notification-channel or shutdown-observer failure is not a physical
+closure signal. Unknown shutdown remains retained even if fatal delivery throws;
+failed ready delivery requests the same owned shutdown barrier.
