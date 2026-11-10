@@ -1,3 +1,8 @@
+import { LocalThreadInputRepository, type LocalQueuedInputStart } from "./thread-inputs/LocalThreadInputRepository.js";
+import { ThreadInputConflictError } from "./thread-inputs/errors.js";
+import type { ThreadInputRepository } from "./thread-inputs/types.js";
+import { parseStoredGrant, type StoredLocalWorkspaceGrant } from "./local-workspace-grant.js";
+export type { StoredLocalWorkspaceGrant } from "./local-workspace-grant.js";
 import type { LocalThreadRuntimeScope, LocalThreadRuntimeSummary } from "./local-thread-runtime-summary.js";
 import Database from "better-sqlite3";
 import { LocalProviderPreferencesRecords } from "./local-provider-preferences.js";
@@ -9,14 +14,11 @@ import { isAbsolute, join } from "node:path";
 import {
   EventCursorSchema,
   EventScopeSchema,
-  LocalWorkspaceGrantPathSchema,
-  LocalWorkspaceGrantSchema,
   PlatformEventSchema,
   ProviderIdSchema,
   type EventCursor,
   type EventId,
   type PlatformEvent,
-  type LocalWorkspaceGrant,
   type ProviderId,
   type WorkspaceId,
 } from "@repo/platform-protocol";
@@ -57,24 +59,6 @@ const LegacyPlatformFileSchema = z.object({
   version: z.literal(1),
   events: z.array(z.unknown()),
 }).strict();
-const StoredGrantSchema = z.object({
-  version: z.literal(1),
-  path: LocalWorkspaceGrantPathSchema,
-  grant: LocalWorkspaceGrantSchema,
-}).strict();
-
-export type StoredLocalWorkspaceGrant = {
-  readonly version: 1;
-  readonly path: string;
-  readonly grant: LocalWorkspaceGrant;
-} | {
-  readonly version: 2;
-  readonly path: string;
-  readonly grant: LocalWorkspaceGrant;
-  /** Opaque native identity; interpreted only by the canonical grant/NativeFS owner. */
-  readonly gitMetadataIdentity: string;
-};
-
 export interface LocalPersistenceOptions {
   readonly storageDirectory: string;
   readonly clock?: EventStoreClock;
@@ -109,6 +93,11 @@ type EventRow = {
 export class LocalPersistence {
   readonly events: EventStore & { listAll(): Promise<readonly PlatformEvent[]> };
   readonly lifecycleEvents: LifecycleEventStore;
+  readonly threadInputs: ThreadInputRepository & {
+    reserveQueuedStart(input: LocalQueuedInputStart): Promise<ReturnType<LocalThreadInputRepository["reserveQueuedStart"]>>;
+    readForMedia: LocalThreadInputRepository["readForMedia"];
+    listAcceptedForTurn: LocalThreadInputRepository["listAcceptedForTurn"];
+  };
   readonly turnArtifacts: ReturnType<typeof createLocalTurnArtifactStore>;
   readonly turnAdmissions: {
     admit(candidate: TurnAdmission): Promise<{ admission: TurnAdmission; newlyAdmitted: boolean }>;
@@ -144,6 +133,7 @@ export class LocalPersistence {
   private readonly idGenerator: EventStoreIdGenerator;
   private closed = false;
   private admissions?: LocalTurnAdmissions;
+  private inputQueue?: LocalThreadInputRepository;
 
   constructor(options: LocalPersistenceOptions) {
     if (!isAbsolute(options.storageDirectory) || options.storageDirectory.includes("\0")) {
@@ -166,9 +156,26 @@ export class LocalPersistence {
       this.migrateOrValidate();
       this.validateDatabase();
       this.turnArtifacts = createLocalTurnArtifactStore(this.database, (operation) => this.guardStorage(operation));
-      const admissions = new LocalTurnAdmissions(this.database, (input) => this.appendPlatformWithin(input));
+      const admissions = new LocalTurnAdmissions(this.database, (input) => this.appendPlatformWithin(input),
+        (admission) => this.inputQueue?.onAdmissionWithin(admission));
       admissions.initialize();
       this.admissions = admissions;
+      const inputs = new LocalThreadInputRepository(this.database, admissions, (input) => this.appendPlatformWithin(input));
+      inputs.initialize();
+      this.inputQueue = inputs;
+      this.threadInputs = {
+        enqueue: (input) => this.guardThreadInputStorage(() => inputs.enqueue(input)),
+        list: (input) => this.guardThreadInputStorage(() => inputs.list(input)),
+        getById: (input) => this.guardThreadInputStorage(() => inputs.getById(input)),
+        update: (input) => this.guardThreadInputStorage(() => inputs.update(input)),
+        claimForSteering: (input) => this.guardThreadInputStorage(() => inputs.claimForSteering(input)),
+        remove: (input) => this.guardThreadInputStorage(() => inputs.remove(input)),
+        setPaused: (input) => this.guardThreadInputStorage(() => inputs.setPaused(input)),
+        recordReceipt: (input) => this.guardThreadInputStorage(() => inputs.recordReceipt(input)),
+        reserveQueuedStart: (input) => this.guardThreadInputStorage(() => inputs.reserveQueuedStart(input)),
+        readForMedia: (input) => this.guardThreadInputStorage(() => inputs.readForMedia(input)),
+        listAcceptedForTurn: (input) => this.guardThreadInputStorage(() => inputs.listAcceptedForTurn(input)),
+      };
       this.turnAdmissions = {
         admit: async (candidate) => this.guardStorage(() => admissions.admit(candidate)),
         findByRequest: async (threadId, requestId) => this.guardStorage(() => admissions.findByRequest(threadId, requestId)),
@@ -462,6 +469,7 @@ export class LocalPersistence {
       sequence: event.sequence, cursor: null, idempotencyKey: event.idempotencyKey,
       fingerprint, event,
     });
+    this.inputQueue?.projectLifecycleWithin(event);
     return event;
   }
 
@@ -607,6 +615,15 @@ export class LocalPersistence {
     this.guardStorage(() => this.database.transaction(() => {
       this.database.prepare("DELETE FROM metadata WHERE key = ?").run(PROVIDER_SELECTION_METADATA_KEY);
     }).immediate());
+  }
+
+  private async guardThreadInputStorage<T>(operation: () => T | Promise<T>): Promise<T> {
+    if (this.closed) throw new LocalPersistenceError("unavailable", "Local input persistence is closed");
+    try { return await operation(); }
+    catch (error) {
+      if (error instanceof ThreadInputConflictError || error instanceof EventStoreError || error instanceof LocalPersistenceError) throw error;
+      throw new LocalPersistenceError("unavailable", "Local input persistence could not complete safely");
+    }
   }
 
   private guardStorage<T>(operation: () => T): T {
@@ -834,22 +851,6 @@ function platformFingerprint(event: PlatformEvent): string {
   return createStableEventFingerprint(input);
 }
 
-function parseStoredGrant(value: unknown): StoredLocalWorkspaceGrant {
-  // Legacy records remain readable, but only explicit grant can establish identity.
-  const grant = z.union([
-    StoredGrantSchema,
-    z.object({
-      version: z.literal(2),
-      path: LocalWorkspaceGrantPathSchema,
-      grant: LocalWorkspaceGrantSchema,
-      gitMetadataIdentity: z.string().min(1).max(512),
-    }).strict(),
-  ]).parse(value);
-  if (!isAbsolute(grant.path) || grant.path.includes("\0")) {
-    throw new Error("Workspace grant path is invalid");
-  }
-  return grant;
-}
 
 function isTerminal(event: LifecycleEvent): boolean {
   return event.type === "turn.completed" || event.type === "turn.failed" || event.type === "turn.interrupted";

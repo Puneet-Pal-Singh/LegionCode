@@ -21,6 +21,7 @@ export class LocalTurnAdmissions {
   constructor(
     private readonly database: Database.Database,
     private readonly append: (input: AppendEventInput) => PlatformEvent,
+    private readonly onAdmitted?: (admission: TurnAdmission) => void,
   ) {}
 
   initialize(): void {
@@ -114,7 +115,9 @@ export class LocalTurnAdmissions {
         candidate.run.id, candidate.turn.id, candidate.runAttemptId, candidate.userMessage.id, fingerprint, run.eventId, turn.eventId, prompt.eventId);
     const saved = this.findRow(candidate.run.threadId, candidate.clientRequestId);
     if (!saved) throw corrupt("Admission receipt was not stored");
-    return { admission: this.reconstruct(saved), newlyAdmitted: true };
+    const admission = this.reconstruct(saved);
+    this.onAdmitted?.(admission);
+    return { admission, newlyAdmitted: true };
   }
 
   findByRequest(threadId: string, clientRequestId: string): TurnAdmission | null {

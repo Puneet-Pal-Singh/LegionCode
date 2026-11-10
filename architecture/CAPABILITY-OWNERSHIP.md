@@ -2278,3 +2278,10 @@ CAS with the same canonical admission and event append, without nested asynchron
 transactions or a second admission owner. Existing scope, fingerprint, parent and
 unsettled-turn checks are unchanged. Canonical Thread ownership reads are shared
 with the local queue adapter and retain one-record streaming memory.
+
+### Local Native queued input storage prerequisite
+
+- `LocalThreadInputRepository` is the SQLite adapter for the existing shared thread-input repository contract. It uses the same LocalPersistence connection and immediate transaction owner; no second lifecycle or admission writer is introduced.
+- Queued-start CAS and `LocalTurnAdmissions.admitWithin` commit together. Accepted/applied/unconfirmed receipts and the accepted canonical platform user message are projected in the existing lifecycle append transaction. Pending intent is not transcript content.
+- Startup validates scope, indexed rows, canonical delivery receipts and accepted user bodies. The current v1/v2 workspace-grant parser is extracted without changing its contract. Queue bytes remain metadata-only; the existing media owner stores attachments.
+- This is a storage prerequisite. Native command routing, positive physical-idle proof, provider history and the shared Hosted adapter must be composed before claiming Queue or Steer availability. No new tests or registrations.
