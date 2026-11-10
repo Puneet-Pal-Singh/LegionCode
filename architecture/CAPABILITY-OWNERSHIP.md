@@ -893,6 +893,17 @@ Web refreshes this projection once when the canonical workflow starts, then
 uses its existing bounded pending-title polling. A long chat response does not
 delay the first title read; Web still does not manufacture title state.
 
+The existing bounded pending-title projection refresh and title-version merge
+ordering live in shared client UI behind host-owned read/delivery ports. Web
+forwards its existing authenticated session reader to that hook. The hook only
+observes canonical pending statuses; it cannot claim attempts, infer generated
+titles or publish title events. Host scope changes suppress late deliveries.
+Desktop binds the same refresh hook to SDK Thread reads and a fresh matching
+workspace grant before delivery. It merges only canonical title fields into the
+existing Thread list/selection, retaining runtime and navigation state; SDK,
+grant generation and Thread-scope changes invalidate late reads. This display
+binding does not activate local inference or manufacture pending title status.
+
 The existing platform OpenRouter free route remains a coordinator-owned,
 sanitized fallback for a failed selected route. No new provider fallback is
 introduced. Remove it when an explicitly configured title route replaces this
@@ -2432,6 +2443,14 @@ the existing workspace/grant/Thread scope. Execution dispatch and lifecycle
 settlement retain their existing owners; title metadata cannot redispatch a
 receipt or prevent an admitted response. Generated-title provider work is not
 activated by this preview wiring.
+
+The local generated-title metadata adapter delegates claim and settlement to that
+same Thread mutation queue. Its one durable pending claim requires the exact
+first admission and canonical preview event identity/source/version; settlement
+checks the same first message, pending version and original grant generation
+again. Same-text manual renames retain user ownership and supersede a generated
+result. This private adapter adds no title table, inference activation or provider
+lifetime owner; those host ports must be joined before it is called.
 
 Shared client popovers measure the current VisualViewport, including pan,
 resize and keyboard-related offsets. Optional companion panels use the same

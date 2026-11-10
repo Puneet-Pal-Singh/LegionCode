@@ -29,6 +29,7 @@ import { DesktopComposer } from "./DesktopComposer";
 import { DesktopComposerWorkspaceBar } from "./DesktopComposerWorkspaceBar";
 import { useDesktopProjectNavigation, type DesktopProjectIntent } from "./useDesktopProjectNavigation";
 import { useDesktopComposerDraft } from "./useDesktopComposerDraft";
+import { useDesktopPendingTitleProjectionRefresh } from "./useDesktopPendingTitleProjectionRefresh";
 import { DesktopWorkspaceReview } from "./DesktopWorkspaceReview";
 import type { DesktopReviewSource } from "./DesktopReviewPresentation";
 import { DesktopSavedCommitDialog } from "./DesktopSavedCommitDialog";
@@ -141,6 +142,14 @@ function DesktopApp(): React.JSX.Element {
     for (const thread of threads) metadata.set(thread.id, thread);
     return [...metadata.values()];
   }, [projects.navigation, threads]);
+
+  useDesktopPendingTitleProjectionRefresh({
+    client: appServerClient,
+    enabled: sdkReady && environment?.status === "ready" && environment.kind === "local" &&
+      environment.capabilities.includes("thread-management-v1") && threadLoadState === "ready" &&
+      !workspaceBusy && !workspacePickerOpen && !projects.intent,
+    workspace, threads, generation: threadScope, setThreads, setSelectedThread,
+  });
 
   const reviewScope = useMemo(
     () =>

@@ -1,6 +1,7 @@
 import type { LocalPersistence } from "@repo/event-store/local";
 import { buildThreadTitlePreview, projectThreadEvents } from "@repo/persistence";
 import { LocalThreadPinService } from "./local-thread-pins.js";
+import { LocalThreadGeneratedTitleMetadata } from "./local-thread-generated-titles.js";
 import { ThreadCreateParamsSchema, ThreadRenameParamsSchema } from "./protocol.js";
 import {
   EVENT_SCHEMA_VERSION,
@@ -30,6 +31,7 @@ export class LocalThreadService {
   private readonly readRuntimeSummary: LocalThreadServiceOptions["readRuntimeSummary"];
   private readonly metadataMutations = new Map<ThreadId, Promise<void>>();
   private readonly pins: LocalThreadPinService;
+  readonly generatedTitles: LocalThreadGeneratedTitleMetadata;
 
   constructor(options: LocalThreadServiceOptions) {
     this.eventStore = options.events;
@@ -40,6 +42,17 @@ export class LocalThreadService {
       serializeMetadataMutation: (threadId, mutation) => this.serializeMetadataMutation(
         threadId,
         (workspace) => mutation({ readThread: () => this.readAuthorizedThread(threadId, workspace) }),
+      ),
+    });
+    this.generatedTitles = new LocalThreadGeneratedTitleMetadata({
+      events: this.eventStore,
+      serializeMetadataMutation: (threadId, mutation) => this.serializeMetadataMutation(
+        threadId,
+        (workspace) => mutation({
+          workspace,
+          readThread: () => this.readAuthorizedThread(threadId, workspace),
+          assertCurrent: () => this.assertWorkspaceCurrent(workspace),
+        }),
       ),
     });
   }
