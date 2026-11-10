@@ -2291,3 +2291,9 @@ with the local queue adapter and retain one-record streaming memory.
 - AppServer `ThreadInputCommandService` owns enqueue/update/remove/CAS steering, authoritative receipt reread, unknown-delivery pause and completed/idle advancement behind storage, authorization, media and runtime ports.
 - Hosted AppServer commands and the existing Hosted terminal callback now use that owner. Brain retains the existing quota/admission/dispatch/model/image and PostgreSQL transaction adapters; no duplicate local policy is activated by this extraction.
 - Native transport composition and positive physical-idle/history integration remain pending. This commit alone does not advertise Native Queue/Steer. No new tests or registrations.
+
+### Native queued admission and safe-point input seams
+
+- Native queued starts reuse the existing LocalTurnService binding/model/image preparation and canonical admission path, substituting only the same-writer queue/admission CAS. Image promotion supplies the existing preparation token without data URL reconstruction.
+- Exact-attempt Steer forwards to the already published executor safe-point port; it does not write acceptance or application events itself. The existing resource owner invokes its completion callback only after physical release and binding closure, within the original tracked cleanup operation and behind the shutdown fence.
+- These are private caller seams. Native Queue remains unavailable until held successor-lease predecessor proof and complete transport/media/history composition are wired. No standalone idle boolean or missing-executor inference is introduced. No new tests.

@@ -1,8 +1,12 @@
 import type { LocalTurnAttemptIdentity, LocalTurnAttemptInput } from "@legioncode/execution-engine/runtime/desktop/LocalReadOnlyTurnExecutor";
+import type { StoredThreadInput, ThreadInputScope } from "@repo/event-store";
+import type { InputCommand } from "./thread-inputs/ports.js";
 import type { BYOKDiscoveredProviderModel } from "@repo/shared-types";
 import {
   ModelIdSchema,
   ContentDigestSchema,
+  WorkspaceIdSchema,
+  ThreadIdSchema,
   LocalTurnConfigurationSchema,
   LocalTurnConfigurationOptionsSchema,
   type LocalTurnConfiguration,
@@ -62,6 +66,8 @@ export type LocalTurnServiceOptions = {
   threads: LocalThreadService;
   providers: LocalProviderService;
   media?: LocalTurnMediaPort;
+  queuedInputs?: Pick<LocalPersistence["threadInputs"], "reserveQueuedStart" | "listAcceptedForTurn">;
+  onResourcesReleased?(admission: TurnAdmission): Promise<void>;
   runtime?: {
     readonly configurationOptions: LocalTurnConfigurationOptions;
     /** Startup-only reconciliation before new commands can acquire ownership. */
@@ -108,6 +114,7 @@ export class LocalTurnService {
     });
     this.resources = new LocalTurnResources({
       hasUnsettledWorkspaceResources: () => options.workspaces.hasUnsettledResources,
+      onResourcesReleased: (admission) => options.onResourcesReleased?.(admission) ?? Promise.resolve(),
       interrupt: async (admission) => {
         await this.interruption.interruptTurn({
           workspaceId: admission.run.workspaceId,
@@ -134,7 +141,34 @@ export class LocalTurnService {
     return this.resources.prepare((preparation) => this.startPreparedTurn(params, preparation));
   }
 
-  private async startPreparedTurn(params: LocalTurnStartParams, preparation: LocalTurnPreparation): Promise<TurnAdmission> {
+  async startQueuedTurn(input: {
+    scope: ThreadInputScope; item: StoredThreadInput; command: InputCommand<"thread.input.start">; explicitStart: boolean;
+    prepareMedia(signal: AbortSignal): Promise<LocalTurnPreparedMedia | undefined>;
+  }): Promise<TurnAdmission> {
+    if (!this.options.queuedInputs) throw new AppServerOperationError(503, "server_unavailable", "Local queued input storage is unavailable");
+    if (input.item.threadId !== input.scope.threadId || input.item.userId !== input.scope.userId ||
+        input.item.workspaceId !== input.scope.workspaceId || input.item.itemId !== input.command.itemId)
+      throw new AppServerOperationError(409, "conflict", "Queued input scope has changed");
+    const params: LocalTurnStartParams = { workspaceId: WorkspaceIdSchema.parse(input.scope.workspaceId),
+      threadId: ThreadIdSchema.parse(input.scope.threadId), clientRequestId: `thread-input:${input.item.itemId}`, prompt: input.item.text };
+    return this.resources.prepare((preparation) => this.startPreparedTurn(params, preparation, input));
+  }
+
+  async acceptQueuedSteer(input: { scope: ThreadInputScope; item: StoredThreadInput; message: LocalTurnAttemptInput["accepted"]["message"] }): Promise<number> {
+    const admission = await this.getTurn(input.item.targetTurnId!);
+    if (admission.run.userId !== input.scope.userId || admission.run.workspaceId !== input.scope.workspaceId ||
+        admission.run.threadId !== input.scope.threadId || admission.runAttemptId !== input.item.targetRunAttemptId)
+      throw new AppServerOperationError(409, "conflict", "Steer target has changed");
+    const executor = this.requireExecutor(admission.turn.id);
+    if (!executor.acceptThreadInputAttempt) throw new AppServerOperationError(503, "server_unavailable", "The Native runtime does not accept input");
+    return executor.acceptThreadInputAttempt({ workspaceId: admission.run.workspaceId, threadId: admission.run.threadId,
+      runId: admission.run.id, turnId: admission.turn.id, runAttemptId: admission.runAttemptId }, {
+      accepted: { inputId: input.item.itemId, message: input.message }, clientInputId: input.item.clientInputId,
+      transcriptMessageId: `thread-input:${input.item.itemId}`,
+    });
+  }
+
+  private async startPreparedTurn(params: LocalTurnStartParams, preparation: LocalTurnPreparation, queued?: Parameters<LocalTurnService["startQueuedTurn"]>[0]): Promise<TurnAdmission> {
     const images = params.images ?? [];
     const thread = await this.options.threads.get(params.threadId);
     if (thread.workspaceId !== params.workspaceId) {
@@ -151,7 +185,7 @@ export class LocalTurnService {
       );
     if (previous) {
       // A receipt retry does not create records, acquire execution authority or resolve credentials.
-      const imageFingerprint = await this.submittedImageFingerprint(images);
+      const imageFingerprint = queued?.item.mediaFingerprint ?? await this.submittedImageFingerprint(images);
       const currentThread = await this.options.threads.get(thread.id);
       return validateSavedAdmission(previous, params, currentThread, imageFingerprint);
     }
@@ -199,11 +233,13 @@ export class LocalTurnService {
         await this.options.providers.getModel(selection.providerId, selection.modelId),
         selection,
       );
-      const hasImages = images.length > 0 || await this.hasImageHistory(thread.id);
+      const imageCount = queued?.item.mediaRefs.length ?? images.length;
+      const hasImages = imageCount > 0 || await this.hasImageHistory(thread.id);
       if (hasImages && model.capabilities?.supportsVision !== true) {
         throw new AppServerOperationError(409, "conflict", "The selected model does not support image input", "local_image_model_unsupported", false);
       }
-      preparedMedia = await this.prepareImages(images, AbortSignal.any([binding.signal, this.resources.admissionSignal]));
+      const mediaSignal = AbortSignal.any([binding.signal, this.resources.admissionSignal]);
+      preparedMedia = queued ? await queued.prepareMedia(mediaSignal) : await this.prepareImages(images, mediaSignal);
       binding.assertCurrent();
       this.resources.assertAcceptingAdmission();
       let candidate: TurnAdmission;
@@ -216,7 +252,7 @@ export class LocalTurnService {
           providerId: selection.providerId,
           modelId: ModelIdSchema.parse(selection.modelId),
           configuration,
-          ...(preparedMedia ? { media: { preparation: preparedMedia, imageCount: images.length } } : {}),
+          ...(preparedMedia ? { media: { preparation: preparedMedia, imageCount } } : {}),
         });
       } catch (error) {
         if (!preparedMedia) throw error;
@@ -238,7 +274,9 @@ export class LocalTurnService {
       binding.assertCurrent();
       this.resources.assertAcceptingAdmission();
       const { admission, newlyAdmitted } =
-        await this.options.persistence.turnAdmissions.admit(candidate);
+        await (queued ? this.options.queuedInputs!.reserveQueuedStart({ ...queued.scope, itemId: queued.item.itemId,
+          expectedVersion: queued.command.expectedVersion, expectedRevision: queued.command.expectedThreadRevision,
+          explicitStart: queued.explicitStart, candidate }) : this.options.persistence.turnAdmissions.admit(candidate));
       if (newlyAdmitted) this.resources.ownExecution(preparation, admission, executor);
       return admission;
     } catch (error) {
@@ -252,7 +290,7 @@ export class LocalTurnService {
         // A concurrent winner can commit before this request reaches image
         // preparation. Derive only the submitted content identity for its receipt.
         const imageFingerprint = preparedMedia?.fingerprint
-          ?? await this.submittedImageFingerprint(images);
+          ?? queued?.item.mediaFingerprint ?? await this.submittedImageFingerprint(images);
         const currentThread = await this.options.threads.get(thread.id);
         if (currentThread.workspaceId !== params.workspaceId) {
           throw new AppServerOperationError(
@@ -311,7 +349,14 @@ export class LocalTurnService {
     do {
       this.resources.assertAcceptingAdmission();
       const page = await this.options.persistence.turnAdmissions.listByThread({ threadId, afterCursor, limit: 100 });
-      if (page.admissions.some((admission) => localTurnImageReferences(admission).length > 0)) return true;
+      for (const admission of page.admissions) {
+        if (localTurnImageReferences(admission).length > 0) return true;
+        if (this.options.queuedInputs) {
+          const inputs = await this.options.queuedInputs.listAcceptedForTurn({ sessionId: threadId, threadId,
+            userId: admission.run.userId, workspaceId: admission.run.workspaceId, turnId: admission.turn.id, runAttemptId: admission.runAttemptId });
+          if (inputs.some((item) => item.receipt?.status === "applied" && item.mediaRefs.length)) return true;
+        }
+      }
       afterCursor = page.nextCursor;
     } while (afterCursor !== null);
     return false;
