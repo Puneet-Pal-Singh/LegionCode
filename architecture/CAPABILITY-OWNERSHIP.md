@@ -873,9 +873,18 @@ image-context boundaries changed by this work.
 | Responsibility                                      | Canonical owner                                            | Producers and consumers                                                                                      |
 | --------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | Initial automatic title eligibility                 | Brain `scheduleInitialThreadTitle`                         | `HandleChatRequest`, after the first user message and its run are persisted                                  |
-| Title inference                                     | Brain `ThreadTitleGenerationCoordinator`                   | Frozen first-run provider/model, existing provider adapters; bounded background job                          |
+| Title inference                                     | Shared AppServer `ThreadTitleGenerationCoordinator`         | Brain injects its frozen first-run provider/model adapters, persistence and Worker-owned background lifetime |
 | Title, version, and pending/ready/failed settlement | Brain `ThreadTitleService` through `ThreadTitleRepository` | Atomic session update and `thread.title.updated` event; user rename supersedes automatic results             |
 | Reload and live title display                       | Session and thread projections                             | Web renders persisted metadata and canonical events; it does not infer pending state from the preview source |
+
+The AppServer `thread-titles` package owns the existing prompt, bounded input,
+output validation, attempt/correction policy and generation coordinator. Brain's
+old module paths forward to this owner; its thin coordinator supplies the existing
+selected provider adapter, platform OpenRouter fallback, session/event persistence
+and Worker lifetime. Generic scope ports permit local Thread identities without
+inventing hosted Session IDs. This extraction activates no local provider calls;
+local durable claim, grant revalidation and positive background drain must be
+wired before a Desktop generated-title consumer is enabled.
 
 Migration `0031_session_title_status` adds durable settlement to session reads.
 Existing rows become ready. New previews become pending only when a background

@@ -4,7 +4,7 @@ import { OPENROUTER_BASE_URL } from "@legioncode/execution-engine/runtime/provid
 import { generateText } from "../ai/TextGenerationService";
 import type { ThreadTitleGenerator } from "./ThreadTitleGenerationCoordinator";
 
-const OPENROUTER_FREE_MODEL_ID = "openrouter/free";
+import { OPENROUTER_FREE_MODEL_ID } from "@legioncode/app-server/thread-titles";
 
 /**
  * Creates the platform-owned, OpenRouter-only fallback used for title metadata.
