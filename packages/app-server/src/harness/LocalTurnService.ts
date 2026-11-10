@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import {
   ChatRequestBodySchema, HarnessSelectionSchema, RunSchema, TurnSchema, ThreadItemSchema, RunIdSchema, ItemIdSchema,
-  createTurnId, createRunAttemptId,
+  createTurnId, createRunAttemptId, normalizeUserInputResponse, SubmitUserInputResponseRequestSchema,
+  type SubmitUserInputResponseRequest,
   type ChatRequestBody, type HostedChatSubmissionResult, type HarnessNextSelection,
   type HarnessSelection, type Thread, type TurnId, type Run, type LeaseId,
   type SubmitLifecycleApprovalRequest, type LifecycleEvent, type InterruptTurnResponse,
@@ -264,6 +265,80 @@ export class LocalTurnService {
     }
     throw new AppServerOperationError(503, "server_unavailable", "Canonical approval decision could not be read");
   }
+  /** Private local dispatcher port. Canonical replay is a fact receipt, never
+   * proof that an ambiguous native dispatch succeeded or permission to retry it.
+   */
+  async submitUserInputResponse(params: SubmitUserInputResponseRequest): Promise<LifecycleEvent> {
+    const command = SubmitUserInputResponseRequestSchema.parse(params);
+    if (await this.savedTurnBackend(command.turnId) !== "delegated") {
+      throw new AppServerOperationError(409, "invalid_request", "Question does not belong to a delegated local turn");
+    }
+    const admission = await this.getTurn(command.turnId);
+    const actor = admission.run.userId;
+    if (command.respondedBy !== null && command.respondedBy !== actor) {
+      throw new AppServerOperationError(403, "unauthorized", "Question responder does not own the local turn");
+    }
+    const facts = await this.readUserInputFacts(admission, command.requestId);
+    if (!facts.requested) throw new AppServerOperationError(409, "invalid_request", "Canonical question was not found");
+    let response: ReturnType<typeof normalizeUserInputResponse>;
+    try { response = normalizeUserInputResponse(facts.requested.payload, command.response); }
+    catch { throw new AppServerOperationError(400, "invalid_request", "Question response does not match its descriptor"); }
+    const descriptor = facts.requested.payload;
+    const receipt = (event: NonNullable<typeof facts.responded>): LifecycleEvent => {
+      let prior: ReturnType<typeof normalizeUserInputResponse>;
+      try { prior = normalizeUserInputResponse(descriptor, event.payload.response); }
+      catch { throw new AppServerOperationError(409, "invalid_request", "Canonical question response is inconsistent"); }
+      if (event.payload.respondedBy !== actor || JSON.stringify(prior) !== JSON.stringify(response)) {
+        throw new AppServerOperationError(409, "invalid_request", "Question was already answered differently");
+      }
+      return event;
+    };
+    if (facts.responded) return receipt(facts.responded);
+    const runtime = this.active.get(command.turnId)?.runtime;
+    if (facts.resolved || facts.settled || this.stopping || !runtime) {
+      throw new AppServerOperationError(409, "server_unavailable", "Question has no active local runtime owner");
+    }
+    // Exactly one dispatch. Kernel owns normalization, durable reply claim,
+    // native origin and Stop fences; an ambiguous dispatch is never retried.
+    await runtime.respondUserInput({ turnId: command.turnId, requestId: command.requestId, response, respondedBy: actor });
+    const committed = await this.readUserInputFacts(admission, command.requestId);
+    if (!committed.responded) throw new AppServerOperationError(503, "server_unavailable", "Canonical question response could not be read");
+    return receipt(committed.responded);
+  }
+
+  private async readUserInputFacts(admission: TurnAdmission, requestId: string) {
+    type QuestionEvent = Extract<LifecycleEvent, { type: "user_input.requested" | "user_input.responded" | "request.resolved" }>;
+    let requested: (QuestionEvent & { type: "user_input.requested" }) | null = null;
+    let responded: (QuestionEvent & { type: "user_input.responded" }) | null = null;
+    let resolved = false, settled = false, sequence = 0;
+    let afterSequence: number | null = null;
+    const unavailable = () => new AppServerOperationError(409, "invalid_request", "Canonical question replay is inconsistent or unavailable");
+    for (let page = 0; page < 100; page += 1) {
+      const replay = await this.options.persistence.lifecycleEvents.replay({ turnId: admission.turn.id, afterSequence, limit: 1000 });
+      for (const event of replay.events) {
+        if (event.turnId !== admission.turn.id || event.threadId !== admission.run.threadId ||
+            event.runAttemptId !== admission.runAttemptId || event.producer.id !== admission.run.workerId ||
+            event.sequence !== ++sequence) throw unavailable();
+        if (event.type === "user_input.requested" && event.requestId === requestId) {
+          if (requested || responded || resolved || settled) throw unavailable();
+          requested = { ...event, type: "user_input.requested" };
+        } else if (event.type === "user_input.responded" && event.requestId === requestId) {
+          if (!requested || responded || resolved || settled || event.itemId !== requested.itemId) throw unavailable();
+          responded = { ...event, type: "user_input.responded" };
+        } else if (event.type === "request.resolved" && event.requestId === requestId) {
+          if (!requested || responded || resolved || event.itemId !== requested.itemId) throw unavailable();
+          resolved = true;
+        } else if (["turn.completed", "turn.failed", "turn.interrupted"].includes(event.type) ||
+            (requested && "itemId" in event && event.itemId === requested.itemId &&
+             ["item.completed", "item.failed", "item.interrupted", "item.declined"].includes(event.type))) settled = true;
+      }
+      if (replay.nextSequence === null) return { requested, responded, resolved, settled };
+      if (!replay.events.length || replay.nextSequence <= (afterSequence ?? 0)) throw unavailable();
+      afterSequence = replay.nextSequence;
+    }
+    throw unavailable();
+  }
+
   get hasActiveExecutions(): boolean { return this.active.size > 0; }
   hasExecutionOwner(turnId: TurnId): boolean { return this.active.has(turnId); }
   async shutdown(): Promise<LocalHarnessShutdownResult> {
