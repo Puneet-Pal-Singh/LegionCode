@@ -17,7 +17,7 @@ export function createAppServerLifecycleClient(
   const replay: PlatformClient["replayLifecycleEvents"] = async (request, options) => {
     assertNotAborted(options);
     try {
-      const result = await awaitReplay(client.replayLifecycleEvents(request), options?.signal);
+      const result = await awaitReplay(client.replayLifecycleEvents(request, { signal: options?.signal }), options?.signal);
       assertNotAborted(options);
       return result;
     } catch (error) {
@@ -36,23 +36,22 @@ export function createAppServerLifecycleClient(
   };
 }
 
-/** IPC may not cancel an already-dispatched read. Bound it and suppress late results. */
+/** IPC may not cancel an already-dispatched read. Reject promptly on abort and
+ * suppress late results; actual HTTP requests retain their per-request deadlines.
+ * A complete replay may include many bounded chunks, so it has no whole-read timer.
+ */
 function awaitReplay<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
   return new Promise((resolve, reject) => {
     let settled = false;
     const finish = (action: () => void) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
       signal?.removeEventListener("abort", abort);
       action();
     };
     const abort = () => finish(() => reject(
       new PlatformClientOperationError("ABORTED", "Lifecycle replay was aborted", false),
     ));
-    const timer = setTimeout(() => finish(() => reject(
-      new PlatformClientOperationError("NETWORK_ERROR", "Lifecycle replay timed out", true, undefined, 0),
-    )), 5_000);
     signal?.addEventListener("abort", abort, { once: true });
     if (signal?.aborted) abort();
     operation.then(
