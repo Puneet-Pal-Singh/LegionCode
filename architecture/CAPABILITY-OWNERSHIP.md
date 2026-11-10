@@ -62,6 +62,12 @@ all existing current-grant checks remain in place. The Desktop consumer must
 regrant an inactive known project and match the returned logical Workspace ID
 before opening its Thread or creating a task. Explicit legacy association is a
 separate recovery contract and is not authorized by this navigation read.
+`DesktopSidebar` renders those projects through the existing shared sidebar;
+current-grant Thread reads remain separate. A volatile Desktop picker intent
+retains the expected project and Open/New-chat action. Cancellation or an
+identity mismatch preserves the unbound draft and blocks automatic task creation;
+only a matching canonical grant resumes the action. Unlinked historical groups
+remain visible with the existing unknown-workspace/recovery presentation.
 
 `engine/KernelAgenticProvider` is the shared provider stepping/transcript/recovery
 owner used by both `RuntimeKernelNativeRunner` and `createLocalNativeProviderPorts`.

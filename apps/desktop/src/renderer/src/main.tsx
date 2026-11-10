@@ -27,6 +27,7 @@ import { DesktopRightPanel } from "./DesktopRightPanel";
 import { DesktopWorkspaceFilesMount } from "./DesktopWorkspaceFilesMount";
 import { DesktopConversation } from "./DesktopConversation";
 import { DesktopComposer } from "./DesktopComposer";
+import { useDesktopProjectNavigation, type DesktopProjectIntent } from "./useDesktopProjectNavigation";
 import { useDesktopComposerDraft } from "./useDesktopComposerDraft";
 import { DesktopReview } from "./DesktopReview";
 import { DesktopSavedCommitDialog } from "./DesktopSavedCommitDialog";
@@ -128,6 +129,17 @@ function DesktopApp(): React.JSX.Element {
     onInitializeError: () => setThreadLoadState("error"),
   });
 
+  const projects = useDesktopProjectNavigation({
+    client: appServerClient,
+    enabled: sdkReady,
+    revision: workspace?.grantedAt ?? null,
+  });
+  const sidebarThreads = useMemo(() => {
+    const metadata = new Map((projects.navigation?.threads ?? []).map((thread) => [thread.id, thread]));
+    for (const thread of threads) metadata.set(thread.id, thread);
+    return [...metadata.values()];
+  }, [projects.navigation, threads]);
+
   const reviewScope = useMemo(
     () =>
       appServerClient &&
@@ -192,7 +204,11 @@ function DesktopApp(): React.JSX.Element {
       threadLoadState !== "ready" ||
       selectedThread ||
       threadError ||
-      pendingThreadSelections > 0
+      pendingThreadSelections > 0 ||
+      projects.intent ||
+      selection ||
+      workspaceBusy ||
+      workspacePickerActive.current
     )
       return;
     const latest = threads.find((thread) => thread.status !== "archived");
@@ -216,6 +232,9 @@ function DesktopApp(): React.JSX.Element {
     drafts.hasUnboundDraft,
     newDraftRequested,
     pendingThreadSelections,
+    projects.intent,
+    selection,
+    workspaceBusy,
   ]);
 
   async function refreshThreads(preferredSelectionId?: string): Promise<void> {
@@ -232,6 +251,7 @@ function DesktopApp(): React.JSX.Element {
       )
         return;
       setThreads(nextThreads);
+      void projects.refresh();
       setThreadLoadState("ready");
       if (selection === selectionRequest.current) {
         setSelectedThread((current) => {
@@ -251,13 +271,13 @@ function DesktopApp(): React.JSX.Element {
     }
   }
 
-  async function createThread(title?: string, fromUnboundDraft = false): Promise<void> {
-    if (!appServerClient || !sdkReady || workspace?.readiness !== "ready" || creatingThread.current) return;
+  async function createThread(title?: string, fromUnboundDraft = false, granted = workspace): Promise<void> {
+    if (!appServerClient || !sdkReady || granted?.readiness !== "ready" || creatingThread.current) return;
     creatingThread.current = true;
     setPendingThreadSelections((count) => count + 1);
     const scope = threadScope.current;
     const request = ++selectionRequest.current;
-    const workspaceId = workspace.workspaceId;
+    const workspaceId = granted.workspaceId;
     const ticket = fromUnboundDraft ? drafts.captureHandoff() : null;
     setThreadError(null);
     try {
@@ -286,8 +306,35 @@ function DesktopApp(): React.JSX.Element {
     }
   }
 
-  function startNewTask(): void {
+  async function requestProjectAccess(intent: DesktopProjectIntent): Promise<void> {
+    if (!sdkReady || workspaceCommand.current || workspacePickerActive.current) return;
+    projects.capture(intent);
+    selectionRequest.current += 1;
+    drafts.cancelHandoff();
+    setSelectedThread(null);
+    setThreadError(null);
+    emptyDraftRequest.current = null;
+    const project = projects.navigation?.projects.find((item) => item.workspaceId === intent.workspaceId);
+    if (project?.association !== "known") {
+      setThreadError("This saved project's folder association is unavailable. Explicit project recovery is required before its tasks can be opened.");
+      return;
+    }
+    await chooseWorkspace(true);
+  }
+
+  function startNewTask(workspaceSelectionId?: string): void {
     closeCompactSidebar();
+    if (workspaceCommand.current || workspacePickerActive.current || creatingThread.current) return;
+    if (workspaceSelectionId && (workspace?.workspaceId !== workspaceSelectionId || workspace.readiness !== "ready")) {
+      const project = projects.navigation?.projects.find((item) => item.workspaceId === workspaceSelectionId);
+      if (!project) {
+        setThreadError("The selected project could not be loaded.");
+        return;
+      }
+      void requestProjectAccess({ workspaceId: project.workspaceId, action: { kind: "create" } });
+      return;
+    }
+    projects.clear();
     setThreadError(null);
     emptyDraftRequest.current = null;
     if (workspace?.readiness === "ready" && sdkReady) {
@@ -300,21 +347,31 @@ function DesktopApp(): React.JSX.Element {
     setNewDraftRequested(true);
   }
 
-  async function openThread(threadId: string): Promise<void> {
-    const knownThread = threads.find((thread) => thread.id === threadId);
+  async function openThread(threadId: string, granted = workspace): Promise<void> {
+    if (workspaceCommand.current || workspacePickerActive.current) return;
+    const knownThread = sidebarThreads.find((thread) => thread.id === threadId);
     if (!knownThread) return;
+    if (granted?.readiness !== "ready" || knownThread.workspaceId !== granted.workspaceId) {
+      await requestProjectAccess({ workspaceId: knownThread.workspaceId, action: { kind: "open", threadId: knownThread.id } });
+      return;
+    }
+    const scope = threadScope.current;
     drafts.cancelHandoff();
     setNewDraftRequested(false);
     setPendingThreadSelections((count) => count + 1);
     const request = ++selectionRequest.current;
     setThreadError(null);
     try {
-      if (!appServerClient) return;
+      if (!appServerClient || !sdkReady) return;
       const opened = await appServerClient.getThread(knownThread.id);
-      if (request !== selectionRequest.current) return;
+      if (scope !== threadScope.current || request !== selectionRequest.current) return;
+      if (opened.id !== knownThread.id || opened.workspaceId !== granted.workspaceId) {
+        setThreadError("The task does not belong to the granted project.");
+        return;
+      }
       setSelectedThread(opened);
     } catch {
-      if (request === selectionRequest.current) {
+      if (scope === threadScope.current && request === selectionRequest.current) {
         setThreadError("The local thread could not be opened.");
       }
     } finally {
@@ -421,9 +478,10 @@ function DesktopApp(): React.JSX.Element {
     }
   }
 
-  const chooseWorkspace = useCallback(async (): Promise<void> => {
+  const chooseWorkspace = useCallback(async (preserveProjectIntent = false): Promise<void> => {
     if (workspacePickerActive.current || workspaceCommand.current) return;
     workspacePickerActive.current = true;
+    if (!preserveProjectIntent) projects.clear();
     setWorkspaceError(null);
     try {
       const picked = await window.desktop.pickWorkspace();
@@ -434,7 +492,7 @@ function DesktopApp(): React.JSX.Element {
     } finally {
       workspacePickerActive.current = false;
     }
-  }, []);
+  }, [projects.clear]);
 
   useEffect(() => window.desktop.onOpenWorkspaceRequested(() => {
     void chooseWorkspace();
@@ -445,6 +503,11 @@ function DesktopApp(): React.JSX.Element {
     workspaceCommand.current = true;
     setWorkspaceBusy(true);
     setWorkspaceError(null);
+    const intent = projects.currentIntent.current;
+    threadScope.current += 1;
+    selectionRequest.current += 1;
+    threadListRequest.current += 1;
+    setSelectedThread(null);
     let granted: LocalWorkspaceGrant;
     try {
       if (!appServerClient) return;
@@ -452,6 +515,7 @@ function DesktopApp(): React.JSX.Element {
         selectionToken: selection.selectionToken,
       });
     } catch (error: unknown) {
+      setThreadError("Workspace access could not be confirmed. Choose a folder again before opening or creating a task.");
       setWorkspaceError(
         error instanceof AppServerClientError && error.code === "server_error" &&
         error.method === "workspace/grant" && error.serverError
@@ -472,6 +536,16 @@ function DesktopApp(): React.JSX.Element {
     setThreads([]);
     setWorkspace(granted);
     setSelection(null);
+    void projects.refresh();
+    if (intent && projects.currentIntent.current === intent) {
+      if (granted.workspaceId !== intent.workspaceId || granted.readiness !== "ready") {
+        setThreadError("The chosen folder does not restore the selected project. Choose that project's folder before opening or creating its tasks.");
+        return;
+      }
+      if (intent.action.kind === "open") await openThread(intent.action.threadId, granted);
+      else await createThread(undefined, true, granted);
+      projects.clear(intent);
+    }
     if (granted.readiness === "ready") await refreshThreads();
   }
 
@@ -487,6 +561,7 @@ function DesktopApp(): React.JSX.Element {
       selectionRequest.current += 1;
       threadListRequest.current += 1;
       setWorkspace(null);
+      void projects.refresh();
       setThreads([]);
       setSelectedThread(null);
       setThreadLoadState("ready");
@@ -538,10 +613,11 @@ function DesktopApp(): React.JSX.Element {
             <DesktopSidebar
               width={320}
               workspace={workspace}
-              threads={threads}
+              projects={projects.navigation?.projects ?? []}
+              threads={sidebarThreads}
               selectedThreadId={selectedThread?.id ?? null}
-              loadState={workspaceBootstrapState.status === "error" ? "error" : threadLoadState}
-              threadError={threadError ?? (!selection ? workspaceError ?? (workspaceBootstrapState.status === "error" ? workspaceBootstrapState.message : null) : null)}
+              loadState={workspaceBootstrapState.status === "error" ? "error" : projects.status}
+              threadError={threadError ?? (projects.status === "error" ? "The local project list could not be loaded." : null) ?? (!selection ? workspaceError ?? (workspaceBootstrapState.status === "error" ? workspaceBootstrapState.message : null) : null)}
               canManageWorkspace={(id) => sdkReady && !workspaceBusy && workspace?.workspaceId === id}
               onRemoveWorkspace={async (id) => { if (workspace?.workspaceId === id) await revokeWorkspace(); }}
               onOpenSettings={() => {
@@ -551,6 +627,8 @@ function DesktopApp(): React.JSX.Element {
               visible={sidebarOpen}
               onSelect={(threadId) => {
                 closeCompactSidebar();
+                if (workspaceCommand.current || workspacePickerActive.current) return;
+                projects.clear();
                 void openThread(threadId);
               }}
               onCreate={startNewTask}
@@ -716,15 +794,15 @@ function DesktopApp(): React.JSX.Element {
               threadLoadState={threadLoadState}
               threadError={threadError}
               onRetryThreads={() => { if (sdkReady) void refreshThreads(); }}
-              onChoose={() => void chooseWorkspace()}
+              onChoose={() => void chooseWorkspace(Boolean(projects.currentIntent.current))}
               onRetry={retryWorkspaceRead}
               canChoose={sdkReady && !workspaceBusy && !selection}
               canRetry={environment.status === "ready" && !workspaceBusy && !selection}
             >
               <DesktopComposer
                 client={appServerClient}
-                workspaceId={workspace?.readiness === "ready" ? workspace.workspaceId : null}
-                grantedAt={workspace?.readiness === "ready" ? workspace.grantedAt : null}
+                workspaceId={!projects.intent && workspace?.readiness === "ready" ? workspace.workspaceId : null}
+                grantedAt={!projects.intent && workspace?.readiness === "ready" ? workspace.grantedAt : null}
                 threadId={null}
                 providerReady={sdkReady}
                 unboundDraft={drafts.unbound}
@@ -760,9 +838,12 @@ function DesktopApp(): React.JSX.Element {
               ready={sdkReady}
               busy={workspaceBusy}
               error={workspaceError}
-              onChoose={() => void chooseWorkspace()}
+              onChoose={() => void chooseWorkspace(Boolean(projects.currentIntent.current))}
               onGrant={() => void grantWorkspace()}
-              onCancelSelection={() => setSelection(null)}
+              onCancelSelection={() => {
+                setSelection(null);
+                if (projects.currentIntent.current) setThreadError("Project access was not changed. Choose the selected project's folder to continue, or select another task.");
+              }}
               onRevoke={() => void revokeWorkspace()}
               onSettings={() => setSettingsTarget("general")}
             />
