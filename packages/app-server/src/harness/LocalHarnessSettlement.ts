@@ -19,6 +19,14 @@ export async function settleLocalHarnessAttachment(input: {
   const terminalEventId = await leases.assertArtifactsCommitted(admission);
   const scope = { userId: admission.run.userId, turnId: admission.turn.id, runAttemptId: admission.runAttemptId };
   const binding = await persistence.harnessBindings.read(scope);
+  const proof = await persistence.readAttachmentRetirement(scope);
+  if (proof.status === "verified_retirement") {
+    // Idempotent retry/restart after a successful (possibly unknown-return-value)
+    // retirement. The store validates every generation, ACK, terminal and artifact.
+    // Do not require a now-detached in-memory CORE session or call release again.
+    await leases.assertSettled(admission);
+    return;
+  }
   if (binding && !binding.attachment) {
     throw new Error("Local frozen opening or prior retirement requires durable recovery evidence");
   }

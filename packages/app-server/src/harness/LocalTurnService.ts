@@ -109,7 +109,12 @@ export class LocalTurnService {
   }) {}
 
   initialize(): Promise<LocalHarnessInitializationResult> {
-    return this.startup ??= reconcileLocalHarnessRestart(this.options.persistence);
+    return this.startup ??= reconcileLocalHarnessRestart(this.options.persistence, this.options.leases).then((result) => {
+      // A retained claim may acquire a verified durable retirement later. Keep
+      // coalescing concurrent reads, but allow the next call to re-read that proof.
+      if (result.status === "recovery_required") this.startup = undefined;
+      return result;
+    });
   }
 
   startTurn(params: LocalTurnStartParams, captured?: NonNullable<ChatRequestBody["harnessSelection"]>): Promise<TurnAdmission> {
@@ -377,15 +382,26 @@ export class LocalTurnService {
     await Promise.allSettled([...this.admissions]);
     for (const execution of this.active.values()) execution.controller.abort();
     await Promise.allSettled([...this.active.values()].map((execution) => execution.task));
+    for (const execution of this.active.values()) {
+      try {
+        // A retirement transaction may have committed despite a lost receipt.
+        // This retries settlement proof/cleanup only, never prompt/native dispatch.
+        await this.options.settleExecution(execution.admission);
+        this.settled.add(execution.admission.turn.id);
+        this.active.delete(execution.admission.turn.id);
+      } catch { /* Unknown ownership remains live and durable below. */ }
+    }
     const retained = new Set((await this.initialize()).retainedTurnIds);
     const events = await this.options.persistence.events.listAll();
     for (const event of events) {
-      if (event.type !== "turn.started" || this.settled.has(event.payload.turn.id)) continue;
+      if (event.type !== "turn.started") continue;
+      if (this.settled.has(event.payload.turn.id)) { retained.delete(event.payload.turn.id); continue; }
       const admission = await this.options.persistence.turnAdmissions.getByTurn(event.payload.turn.id);
       if (!admission) { retained.add(event.payload.turn.id); continue; }
       try {
         if (localAdmissionBackend(admission, this.options.persistence.environmentId) === "native") continue;
         await this.options.leases.assertSettled(admission);
+        retained.delete(admission.turn.id);
       } catch { retained.add(admission.turn.id); }
     }
     for (const turnId of this.active.keys()) retained.add(turnId);

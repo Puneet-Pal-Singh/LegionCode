@@ -1,6 +1,7 @@
 import type { LocalPersistence } from "@repo/event-store/local";
 import { ChatRequestBodySchema, type TurnId } from "@repo/platform-protocol";
 import type { TurnAdmission } from "@repo/platform-protocol/conversation";
+import type { LocalWorkspaceLease } from "./LocalWorkspaceLease.js";
 import { RuntimeLifecycleCoordinator } from "@repo/runtime-kernel";
 
 export type LocalHarnessBackend = "native" | "delegated";
@@ -27,7 +28,7 @@ export function localAdmissionBackend(admission: TurnAdmission, environmentId: s
 /** Reopen the existing admission/binding authorities without ever opening a
  * driver or resending a prompt. Unknown physical work retains its durable lease.
  */
-export async function reconcileLocalHarnessRestart(persistence: LocalPersistence): Promise<LocalHarnessInitializationResult> {
+export async function reconcileLocalHarnessRestart(persistence: LocalPersistence, leases: Pick<LocalWorkspaceLease, "assertSettled">): Promise<LocalHarnessInitializationResult> {
   const retained = new Set<TurnId>();
   const events = await persistence.events.listAll();
   for (const event of events) {
@@ -40,6 +41,12 @@ export async function reconcileLocalHarnessRestart(persistence: LocalPersistence
       userId: admission.run.userId, turnId: admission.turn.id, runAttemptId: admission.runAttemptId,
     });
     if (binding) {
+      const proof = await persistence.readAttachmentRetirement({ userId: admission.run.userId,
+        turnId: admission.turn.id, runAttemptId: admission.runAttemptId });
+      if (proof.status === "verified_retirement") {
+        await leases.assertSettled(admission);
+        continue; // Actual durable closure: no driver open or recovery mark.
+      }
       // A claimed process may have survived the AppServer. The same writer
       // fences the exact claim; terminal replay is handled by that authority.
       // Absence of an attachment does not prove that open never happened.
@@ -53,9 +60,10 @@ export async function reconcileLocalHarnessRestart(persistence: LocalPersistence
       turnId: admission.turn.id, afterSequence: null, limit: 1,
     });
     if (history.events.length > 0) {
-      // Without a physical ownership reader, existing delegated work cannot be
-      // positively reconciled here merely from terminal replay.
-      retained.add(admission.turn.id);
+      // No frozen claim exists. The same lease authority still validates final
+      // canonical/artifact evidence; terminal replay alone is not settlement.
+      try { await leases.assertSettled(admission); }
+      catch { retained.add(admission.turn.id); }
       continue;
     }
     // A missing frozen claim plus zero lifecycle history proves this local
@@ -70,6 +78,8 @@ export async function reconcileLocalHarnessRestart(persistence: LocalPersistence
     });
     await lifecycle.start();
     await lifecycle.interrupt("Local App Server restarted before execution was claimed");
+    try { await leases.assertSettled(admission); }
+    catch { retained.add(admission.turn.id); }
   }
   return { status: retained.size ? "recovery_required" : "ready", retainedTurnIds: [...retained] };
 }

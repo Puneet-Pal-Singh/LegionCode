@@ -11,7 +11,6 @@ import type { LocalWorkspaceService } from "../local-workspace.js";
  */
 export class LocalWorkspaceLease {
   private queue: Promise<void> = Promise.resolve();
-  private readonly released = new Set<TurnId>();
   constructor(private readonly persistence: LocalPersistence, private readonly workspace: LocalWorkspaceService,
     private readonly hasExecutionOwner: (turnId: TurnId) => boolean) {}
   leaseId(admission: TurnAdmission): LeaseId {
@@ -54,27 +53,27 @@ export class LocalWorkspaceLease {
     }
   }
   async assertSettled(admission: TurnAdmission): Promise<void> {
-    await this.assertArtifactsCommitted(admission);
-    const binding = await this.persistence.harnessBindings.read({ userId: admission.run.userId,
-      turnId: admission.turn.id, runAttemptId: admission.runAttemptId });
-    if (binding && !this.released.has(admission.turn.id)) {
-      throw new Error("Local checkout lease retains its frozen claim until owner-driven physical release is verified");
+    const terminalEventId = await this.assertArtifactsCommitted(admission);
+    const scope = { userId: admission.run.userId, turnId: admission.turn.id, runAttemptId: admission.runAttemptId };
+    const binding = await this.persistence.harnessBindings.read(scope);
+    if (!binding) return; // No frozen claim: only the guarded pre-host path can settle.
+    const proof = await this.persistence.readAttachmentRetirement(scope);
+    if (proof.status !== "verified_retirement" ||
+        proof.selection.selectionJson !== binding.selection.selectionJson ||
+        proof.selection.runId !== admission.run.id || proof.selection.threadId !== admission.run.threadId ||
+        proof.selection.workspaceId !== admission.run.workspaceId || proof.selection.userId !== admission.run.userId ||
+        proof.selection.turnId !== admission.turn.id || proof.selection.runAttemptId !== admission.runAttemptId ||
+        proof.retirements.length === 0 || proof.retirements.some((receipt) => receipt.terminalEventId !== terminalEventId)) {
+      throw new Error("Local checkout retains its frozen claim until durable physical retirement is verified");
     }
-    if (binding?.attachment) throw new Error("Local checkout lease retains its external stream");
   }
 
   /** Trusted composition supplies the existing CORE release and SQLite retirement.
-   * The marker records their successful completion in this process; it is never
-   * reconstructed from a missing attachment or used to select a backend.
+   * Success is re-read from validated durable receipts, including unknown commits.
    */
   async settleAfterRelease(admission: TurnAdmission, release: () => Promise<void>): Promise<void> {
     await this.assertArtifactsCommitted(admission);
     await release();
-    await this.assertArtifactsCommitted(admission);
-    const binding = await this.persistence.harnessBindings.read({ userId: admission.run.userId,
-      turnId: admission.turn.id, runAttemptId: admission.runAttemptId });
-    if (binding?.attachment) throw new Error("Local release did not retire its exact attachment");
-    this.released.add(admission.turn.id);
     await this.assertSettled(admission);
   }
 
