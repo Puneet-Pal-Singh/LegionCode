@@ -1,0 +1,50 @@
+--- a/local/handoffs/r3-review-20261110/cf-preview/wrapper.cjs
++++ b/local/handoffs/r3-review-20261110/cf-preview/wrapper.cjs
+@@ -48,6 +48,38 @@
+         const inVscodeJsDebugTerminal = !!process.env.VSCODE_INSPECTOR_OPTIONS;
+         return this.latestConfig?.dev.inspector !== false && !inVscodeJsDebugTerminal;
+       }`);
++  // Diagnostic-only downstream boundaries; preserve all original control flow.
++  source = one(source, "      async #updatePreviewToken(config, bundle, auth, routes, bundleId) {", `      async #updatePreviewToken(config, bundle, auth, routes, bundleId) {
++      require(${JSON.stringify(path.join(__dirname, "stages.cjs"))}).record("remote_bindings_enter");`);
++  source = one(source, "          const init4 = await createRemoteWorkerInit({", `          require(${JSON.stringify(path.join(__dirname, "stages.cjs"))}).record("preview_init_enter");
++          const init4 = await createRemoteWorkerInit({`);
++  source = one(source, "          const workerPreviewToken = await createWorkerPreview(", `          require(${JSON.stringify(path.join(__dirname, "stages.cjs"))}).record("preview_upload_enter");
++          const workerPreviewToken = await createWorkerPreview(`);
++  source = one(source, "            props.minimal_mode\n          );", `            props.minimal_mode
++          );
++            require(${JSON.stringify(path.join(__dirname, "stages.cjs"))}).record("preview_upload_returned");`);
++  source = one(source, "          const shouldRestartSession = handlePreviewSessionUploadError(", `          require(${JSON.stringify(path.join(__dirname, "stages.cjs"))}).record("preview_token_rejected", err);
++          const shouldRestartSession = handlePreviewSessionUploadError(`);
++  source = one(source, "        const accessToken = await getAccessToken(token.host);", `        require(${JSON.stringify(path.join(__dirname, "stages.cjs"))}).record("proxy_access_enter");
++        const accessToken = await getAccessToken(token.host);`);
++  source = one(source, "        this.emitReloadCompleteEvent({\n          type: \"reloadComplete\",\n          bundle,\n          config,\n          proxyData: {\n            userWorkerUrl: {\n              protocol: \"https:\",\n              hostname: token.host,", `        require(${JSON.stringify(path.join(__dirname, "stages.cjs"))}).record("proxy_reload_enter");
++        this.emitReloadCompleteEvent({
++          type: "reloadComplete",
++          bundle,
++          config,
++          proxyData: {
++            userWorkerUrl: {
++              protocol: "https:",
++              hostname: token.host,`);
++  source = one(source, "          this.emitErrorEvent({\n            type: \"error\",\n            reason: \"Error reloading remote server\",", `          require(${JSON.stringify(path.join(__dirname, "stages.cjs"))}).record("remote_reload_rejected", error2);
++          this.emitErrorEvent({
++            type: "error",
++            reason: "Error reloading remote server",`);
++  source = one(source, "            this.emitErrorEvent(\n              \"Failed to start ProxyWorker or InspectorProxyWorker\",", `            require(${JSON.stringify(path.join(__dirname, "stages.cjs"))}).record("proxy_bootstrap_rejected", error2);
++            this.emitErrorEvent(
++              "Failed to start ProxyWorker or InspectorProxyWorker",`);
++  source = one(source, "            this.emitReadyEvent(proxyWorker, url4, inspectorUrl);", `            require(${JSON.stringify(path.join(__dirname, "stages.cjs"))}).record("proxy_bootstrap_ready");
++            this.emitReadyEvent(proxyWorker, url4, inspectorUrl);`);
+   source = one(source, 'main(hideBin(process9__default.default.argv)).catch((e9) => {', 'main(hideBin(process9__default.default.argv)).catch((e9) => {\n    require(' + JSON.stringify(path.join(__dirname, 'stages.cjs')) + ').record(\"cli_main_rejected\", e9);');
+   if (/token\.prewarmUrl|const \{ value, host, inspectorUrl, prewarmUrl \} = session/.test(source)) throw new Error('Legacy preview dependency retained');
+   return { source, originalSha256: ORIGINAL_SHA256, transformedSha256: digest(source), originalFilename: fs.realpathSync(CLI),
+--- a/local/handoffs/r3-review-20261110/cf-preview/stages.cjs
++++ b/local/handoffs/r3-review-20261110/cf-preview/stages.cjs
+@@ -1,5 +1,5 @@
+ 'use strict';
+-const STAGES=new Set(['wrapper_entered','wrapper_prepared','guard_passed','compile_entered','compile_returned','compile_failed','cli_main_rejected','createPreviewSession_entered','initializer_request_enter','initializer_request_ok','initializer_request_fail','initializer_validated','exchange_enter','exchange_request_ok','exchange_request_fail','exchange_unavailable','exchange_token','subdomain_enter','subdomain_ok','subdomain_fail','protocol_returned']);
++const STAGES=new Set(['wrapper_entered','wrapper_prepared','guard_passed','compile_entered','compile_returned','compile_failed','cli_main_rejected','createPreviewSession_entered','initializer_request_enter','initializer_request_ok','initializer_request_fail','initializer_validated','exchange_enter','exchange_request_ok','exchange_request_fail','exchange_unavailable','exchange_token','subdomain_enter','subdomain_ok','subdomain_fail','protocol_returned','remote_bindings_enter','preview_init_enter','preview_upload_enter','preview_upload_returned','preview_token_rejected','proxy_access_enter','proxy_reload_enter','remote_reload_rejected','proxy_bootstrap_rejected','proxy_bootstrap_ready']);
+ const NAMES=new Set(['Error','TypeError','ReferenceError','SyntaxError','RangeError','CompatibilityFailure','APIError','UserError','FatalError','AbortError']);
+ const CODES=new Set(['MODULE_NOT_FOUND','ERR_MODULE_NOT_FOUND','ERR_REQUIRE_ESM','ERR_INVALID_ARG_TYPE','ERR_UNKNOWN_FILE_EXTENSION','ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING','ERR_VM_MODULE_NOT_MODULE','ENOENT','EACCES','EPERM','ECONNREFUSED','ECONNRESET','ETIMEDOUT','ENOTFOUND','ABORT_ERR']);
+ function record(stage,error,sink=line=>process.stderr.write(line)) {
