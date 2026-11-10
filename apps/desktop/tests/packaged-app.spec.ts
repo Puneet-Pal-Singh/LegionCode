@@ -66,6 +66,10 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
     const launchedApplication = await electron.launch({
       executablePath,
       args: [`--user-data-dir=${join(testRoot, "user-data")}`],
+      env: {
+        ...process.env,
+        ELECTRON_RENDERER_URL: "http://127.0.0.1:1/packaged-override-must-be-ignored",
+      },
     });
     application = launchedApplication;
     const page = await launchedApplication.firstWindow();

@@ -49,6 +49,17 @@ let isQuitting = false;
 let shutdownPromise: Promise<void> | null = null;
 let environmentGeneration = 0;
 
+app.on("second-instance", () => {
+  if (!isPrimaryInstance || isQuitting || shutdownPromise) return;
+  const window = BrowserWindow.getAllWindows().find(
+    (candidate) => !candidate.isDestroyed() && !candidate.webContents.isDestroyed(),
+  );
+  if (!window) return;
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+});
+
 async function providerRequestHeaders(
   request: AppServerRequest,
 ): Promise<Record<string, string>> {
@@ -178,7 +189,7 @@ handleNativeInvoke(APP_SERVER_REQUEST_CHANNEL, async (event, value) => {
 function createWindow(): void {
   const window = new BrowserWindow(createWindowOptions(preloadPath));
   const webContents = window.webContents;
-  const developmentUrl = process.env.ELECTRON_RENDERER_URL;
+  const developmentUrl = app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL;
   let rendererUrl: string;
 
   if (developmentUrl) {
