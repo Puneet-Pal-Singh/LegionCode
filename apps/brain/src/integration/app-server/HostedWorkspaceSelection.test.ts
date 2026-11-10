@@ -96,57 +96,63 @@ describe("authenticated hosted workspace selection", () => {
       await command(await createEnv(workspaces, OTHER_USER), "workspace/list"),
     ).toMatchObject({ ok: true, result: { workspaces: [], selection: null } });
 
-    const persist = vi.spyOn(workspaces, "updateWorkspaceConfiguration");
     for (const [savedId, remoteId, operationCode] of [
       ["42", 43, "GITHUB_REPOSITORY_IDENTITY_CHANGED"],
       [null, 42, "GITHUB_REPOSITORY_IDENTITY_UNAVAILABLE"],
       ["unknown", 42, "GITHUB_REPOSITORY_IDENTITY_UNAVAILABLE"],
     ] as const) {
-      // Seed saved/legacy identity through the existing repository owner.
+      // Independent legacy fixtures never rebind a known canonical namespace.
+      const fixture = new MemoryWorkspaceRepository();
+      const fixtureEnv = await createEnv(fixture, USER);
       const now = new Date().toISOString();
-      const seeded = await workspaces.selectWorkspace({
+      const seeded = await fixture.selectWorkspace({
         userId: USER, selectedBranch: "feature/task", now,
         repository: {
           provider: "github", owner: "acme", name: "repo", fullName: "acme/repo",
           repoUrl: repository.html_url, defaultBranch: "main", providerRepoId: savedId, now,
         },
       });
+      const persist = vi.spyOn(fixture, "updateWorkspaceConfiguration");
       const params = { workspaceId: seeded.workspace.id };
-      const before = await workspaces.findWorkspaceConfiguration(USER, params.workspaceId);
+      const before = await fixture.findWorkspaceConfiguration(USER, params.workspaceId);
       expect(before).not.toBeNull();
       vi.mocked(GitHubAPIClient.prototype.getRepository).mockResolvedValue({ ...repository, id: remoteId });
       vi.mocked(GitHubAPIClient.prototype.getBranchSha).mockClear();
-      persist.mockClear();
-      expect(await command(env, "workspace/configuration/update", {
+      expect(await command(fixtureEnv, "workspace/configuration/update", {
         ...params, expectedVersion: before!.version,
         patch: { name: "Must not save", selectedBranch: "branchB" },
       })).toMatchObject({ ok: false, error: {
         code: "conflict", statusCode: 409, retryable: false, operationCode,
         message: savedId === "42"
-          ? "Workspace repository identity changed; explicitly reselect the repository before updating"
-          : "Workspace repository identity is unavailable; explicitly reselect the repository before updating",
+          ? "Workspace repository identity changed; reviewed identity recovery is required"
+          : "Workspace repository identity is unavailable; reviewed identity recovery is required",
       } });
       expect(GitHubAPIClient.prototype.getBranchSha).not.toHaveBeenCalled();
       expect(persist).not.toHaveBeenCalled();
-      expect(await workspaces.findWorkspaceConfiguration(USER, params.workspaceId)).toEqual(before);
-
-      // Ordinary same-ID selection remains supported. A reused namespace's
-      // durable identity/rebinding policy belongs to the canonical store owner.
-      vi.mocked(GitHubAPIClient.prototype.getRepository).mockResolvedValue(repository);
-      expect(await command(env, "workspace/select", {
-        repository: { owner: "acme", name: "repo" }, selectedBranch: "feature/task",
-      })).toMatchObject({ ok: true, result: { selection: { repository: { providerRepoId: String(repository.id) } } } });
-      const recovered = await workspaces.findWorkspaceConfiguration(USER, params.workspaceId);
-      expect(recovered?.repository.providerRepoId).toBe(String(repository.id));
-      expect(await command(env, "workspace/configuration/update", {
-        ...params, expectedVersion: recovered!.version,
-        patch: { selectedBranch: "branchB" },
-      })).toMatchObject({ ok: true, result: {
-        repository: { providerRepoId: String(repository.id) },
-        version: recovered!.version + 1, selectedBranch: "branchB",
-      } });
-      expect(GitHubAPIClient.prototype.getBranchSha).toHaveBeenCalledWith("acme", "repo", "branchB");
-      expect(persist).toHaveBeenCalledTimes(1);
+      expect(await fixture.findWorkspaceConfiguration(USER, params.workspaceId)).toEqual(before);
+      // Neither this owner nor another user may repair identity by selecting
+      // the reused namespace; the canonical UPSERT returns a typed conflict.
+      for (const viewer of [USER, OTHER_USER]) {
+        expect(await command(await createEnv(fixture, viewer), "workspace/select", {
+          repository: { owner: "acme", name: "repo" }, selectedBranch: "branchB",
+        })).toMatchObject({ ok: false, error: {
+          code: "conflict", statusCode: 409, retryable: false,
+          operationCode: "WORKSPACE_REPOSITORY_IDENTITY_CONFLICT",
+          message: "Workspace repository identity conflicts; reviewed identity recovery is required",
+        } });
+        expect(await fixture.findWorkspaceConfiguration(USER, params.workspaceId)).toEqual(before);
+        expect(await fixture.listWorkspaces(OTHER_USER)).toEqual([]);
+        expect(await fixture.findWorkspaceSelection(OTHER_USER)).toBeNull();
+      }
+      if (savedId === "42") {
+        vi.mocked(GitHubAPIClient.prototype.getRepository).mockResolvedValue(repository);
+        expect(await command(fixtureEnv, "workspace/select", {
+          repository: { owner: "acme", name: "repo" }, selectedBranch: "feature/task",
+        })).toMatchObject({ ok: true, result: { selection: { repository: { providerRepoId: "42" } } } });
+        expect(await command(fixtureEnv, "workspace/configuration/update", {
+          ...params, expectedVersion: before!.version, patch: { selectedBranch: "branchB" },
+        })).toMatchObject({ ok: true, result: { repository: { providerRepoId: "42" }, version: before!.version + 1, selectedBranch: "branchB" } });
+      }
     }
   });
 
@@ -385,6 +391,44 @@ describe("authenticated hosted workspace selection", () => {
         selectedBranch: "other-branch",
       },
     });
+    const captured = (await workspaces.findWorkspaceConfiguration(USER, selected.workspaceId))!;
+    const expectedRepository = { id: captured.repository.id, providerRepoId: "42" };
+    const savedRead = vi.spyOn(workspaces, "findWorkspaceConfiguration").mockResolvedValueOnce(captured);
+    const write = vi.spyOn(workspaces, "updateWorkspaceConfiguration");
+    let providerStarted!: () => void;
+    let finishProvider!: () => void;
+    const started = new Promise<void>((resolve) => { providerStarted = resolve; });
+    const providerGate = new Promise<void>((resolve) => { finishProvider = resolve; });
+    vi.mocked(GitHubAPIClient.prototype.getRepository).mockImplementationOnce(async () => {
+      providerStarted();
+      await providerGate;
+      return repository;
+    });
+    const intent = { ...params, expectedVersion: captured.version, patch: { selectedBranch: "captured-overlap" } };
+    const pending = client.updateHostedWorkspaceConfiguration(intent);
+    await started;
+    // Mutating the injected read object or request cannot redirect captured
+    // identity/configuration while remote validation is suspended.
+    captured.repository.id = other.repoId;
+    captured.repository.providerRepoId = "43";
+    captured.repository.owner = "must-not-use";
+    intent.patch.selectedBranch = "must-not-use";
+    vi.mocked(GitHubAPIClient.prototype.getRepository).mockResolvedValueOnce({ ...repository, id: 43 });
+    expect(await command(await createEnv(workspaces, OTHER_USER), "workspace/select", {
+      repository: { owner: "acme", name: "repo" }, selectedBranch: "blocked",
+    })).toMatchObject({ ok: false, error: { code: "conflict", statusCode: 409, retryable: false, operationCode: "WORKSPACE_REPOSITORY_IDENTITY_CONFLICT" } });
+    expect(await workspaces.listWorkspaces(OTHER_USER)).toEqual([]);
+    finishProvider();
+    expect(await pending).toMatchObject({ repository: { providerRepoId: "42" }, selectedBranch: "captured-overlap", version: intent.expectedVersion + 1 });
+    expect(write).toHaveBeenLastCalledWith(expect.objectContaining({ expectedRepository, patch: { selectedBranch: "captured-overlap" } }));
+    expect(GitHubAPIClient.prototype.getBranchSha).toHaveBeenLastCalledWith("acme", "repo", "captured-overlap");
+    const bound = (await workspaces.findWorkspaceConfiguration(USER, selected.workspaceId))!;
+    // An inconsistent/stale private read binding cannot pass the actual owner.
+    savedRead.mockResolvedValueOnce({ ...bound, repository: { ...bound.repository, id: other.repoId } });
+    await expect(client.updateHostedWorkspaceConfiguration({ ...params, expectedVersion: bound.version, patch: { name: "blocked binding" } })).rejects.toMatchObject({ serverCode: "conflict", serverError: { statusCode: 409, retryable: false, operationCode: "WORKSPACE_REPOSITORY_IDENTITY_CONFLICT" } });
+    expect(await workspaces.findWorkspaceConfiguration(USER, selected.workspaceId)).toEqual(bound);
+    expect(await runs.getRun(runId, USER)).toEqual(admitted);
+
   });
 
   it("never persists a selection when GitHub denies repository access", async () => {
@@ -505,6 +549,7 @@ describe("authenticated hosted workspace selection", () => {
       expectedVersion: 1,
       patch: { name: "changed" },
     };
+    expect(await command(env, "workspace/configuration/update", { ...update, expectedRepository: { id: "private", providerRepoId: "42" } })).toMatchObject({ ok: false, error: { code: "invalid_request" } });
     expect(
       await command(env, "workspace/configuration/update", update, false),
     ).toMatchObject({ ok: false, error: { code: "unauthorized" } });

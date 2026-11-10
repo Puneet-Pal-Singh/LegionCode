@@ -3,6 +3,7 @@ import { workspaceConfigurationVersionMigration } from "../migrations/0041-works
 import { workspaceBootstrapMigration } from "../migrations/0003-workspace-bootstrap.js";
 import { describe, expect, it } from "vitest";
 import type { SqlClient, SqlQueryResult, SqlRow, SqlValue } from "../sql.js";
+import { RepositoryIdentityConflictError } from "./types.js";
 import { PostgresWorkspaceRepository } from "./PostgresWorkspaceRepository.js";
 
 class WorkspaceSqlClient implements SqlClient {
@@ -138,6 +139,7 @@ describe("PostgresWorkspaceRepository", () => {
           fullName: "acme/legioncode",
           repoUrl: "https://github.com/acme/legioncode",
           defaultBranch: "main",
+          providerRepoId: "123",
           now: "2026-05-14T00:00:00.000Z",
         },
       };
@@ -147,12 +149,46 @@ describe("PostgresWorkspaceRepository", () => {
         userId,
         workspaceId,
         expectedVersion: 1,
+        expectedRepository: { id: first.repository.id, providerRepoId: "123" },
         patch: { name: "Configured", selectedBranch: "saved" },
         now: "2026-05-15T00:00:00.000Z",
       };
       expect(
         await actual.findWorkspaceConfiguration(userId, workspaceId),
       ).toMatchObject({ version: 1 });
+      const beforeIdentityConflict = await actual.findWorkspaceSelection(userId);
+      const originalRows = await db.query("SELECT * FROM repos ORDER BY id");
+      for (const providerRepoId of ["456", null]) {
+        await expect(actual.selectWorkspace({ ...input, userId: otherUser, selectedBranch: "blocked", repository: { ...input.repository, providerRepoId, fullName: "must-not-write" } })).rejects.toBeInstanceOf(RepositoryIdentityConflictError);
+        expect(await actual.findWorkspaceSelection(userId)).toEqual(beforeIdentityConflict);
+        expect(await actual.listWorkspaces(otherUser)).toEqual([]);
+        expect(await actual.findWorkspaceSelection(otherUser)).toBeNull();
+        expect(await db.query("SELECT * FROM repos ORDER BY id")).toEqual(originalRows);
+      }
+      const sameIdentity = await actual.selectWorkspace({ ...input, userId: otherUser });
+      expect(sameIdentity.repository.id).toBe(first.repository.id);
+      expect(await actual.findWorkspaceSelection(userId)).toEqual(beforeIdentityConflict);
+      const legacyInput = { ...input, userId: otherUser, repository: { ...input.repository, name: "legacy-null", fullName: "acme/legacy-null", providerRepoId: null } };
+      const legacy = await actual.selectWorkspace(legacyInput);
+      const savedLegacy = await actual.findWorkspaceSelection(otherUser);
+      await expect(actual.selectWorkspace({ ...legacyInput, repository: { ...legacyInput.repository, providerRepoId: "789" } })).rejects.toBeInstanceOf(RepositoryIdentityConflictError);
+      await expect(actual.updateWorkspaceConfiguration({ ...update, userId: otherUser, workspaceId: legacy.workspace.id, expectedRepository: { id: legacy.repository.id, providerRepoId: "789" } })).rejects.toBeInstanceOf(RepositoryIdentityConflictError);
+      expect(await actual.findWorkspaceSelection(otherUser)).toEqual(savedLegacy);
+      // Gate the real transaction entry to mutate caller-owned ingress after
+      // invocation. Production must use the selection snapshot taken before await.
+      let releaseSelection!: () => void;
+      const selectionGate = new Promise<void>((resolve) => { releaseSelection = resolve; });
+      const pausedSelect = new PostgresWorkspaceRepository({
+        query: sql.query.bind(sql),
+        transaction: async (callback) => { await selectionGate; return sql.transaction(callback); },
+      });
+      const selectionRequest = { ...input, userId: otherUser, selectedBranch: "captured-selection", repository: { ...input.repository } };
+      const selecting = pausedSelect.selectWorkspace(selectionRequest);
+      selectionRequest.repository.providerRepoId = "456";
+      selectionRequest.repository.name = "mutated-namespace";
+      selectionRequest.selectedBranch = "mutated-selection";
+      releaseSelection();
+      expect(await selecting).toMatchObject({ repository: { id: first.repository.id, providerRepoId: "123" }, selection: { selectedBranch: "captured-selection" } });
       const competing = await Promise.all([
         actual.updateWorkspaceConfiguration(update),
         actual.updateWorkspaceConfiguration({
@@ -248,6 +284,47 @@ describe("PostgresWorkspaceRepository", () => {
         version: 4,
         workspace: { lastSelectedBranch: "unselected" },
       });
+      // Capture nested patch/binding before an asynchronous transaction entry.
+      let releaseUpdate!: () => void;
+      const updateGate = new Promise<void>((resolve) => { releaseUpdate = resolve; });
+      const pausedUpdate = new PostgresWorkspaceRepository({
+        query: sql.query.bind(sql),
+        transaction: async (callback) => { await updateGate; return sql.transaction(callback); },
+      });
+      const mutable = { ...update, expectedVersion: 4, expectedRepository: { ...update.expectedRepository }, patch: { selectedBranch: "captured-input" } };
+      const updating = pausedUpdate.updateWorkspaceConfiguration(mutable);
+      mutable.userId = otherUser;
+      mutable.expectedRepository.id = other.repository.id;
+      mutable.expectedRepository.providerRepoId = "456";
+      mutable.patch.selectedBranch = "mutated-input";
+      releaseUpdate();
+      expect(await updating).toMatchObject({ status: "updated", configuration: { version: 5, repository: { id: first.repository.id, providerRepoId: "123" }, workspace: { lastSelectedBranch: "captured-input" } } });
+      const identitySnapshot = await actual.findWorkspaceConfiguration(userId, workspaceId);
+      for (const expectedRepository of [
+        { id: first.repository.id, providerRepoId: "456" },
+        { id: other.repository.id, providerRepoId: "123" },
+      ]) {
+        await expect(actual.updateWorkspaceConfiguration({ ...update, expectedVersion: 0, expectedRepository })).rejects.toBeInstanceOf(RepositoryIdentityConflictError);
+        expect(await actual.findWorkspaceConfiguration(userId, workspaceId)).toEqual(identitySnapshot);
+      }
+      // An intervening out-of-band identity change before lock acquisition is
+      // rejected at the actual write boundary, even when version still matches.
+      let releaseIntervening!: () => void;
+      const interveningGate = new Promise<void>((resolve) => { releaseIntervening = resolve; });
+      const intervening = new PostgresWorkspaceRepository({
+        query: sql.query.bind(sql),
+        transaction: async (callback) => { await interveningGate; return sql.transaction(callback); },
+      }).updateWorkspaceConfiguration({ ...update, expectedVersion: 5 });
+      await db.query("UPDATE repos SET provider_repo_id = '456' WHERE id = $1", [first.repository.id]);
+      releaseIntervening();
+      await expect(intervening).rejects.toBeInstanceOf(RepositoryIdentityConflictError);
+      expect((await actual.findWorkspaceConfiguration(userId, workspaceId))?.workspace).toEqual(identitySnapshot?.workspace);
+      expect((await actual.findWorkspaceConfiguration(userId, workspaceId))?.version).toBe(5);
+      await db.query("UPDATE repos SET provider_repo_id = '123' WHERE id = $1", [first.repository.id]);
+      const shareIndex = sql.statements.findIndex((statement) => statement.includes("FOR SHARE"));
+      const workspaceLockIndex = sql.statements.findIndex((statement) => statement.includes("FOR UPDATE OF workspaces"));
+      expect(shareIndex).toBeGreaterThan(-1);
+      expect(workspaceLockIndex).toBeGreaterThan(shareIndex);
       await db.query(
         "UPDATE workspaces SET status = 'archived' WHERE id = $1",
         [workspaceId],
@@ -341,11 +418,12 @@ function rows<Row extends SqlRow>(rows: Row[]): SqlQueryResult<Row> {
 }
 
 class PGliteWorkspaceClient implements SqlClient {
-  constructor(private readonly db: PGlite) {}
+  constructor(private readonly db: PGlite, public readonly statements: string[] = []) {}
   async query<Row extends SqlRow = SqlRow>(
     statement: string,
     params: readonly SqlValue[] = [],
   ): Promise<SqlQueryResult<Row>> {
+    this.statements.push(statement);
     const result = await this.db.query<Row>(statement, [...params]);
     return {
       rows: result.rows,
@@ -356,7 +434,7 @@ class PGliteWorkspaceClient implements SqlClient {
     callback: (client: SqlClient) => Promise<T>,
   ): Promise<T> {
     return this.db.transaction((transaction) =>
-      callback(new PGliteWorkspaceClient(transaction as unknown as PGlite)),
+      callback(new PGliteWorkspaceClient(transaction as unknown as PGlite, this.statements)),
     );
   }
 }
