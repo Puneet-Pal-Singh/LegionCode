@@ -48,6 +48,13 @@ export class LocalThreadService {
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 
+  /** Navigation projection only. Does not authorize history, files, or mutations. */
+  async listProjectMetadata(): Promise<Thread[]> {
+    return (await this.rebuildProjections())
+      .filter((thread) => thread.userId === LOCAL_USER_ID)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
   async create(input: unknown): Promise<Thread> {
     const workspace = await this.requireWorkspace();
     const request = ThreadCreateParamsSchema.parse(input ?? {});

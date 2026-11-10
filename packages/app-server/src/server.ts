@@ -604,6 +604,14 @@ async function dispatch(
       }
       return composition.localWorkspaceFilesService.readFile(request.params);
     }
+    case "workspace/localProjects": {
+      if (composition.environment !== "local" || !composition.workspaceService || !composition.threadService) {
+        throw new AppServerOperationError(503, "server_unavailable", "Local project navigation is unavailable");
+      }
+      const threads = await composition.threadService.listProjectMetadata();
+      const navigation = await composition.workspaceService.listProjects(threads.map((thread) => thread.workspaceId));
+      return { ...navigation, threads };
+    }
     case "workspace/current": {
       if (!composition.workspaceService) throw new Error("unsupported");
       return { grant: await composition.workspaceService.getCurrent() };

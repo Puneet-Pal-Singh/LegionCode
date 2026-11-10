@@ -54,6 +54,15 @@ only after the existing root/metadata verification. Historical canonical local
 Thread workspace IDs with no retained association remain `unlinked`; no folder,
 remote, name, or Thread history is used to guess their native association.
 
+`workspace/localProjects` and SDK `listLocalWorkspaceProjects` are local-only
+navigation reads, separate from hosted workspace selection. They return path-free
+project descriptors and the existing canonical local-user Thread metadata
+projection. They grant no history, message, file, mutation, or execution access;
+all existing current-grant checks remain in place. The Desktop consumer must
+regrant an inactive known project and match the returned logical Workspace ID
+before opening its Thread or creating a task. Explicit legacy association is a
+separate recovery contract and is not authorized by this navigation read.
+
 `engine/KernelAgenticProvider` is the shared provider stepping/transcript/recovery
 owner used by both `RuntimeKernelNativeRunner` and `createLocalNativeProviderPorts`.
 The local factory reuses native context assembly/compaction and connects the same

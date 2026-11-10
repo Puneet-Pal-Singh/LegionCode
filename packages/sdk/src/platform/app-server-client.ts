@@ -53,6 +53,7 @@ import {
   RunIdSchema,
   ProviderIdSchema,
   type LocalWorkspaceGrant,
+  type LocalWorkspaceProjectsResponse,
   type AppServerInitializeResponse,
   type ProviderId,
   type Thread,
@@ -253,6 +254,7 @@ export type AppServerClient = {
   readLocalChatImageChunk(params: LocalChatImageReadParams): Promise<LocalChatImageReadResult>;
   readWorkspaceFile(params: LocalWorkspaceReadFileParams): Promise<CheckoutReadFileResult>;
   getWorkspaceGrant(): Promise<LocalWorkspaceGrant | null>;
+  listLocalWorkspaceProjects(): Promise<LocalWorkspaceProjectsResponse>;
   grantWorkspace(source: WorkspaceGrantSource): Promise<LocalWorkspaceGrant>;
   revokeWorkspace(): Promise<void>;
   listThreads(): Promise<Thread[]>;
@@ -512,6 +514,9 @@ export function createAppServerClient(
     getRepositoryContents: async (params) => request(options, {
       method: "repository/contents", params,
     }, AppServerResultSchemas["repository/contents"]),
+    listLocalWorkspaceProjects: async () => request(options, {
+      method: "workspace/localProjects", params: {},
+    }, AppServerResultSchemas["workspace/localProjects"]),
     getWorkspaceGrant: async () => {
       const result = await request(options, {
         method: "workspace/current",
