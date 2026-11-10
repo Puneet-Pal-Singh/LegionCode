@@ -164,6 +164,7 @@ export function DesktopWorkspaceBootstrapHero({
   onRetry,
   canChoose,
   canRetry,
+  showProjectChip = true,
   children,
 }: {
   workspace: LocalWorkspaceGrant | null;
@@ -175,11 +176,12 @@ export function DesktopWorkspaceBootstrapHero({
   onRetry: () => void;
   canChoose: boolean;
   canRetry: boolean;
+  showProjectChip?: boolean;
   children?: ReactNode;
 }) {
   return (
     <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-3 py-3 sm:px-6 sm:py-4">
-    <ConversationHero projectName={workspace?.displayName} onProjectClick={onChoose}>
+    <ConversationHero projectName={workspace?.displayName} onProjectClick={onChoose} showProjectChip={showProjectChip}>
       {state.status === "connecting" || state.status === "loading" ? (
         <BootstrapLoading label={state.status === "connecting" ? "Connecting Desktop" : "Restoring workspace access"} />
       ) : state.status === "error" ? (

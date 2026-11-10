@@ -26,6 +26,7 @@ import { DesktopRightPanel } from "./DesktopRightPanel";
 import { DesktopWorkspaceFilesMount } from "./DesktopWorkspaceFilesMount";
 import { DesktopConversation } from "./DesktopConversation";
 import { DesktopComposer } from "./DesktopComposer";
+import { DesktopComposerWorkspaceBar } from "./DesktopComposerWorkspaceBar";
 import { useDesktopProjectNavigation, type DesktopProjectIntent } from "./useDesktopProjectNavigation";
 import { useDesktopComposerDraft } from "./useDesktopComposerDraft";
 import { DesktopReview } from "./DesktopReview";
@@ -544,7 +545,8 @@ function DesktopApp(): React.JSX.Element {
     selectionRequest.current += 1;
     threadListRequest.current += 1;
     const commandScope = threadScope.current;
-    setSelectedThread(null);
+    // Fence old command deliveries, but retain the mounted conversation/draft
+    // until the actual grant succeeds. A failed receipt must not erase it.
     let granted: LocalWorkspaceGrant;
     try {
       if (!appServerClient) return;
@@ -644,6 +646,13 @@ function DesktopApp(): React.JSX.Element {
   if (!build || !environment) {
     return <ClientShellLoading label="Loading Desktop" />;
   }
+
+  const projectChangeUnavailableReason = !sdkReady || environment.status !== "ready"
+    ? "Reconnect Desktop before changing projects."
+    : workspaceBusy || workspacePickerOpen || pendingThreadSelections > 0 ||
+      workspaceBootstrapState.status === "connecting" || workspaceBootstrapState.status === "loading"
+      ? "Wait for project access to finish before changing projects."
+      : undefined;
 
   const environmentSummary = (onOpenChanges: () => void) => selectedThread ? (
     <EnvironmentSummaryMenu
@@ -830,6 +839,7 @@ function DesktopApp(): React.JSX.Element {
               workspaceGrantAt={workspace.grantedAt}
               fileAvailability={environment.status === "ready" && environment.capabilities.includes("workspace-files-v1") ? { available: true } : { available: false, reason: "Workspace file suggestions are unavailable in this environment." }}
               projectName={workspace.displayName}
+              projectChangeUnavailableReason={projectChangeUnavailableReason}
               onProjectClick={() => void chooseWorkspace()}
               execution={
                 environment.status === "ready" &&
@@ -858,6 +868,7 @@ function DesktopApp(): React.JSX.Element {
             />
           ) : (
             <DesktopWorkspaceBootstrapHero
+              showProjectChip={false}
               workspace={workspace}
               state={workspaceBootstrapState}
               threadLoadState={threadLoadState}
@@ -869,6 +880,14 @@ function DesktopApp(): React.JSX.Element {
               canRetry={environment.status === "ready" && !workspaceBusy && !workspacePickerOpen}
             >
               <DesktopComposer
+                workspaceBar={
+                  <DesktopComposerWorkspaceBar
+                    scopeKey={`unbound:${workspace?.workspaceId ?? "none"}:${workspace?.grantedAt ?? "none"}:${projects.intent?.workspaceId ?? "none"}`}
+                    projectName={!projects.intent ? workspace?.displayName : undefined}
+                    onChooseProject={() => void chooseWorkspace(Boolean(projects.currentIntent.current))}
+                    disabledReason={projectChangeUnavailableReason}
+                  />
+                }
                 client={appServerClient}
                 workspaceId={!projects.intent && workspace?.readiness === "ready" ? workspace.workspaceId : null}
                 grantedAt={!projects.intent && workspace?.readiness === "ready" ? workspace.grantedAt : null}

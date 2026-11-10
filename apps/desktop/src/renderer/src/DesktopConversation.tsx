@@ -13,8 +13,10 @@ import {
   type AppServerClient,
 } from "@legioncode/sdk";
 import type { Thread, TurnAdmission } from "@repo/platform-protocol";
+import { useRef, useState } from "react";
 import { DesktopApproval } from "./DesktopApproval";
 import { DesktopComposer } from "./DesktopComposer";
+import { DesktopComposerWorkspaceBar } from "./DesktopComposerWorkspaceBar";
 import {
   desktopImageSource,
   useDesktopImagePreviews,
@@ -39,6 +41,7 @@ interface Props {
   fileAvailability: { available: true } | { available: false; reason: string };
   projectName?: string;
   onProjectClick?: () => void;
+  projectChangeUnavailableReason?: string;
   onReviewTurn?: (turn: DesktopSavedReviewTurn) => void;
   onAdmissionConfirmed?: (admission: TurnAdmission) => void;
   draftHandoff?: DesktopComposerDraftHandoff | null;
@@ -68,6 +71,7 @@ function SelectedConversation({
   onAdmissionConfirmed,
   projectName,
   onProjectClick,
+  projectChangeUnavailableReason,
   draftHandoff,
   providerReady = true,
 }: Props) {
@@ -95,11 +99,11 @@ function SelectedConversation({
     execution.available && admission && projection && pendingApproval,
   );
   const unavailableReason =
-    thread.status === "archived"
+    projectChangeUnavailableReason ?? (thread.status === "archived"
       ? "Unarchive this task before sending a message."
       : !execution.available
         ? execution.reason
-        : conversation.submissionUnavailableReason;
+        : conversation.submissionUnavailableReason);
 
   const admittedConfiguration =
     admission?.userMessage.type === "user_message" &&
@@ -123,6 +127,29 @@ function SelectedConversation({
   // The visible input leases capture eligibility; this exact conversation owns
   // attachment URLs and in-flight submission settlement across layout changes.
   const imageDraft = useChatImageAttachmentDraft(false);
+  const projectChangeReason = projectChangeUnavailableReason ??
+    (!providerReady ? "Reconnect Desktop before changing projects."
+      : conversation.executionActive || isApprovalVisible
+        ? "Stop the current task before changing projects."
+        : conversation.deliveryPending || conversation.pendingConfiguration
+          ? "Confirm the current message's delivery before changing projects."
+          : conversation.loading || !conversation.historyReady || conversation.historyError || conversation.hasNewerPages
+            ? "Load the latest saved conversation before changing projects."
+            : draft.value.input.length > 0 || imageDraft.attachments.length > 0
+              ? "Send or clear your draft before changing projects."
+              : undefined);
+  const projectChoice = useRef({ reason: projectChangeReason, onProjectClick });
+  projectChoice.current = { reason: projectChangeReason, onProjectClick };
+  const [showProjectChangeNotice, setShowProjectChangeNotice] = useState(false);
+  const chooseProject = () => {
+    const current = projectChoice.current;
+    if (current.reason) {
+      setShowProjectChangeNotice(true);
+      return;
+    }
+    setShowProjectChangeNotice(false);
+    current.onProjectClick?.();
+  };
   const review = useCompletedTurnReview(
     projection ?? null,
     admission?.userMessage.id ?? null,
@@ -177,7 +204,8 @@ function SelectedConversation({
       threadId={thread.id}
       runAttemptId={admission?.runAttemptId ?? null}
       projectName={projectName}
-      onProjectClick={onProjectClick}
+      showProjectChip={false}
+      onProjectClick={onProjectClick ? chooseProject : undefined}
       showHeroComposer={showHeroComposer}
       showSessionPlaceholder={conversation.initialLoading}
       placeholderError={
@@ -200,6 +228,9 @@ function SelectedConversation({
       onStopPendingTurn={conversation.stop}
       renderComposer={(layout) => (
         <>
+          {showProjectChangeNotice && projectChangeReason ? (
+            <ChatErrorNotice message={projectChangeReason} />
+          ) : null}
           {conversation.loading ? (
             <div className="mb-3 [&>.lc-client-screen]:!h-auto [&>.lc-client-screen]:!w-full [&>.lc-client-screen]:!bg-transparent">
               <ClientShellLoading label="Reading saved conversation…" />
@@ -241,6 +272,14 @@ function SelectedConversation({
           ) : null}
           <div hidden={isApprovalVisible}>
             <DesktopComposer
+              workspaceBar={
+                <DesktopComposerWorkspaceBar
+                  scopeKey={`${thread.workspaceId}:${workspaceGrantAt}:${thread.id}`}
+                  projectName={projectName}
+                  onChooseProject={onProjectClick ? chooseProject : undefined}
+                  disabledReason={projectChangeReason}
+                />
+              }
               layout={layout}
               isHidden={isApprovalVisible}
               client={client}
