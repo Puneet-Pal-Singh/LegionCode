@@ -4,13 +4,13 @@ import {
   LocalTurnStartParamsSchema,
   LocalTurnConfigurationSchema,
   type LocalTurnConfiguration,
-  followConversationLifecycleProjection,
+  mergeLifecycleProjections,
   replayConversationLifecycleProjection,
   type AppServerClient,
-  type ConversationLifecycleContinuationStatus,
   type LifecycleProjection,
   type LocalTurnStartParams,
 } from "@legioncode/sdk";
+import { useConversationTurnLifecycle } from "@legioncode/client-ui";
 import type { EventCursor, Thread, TurnAdmission } from "@repo/platform-protocol";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -21,18 +21,18 @@ const REPLAY_CONCURRENCY = 2;
 export function useDesktopConversation(client: AppServerClient, thread: Thread, enabled: boolean) {
   const lifecycleClient = useMemo(() => createAppServerLifecycleClient(client), [client]);
   const [admissions, setAdmissions] = useState<TurnAdmission[]>([]);
-  const [projections, setProjections] = useState<Record<string, LifecycleProjection>>({});
+  const [replayedProjections, setProjections] = useState<Record<string, LifecycleProjection>>({});
   const [loading, setLoading] = useState(true);
   const [historyReady, setHistoryReady] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [liveError, setLiveError] = useState<string | null>(null);
-  const [continuation, setContinuation] = useState<ConversationLifecycleContinuationStatus | "stopped" | null>(null);
+  const [initialReadSettled, setInitialReadSettled] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [deliveryError, setError] = useState<string | null>(null);
+  const [replayError, setReplayError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [afterCursor, setAfterCursor] = useState<EventCursor | null>(null);
   const [latestPage, setLatestPage] = useState(true);
   const [hasEarlier, setHasEarlier] = useState(false);
   const [nextCursor, setNextCursor] = useState<EventCursor | null>(null);
-  const [retry, setRetry] = useState(0);
   const [delivering, setDelivering] = useState(false);
   const [interrupting, setInterrupting] = useState(false);
   const stopCommand = useRef<Promise<void> | null>(null);
@@ -41,6 +41,17 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
   const scopeMatches = loadedScope.current.client === client && loadedScope.current.workspaceId === thread.workspaceId && loadedScope.current.threadId === thread.id;
   const pendingRequest = useRef<LocalTurnStartParams | null>(null);
   const commandPending = useRef(false);
+  const admittedDelivery = useRef<{
+    client: AppServerClient;
+    workspaceId: Thread["workspaceId"];
+    threadId: Thread["id"];
+    turnId: TurnAdmission["turn"]["id"];
+  } | null>(null);
+  // Each handler belongs to the read/admission snapshot that rendered it. An
+  // accepted command invalidates that snapshot synchronously, before React can
+  // commit admissions; only a newly rendered handler may send again.
+  const renderedReadScope = scope.current;
+  const renderedAdmission = admittedDelivery.current;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -51,9 +62,12 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
     stopCommand.current = null;
     setHistoryReady(false);
     setLoading(enabled);
-    setError(null);
-    setLiveError(null);
+    setHistoryError(null);
+    setReplayError(null);
     if (!scopeMatches) {
+      setInitialReadSettled(false);
+      setError(null);
+      admittedDelivery.current = null;
       pendingRequest.current = null;
       setAdmissions([]);
       setProjections({});
@@ -63,9 +77,9 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
       setNextCursor(null);
       loadedScope.current = { client, workspaceId: thread.workspaceId, threadId: thread.id };
     }
-    setContinuation(null);
     if (!scopeMatches && (afterCursor !== null || !latestPage)) return () => { controller.abort(); };
     if (!enabled) {
+      setInitialReadSettled(false);
       setAdmissions([]);
       setProjections({});
       return () => { controller.abort(); };
@@ -99,63 +113,77 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
         }
         history[history.length - 1] = restored;
       }
-      const saved: Record<string, LifecycleProjection> = {};
-      for (let offset = 0; offset < history.length; offset += REPLAY_CONCURRENCY) {
-        if (controller.signal.aborted) return;
-        await Promise.all(history.slice(offset, offset + REPLAY_CONCURRENCY).map(async (admission) => {
-          const projection = await replayConversationLifecycleProjection({
-            turnId: admission.turn.id, lifecycleClient, signal: controller.signal,
-          });
-          if (projection) saved[admission.turn.id] = projection;
-        }));
-      }
       if (controller.signal.aborted) return;
-      setProjections(saved);
       setNextCursor(followingCursor);
       setHasEarlier(latestPage && page.hasEarlier === true);
       if (history.some((item) => item.clientRequestId === pendingRequest.current?.clientRequestId)) {
         pendingRequest.current = null;
+        setError(null);
       }
+      const visibleTurnIds = new Set<string>(history.map((item) => item.turn.id));
+      // Retain valid snapshots for this page only. The shared live adapter adds
+      // its exact currently selected turn separately, without retaining pages.
+      setProjections((current) => Object.fromEntries(
+        Object.entries(current).filter(([turnId]) => visibleTurnIds.has(turnId)),
+      ));
       setAdmissions(history);
-      commandPending.current = history.some((item) => !saved[item.turn.id]?.terminal);
       setHistoryReady(true);
+      setInitialReadSettled(true);
       setLoading(false);
-    })().catch(() => {
+    })().catch((error: unknown) => {
       if (controller.signal.aborted) return;
-      setError("Saved local conversation could not be loaded. Retry before sending another prompt.");
+      setHistoryError(error instanceof Error ? error.message : "Saved local conversation could not be loaded.");
+      setInitialReadSettled(true);
       setLoading(false);
     });
     return () => { controller.abort(); };
   }, [client, lifecycleClient, thread.id, thread.workspaceId, reload, afterCursor, latestPage, enabled]);
 
-  const latest = admissions.at(-1) ?? null;
-  useEffect(() => {
-    if (!enabled || !latest || loading || nextCursor !== null) return;
-    const controller = new AbortController();
-    void followConversationLifecycleProjection({
-      turnId: latest.turn.id, lifecycleClient, signal: controller.signal,
-      onProjection: (projection) => {
-        if (controller.signal.aborted) return;
-        setLiveError(null);
-        if (projection.terminal) {
-          commandPending.current = false;
-          stopCommand.current = null;
-          setInterrupting(false);
-        }
-        setProjections((current) => ({ ...current, [latest.turn.id]: projection }));
-      },
-      onStatus: (status) => {
-        if (!controller.signal.aborted) setContinuation(status);
-      },
-    }).catch(() => {
-      if (controller.signal.aborted) return;
-      setLiveError("Live updates stopped. The runtime outcome is unconfirmed; retry to read its status.");
-      setContinuation("stopped");
-    });
-    return () => { controller.abort(); };
-  }, [latest?.turn.id, lifecycleClient, loading, retry, nextCursor, enabled]);
+  const latest = enabled && scopeMatches ? admissions.at(-1) ?? null : null;
+  const followsLatest = Boolean(enabled && scopeMatches && latestPage && nextCursor === null);
+  const active = useConversationTurnLifecycle(latest?.turn.id, followsLatest, lifecycleClient);
+  const activeProjection = followsLatest && active.isReplayReady ? active.projection : null;
+  const projections = useMemo(
+    () => mergeLifecycleProjections(replayedProjections, {}, activeProjection),
+    [replayedProjections, activeProjection],
+  );
+  const executionActive = Boolean(activeProjection && activeProjection.lastSequence > 0 && !activeProjection.terminal);
+  const awaitingActiveReplay = Boolean(followsLatest && latest && !active.isReplayReady);
 
-  const unsettled = admissions.some((admission) => !projections[admission.turn.id]?.terminal);
+  // Historical projections are independent reads: an old failure cannot prevent
+  // the selected attempt's SDK replay/live continuation from rendering.
+  useEffect(() => {
+    if (!enabled || !scopeMatches) return;
+    const controller = new AbortController();
+    const history = admissions.filter((item) => !followsLatest || item.turn.id !== latest?.turn.id);
+    setReplayError(null);
+    void (async () => {
+      for (let offset = 0; offset < history.length; offset += REPLAY_CONCURRENCY) {
+        if (controller.signal.aborted) return;
+        await Promise.all(history.slice(offset, offset + REPLAY_CONCURRENCY).map(async (admission) => {
+          try {
+            const projection = await replayConversationLifecycleProjection({
+              turnId: admission.turn.id, lifecycleClient, signal: controller.signal,
+            });
+            if (controller.signal.aborted || !projection) return;
+            setProjections((current) => mergeLifecycleProjections(current, {}, projection));
+          } catch (error: unknown) {
+            if (controller.signal.aborted) return;
+            setReplayError(error instanceof Error ? error.message : "An earlier turn's lifecycle could not be loaded.");
+          }
+        }));
+      }
+    })();
+    return () => controller.abort();
+  }, [admissions, enabled, scopeMatches, followsLatest, latest?.turn.id, lifecycleClient]);
+
+  useEffect(() => {
+    if (!activeProjection) return;
+    setProjections((current) => mergeLifecycleProjections(current, {}, activeProjection));
+    if (!activeProjection.terminal) return;
+    stopCommand.current = null;
+    setInterrupting(false);
+  }, [activeProjection]);
 
   async function submit(
     prompt: string,
@@ -168,12 +196,18 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
       !enabled ||
       !scopeMatches ||
       !controller ||
+      controller !== renderedReadScope ||
       controller.signal.aborted ||
+      admittedDelivery.current !== renderedAdmission ||
+      loadedScope.current.client !== client ||
+      loadedScope.current.workspaceId !== thread.workspaceId ||
+      loadedScope.current.threadId !== thread.id ||
       commandPending.current ||
       !historyReady ||
       loading ||
       nextCursor !== null ||
-      unsettled
+      !latestPage ||
+      (latest !== null && (!activeProjection || !activeProjection.terminal))
     )
       return false;
     const retryingUnconfirmedRequest = pendingRequest.current !== null;
@@ -211,7 +245,6 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
     commandPending.current = true;
     setDelivering(true);
     setError(null);
-    let accepted = false;
     try {
       const admission = await client.startTurn(request);
       if (controller.signal.aborted || scope.current !== controller)
@@ -219,6 +252,10 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
       assertScope(admission, thread);
       if (admission.clientRequestId !== request.clientRequestId)
         throw new Error("Admission request changed");
+      admittedDelivery.current = {
+        client, workspaceId: thread.workspaceId, threadId: thread.id,
+        turnId: admission.turn.id,
+      };
       const nextAdmissions = admissions.some(
         (item) => item.turn.id === admission.turn.id,
       )
@@ -234,7 +271,6 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
         ),
       );
       pendingRequest.current = null;
-      accepted = !projections[admission.turn.id]?.terminal;
       return true;
     } catch (error) {
       if (!controller.signal.aborted && scope.current === controller) {
@@ -250,6 +286,8 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
         const freshInputRejection =
           !retryingUnconfirmedRequest &&
           (operationCode === "local_provider_selection_changed" ||
+            operationCode === "local_model_unavailable" ||
+            operationCode === "local_provider_discovery_unavailable" ||
             operationCode === "local_image_unavailable" ||
             operationCode === "local_image_validation_failed" ||
             operationCode === "local_image_model_unsupported");
@@ -259,6 +297,8 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
           throw new Error(
             operationCode === "local_provider_selection_changed"
               ? "The selected model changed before delivery. Select your model again and retry your kept draft."
+              : operationCode === "local_model_unavailable" || operationCode === "local_provider_discovery_unavailable"
+              ? "The selected model is unavailable. Open provider setup, choose an available model, then retry your kept draft."
               : "The runtime could not accept these images. Check the attachments and selected model, then retry your kept draft.",
           );
         }
@@ -284,7 +324,7 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
       return false;
     } finally {
       if (scope.current === controller) {
-        commandPending.current = accepted;
+        commandPending.current = false;
         setDelivering(false);
       }
     }
@@ -292,7 +332,7 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
 
   async function stop(): Promise<void> {
     const controller = scope.current;
-    if (!enabled || !scopeMatches || !historyReady || loading || nextCursor !== null || !controller || controller.signal.aborted || !latest || projections[latest.turn.id]?.terminal) return;
+    if (!enabled || !scopeMatches || !historyReady || loading || !latestPage || nextCursor !== null || !executionActive || !controller || controller.signal.aborted || !latest || projections[latest.turn.id]?.terminal) return;
     if (stopCommand.current) return stopCommand.current;
     setInterrupting(true);
     const request = client.interruptLocalTurn({
@@ -309,7 +349,7 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
         throw new Error("The active runtime did not accept Stop");
       }
       // A receipt requests another canonical read; it never settles the projection.
-      setRetry((value) => value + 1);
+      active.retry();
     }).catch((error: unknown) => {
       if (!controller.signal.aborted && scope.current === controller) {
         stopCommand.current = null;
@@ -321,14 +361,43 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
     return request;
   }
 
+  const scopeReadable = enabled && scopeMatches;
+  const historyLoading = enabled && (loading || !scopeMatches);
+  const submissionUnavailableReason = !scopeReadable || historyLoading
+    ? "Loading saved conversation before sending."
+    : historyError
+      ? "Reload saved history before sending another message."
+      : !historyReady
+        ? "Read saved conversation before sending another message."
+        : delivering
+          ? "Confirming message delivery…"
+          : nextCursor !== null || !latestPage
+            ? "Return to the latest turns before sending another message."
+            : awaitingActiveReplay || (latest && !activeProjection)
+              ? "Read the admitted turn's runtime status before sending another message."
+              : activeProjection && !activeProjection.terminal && !executionActive
+                ? "Waiting for the admitted turn's canonical runtime status."
+                : undefined;
+
   return {
-    admissions: enabled && scopeMatches ? admissions : [],
-    projections: enabled && scopeMatches ? projections : {},
-    loading: enabled && (loading || !scopeMatches), error: enabled && scopeMatches ? error ?? liveError : null, continuation: enabled && scopeMatches ? continuation : null,
-    busy: enabled && (!scopeMatches || !historyReady || loading || nextCursor !== null || delivering || unsettled),
+    admissions: scopeReadable ? admissions : [],
+    projections: scopeReadable ? projections : {},
+    loading: historyLoading,
+    initialLoading: historyLoading && (!initialReadSettled || !scopeMatches),
+    historyReady: scopeReadable && historyReady,
+    historyError: scopeReadable ? historyError : null,
+    deliveryError: scopeReadable ? deliveryError : null,
+    historicalReplayError: scopeReadable ? replayError : null,
+    continuationError: scopeReadable ? active.error : null,
+    continuation: scopeReadable ? active.continuationStatus : null,
+    activeProjection: scopeReadable ? activeProjection : null,
+    awaitingActiveReplay: scopeReadable && awaitingActiveReplay && active.continuationStatus !== "stopped",
+    deliveryPending: scopeReadable && delivering,
+    executionActive: scopeReadable && executionActive,
+    submissionUnavailableReason,
     nextPage: enabled && nextCursor && historyReady && !loading ? () => { setLatestPage(false); setAfterCursor(nextCursor); } : null,
     firstPage: enabled && (afterCursor !== null || (latestPage && hasEarlier)) ? () => { setLatestPage(false); setAfterCursor(null); } : null,
-    hasNewerPages: enabled && nextCursor !== null,
+    hasNewerPages: enabled && (nextCursor !== null || !latestPage),
     pendingSelection: pendingRequest.current?.expectedSelection ?? null,
     pendingConfiguration: pendingRequest.current
       ? LocalTurnConfigurationSchema.parse({
@@ -337,8 +406,8 @@ export function useDesktopConversation(client: AppServerClient, thread: Thread, 
         })
       : null,
     submit, stop, interrupting: scopeMatches && interrupting,
-    canStop: Boolean(enabled && scopeMatches && historyReady && !loading && nextCursor === null && !interrupting && latest && !projections[latest.turn.id]?.terminal),
-    retry: () => { setLiveError(null); setRetry((value) => value + 1); },
+    canStop: Boolean(scopeReadable && historyReady && !loading && latestPage && nextCursor === null && !interrupting && latest && executionActive),
+    retry: active.retry,
     reload: () => { setLatestPage(true); setAfterCursor(null); setReload((value) => value + 1); },
   };
 }
