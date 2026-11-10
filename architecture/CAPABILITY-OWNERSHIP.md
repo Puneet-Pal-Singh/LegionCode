@@ -1746,3 +1746,8 @@ port does not itself enable permission modes, tools or broader host authority.
 After exact saved-receipt reconciliation, atomic admission conflicts return typed
 non-retryable 409 `local_admission_conflict`. Stale parents or unsettled/changed
 intent never cause automatic reparenting, request rewriting or execution retry.
+
+Native Plan recovery refuses any defined opaque harness selection on the Run or
+immutable admitted user content before schema, worker, producer or history checks.
+Those records remain with their independent harness owner; no driver ID parsing,
+selection remapping or delegated lifecycle mutation is introduced.
