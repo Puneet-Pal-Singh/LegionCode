@@ -545,7 +545,8 @@ function DesktopApp(): React.JSX.Element {
     selectionRequest.current += 1;
     threadListRequest.current += 1;
     const commandScope = threadScope.current;
-    setSelectedThread(null);
+    // Fence old command deliveries, but retain the mounted conversation/draft
+    // until the actual grant succeeds. A failed receipt must not erase it.
     let granted: LocalWorkspaceGrant;
     try {
       if (!appServerClient) return;
@@ -648,7 +649,8 @@ function DesktopApp(): React.JSX.Element {
 
   const projectChangeUnavailableReason = !sdkReady || environment.status !== "ready"
     ? "Reconnect Desktop before changing projects."
-    : workspaceBusy || workspacePickerOpen || pendingThreadSelections > 0
+    : workspaceBusy || workspacePickerOpen || pendingThreadSelections > 0 ||
+      workspaceBootstrapState.status === "connecting" || workspaceBootstrapState.status === "loading"
       ? "Wait for project access to finish before changing projects."
       : undefined;
 
