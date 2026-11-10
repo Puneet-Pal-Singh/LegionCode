@@ -6,8 +6,9 @@ import {
 import type { RunInterruptIdentity } from "./RunInterruptContract";
 
 type Scope = RunInterruptIdentity & { readonly ownerUserId?: string; readonly revisionOfTurnId?: string };
-type Requested = Extract<LifecycleEvent, { type: "user_input.requested" }>;
-type Responded = Extract<LifecycleEvent, { type: "user_input.responded" }>;
+type UserInputEvent = Extract<LifecycleEvent, { type: "user_input.requested" | "user_input.responded" | "request.resolved" }>;
+type Requested = UserInputEvent & { readonly type: "user_input.requested" };
+type Responded = UserInputEvent & { readonly type: "user_input.responded" };
 type Authorization =
   | { readonly kind: "pending"; readonly scope: Scope; readonly command: SubmitUserInputResponseRequest }
   | { readonly kind: "responded"; readonly event: Responded }
@@ -66,10 +67,10 @@ export async function findLifecycleUserInputEvents(store: LifecycleEventStore, s
       if (event.turnId !== scope.turnId || event.threadId !== scope.threadId || event.runAttemptId !== scope.runAttemptId) { unavailable = true; continue; }
       if (event.type === "user_input.requested" && event.requestId === requestId) {
         if (requested || responded || resolved || settled) unavailable = true;
-        requested = event;
+        requested = { ...event, type: "user_input.requested" };
       } else if (event.type === "user_input.responded" && event.requestId === requestId) {
         if (!requested || responded || resolved || settled || event.itemId !== requested.itemId) unavailable = true;
-        responded = event;
+        responded = { ...event, type: "user_input.responded" };
       } else if (event.type === "request.resolved" && event.requestId === requestId) {
         if (!requested || responded || resolved || event.itemId !== requested.itemId) unavailable = true;
         resolved = true;
