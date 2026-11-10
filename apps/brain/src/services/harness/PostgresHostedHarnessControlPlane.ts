@@ -307,7 +307,14 @@ export function createPostgresHostedHarnessControlPlane(
     authorizeEnvironment,
     connectionService,
     async setupInstance(context, params, connection) {
-      validateHarnessProvider(params.harness, connection);
+      // Setup is a separate authenticated operation, not an admitted turn. Keep
+      // its exact custody snapshot across the durable instance write; neither
+      // an unchanged owner generation nor catalog metadata attests native auth.
+      const selected = { ...connection };
+      const service = connectionService(context);
+      if (!(await service.assertSetupAuthority(context, selected)))
+        throw conflict();
+      validateHarnessProvider(params.harness, selected);
       const record = await withRepository(async (repository) => {
         if (params.instanceId) {
           const existing = await repository.readInstance(
@@ -322,10 +329,14 @@ export function createPostgresHostedHarnessControlPlane(
             throw conflict();
         }
         return repository.setupInstance(ownedScope(context), params, {
-          connectionId: connection.connectionId,
-          ownerGeneration: connection.ownerGeneration,
+          connectionId: selected.connectionId,
+          ownerGeneration: selected.ownerGeneration,
         });
       });
+      if (!(await service.assertSetupAuthority(context, selected)))
+        throw conflict();
+      // Native setup and host confinement remain independent, unavailable
+      // authorities; a custody snapshot must never turn readiness on.
       return unavailableInstance(record);
     },
     async listInstances(context) {

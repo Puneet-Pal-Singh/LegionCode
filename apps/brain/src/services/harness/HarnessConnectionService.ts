@@ -137,6 +137,38 @@ export class HarnessConnectionService {
     return metadata(record);
   }
 
+  /** Setup authorizes one exact custody snapshot, independently of any turn.
+   * This does not authenticate a native process or authorize provider work. */
+  async assertSetupAuthority(
+    scope: HarnessConnectionScope,
+    expected: HarnessConnectionMetadata,
+  ): Promise<HarnessConnectionMetadata | null> {
+    const selected = { ...expected };
+    await this.authorize(scope);
+    const record = await this.store.getConnection(selected.connectionId);
+    if (
+      !record ||
+      record.credentialId !== selected.connectionId ||
+      record.userId !== scope.userId ||
+      record.providerId !== selected.providerId ||
+      record.authOwnerGeneration !== selected.ownerGeneration ||
+      record.tokenMaterialVersion !== selected.tokenMaterialVersion ||
+      record.credentialKind !== selected.kind ||
+      record.status !== "connected" ||
+      selected.status !== "connected" ||
+      record.deletedAt !== null ||
+      record.refreshClaimId !== null ||
+      selected.refreshPending
+    )
+      return null;
+    await this.policy.assertRouteAllowed(
+      scope,
+      record.providerId,
+      record.credentialKind,
+    );
+    return metadata(record);
+  }
+
   async resolveForAttempt(binding: HarnessAttemptCredentialBinding) {
     binding = { ...binding };
     if (!this.delivery)
