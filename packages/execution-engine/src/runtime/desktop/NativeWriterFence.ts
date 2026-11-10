@@ -24,10 +24,12 @@ export class NativeWriterFenceUnavailableError extends Error {
 export async function acquireNativeWriterFence(input: {
   readonly helperPath: string;
   readonly leaseFile: FileHandle;
+  readonly rootDirectory: FileHandle;
+  readonly fenceDirectory: FileHandle;
   readonly signal: AbortSignal;
 }): Promise<"acquired" | "busy"> {
   // Retain the handle object, not just a descriptor captured before async prep.
-  const { helperPath, leaseFile, signal } = input;
+  const { helperPath, leaseFile, rootDirectory, fenceDirectory, signal } = input;
   try {
     if (
       signal.aborted ||
@@ -51,13 +53,18 @@ export async function acquireNativeWriterFence(input: {
     }
     // fstat validates file type; it does not prove open-description/lock identity.
     const lease = await leaseFile.stat();
+    const root = await rootDirectory.stat();
+    const namespace = await fenceDirectory.stat();
     const descriptor = leaseFile.fd;
-    if (signal.aborted || !lease.isFile() || descriptor < 0) {
+    const rootDescriptor = rootDirectory.fd;
+    const namespaceDescriptor = fenceDirectory.fd;
+    if (signal.aborted || !lease.isFile() || !root.isDirectory() || !namespace.isDirectory() ||
+        descriptor < 0 || rootDescriptor < 0 || namespaceDescriptor < 0) {
       throw new NativeWriterFenceUnavailableError();
     }
     // No await between reading the borrowed handle's current FD and inheritance.
-    const child = spawn(helperPath, ["--acquire-lease-fd", "6"], {
-      stdio: ["ignore", "pipe", "pipe", "ignore", "pipe", "ignore", descriptor],
+    const child = spawn(helperPath, ["--acquire-lease-fd", "6", "--root-fd", "5", "--namespace-fd", "7"], {
+      stdio: ["ignore", "pipe", "pipe", "ignore", "pipe", rootDescriptor, descriptor, namespaceDescriptor],
       env: {},
       shell: false,
       windowsHide: true,
@@ -126,15 +133,15 @@ export async function acquireNativeWriterFence(input: {
       failed ||
       signal.aborted ||
       outcome.signal !== null ||
-      leaseFile.fd !== descriptor
+      leaseFile.fd !== descriptor || rootDirectory.fd !== rootDescriptor || fenceDirectory.fd !== namespaceDescriptor
     ) {
       throw new NativeWriterFenceUnavailableError();
     }
     // The trusted C ABI emits exactly one ASCII frame, with no trailing bytes.
     const acquired = Buffer.from(
-      '{"v":1,"event":"lease","state":"acquired"}\n',
+      '{"v":2,"event":"lease","state":"acquired","intentVersion":1}\n',
     );
-    const busy = Buffer.from('{"v":1,"event":"lease","state":"busy"}\n');
+    const busy = Buffer.from('{"v":2,"event":"lease","state":"busy","intentVersion":1}\n');
     if (outcome.code === 0 && receipt.equals(acquired)) return "acquired";
     if (outcome.code === 75 && receipt.equals(busy)) return "busy";
     throw new NativeWriterFenceUnavailableError();
