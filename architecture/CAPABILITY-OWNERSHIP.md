@@ -2165,3 +2165,22 @@ lifecycle authority changes. Public HTTP byte paging remains inactive until the
 separately owned lossless event hydration and cursor-aware consumers are wired;
 this foundation alone does not make oversized public replay deliverable. Chunk
 bytes and their real wire digest remain read/transport responsibilities.
+
+## Plans 048 / 061 — Local harness protocol foundation
+
+The platform protocol owns harness family, immutable pre-admission selection,
+instance/operation and measured-usage contracts, canonical question descriptors
+and response normalization. Run, Chat request and queued input records may carry
+optional captured selection; omission preserves existing Native records and
+clients. The existing lifecycle schema adds typed passive harness measurements
+and provider-limit observations, without introducing a producer or state store.
+
+The worker protocol consumes those public contracts for scoped host commands,
+observations, opening reservations, replies and positive quiescence receipts.
+These definitions do not enable a driver, create a host, resolve credentials or
+certify physical containment. Required initialize environment identity is deferred
+to its actual constructor/handshake consumer and existing fixture migration.
+The active SDK legacy question wrapper remains unchanged until that consumer
+migrates its shared route and removes the old DTO; this foundation alone does not
+claim that client/runtime integration. Native capture, current byte paging and
+provider custody retain their existing owners and exports.
