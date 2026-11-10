@@ -1596,3 +1596,7 @@ emits settlement. Startup never replays a provider request, creates an executor,
 acquires a workspace binding, clears a fence or invents terminal state. Failure
 closes the persistence owner and refuses readiness. Unsupported mutation
 attempts retain their existing quarantine rather than receiving false closure.
+
+Generic local lifecycle replay reauthorizes its canonical Thread after the
+awaited event-store read as well as before it, matching the Turn/history/media
+read boundary. A changed grant refuses the page before bytes are returned.

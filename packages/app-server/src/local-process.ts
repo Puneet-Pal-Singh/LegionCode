@@ -241,19 +241,24 @@ async function replayLocalLifecycle(
   });
   const event = first.events[0];
   if (!event) throw new AppServerOperationError(404, "not_found", "Local turn was not found");
-  try {
-    await threadService.get(event.threadId);
-  } catch (error) {
-    if (error instanceof LocalThreadNotFoundError) {
-      throw new AppServerOperationError(404, "not_found", "Local turn was not found in the granted workspace");
+  const authorizeThread = async () => {
+    try {
+      await threadService.get(event.threadId);
+    } catch (error) {
+      if (error instanceof LocalThreadNotFoundError) {
+        throw new AppServerOperationError(404, "not_found", "Local turn was not found in the granted workspace");
+      }
+      throw error;
     }
-    throw error;
-  }
-  return persistence.lifecycleEvents.replay({
+  };
+  await authorizeThread();
+  const page = await persistence.lifecycleEvents.replay({
     turnId: params.turnId,
     afterSequence: params.afterSequence ?? null,
     limit: params.limit ?? 1_000,
   });
+  await authorizeThread();
+  return page;
 }
 
 function readBody(
