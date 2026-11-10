@@ -161,7 +161,7 @@ export class OpenCodeV2Driver implements HarnessDriver {
           agent: configuration.agent,
           location: { directory: host.workspaceRoot },
         },
-        async (event) => {
+        async (event, withdrawal) => {
           if (observationIntegritySealed) {
             observationIntegrityLost = true;
             provenQuiescence = undefined;
@@ -172,7 +172,7 @@ export class OpenCodeV2Driver implements HarnessDriver {
           }
           if (!mapper || !native || !executing)
             throw new OpenCodeTransportError("work before execute", true);
-          for (const payload of mapper.map(event)) {
+          for (const payload of mapper.map(event, withdrawal)) {
             // HarnessSessionManager owns journal-before-send and validates the exact commit ACK.
             await deliver({
               session,

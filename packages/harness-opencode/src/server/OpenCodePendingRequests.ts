@@ -27,6 +27,30 @@ type KnownForm = Readonly<{
   requestID: string;
   /** This object is never rebound to a replacement native process. */
   generation: OpenCodeClient;
+  pending: Pending;
+}>;
+
+type KnownPermission = Readonly<{
+  sessionID: string;
+  requestID: string;
+  generation: OpenCodeClient;
+  pending: Pending;
+}>;
+
+type PermissionClosure = KnownPermission &
+  Readonly<{
+    reason: "native_rejected" | "native_cancelled";
+    /** A sibling rejection is valid only for this exact dispatched deny. */
+    rejectedBy?: string;
+  }>;
+
+/** Native evidence only. EventMapper resolves this to the original canonical
+ * request/item/origin; it does not infer a cancellation from an HTTP ACK. */
+export type OpenCodeNativeRequestWithdrawal = Readonly<{
+  requestType: "approval" | "user_input";
+  sessionID: string;
+  requestID: string;
+  reason: "native_rejected" | "native_cancelled";
 }>;
 
 /** Single-use native handles for this transport generation, gated by canonical commit. */
@@ -39,6 +63,8 @@ export class OpenCodePendingRequests {
   private readonly dispatched = new Map<string, Dispatched>();
   private readonly confirmed = new Set<string>();
   private readonly knownForms = new Map<string, KnownForm>();
+  private readonly knownPermissions = new Map<string, KnownPermission>();
+  private readonly permissionClosures = new Map<string, PermissionClosure>();
   private readonly stopFormClosures = new Map<string, KnownForm>();
   private readonly formSettlements = new Map<string, string>();
   private stopping = false;
@@ -56,6 +82,8 @@ export class OpenCodePendingRequests {
       this.confirmed.clear();
       this.seen.clear();
       this.knownForms.clear();
+      this.knownPermissions.clear();
+      this.permissionClosures.clear();
       this.stopFormClosures.clear();
       this.formSettlements.clear();
     });
@@ -67,7 +95,7 @@ export class OpenCodePendingRequests {
 
   async observe(
     event: OpenCodeEvent,
-    commit: () => Promise<void>,
+    commit: (withdrawal?: OpenCodeNativeRequestWithdrawal) => Promise<void>,
   ): Promise<void> {
     if (this.released)
       return this.transport.invalidate(
@@ -77,19 +105,44 @@ export class OpenCodePendingRequests {
     // native decision/answer in every state; cancellation is not a wildcard.
     let confirmation: string | undefined;
     let formSettlement: string | undefined;
+    let withdrawal: OpenCodeNativeRequestWithdrawal | undefined;
     if (event.type === "permission.replied") {
       confirmation = `permission:${event.data.requestID}`;
       const receipt = this.dispatched.get(confirmation);
-      if (
-        !receipt ||
-        receipt.kind !== "permission" ||
-        receipt.sessionID !== event.data.sessionID ||
-        receipt.requestID !== event.data.requestID ||
-        receipt.decision !== event.data.reply
-      )
+      const matches =
+        receipt?.kind === "permission" &&
+        receipt.sessionID === event.data.sessionID &&
+        receipt.requestID === event.data.requestID &&
+        receipt.decision === event.data.reply;
+      const closure = this.permissionClosures.get(event.data.requestID);
+      const rejectingReceipt =
+        closure?.rejectedBy === undefined
+          ? undefined
+          : this.dispatched.get(`permission:${closure.rejectedBy}`);
+      const nativeClosure =
+        !receipt &&
+        event.data.reply === "reject" &&
+        closure?.sessionID === event.data.sessionID &&
+        closure.requestID === event.data.requestID &&
+        closure.generation === this.transport &&
+        (closure.reason === "native_cancelled"
+          ? this.stopping
+          : rejectingReceipt?.kind === "permission" &&
+            rejectingReceipt.sessionID === closure.sessionID &&
+            rejectingReceipt.requestID === closure.rejectedBy &&
+            rejectingReceipt.decision === "reject");
+      if (!matches && !nativeClosure)
         return this.transport.invalidate(
           "permission settled outside canonical reply",
         );
+      if (nativeClosure) {
+        withdrawal = {
+          requestType: "approval",
+          sessionID: event.data.sessionID,
+          requestID: event.data.requestID,
+          reason: closure.reason,
+        };
+      }
     }
     if (event.type === "form.replied" || event.type === "form.cancelled") {
       confirmation = `form:${event.data.id}`;
@@ -107,6 +160,7 @@ export class OpenCodePendingRequests {
           : receipt.kind === "form_reply" &&
             receipt.answerFingerprint === answer);
       const stopClosure =
+        !receipt &&
         event.type === "form.cancelled" &&
         this.stopping &&
         closure?.sessionID === event.data.sessionID &&
@@ -116,6 +170,14 @@ export class OpenCodePendingRequests {
         return this.transport.invalidate(
           "question settled outside canonical reply",
         );
+      if (!matches && stopClosure) {
+        withdrawal = {
+          requestType: "user_input",
+          sessionID: event.data.sessionID,
+          requestID: event.data.id,
+          reason: "native_cancelled",
+        };
+      }
       formSettlement =
         event.type === "form.cancelled" ? "cancelled" : `reply:${answer}`;
       const settled = this.formSettlements.get(event.data.id);
@@ -123,38 +185,51 @@ export class OpenCodePendingRequests {
         return this.transport.invalidate("conflicting native form settlement");
     }
     if (confirmation && this.confirmed.has(confirmation)) return;
-    if (!this.stopping && event.type === "permission.asked")
+    if (event.type === "permission.asked") {
       this.reserve(`permission:${event.data.id}`);
+      if (this.knownPermissions.size >= 128)
+        return this.transport.invalidate("known pending permission bound");
+    }
     if (event.type === "form.created") {
       this.reserve(`form:${event.data.form.id}`);
       if (this.knownForms.size >= 128)
         return this.transport.invalidate("known pending form bound");
+    }
+    const committed = Promise.resolve().then(() => commit(withdrawal));
+    if (event.type === "permission.asked") {
+      const pending = {
+        sessionID: event.data.sessionID,
+        committed,
+        claimed: false,
+      };
+      this.knownPermissions.set(
+        event.data.id,
+        Object.freeze({
+          sessionID: event.data.sessionID,
+          requestID: event.data.id,
+          generation: this.transport,
+          pending,
+        }),
+      );
+      if (!this.stopping) this.permissions.set(event.data.id, pending);
+    }
+    if (event.type === "form.created") {
+      const pending = {
+        sessionID: event.data.form.sessionID,
+        committed,
+        claimed: false,
+        form: structuredClone(event.data.form),
+      };
       this.knownForms.set(
         event.data.form.id,
         Object.freeze({
-          sessionID: event.data.form.sessionID,
+          sessionID: pending.sessionID,
           requestID: event.data.form.id,
           generation: this.transport,
+          pending,
         }),
       );
-    }
-    const committed = Promise.resolve().then(commit);
-    if (!this.stopping) {
-      if (event.type === "permission.asked") {
-        this.permissions.set(event.data.id, {
-          sessionID: event.data.sessionID,
-          committed,
-          claimed: false,
-        });
-      }
-      if (event.type === "form.created") {
-        this.forms.set(event.data.form.id, {
-          sessionID: event.data.form.sessionID,
-          committed,
-          claimed: false,
-          form: structuredClone(event.data.form),
-        });
-      }
+      if (!this.stopping) this.forms.set(event.data.form.id, pending);
     }
     await committed;
     if (confirmation && !this.released) this.confirmed.add(confirmation);
@@ -164,8 +239,10 @@ export class OpenCodePendingRequests {
       (event.type === "form.replied" || event.type === "form.cancelled")
     )
       this.formSettlements.set(event.data.id, formSettlement);
-    if (event.type === "permission.replied")
+    if (event.type === "permission.replied") {
       this.permissions.delete(event.data.requestID);
+      this.knownPermissions.delete(event.data.requestID);
+    }
     if (event.type === "form.replied" || event.type === "form.cancelled") {
       this.forms.delete(event.data.id);
       this.knownForms.delete(event.data.id);
@@ -187,14 +264,58 @@ export class OpenCodePendingRequests {
         false,
       );
     const pending = await this.claim(this.permissions.get(requestID));
+    // OpenCode rejects the pending permissions in this native session. Capture
+    // the exact currently observed set; neither descendants nor later requests
+    // gain closure authority from this dispatch.
+    const cascade =
+      decision === "reject"
+        ? [...this.permissions.entries()].filter(
+            ([id, value]) =>
+              id !== requestID && value.sessionID === pending.sessionID,
+          )
+        : [];
+    if (cascade.some(([, value]) => value.claimed))
+      return this.transport.invalidate("reject cascade races a claimed reply");
+    await Promise.all(cascade.map(([, value]) => value.committed));
     await this.transport.mutate("permission.reply", (api, signal) => {
       this.assertNotStopping();
+      if (decision === "reject") {
+        const current = [...this.permissions.entries()].filter(
+          ([id, value]) =>
+            id !== requestID && value.sessionID === pending.sessionID,
+        );
+        if (
+          current.length !== cascade.length ||
+          current.some(
+            ([id, value]) =>
+              value.claimed ||
+              !cascade.some(
+                ([capturedId, captured]) =>
+                  capturedId === id && captured === value,
+              ),
+          )
+        )
+          return this.transport.invalidate(
+            "reject cascade scope changed before dispatch",
+          );
+      }
       this.remember(`permission:${requestID}`, {
         kind: "permission",
         sessionID: pending.sessionID,
         requestID,
         decision,
       });
+      for (const [id, value] of cascade) {
+        const known = this.knownPermissions.get(id);
+        if (
+          !known ||
+          known.pending !== value ||
+          known.generation !== this.transport
+        )
+          return this.transport.invalidate("reject cascade generation changed");
+        this.armPermissionClosure(known, "native_rejected", requestID);
+        value.claimed = true;
+      }
       return api.permission.reply(
         { sessionID: pending.sessionID, requestID, decision },
         { signal },
@@ -260,12 +381,54 @@ export class OpenCodePendingRequests {
       this.transport.continuity !== "ready"
     )
       return this.transport.invalidate("invalid Stop closure dispatch");
+    for (const [id, permission] of this.knownPermissions) {
+      if (
+        permission.sessionID !== sessionID ||
+        this.confirmed.has(`permission:${id}`)
+      )
+        continue;
+      // A dispatched reply retains its exact receipt, even during Stop. A claim
+      // without dispatch is ambiguous, so native cancellation cannot replace it.
+      if (this.dispatched.has(`permission:${id}`)) continue;
+      if (permission.pending.claimed && !this.permissionClosures.has(id))
+        return this.transport.invalidate(
+          "Stop closure races a claimed permission",
+        );
+      if (!this.permissionClosures.has(id))
+        this.armPermissionClosure(permission, "native_cancelled");
+    }
     for (const [id, form] of this.knownForms) {
       if (form.sessionID !== sessionID) continue;
+      if (this.dispatched.has(`form:${id}`)) continue;
+      if (form.pending.claimed)
+        return this.transport.invalidate("Stop closure races a claimed form");
       if (!this.stopFormClosures.has(id) && this.stopFormClosures.size >= 1000)
         return this.transport.invalidate("Stop form closure receipt bound");
       this.stopFormClosures.set(id, form);
     }
+  }
+
+  private armPermissionClosure(
+    permission: KnownPermission,
+    reason: PermissionClosure["reason"],
+    rejectedBy?: string,
+  ): void {
+    if (
+      permission.generation !== this.transport ||
+      this.permissionClosures.has(permission.requestID) ||
+      this.permissionClosures.size >= 1000
+    )
+      return this.transport.invalidate(
+        "native permission closure bound or generation",
+      );
+    this.permissionClosures.set(
+      permission.requestID,
+      Object.freeze({
+        ...permission,
+        reason,
+        ...(rejectedBy === undefined ? {} : { rejectedBy }),
+      }),
+    );
   }
 
   private remember(id: string, receipt: Dispatched): void {

@@ -21,8 +21,10 @@ import {
   HarnessQuiescenceSchema,
   type HarnessObservationPayload,
   type HarnessQuiescence,
+  type HarnessRequestOrigin,
   type HarnessSession,
 } from "@repo/worker-protocol";
+import type { OpenCodeNativeRequestWithdrawal } from "./OpenCodePendingRequests.js";
 import { OpenCodeTransportError } from "./OpenCodeClient.js";
 import { OpenCodeUsageReader } from "./OpenCodeUsageReader.js";
 import { openCodeFailure } from "./OpenCodeErrorMapper.js";
@@ -31,6 +33,13 @@ type Terminal = Extract<
   HarnessObservationPayload,
   { kind: "external_terminal" }
 >;
+
+type MappedRequest = Readonly<{
+  requestType: "approval" | "user_input";
+  requestId: string;
+  itemId: ItemId;
+  replyTo: HarnessRequestOrigin;
+}>;
 
 /** Native translation only. Host journals payloads; runtime validates and appends them. */
 export class OpenCodeEventMapper {
@@ -43,6 +52,8 @@ export class OpenCodeEventMapper {
   private usageSequence = 0;
   private readonly terminalIds = new Map<string, string>();
   private readonly terminalPositions = new Map<string, string>();
+  private readonly requests = new Map<string, MappedRequest>();
+  private readonly seenRequests = new Set<string>();
 
   constructor(
     private readonly options: {
@@ -60,7 +71,10 @@ export class OpenCodeEventMapper {
     );
   }
 
-  map(event: OpenCodeEvent): ReadonlyArray<HarnessObservationPayload> {
+  map(
+    event: OpenCodeEvent,
+    withdrawal?: OpenCodeNativeRequestWithdrawal,
+  ): ReadonlyArray<HarnessObservationPayload> {
     try {
       const receipt = this.terminalReceipt(event);
       if (receipt?.duplicate) return [];
@@ -72,7 +86,10 @@ export class OpenCodeEventMapper {
           : "sessionID" in event.data
             ? event.data.sessionID
             : undefined;
-      const payloads = this.translate(event).map((payload) =>
+      const translated = withdrawal
+        ? [this.withdrawRequest(event, withdrawal)]
+        : this.translate(event);
+      const payloads = translated.map((payload) =>
         HarnessObservationPayloadSchema.parse(
           origin &&
             origin !== this.options.session.externalSessionId &&
@@ -344,52 +361,77 @@ export class OpenCodeEventMapper {
             true,
           );
         const requestId = event.data.id;
-        return [
-          {
-            kind: "approval_requested",
-            parentItemId: this.item("tool", key),
-            request: {
-              approvalId: ApprovalIdSchema.parse(
-                `appr_${this.hash("permission", requestId)}`,
-              ),
-              itemId: this.item("permission", requestId),
-              question: event.data.message ?? `Allow ${event.data.action}?`,
-              options: [
-                { id: "allow_once", label: "Allow once", description: null },
-                { id: "deny", label: "Deny", description: null },
-              ],
-              metadata: {
-                action: event.data.action,
-                resources: event.data.resources,
-                externalSessionId: event.data.sessionID,
-              },
-            },
-            replyTo: {
-              session: this.options.session,
-              origin: event.data.sessionID,
-              requestId,
-              authOwnerGeneration: this.options.selection.authOwnerGeneration,
+        const payload = HarnessObservationPayloadSchema.parse({
+          kind: "approval_requested",
+          parentItemId: this.item("tool", key),
+          request: {
+            approvalId: ApprovalIdSchema.parse(
+              `appr_${this.hash("permission", requestId)}`,
+            ),
+            itemId: this.item("permission", requestId),
+            question: event.data.message ?? `Allow ${event.data.action}?`,
+            options: [
+              { id: "allow_once", label: "Allow once", description: null },
+              { id: "deny", label: "Deny", description: null },
+            ],
+            metadata: {
+              action: event.data.action,
+              resources: event.data.resources,
+              externalSessionId: event.data.sessionID,
             },
           },
-        ];
+          replyTo: {
+            session: this.options.session,
+            origin: event.data.sessionID,
+            requestId,
+            authOwnerGeneration: this.options.selection.authOwnerGeneration,
+          },
+        });
+        if (payload.kind !== "approval_requested")
+          throw new OpenCodeTransportError("permission mapping", true);
+        this.rememberRequest({
+          requestType: "approval",
+          requestId: payload.request.approvalId,
+          itemId: payload.request.itemId,
+          replyTo: payload.replyTo,
+        });
+        return [payload];
       }
       case "form.created": {
         const form = event.data.form;
-        return [
-          {
-            kind: "user_input_requested",
-            itemId: this.item("question", form.id),
-            requestId: `input_${this.hash("question", form.id)}`,
-            payload: questionPayload(form),
-            replyTo: {
-              session: this.options.session,
-              origin: form.sessionID,
-              requestId: form.id,
-              authOwnerGeneration: this.options.selection.authOwnerGeneration,
-            },
+        const payload = HarnessObservationPayloadSchema.parse({
+          kind: "user_input_requested",
+          itemId: this.item("question", form.id),
+          requestId: `input_${this.hash("question", form.id)}`,
+          payload: questionPayload(form),
+          replyTo: {
+            session: this.options.session,
+            origin: form.sessionID,
+            requestId: form.id,
+            authOwnerGeneration: this.options.selection.authOwnerGeneration,
           },
-        ];
+        });
+        if (payload.kind !== "user_input_requested")
+          throw new OpenCodeTransportError("question mapping", true);
+        this.rememberRequest({
+          requestType: "user_input",
+          requestId: payload.requestId,
+          itemId: payload.itemId,
+          replyTo: payload.replyTo,
+        });
+        return [payload];
       }
+      case "permission.replied":
+        this.completeRequest(
+          "approval",
+          event.data.sessionID,
+          event.data.requestID,
+        );
+        return [];
+      case "form.replied":
+      case "form.cancelled":
+        this.completeRequest("user_input", event.data.sessionID, event.data.id);
+        return [];
       case "session.usage.updated": {
         const usage = this.usage.observe(event);
         return [
@@ -436,6 +478,106 @@ export class OpenCodeEventMapper {
       default:
         return [];
     }
+  }
+
+  private rememberRequest(request: MappedRequest): void {
+    const key = this.requestKey(request.requestType, request.replyTo.requestId);
+    if (
+      this.requests.size >= 128 ||
+      this.seenRequests.size >= 1000 ||
+      this.seenRequests.has(key)
+    )
+      throw new OpenCodeTransportError(
+        "canonical request mapping bound or duplicate",
+        true,
+      );
+    this.seenRequests.add(key);
+    this.requests.set(key, Object.freeze(structuredClone(request)));
+  }
+
+  private requireRequest(
+    requestType: MappedRequest["requestType"],
+    sessionID: string,
+    nativeRequestID: string,
+  ): MappedRequest {
+    const request = this.requests.get(
+      this.requestKey(requestType, nativeRequestID),
+    );
+    const expected = this.options.session;
+    if (
+      !request ||
+      request.requestType !== requestType ||
+      request.replyTo.origin !== sessionID ||
+      request.replyTo.requestId !== nativeRequestID ||
+      request.replyTo.authOwnerGeneration !==
+        this.options.selection.authOwnerGeneration ||
+      request.replyTo.session.runAttemptId !== expected.runAttemptId ||
+      request.replyTo.session.instanceId !== expected.instanceId ||
+      request.replyTo.session.externalSessionId !==
+        expected.externalSessionId ||
+      request.replyTo.session.processGeneration !== expected.processGeneration
+    )
+      throw new OpenCodeTransportError(
+        "native request mapping scope changed",
+        true,
+      );
+    return request;
+  }
+
+  private completeRequest(
+    requestType: MappedRequest["requestType"],
+    sessionID: string,
+    nativeRequestID: string,
+  ): void {
+    this.requireRequest(requestType, sessionID, nativeRequestID);
+    this.requests.delete(this.requestKey(requestType, nativeRequestID));
+  }
+
+  private withdrawRequest(
+    event: OpenCodeEvent,
+    withdrawal: OpenCodeNativeRequestWithdrawal,
+  ): HarnessObservationPayload {
+    const permission =
+      withdrawal.requestType === "approval" &&
+      event.type === "permission.replied" &&
+      event.data.reply === "reject" &&
+      event.data.sessionID === withdrawal.sessionID &&
+      event.data.requestID === withdrawal.requestID;
+    const form =
+      withdrawal.requestType === "user_input" &&
+      withdrawal.reason === "native_cancelled" &&
+      event.type === "form.cancelled" &&
+      event.data.sessionID === withdrawal.sessionID &&
+      event.data.id === withdrawal.requestID;
+    if (!permission && !form)
+      throw new OpenCodeTransportError(
+        "withdrawal without matching native closure",
+        true,
+      );
+    const request = this.requireRequest(
+      withdrawal.requestType,
+      withdrawal.sessionID,
+      withdrawal.requestID,
+    );
+    const payload = HarnessObservationPayloadSchema.parse({
+      kind: "request_withdrawn",
+      requestType: request.requestType,
+      requestId: request.requestId,
+      itemId: request.itemId,
+      replyTo: request.replyTo,
+      reason: withdrawal.reason,
+    });
+    this.requests.delete(
+      this.requestKey(withdrawal.requestType, withdrawal.requestID),
+    );
+    return payload;
+  }
+
+  private requestKey(
+    requestType: MappedRequest["requestType"],
+    nativeRequestID: string,
+  ): string {
+    return `${requestType}:${nativeRequestID}`;
   }
 
   private rememberText(key: string, text: string): void {
