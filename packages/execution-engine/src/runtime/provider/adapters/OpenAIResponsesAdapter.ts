@@ -18,6 +18,8 @@ interface OpenAIResponsesConfig {
 }
 
 const OPENAI_RESPONSES_TIMEOUT_MS = 150_000;
+// Bound a single unfinished SSE event independently of the request timeout.
+const MAX_RESPONSES_EVENT_CHARS = 16 * 1024 * 1024;
 
 // The converter validates its own schema input; keep the package boundary free
 // of recursively expanding Zod types from different supported entry points.
@@ -120,25 +122,162 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
   async *generateStream(
     params: GenerationParams,
   ): AsyncGenerator<StreamChunk, GenerationResult, unknown> {
-    const result = await this.generate(params);
-    if (result.content) {
+    const model = this.resolveModel(params.model);
+    const controller = new AbortController();
+    const abort = () => controller.abort(params.signal?.reason);
+    params.signal?.addEventListener("abort", abort, { once: true });
+    if (params.signal?.aborted) abort();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      OPENAI_RESPONSES_TIMEOUT_MS,
+    );
+    try {
+      if (controller.signal.aborted) throw new Error("aborted");
+      const response = await fetch(this.endpoint, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ...buildResponsesRequestBody(params, model),
+          stream: true,
+        }),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new ProviderError(
+          "openai-responses",
+          `Responses request failed with status ${response.status}`,
+          undefined,
+          {
+            statusCode: response.status,
+            retryable:
+              response.status === 408 ||
+              response.status === 429 ||
+              response.status >= 500,
+          },
+        );
+      }
+      if (
+        !response.body ||
+        response.headers
+          .get("content-type")
+          ?.split(";", 1)[0]
+          ?.trim()
+          .toLowerCase() !== "text/event-stream"
+      ) {
+        throw invalidResponsesStream();
+      }
+      let content = "";
+      let result: GenerationResult | undefined;
+      const calls = new Map<
+        string,
+        NonNullable<GenerationResult["toolCalls"]>[number]
+      >();
+      for await (const event of readResponsesEvents(
+        response.body,
+        controller.signal,
+      )) {
+        if (controller.signal.aborted) throw new Error("aborted");
+        if (event.type === "response.output_text.delta") {
+          if (typeof event.delta !== "string") throw invalidResponsesStream();
+          content += event.delta;
+          yield { type: "text", content: event.delta };
+        } else if (event.type === "response.output_item.done") {
+          const parsed = ResponsesOutputItemSchema.safeParse(event.item);
+          if (!parsed.success) throw invalidResponsesStream();
+          const item = parsed.data;
+          if (item.type !== "function_call") continue;
+          const call = completeStreamToolCall(item);
+          const previous = calls.get(call.toolCallId!);
+          if (previous) {
+            if (JSON.stringify(previous) !== JSON.stringify(call))
+              throw invalidResponsesStream();
+            continue;
+          }
+          calls.set(call.toolCallId!, call);
+          yield { type: "tool-call", toolCall: call };
+        } else if (event.type === "response.completed") {
+          const parsed = ResponsesPayloadSchema.safeParse(event.response);
+          if (!parsed.success) throw invalidResponsesStream();
+          const payload = parsed.data;
+          if (
+            payload.status !== "completed" ||
+            !payload.output ||
+            extractResponsesText(payload) !== content
+          ) {
+            throw invalidResponsesStream();
+          }
+          const finalCalls = payload.output
+            .filter((item) => item.type === "function_call")
+            .map(completeStreamToolCall);
+          if (
+            finalCalls.length !== calls.size ||
+            finalCalls.some(
+              (call) =>
+                JSON.stringify(calls.get(call.toolCallId!)) !==
+                JSON.stringify(call),
+            )
+          ) {
+            throw invalidResponsesStream();
+          }
+          result = {
+            content,
+            usage: normalizeResponsesUsage(payload.usage, this.provider, model),
+            finishReason: payload.status,
+            toolCalls: finalCalls.length ? finalCalls : undefined,
+            transcriptParts: extractResponsesReasoningSummary(payload.output),
+          };
+          break;
+        } else if (
+          event.type === "response.failed" ||
+          event.type === "response.incomplete" ||
+          event.type === "error"
+        ) {
+          throw new ProviderError(
+            "openai-responses",
+            "Responses stream did not complete successfully",
+            undefined,
+            {
+              code: "PROVIDER_UNAVAILABLE",
+              statusCode: 502,
+              retryable: event.type !== "response.incomplete",
+            },
+          );
+        }
+      }
+      if (controller.signal.aborted) throw new Error("aborted");
+      if (!result) throw invalidResponsesStream();
       yield {
-        type: "text",
-        content: result.content,
+        type: "finish",
+        usage: result.usage,
+        finishReason: result.finishReason,
       };
+      return result;
+    } catch (error) {
+      if (error instanceof ProviderError) throw error;
+      const interrupted = params.signal?.aborted === true;
+      const timedOut = controller.signal.aborted && !interrupted;
+      throw new ProviderError(
+        "openai-responses",
+        "Responses stream failed",
+        undefined,
+        {
+          code: interrupted
+            ? "ABORTED"
+            : timedOut
+              ? "TIMEOUT"
+              : "NETWORK_ERROR",
+          statusCode: timedOut ? 408 : undefined,
+          retryable: !interrupted,
+        },
+      );
+    } finally {
+      clearTimeout(timeout);
+      params.signal?.removeEventListener("abort", abort);
+      controller.abort();
     }
-    for (const toolCall of result.toolCalls ?? []) {
-      yield {
-        type: "tool-call",
-        toolCall,
-      };
-    }
-    yield {
-      type: "finish",
-      usage: result.usage,
-      finishReason: result.finishReason,
-    };
-    return result;
   }
 
   private resolveModel(model: string | undefined): string {
@@ -150,6 +289,126 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
       );
     }
     return resolvedModel;
+  }
+}
+
+function invalidResponsesStream(): ProviderError {
+  return new ProviderError(
+    "openai-responses",
+    "Responses stream failed contract validation",
+    undefined,
+    {
+      code: "INVALID_RESPONSE_CONTRACT",
+      statusCode: 502,
+      retryable: false,
+    },
+  );
+}
+
+function completeStreamToolCall(
+  item: ResponsesOutputItem,
+): NonNullable<GenerationResult["toolCalls"]>[number] {
+  if (
+    item.status !== "completed" ||
+    !item.call_id ||
+    !item.name ||
+    typeof item.arguments !== "string"
+  ) {
+    throw invalidResponsesStream();
+  }
+  let args: unknown;
+  try {
+    args = JSON.parse(item.arguments);
+  } catch {
+    throw invalidResponsesStream();
+  }
+  if (!args || typeof args !== "object" || Array.isArray(args))
+    throw invalidResponsesStream();
+  return { toolCallId: item.call_id, toolName: item.name, args };
+}
+
+/** SSE framing is independent of fetch chunks, including split UTF-8 and CRLF. */
+async function* readResponsesEvents(
+  body: ReadableStream<Uint8Array>,
+  signal: AbortSignal,
+): AsyncGenerator<Record<string, unknown>> {
+  const reader = body.getReader();
+  const cancel = () => {
+    void reader.cancel().catch(() => undefined);
+  };
+  signal.addEventListener("abort", cancel, { once: true });
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let buffer = "";
+  let data: string[] = [];
+  let dataLength = 0;
+  let eventName = "";
+  try {
+    while (true) {
+      if (signal.aborted) throw new Error("aborted");
+      const { value, done } = await reader.read();
+      if (signal.aborted) throw new Error("aborted");
+      try {
+        buffer += decoder.decode(value, { stream: !done });
+      } catch {
+        throw invalidResponsesStream();
+      }
+      let match: RegExpExecArray | null;
+      while ((match = /\r\n|\r|\n/.exec(buffer))) {
+        if (signal.aborted) throw new Error("aborted");
+        // A trailing CR may be the first half of a CRLF in the next fetch chunk.
+        if (!done && match[0] === "\r" && match.index === buffer.length - 1)
+          break;
+        if (match.index > MAX_RESPONSES_EVENT_CHARS)
+          throw invalidResponsesStream();
+        const line = buffer.slice(0, match.index);
+        buffer = buffer.slice(match.index + match[0].length);
+        if (line === "") {
+          if (data.length) {
+            let event: unknown;
+            try {
+              event = JSON.parse(data.join("\n"));
+            } catch {
+              throw invalidResponsesStream();
+            }
+            if (
+              !event ||
+              typeof event !== "object" ||
+              Array.isArray(event) ||
+              typeof (event as Record<string, unknown>).type !== "string" ||
+              (eventName &&
+                eventName !== (event as Record<string, unknown>).type)
+            )
+              throw invalidResponsesStream();
+            data = [];
+            dataLength = 0;
+            eventName = "";
+            yield event as Record<string, unknown>;
+          }
+          eventName = "";
+        } else if (!line.startsWith(":")) {
+          const colon = line.indexOf(":");
+          const field = colon < 0 ? line : line.slice(0, colon);
+          const raw = colon < 0 ? "" : line.slice(colon + 1);
+          const value = raw.startsWith(" ") ? raw.slice(1) : raw;
+          if (field === "data") {
+            dataLength += value.length + 1;
+            if (dataLength > MAX_RESPONSES_EVENT_CHARS)
+              throw invalidResponsesStream();
+            data.push(value);
+          } else if (field === "event") eventName = value;
+        }
+      }
+      if (buffer.length > MAX_RESPONSES_EVENT_CHARS)
+        throw invalidResponsesStream();
+      if (done) {
+        if (buffer || data.length || eventName) throw invalidResponsesStream();
+        return;
+      }
+    }
+  } finally {
+    signal.removeEventListener("abort", cancel);
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
   }
 }
 

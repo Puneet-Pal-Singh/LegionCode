@@ -74,22 +74,25 @@ describe("OpenAIResponsesAdapter", () => {
     const native = createProtectedProviderAdapter({
       providerId: "openai",
       modelId,
-      model: { id: modelId, name: modelId, providerId: "openai", availability: "available" },
+      model: {
+        id: modelId,
+        name: modelId,
+        providerId: "openai",
+        availability: "available",
+      },
       resolveCredential,
     });
     const fetchSpy = vi.mocked(globalThis.fetch);
-    fetchSpy
-      .mockClear()
-      .mockImplementation(
-        async () =>
-          new Response(
-            JSON.stringify({
-              output_text: "Done",
-              usage: { input_tokens: 1, output_tokens: 1 },
-            }),
-            { status: 200 },
-          ),
-      );
+    fetchSpy.mockClear().mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            output_text: "Done",
+            usage: { input_tokens: 1, output_tokens: 1 },
+          }),
+          { status: 200 },
+        ),
+    );
     await expect(
       native.generate({
         messages: [{ role: "user", content: "native hello" }],
@@ -547,36 +550,390 @@ describe("OpenAIResponsesAdapter", () => {
   });
 
   it("simulates stream chunks from a responses generation", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          output_text: "Streamed",
-          usage: {
-            input_tokens: 1,
-            output_tokens: 1,
-          },
+    const encoder = new TextEncoder();
+    const frame = (event: Record<string, unknown>) =>
+      `event: ${event.type}\r\ndata: ${JSON.stringify(event)}\r\n\r\n`;
+    const call = {
+      type: "function_call",
+      id: "fc_1",
+      call_id: "call_1",
+      name: "read_file",
+      arguments: '{"path":"README.md"}',
+      status: "completed",
+    };
+    const payload = {
+      status: "completed",
+      output: [
+        { type: "message", content: [{ type: "output_text", text: "Hi 🌍" }] },
+        call,
+        {
+          type: "reasoning",
+          summary: [{ type: "summary_text", text: "Safe summary" }],
+        },
+      ],
+      usage: { input_tokens: 3, output_tokens: 2 },
+    };
+    const completed = { type: "response.completed", response: payload };
+    const events = [
+      { type: "response.output_text.delta", delta: "Hi " },
+      { type: "response.output_text.delta", delta: "🌍" },
+      {
+        type: "response.output_item.added",
+        output_index: 1,
+        item: { ...call, status: "in_progress", arguments: "" },
+      },
+      {
+        type: "response.function_call_arguments.delta",
+        item_id: "fc_1",
+        delta: '{"path":',
+      },
+      {
+        type: "response.function_call_arguments.done",
+        item_id: "fc_1",
+        arguments: call.arguments,
+      },
+      { type: "response.output_item.done", output_index: 1, item: call },
+      { type: "response.output_item.done", output_index: 1, item: call },
+      completed,
+    ];
+    const adapter = new OpenAIResponsesAdapter({
+      apiKey: "fixture-secret-never-echo",
+      endpoint: "https://api.openai.com/v1/responses",
+      providerId: "openai",
+    });
+    const params = {
+      messages: [{ role: "user" as const, content: "stream" }],
+      model: "fixture-model",
+      system: "Be helpful",
+      reasoningEffort: "low" as const,
+      maxOutputTokens: 42,
+      tools: {
+        read_file: {
+          description: "Read",
+          parameters: z.object({ path: z.string() }),
+        },
+      },
+    };
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const respond = (wire: string, width = 1) => {
+      const bytes = encoder.encode(wire);
+      const cancel = vi.fn();
+      let offset = 0;
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (offset === bytes.length) {
+            controller.close();
+            return;
+          }
+          controller.enqueue(bytes.slice(offset, offset + width));
+          offset = Math.min(bytes.length, offset + width);
+        },
+        cancel,
+      });
+      fetchSpy.mockResolvedValueOnce(
+        new Response(body, {
+          headers: { "Content-Type": "text/event-stream; charset=utf-8" },
         }),
-        { status: 200 },
+      );
+      return cancel;
+    };
+    const wire = ": keepalive\r\n\r\n" + events.map(frame).join("");
+    // Every byte split includes UTF-8 code points, JSON, fields and CRLF pairs.
+    respond(wire);
+    const stream = adapter.generateStream(params);
+    await expect(stream.next()).resolves.toMatchObject({
+      value: { type: "text", content: "Hi " },
+      done: false,
+    });
+    await expect(stream.next()).resolves.toMatchObject({
+      value: { type: "text", content: "🌍" },
+      done: false,
+    });
+    await expect(stream.next()).resolves.toMatchObject({
+      value: {
+        type: "tool-call",
+        toolCall: {
+          toolCallId: "call_1",
+          toolName: "read_file",
+          args: { path: "README.md" },
+        },
+      },
+      done: false,
+    });
+    await expect(stream.next()).resolves.toMatchObject({
+      value: {
+        type: "finish",
+        finishReason: "completed",
+        usage: { totalTokens: 5 },
+      },
+      done: false,
+    });
+    await expect(stream.next()).resolves.toMatchObject({
+      done: true,
+      value: {
+        content: "Hi 🌍",
+        transcriptParts: [
+          { type: "reasoning", text: "Safe summary", displaySafe: true },
+        ],
+      },
+    });
+    const request = fetchSpy.mock.calls[0];
+    expect(request?.[0]).toBe("https://api.openai.com/v1/responses");
+    const streamingBody = JSON.parse(String(request?.[1]?.body));
+    expect(streamingBody).toMatchObject({
+      stream: true,
+      model: "fixture-model",
+      max_output_tokens: 42,
+      reasoning: { effort: "low", summary: "auto" },
+      tools: [{ type: "function", name: "read_file" }],
+    });
+    fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify(payload)));
+    await adapter.generate(params);
+    expect(JSON.parse(String(fetchSpy.mock.calls[1]?.[1]?.body))).toEqual(
+      Object.fromEntries(
+        Object.entries(streamingBody).filter(([key]) => key !== "stream"),
       ),
     );
 
-    const adapter = new OpenAIResponsesAdapter({
-      apiKey: "oc-test",
-      endpoint: "https://opencode.ai/zen/v1/responses",
-      providerId: "opencode-zen",
+    // Same frames in one read, LF/CR framing and multiline data all remain SSE.
+    for (const newline of ["\n", "\r", "\r\n"]) {
+      const multiline = frame(completed).replace(
+        'data: {"type":',
+        'data: {\ndata: "type":',
+      );
+      respond(
+        (events.slice(0, -1).map(frame).join("") + multiline).replace(
+          /\r\n|\n/g,
+          newline,
+        ),
+        65536,
+      );
+      const chunks = [];
+      for await (const chunk of adapter.generateStream(params))
+        chunks.push(chunk);
+      expect(chunks.map((chunk) => chunk.type)).toEqual([
+        "text",
+        "text",
+        "tool-call",
+        "finish",
+      ]);
+    }
+
+    const drain = async (wire: string) => {
+      respond(wire, 65536);
+      const chunks = [];
+      try {
+        for await (const chunk of adapter.generateStream(params))
+          chunks.push(chunk);
+        throw new Error("Expected stream failure");
+      } catch (error) {
+        expect(chunks.some((chunk) => chunk.type === "finish")).toBe(false);
+        expect(String(error)).not.toContain("fixture-secret-never-echo");
+        return { error, chunks };
+      }
+    };
+    for (const type of ["response.failed", "response.incomplete", "error"]) {
+      const { error, chunks } = await drain(
+        frame(events[0]!) +
+          frame({ type, message: "fixture-secret-never-echo" }),
+      );
+      expect(chunks.map((chunk) => chunk.type)).toEqual(["text"]);
+      expect(error).toMatchObject({
+        code: "PROVIDER_UNAVAILABLE",
+        retryable: type !== "response.incomplete",
+      });
+    }
+    for (const malformed of [
+      "data: not-json\n\n",
+      "data: {}\n\n",
+      frame({ type: "response.output_text.delta", delta: 42 }),
+      frame({
+        type: "response.output_item.done",
+        item: { ...call, arguments: "{" },
+      }),
+      frame({
+        type: "response.output_item.done",
+        item: { ...call, call_id: undefined },
+      }),
+      frame({
+        type: "response.output_item.done",
+        item: { ...call, status: "incomplete" },
+      }),
+      frame({
+        type: "response.completed",
+        response: { ...payload, status: "incomplete" },
+      }),
+      frame(completed), // Final content cannot silently replace absent deltas.
+      frame({ type: "response.output_text.delta", delta: "Hi " }), // EOF without terminal.
+      frame(completed).slice(0, -2), // Unterminated terminal frame.
+      "data: [DONE]\n\n",
+    ]) {
+      const { error, chunks } = await drain(malformed);
+      expect(error).toMatchObject({
+        code: "INVALID_RESPONSE_CONTRACT",
+        retryable: false,
+      });
+      expect(chunks.some((chunk) => chunk.type === "tool-call")).toBe(false);
+    }
+
+    for (const oversized of [
+      "data: " + "x".repeat(16 * 1024 * 1024 + 1),
+      ("data: " + "x".repeat(8 * 1024 * 1024) + "\n").repeat(2),
+    ]) {
+      respond(oversized, oversized.length);
+      await expect(adapter.generateStream(params).next()).rejects.toMatchObject(
+        { code: "INVALID_RESPONSE_CONTRACT", retryable: false },
+      );
+    }
+
+    // The first text is observable while the upstream remains open; early
+    // return/abort must cancel that reader rather than wait for completion.
+    for (const stop of ["return", "abort"]) {
+      const cancel = vi.fn();
+      const controller = new AbortController();
+      fetchSpy.mockResolvedValueOnce(
+        new Response(
+          new ReadableStream({
+            start(stream) {
+              stream.enqueue(encoder.encode(frame(events[0]!)));
+            },
+            cancel,
+          }),
+          { headers: { "Content-Type": "text/event-stream" } },
+        ),
+      );
+      const partial = adapter.generateStream({
+        ...params,
+        signal: controller.signal,
+      });
+      await expect(partial.next()).resolves.toMatchObject({
+        value: { type: "text", content: "Hi " },
+      });
+      if (stop === "return") await partial.return(undefined as never);
+      else {
+        const pending = partial.next();
+        controller.abort();
+        await expect(pending).rejects.toMatchObject({
+          code: "ABORTED",
+          retryable: false,
+        });
+      }
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(
+        (fetchSpy.mock.calls.at(-1)?.[1]?.signal as AbortSignal).aborted,
+      ).toBe(true);
+    }
+    // Abort while suspended must not deliver a second already-buffered delta.
+    respond(wire, 65536);
+    const suspendedAbort = new AbortController();
+    const suspended = adapter.generateStream({
+      ...params,
+      signal: suspendedAbort.signal,
     });
-    const stream = adapter.generateStream({
-      messages: [{ role: "user", content: "stream" }],
-      model: "gpt-5.5",
+    await suspended.next();
+    suspendedAbort.abort();
+    await expect(suspended.next()).rejects.toMatchObject({ code: "ABORTED" });
+
+    for (const status of [401, 429, 503]) {
+      fetchSpy.mockResolvedValueOnce(
+        new Response("fixture-secret-never-echo", { status }),
+      );
+      await expect(adapter.generateStream(params).next()).rejects.toMatchObject(
+        { statusCode: status, retryable: status !== 401 },
+      );
+    }
+    fetchSpy.mockRejectedValueOnce(new TypeError("fixture-secret-never-echo"));
+    await expect(adapter.generateStream(params).next()).rejects.toMatchObject({
+      code: "NETWORK_ERROR",
+      message: "[provider/openai-responses] Responses stream failed",
+    });
+    fetchSpy.mockResolvedValueOnce(
+      new Response(new Uint8Array([0xff]), {
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    );
+    await expect(adapter.generateStream(params).next()).rejects.toMatchObject({
+      code: "INVALID_RESPONSE_CONTRACT",
+    });
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify(payload), {
+        headers: { "Content-Type": "text/event-streamgarbage" },
+      }),
+    );
+    await expect(adapter.generateStream(params).next()).rejects.toMatchObject({
+      code: "INVALID_RESPONSE_CONTRACT",
     });
 
-    await expect(stream.next()).resolves.toMatchObject({
-      done: false,
-      value: { type: "text", content: "Streamed" },
+    vi.useFakeTimers();
+    try {
+      respond(wire, 65536);
+      const buffered = adapter.generateStream(params);
+      await buffered.next();
+      await vi.advanceTimersByTimeAsync(150_000);
+      await expect(buffered.next()).rejects.toMatchObject({ code: "TIMEOUT" });
+      expect(vi.getTimerCount()).toBe(0);
+      const cancel = vi.fn();
+      fetchSpy.mockResolvedValueOnce(
+        new Response(new ReadableStream({ cancel }), {
+          headers: { "Content-Type": "text/event-stream" },
+        }),
+      );
+      const pending = adapter.generateStream(params).next();
+      const assertion = expect(pending).rejects.toMatchObject({
+        code: "TIMEOUT",
+        statusCode: 408,
+        retryable: true,
+      });
+      await vi.advanceTimersByTimeAsync(150_000);
+      await assertion;
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+    const modelId = builtinProviderRegistry.listModels("openai")[0]!.modelId;
+    const resolveCredential = vi.fn(async () => ({
+      apiKey: "fixture-protected-stream",
+    }));
+    const protectedAdapter = createProtectedProviderAdapter({
+      providerId: "openai",
+      modelId,
+      model: {
+        id: modelId,
+        name: modelId,
+        providerId: "openai",
+        availability: "available",
+      },
+      resolveCredential,
     });
-    await expect(stream.next()).resolves.toMatchObject({
-      done: false,
-      value: { type: "finish" },
-    });
+    respond(wire, 65536);
+    const protectedChunks = [];
+    for await (const chunk of protectedAdapter.generateStream({
+      ...params,
+      model: modelId,
+    }))
+      protectedChunks.push(chunk);
+    expect(protectedChunks.map((chunk) => chunk.type)).toEqual([
+      "text",
+      "text",
+      "tool-call",
+      "finish",
+    ]);
+    expect(resolveCredential).toHaveBeenCalledOnce();
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      resolveProviderRuntimeRoute("openai", modelId)!.providerEndpoint,
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer fixture-protected-stream",
+        }),
+      }),
+    );
+    const aborted = new AbortController();
+    aborted.abort();
+    const before = fetchSpy.mock.calls.length;
+    await expect(
+      adapter.generateStream({ ...params, signal: aborted.signal }).next(),
+    ).rejects.toMatchObject({ code: "ABORTED" });
+    expect(fetchSpy).toHaveBeenCalledTimes(before);
   });
 });
