@@ -5,20 +5,29 @@ import {
 import type { WorkflowApproval } from "./turn-workflow-projection.js";
 
 export type WorkflowApprovalPresentation =
-  | { available: true; title: string; command: string; cwd: string; execution: ApprovalExecutionPresentation }
-  | { available: false; title?: never; cwd?: never; command: string };
+  | { status: "available"; available: true; title: string; command: string; cwd: string; execution: ApprovalExecutionPresentation }
+  | { status: "unavailable"; available: false; title?: never; cwd?: never; command: string }
+  | { status: "not_applicable"; available: false; title?: never; cwd?: never; command?: never };
 
 /** Read exact canonical display facts; never reconstruct consent from tool rows or summaries. */
 export function projectApprovalPresentation(
   approval: Pick<WorkflowApproval, "metadata">,
 ): WorkflowApprovalPresentation {
-  const parsed = ApprovalExecutionPresentationSchema.safeParse(approval.metadata?.presentation);
-  if (!parsed.success) return {
-    available: false,
-    command: "Exact action details are unavailable for this saved request.",
-  };
+  const presentation = approval.metadata?.presentation;
+  const parsed = ApprovalExecutionPresentationSchema.safeParse(presentation);
+  if (!parsed.success) {
+    const executableExpected = approval.metadata?.toolName === "run_executable" ||
+      (typeof presentation === "object" && presentation !== null &&
+        !Array.isArray(presentation) && "kind" in presentation && presentation.kind === "executable");
+    return executableExpected ? {
+      status: "unavailable",
+      available: false,
+      command: "Exact action details are unavailable for this saved request.",
+    } : { status: "not_applicable", available: false };
+  }
   const execution = parsed.data;
   return {
+    status: "available",
     available: true,
     title: execution.title,
     cwd: execution.cwd,
