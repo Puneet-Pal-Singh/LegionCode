@@ -111,6 +111,11 @@ export {
 
 // Credential vault contracts
 export {
+  CredentialSecretSchema,
+  CredentialAcquisitionSchema,
+  type CredentialSecret,
+  type CredentialAcquisition,
+  type CredentialRefreshClaim,
   CredentialVaultSurfaceSchema,
   CredentialVaultEntrySchema,
   CredentialVaultUnsupportedOperationError,
