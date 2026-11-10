@@ -1626,3 +1626,8 @@ fact and verifies it against porcelain status, the named branch and held grant.
 Unborn repositories use its format-sized absent-HEAD guard, allowing the existing
 canonical capture/first-commit path without inventing a commit or widening the
 manifest schema. A changed or inconsistent HEAD fact aborts preparation.
+
+The canonical workspace owner retains pins whose directory close fails, and raw
+acquisition handles only when their close fails before a pin exists. Its narrow
+`hasUnsettledResources` fact distinguishes clean binding rejection from unknown
+physical ownership; no request failure or rejected Promise proves release.
