@@ -490,7 +490,6 @@ describe("createPlatformHttpTransport", () => {
 
     expect(calls.map((call) => call.url)).toEqual([
       "https://control-plane.test/app-server/request",
-      "https://control-plane.test/turns/trn_123456/user-input/input_123456",
       "https://control-plane.test/app-server/request",
       "https://control-plane.test/app-server/request",
       "https://control-plane.test/app-server/request",
