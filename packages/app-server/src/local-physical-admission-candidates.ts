@@ -9,6 +9,7 @@ import {
   type LocalNativeResourceSettlement,
   StoredHarnessSelectionSchema, type StoredHarnessSelection,
   StoredHarnessPreparationSchema, type HarnessPreparationInput,
+  fingerprintLocalHarnessClientIntent,
 } from "@repo/event-store";
 import type { LocalTurnAttemptIdentity } from "@legioncode/execution-engine/runtime/desktop/LocalReadOnlyTurnExecutor";
 import { verifyLocalNativePredecessorSettlement } from "./local-native-settlement.js";
@@ -147,7 +148,7 @@ class PhysicalAdmissionCandidate implements LocalPhysicalAdmissionCandidate {
           this.admission.run.threadId, this.admission.clientRequestId,
         );
         const byTurn = await this.options.persistence.turnAdmissions.getByTurn(admission.turn.id);
-        if (!sameRequest(this.admission, admission) || !byRequest || !byTurn ||
+        if (fingerprintLocalHarnessClientIntent(this.admission) !== fingerprintLocalHarnessClientIntent(admission) || !byRequest || !byTurn ||
             !isDeepStrictEqual(TurnAdmissionSchema.parse(byRequest), admission) ||
             !isDeepStrictEqual(TurnAdmissionSchema.parse(byTurn), admission)) throw unavailable();
         const binding = await this.options.persistence.harnessBindings.read({
@@ -314,21 +315,6 @@ class PhysicalAdmissionCandidate implements LocalPhysicalAdmissionCandidate {
 
 function unavailable(): Error {
   return new Error("Physical admission candidate requires recovery");
-}
-
-function sameRequest(candidate: TurnAdmission, saved: TurnAdmission): boolean {
-  const request = ({ run, userMessage, clientRequestId }: TurnAdmission) => {
-    if (userMessage.type !== "user_message") throw unavailable();
-    return {
-      clientRequestId, workspaceId: run.workspaceId, threadId: run.threadId, userId: run.userId,
-      text: userMessage.content.text, imageFingerprint: userMessage.content.imageFingerprint,
-      harnessSelection: HarnessAdmissionSelectionSchema.parse(run.harnessSelection),
-      // Explicit request configuration travels in content. Current resolved
-      // defaults, policy, provider, lineage and private pins are not retry intent.
-      configuration: userMessage.content.configuration,
-    };
-  };
-  return isDeepStrictEqual(request(candidate), request(saved));
 }
 
 /** Entire private binding is parsed/frozen before the deferred first await. */
