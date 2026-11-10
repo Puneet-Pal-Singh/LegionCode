@@ -1,6 +1,10 @@
 // These are storage envelopes; P04 owns canonical harness selection/observation
 // schemas. Persist their validated selection JSON without redefining that model.
 export type {
+  StoredHarnessOpening,
+  ReserveHarnessOpeningInput,
+  HarnessOpeningInput,
+  HarnessOpeningReservation,
   StoredHarnessSelection,
   StoredHarnessAttachment,
   StoredHarnessBinding,

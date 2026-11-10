@@ -22,9 +22,18 @@ export type HarnessInstanceScope = Pick<
   | "transport"
 >;
 
+export interface HarnessOpeningAuthority {
+  reserve(input: { command: HarnessStartCommand; host: HarnessHost }): Promise<{
+    beginDispatch(): Promise<void>;
+    acknowledge(
+      session: import("@repo/worker-protocol").HarnessSession,
+    ): Promise<void>;
+  }>;
+}
 export interface HarnessInstance {
   readonly scope: HarnessInstanceScope;
   readonly driver: HarnessDriver;
+  readonly openingAuthority: HarnessOpeningAuthority;
   /** Existing credential and grant authorities resolve host services for this admission. */
   readonly createHost: (command: HarnessStartCommand) => Promise<HarnessHost>;
 }

@@ -23,6 +23,12 @@ export type {
 
 export {
   HarnessPersistenceError,
+  StoredHarnessOpeningSchema,
+  assertHarnessOpeningSelection,
+  assertHarnessOpeningIntent,
+  assertHarnessOpeningOrigin,
+  validateHarnessOpeningCommand,
+  validateHarnessOpeningHistory,
   StoredHarnessSelectionSchema,
   StoredHarnessAttachmentSchema,
   harnessSelectionFingerprint,
@@ -36,6 +42,10 @@ export {
   fingerprintHarnessObservation,
 } from "./local/harness-bindings.js";
 export type {
+  StoredHarnessOpening,
+  ReserveHarnessOpeningInput,
+  HarnessOpeningInput,
+  HarnessOpeningReservation,
   StoredHarnessSelection,
   StoredHarnessAttachment,
   StoredHarnessBinding,
@@ -49,5 +59,8 @@ export { LocalHarnessObservationCommitPort } from "./local/harness-observation-p
 
 export { rethrowHarnessCommitFailure } from "./local/harness-bindings.js";
 
-export { LocalHarnessControlPlane, LocalHarnessControlPlaneError } from "./local/harness-control-plane.js";
+export {
+  LocalHarnessControlPlane,
+  LocalHarnessControlPlaneError,
+} from "./local/harness-control-plane.js";
 export type { LocalHarnessControlPlanePort } from "./local/harness-control-plane.js";

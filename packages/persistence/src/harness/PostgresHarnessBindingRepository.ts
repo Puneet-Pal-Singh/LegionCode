@@ -1,6 +1,18 @@
+import { HarnessOpeningIntentSchema } from "@repo/worker-protocol";
+import { LifecycleEventSchema } from "@repo/platform-protocol/lifecycle";
 import { PostgresTurnAdmissionRepository } from "../turn-admissions/PostgresTurnAdmissionRepository.js";
 import type { LifecycleEvent } from "@repo/platform-protocol/lifecycle";
 import {
+  StoredHarnessOpeningSchema,
+  assertHarnessOpeningSelection,
+  assertHarnessOpeningIntent,
+  assertHarnessOpeningOrigin,
+  validateHarnessOpeningCommand,
+  validateHarnessOpeningHistory,
+  type StoredHarnessOpening,
+  type ReserveHarnessOpeningInput,
+  type HarnessOpeningInput,
+  type HarnessOpeningReservation,
   HarnessPersistenceError,
   createStableEventFingerprint,
   StoredHarnessSelectionSchema,
@@ -41,6 +53,198 @@ type Scope = Pick<StoredHarnessSelection, "userId" | "turnId" | "runAttemptId">;
 export class PostgresHarnessBindingRepository implements HarnessBindingRepository {
   constructor(private readonly client: SqlClient) {}
 
+  async readOpening(raw: Scope): Promise<StoredHarnessOpening | null> {
+    const scope = StoredHarnessSelectionSchema.pick({
+      userId: true,
+      turnId: true,
+      runAttemptId: true,
+    }).parse(raw);
+    return this.client.transaction(async (tx) => {
+      await lockCanonicalTurn(tx, scope.turnId);
+      const binding = await readBinding(tx, scope, true);
+      if (!binding) return null;
+      return readOpening(tx, binding.selection);
+    });
+  }
+  async reserveOpening(
+    input: ReserveHarnessOpeningInput,
+  ): Promise<HarnessOpeningReservation> {
+    const { selection, command, intent } =
+      await validateHarnessOpeningCommand(input);
+    return this.client.transaction(async (tx) => {
+      await lockCanonicalTurn(tx, selection.turnId);
+      await requireAdmission(tx, selection);
+      const binding = await requiredBinding(tx, selection);
+      const prior = await readOpening(tx, selection);
+      if (prior) {
+        assertHarnessOpeningIntent(prior, intent);
+        return { status: "existing" as const, opening: prior };
+      }
+      if (binding.attachment)
+        throw new HarnessPersistenceError(
+          "stale_origin",
+          "Opening attempt already has a session",
+        );
+      const state = await tx.query(
+        "SELECT execution_state FROM canonical_turn_admissions WHERE turn_id=$1",
+        [selection.turnId],
+      );
+      if (state.rows[0]?.execution_state !== "running")
+        throw new HarnessPersistenceError(
+          "stale_origin",
+          "Opening requires active admission",
+        );
+      const events = await tx.query(
+        "SELECT event_id,thread_id,turn_id,run_attempt_id,sequence,idempotency_key,event_type,event_json,schema_version FROM canonical_lifecycle_events WHERE turn_id=$1 ORDER BY sequence LIMIT 10001",
+        [selection.turnId],
+      );
+      const history = events.rows.map((row) => {
+        const event = LifecycleEventSchema.parse(jsonValue(row.event_json));
+        if (
+          row.event_id !== event.eventId ||
+          row.thread_id !== event.threadId ||
+          row.turn_id !== event.turnId ||
+          row.run_attempt_id !== event.runAttemptId ||
+          Number(row.sequence) !== event.sequence ||
+          row.event_type !== event.type ||
+          row.idempotency_key !== event.idempotencyKey ||
+          row.schema_version !== event.schemaVersion
+        )
+          throw new HarnessPersistenceError(
+            "corrupt",
+            "Opening lifecycle indices conflict with canonical events",
+          );
+        return event;
+      });
+      if(intent.executionLease.kind!=="cloud")
+        throw new HarnessPersistenceError("binding_conflict","Hosted opening requires its actual cloud lease");
+      const checkouts=await tx.query(
+        "SELECT sandbox_id,generation,lease_id FROM task_checkouts WHERE workspace_id=$1 AND thread_id=$2 AND turn_id=$3 AND run_attempt_id=$4 AND snapshot_id=$5 AND lease_id=$6 AND filesystem_root=$7 AND status='active' FOR UPDATE",
+        [selection.workspaceId,selection.threadId,selection.turnId,selection.runAttemptId,intent.workspaceGrantId,intent.checkoutLeaseId,command.filesystemRoot]);
+      const checkout=checkouts.rows[0];
+      if(checkouts.rows.length!==1 || !checkout || checkout.sandbox_id!==intent.executionLease.sandboxId ||
+        Number(checkout.generation)!==intent.executionLease.generation || checkout.lease_id!==intent.executionLease.leaseId)
+        throw new HarnessPersistenceError("binding_conflict","Hosted opening differs from the actual checkout lease generation");
+      const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(intent.executionLease.sandboxId));
+      const workerId=`worker_${Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,"0")).join("").slice(0,48)}`;
+      validateHarnessOpeningHistory(selection, command, history, workerId);
+      const opening: StoredHarnessOpening = { intent, phase: "reserved" };
+      const changed = await tx.query(
+        "UPDATE harness_bindings SET opening_json=$4::jsonb WHERE turn_id=$1 AND run_attempt_id=$2 AND user_id=$3 AND opening_json IS NULL AND attachment_json IS NULL RETURNING turn_id",
+        [
+          selection.turnId,
+          selection.runAttemptId,
+          selection.userId,
+          JSON.stringify(opening),
+        ],
+      );
+      if (changed.rows.length !== 1)
+        throw new HarnessPersistenceError(
+          "stale_origin",
+          "Opening reservation lost ownership",
+        );
+      return { status: "reserved" as const, opening };
+    });
+  }
+  async beginOpeningDispatch(raw: HarnessOpeningInput): Promise<void> {
+    const input = {
+      selection: StoredHarnessSelectionSchema.parse(raw.selection),
+      intent: HarnessOpeningIntentSchema.parse(raw.intent),
+    };
+    await this.client.transaction(async (tx) => {
+      await lockCanonicalTurn(tx, input.selection.turnId);
+      await requireAdmission(tx, input.selection);
+      await requiredBinding(tx, input.selection);
+      const opening = await readOpening(tx, input.selection);
+      if (!opening)
+        throw new HarnessPersistenceError(
+          "stale_origin",
+          "Opening reservation is missing",
+        );
+      assertHarnessOpeningIntent(opening, input.intent);
+      const state = await tx.query(
+        "SELECT execution_state FROM canonical_turn_admissions WHERE turn_id=$1",
+        [input.selection.turnId],
+      );
+      if (
+        opening.phase !== "reserved" ||
+        state.rows[0]?.execution_state !== "running"
+      )
+        throw new HarnessPersistenceError(
+          "stale_origin",
+          "Opening dispatch cannot be repeated or recovered by resend",
+        );
+      await tx.query(
+        "UPDATE harness_bindings SET opening_json=$2::jsonb WHERE turn_id=$1",
+        [
+          input.selection.turnId,
+          JSON.stringify({ ...opening, phase: "dispatching" }),
+        ],
+      );
+    });
+  }
+  async acknowledgeOpening(
+    raw: HarnessOpeningInput & { readonly origin: StoredHarnessAttachment },
+  ): Promise<void> {
+    const input = {
+      selection: StoredHarnessSelectionSchema.parse(raw.selection),
+      intent: HarnessOpeningIntentSchema.parse(raw.intent),
+      origin: StoredHarnessAttachmentSchema.parse(raw.origin),
+    };
+    await this.client.transaction(async (tx) => {
+      await lockCanonicalTurn(tx, input.selection.turnId);
+      await requireAdmission(tx, input.selection, true);
+      const binding = await requiredBinding(tx, input.selection);
+      const opening = await readOpening(tx, input.selection);
+      if (!opening)
+        throw new HarnessPersistenceError(
+          "stale_origin",
+          "Opening reservation is missing",
+        );
+      assertHarnessOpeningIntent(opening, input.intent);
+      assertHarnessOpeningOrigin(opening, input.origin);
+      if (
+        opening.phase === "acknowledged" &&
+        sameHarnessOrigin(binding.attachment, input.origin)
+      )
+        return;
+      if (
+        opening.phase !== "dispatching" ||
+        binding.attachment ||
+        binding.lastObservationSequence !== 0
+      )
+        throw new HarnessPersistenceError(
+          "stale_origin",
+          "Native acknowledgement conflicts with opening phase",
+        );
+      const known = await tx.query(
+        "SELECT origin_json FROM harness_process_generations WHERE turn_id=$1 AND process_generation=$2",
+        [input.selection.turnId, input.origin.processGeneration],
+      );
+      if (known.rows.length)
+        throw new HarnessPersistenceError(
+          "stale_origin",
+          "Opening generation already recorded",
+        );
+      const origin = StoredHarnessAttachmentSchema.parse(input.origin);
+      await tx.query(
+        "INSERT INTO harness_process_generations(turn_id,process_generation,origin_json) VALUES ($1,$2,$3::jsonb)",
+        [
+          input.selection.turnId,
+          origin.processGeneration,
+          JSON.stringify(origin),
+        ],
+      );
+      await tx.query(
+        "UPDATE harness_bindings SET attachment_json=$2::jsonb,opening_json=$3::jsonb WHERE turn_id=$1",
+        [
+          input.selection.turnId,
+          JSON.stringify(origin),
+          JSON.stringify({ ...opening, phase: "acknowledged" }),
+        ],
+      );
+    });
+  }
   async freezeAndClaim(input: {
     selection: StoredHarnessSelection;
     claimId: string;
@@ -135,15 +339,41 @@ export class PostgresHarnessBindingRepository implements HarnessBindingRepositor
       await lockCanonicalTurn(tx, input.selection.turnId);
       await requireAdmission(tx, input.selection);
       const binding = await requiredBinding(tx, input.selection);
+      const opening = await readOpening(tx, input.selection);
+      if (opening) {
+        assertHarnessOpeningOrigin(opening, input.origin);
+        if (
+          opening.phase !== "acknowledged" ||
+          !sameHarnessOrigin(binding.attachment, input.origin)
+        )
+          throw new HarnessPersistenceError(
+            "stale_origin",
+            "Ordinary attachment cannot bypass durable opening acknowledgement",
+          );
+      }
       if (sameHarnessOrigin(binding.attachment, input.origin)) return binding;
       assertHarnessAttachmentChange(
         binding,
         input.origin,
         input.expectedProcessGeneration,
       );
-      const retired = await tx.query("SELECT 1 FROM harness_process_generations WHERE turn_id=$1 AND process_generation=$2", [input.selection.turnId, input.origin.processGeneration]);
-      if (retired.rows[0]) throw new HarnessPersistenceError("stale_origin", "A retired process generation cannot be reattached");
-      await tx.query("INSERT INTO harness_process_generations(turn_id,process_generation,origin_json) VALUES ($1,$2,$3::jsonb)", [input.selection.turnId, input.origin.processGeneration, JSON.stringify(input.origin)]);
+      const retired = await tx.query(
+        "SELECT 1 FROM harness_process_generations WHERE turn_id=$1 AND process_generation=$2",
+        [input.selection.turnId, input.origin.processGeneration],
+      );
+      if (retired.rows[0])
+        throw new HarnessPersistenceError(
+          "stale_origin",
+          "A retired process generation cannot be reattached",
+        );
+      await tx.query(
+        "INSERT INTO harness_process_generations(turn_id,process_generation,origin_json) VALUES ($1,$2,$3::jsonb)",
+        [
+          input.selection.turnId,
+          input.origin.processGeneration,
+          JSON.stringify(input.origin),
+        ],
+      );
       for (const event of input.events ?? [])
         assertEventScope(input.selection, event);
       await new PostgresLifecycleEventStore(tx).appendBatch(input.events ?? []);
@@ -288,12 +518,13 @@ export class PostgresHarnessBindingRepository implements HarnessBindingRepositor
 async function requireAdmission(
   tx: SqlClient,
   value: StoredHarnessSelection,
+  allowSettled = false,
 ): Promise<void> {
   const selection = StoredHarnessSelectionSchema.parse(value);
   const result = await tx.query(
     `SELECT a.turn_id,a.harness_admission_receipt_json FROM canonical_turn_admissions a JOIN sessions s ON s.id=a.session_id
     WHERE a.turn_id=$1 AND a.run_attempt_id=$2 AND a.session_id::text=$3 AND a.run_id=$4 AND a.workspace_id=$5
-      AND a.thread_id=$6 AND s.user_id=$7 AND a.admission_state='admitted' AND a.execution_state IN ('running','recovery_required')
+      AND a.thread_id=$6 AND s.user_id=$7 AND a.admission_state='admitted' AND a.execution_state IN ('running','recovery_required'${allowSettled ? ",'settled'" : ""})
       AND a.execution_claim_id IS NOT NULL FOR UPDATE OF a`,
     [
       selection.turnId,
@@ -430,4 +661,24 @@ async function lockCanonicalTurn(tx: SqlClient, turnId: string): Promise<void> {
   await tx.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
     turnId,
   ]);
+}
+
+async function readOpening(
+  tx: SqlClient,
+  selection: StoredHarnessSelection,
+): Promise<StoredHarnessOpening | null> {
+  const result = await tx.query(
+    "SELECT opening_json FROM harness_bindings WHERE turn_id=$1 AND run_attempt_id=$2 AND user_id=$3 FOR UPDATE",
+    [selection.turnId, selection.runAttemptId, selection.userId],
+  );
+  const row = result.rows[0];
+  if (!row)
+    throw new HarnessPersistenceError(
+      "binding_conflict",
+      "Opening binding is missing",
+    );
+  if (row.opening_json === null) return null;
+  const opening = StoredHarnessOpeningSchema.parse(jsonValue(row.opening_json));
+  assertHarnessOpeningSelection(selection, opening.intent);
+  return opening;
 }

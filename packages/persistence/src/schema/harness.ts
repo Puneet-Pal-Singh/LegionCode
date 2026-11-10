@@ -23,6 +23,7 @@ export const harnessBindings = pgTable(
     selectionJson: jsonb("selection_json").notNull(),
     selectionFingerprint: text("selection_fingerprint").notNull(),
     attachmentJson: jsonb("attachment_json"),
+    openingJson: jsonb("opening_json"),
     externalTurnId: text("external_turn_id"),
     lastObservationSequence: bigint("last_observation_sequence", {
       mode: "number",

@@ -10,6 +10,9 @@ export class HarnessExecutionPort implements DelegatedHarnessPort {
   reconcilePriorGeneration(input: HarnessRecoveryInput) {
     return this.sessions.reconcilePriorGeneration(input);
   }
+  fenceOpening(input: Parameters<HarnessSessionManager["fenceOpening"]>[0]) {
+    return this.sessions.fenceOpening(input);
+  }
   open(
     input: Parameters<DelegatedHarnessPort["open"]>[0],
   ): ReturnType<DelegatedHarnessPort["open"]> {

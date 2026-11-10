@@ -216,6 +216,10 @@ export class LocalPersistence {
     this.readAttachmentRetirement = (scope) => this.guardHarnessStorage(() => harnessBindings.readAttachmentRetirement(scope));
     this.retireHarnessAttachment = (input) => this.guardHarnessStorage(() => harnessBindings.retireHarnessAttachment(input));
     this.harnessBindings = {
+      reserveOpening:(input)=>this.guardHarnessStorage(()=>harnessBindings.reserveOpening(input)),
+      beginOpeningDispatch:(input)=>this.guardHarnessStorage(()=>harnessBindings.beginOpeningDispatch(input)),
+      acknowledgeOpening:(input)=>this.guardHarnessStorage(()=>harnessBindings.acknowledgeOpening(input)),
+      readOpening:(scope)=>this.guardHarnessStorage(()=>harnessBindings.readOpening(scope)),
       freezeAndClaim: (input) => this.guardHarnessStorage(() => harnessBindings.freezeAndClaim(input)),
       markRecoveryRequired: (input) => this.guardHarnessStorage(() => harnessBindings.markRecoveryRequired(input)),
       freeze: (selection, events) => this.guardHarnessStorage(() => harnessBindings.freeze(selection, events)),

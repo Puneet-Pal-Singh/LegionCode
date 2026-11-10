@@ -1,4 +1,7 @@
 import {
+  fingerprintHarnessCommand,
+  HarnessOpeningFenceTargetSchema,
+  type HarnessOpeningFenceResult,
   HarnessCommitAckSchema,
   HarnessControlCommandSchema,
   HarnessObservationSchema,
@@ -129,6 +132,13 @@ export class HarnessSessionManager {
           throw new HarnessHostError("session_busy");
         this.instanceDirectories.add(host.instanceDirectory);
         this.journalDirectories.add(host.journalDirectory);
+        const opening = await instance.openingAuthority.reserve({
+          command,
+          host,
+        });
+        if (attachment.stopping) throw new HarnessHostError("stale_session");
+        await opening.beginDispatch();
+        if (attachment.stopping) throw new HarnessHostError("stale_session");
         const live = await instance.driver.open({
           command,
           host,
@@ -145,6 +155,8 @@ export class HarnessSessionManager {
         }
         attachment.live = live;
         attachment.session = session;
+        // Commit the acknowledged native identity before journaling or execution.
+        await opening.acknowledge(session);
         const directory = host.journalDirectory;
         attachment.journal = await this.openJournal(directory, session);
         this.assertIntegrity(attachment);
@@ -163,6 +175,42 @@ export class HarnessSessionManager {
     })();
     void attachment.opening.catch(() => undefined);
     return attachment.opening;
+  }
+
+  async fenceOpening(input: {
+    readonly runAttemptId: string;
+    readonly processGeneration: string;
+    readonly commandFingerprint: string;
+    readonly timeoutMs: number;
+  }): Promise<HarnessOpeningFenceResult> {
+    const target=HarnessOpeningFenceTargetSchema.pick({runAttemptId:true,processGeneration:true,commandFingerprint:true}).parse(input);
+    const timeoutMs=input.timeoutMs;
+    if (
+      !Number.isSafeInteger(timeoutMs) ||
+      timeoutMs < 1 ||
+      timeoutMs > 60000
+    )
+      throw new HarnessHostError("stale_session");
+    const attachment = this.attachments.get(target.runAttemptId);
+    if (
+      !attachment?.host ||
+      attachment.host.processGeneration !== target.processGeneration ||
+      (await fingerprintHarnessCommand(attachment.command)) !==
+        target.commandFingerprint
+    )
+      return {
+        status: "unknown",
+        processGeneration: target.processGeneration,
+        reason: "owner_unavailable",
+      };
+    this.beginStop(attachment);
+    // Existing cleanup begins immediately, but no descendant-scope proof is supplied.
+    // Never manufacture a session ID or turn pipe/process exit into release proof.
+    return {
+      status: "unknown",
+      processGeneration: target.processGeneration,
+      reason: "scope_proof_unavailable",
+    };
   }
 
   /** Reconcile before open/rebind. Never resumes provider work or steals a dead writer lock. */
@@ -542,9 +590,12 @@ export class HarnessSessionManager {
       return;
     }
     if (
-      attachment.stopSent || attachment.cleanup || attachment.retired ||
+      attachment.stopSent ||
+      attachment.cleanup ||
+      attachment.retired ||
       attachment.quiescence
-    ) return;
+    )
+      return;
     attachment.stopSent = true;
     // Keep the native observation lifetime alive until its ordered barrier is
     // proven. Forced closure cannot certify that no final observations were lost.
@@ -555,11 +606,13 @@ export class HarnessSessionManager {
       ).catch(() => undefined);
     }, 2_000);
     try {
-      const receipt = attachment.live.control(command ?? {
-        kind: "interrupt",
-        commandId: attachment.command.commandId,
-        session: attachment.session,
-      });
+      const receipt = attachment.live.control(
+        command ?? {
+          kind: "interrupt",
+          commandId: attachment.command.commandId,
+          session: attachment.session,
+        },
+      );
       // An ambiguous receipt never resends. Only the barrier can prove closure.
       void receipt.catch(() => undefined);
     } catch {

@@ -1,4 +1,7 @@
-import { UserInputRequestSchema, UserInputResponseSchema } from "@repo/platform-protocol";
+import {
+  UserInputRequestSchema,
+  UserInputResponseSchema,
+} from "@repo/platform-protocol";
 import { z } from "zod";
 import {
   ApprovalDecisionSchema,
@@ -335,12 +338,123 @@ export const HarnessServiceConnectSchema = z
   .strict();
 const id = z.string().uuid();
 const request = { type: z.literal("request"), requestId: id };
+/** Private turn-opening coordination. These receipts never certify OS confinement. */
+export const HarnessOpeningCloudLeaseSchema = z
+  .object({
+    kind: z.literal("cloud"),
+    leaseId: LeaseIdSchema,
+    sandboxId: OpaqueId,
+    generation: Generation,
+  })
+  .strict();
+export const HarnessOpeningLocalLeaseSchema = z
+  .object({ kind: z.literal("local"), leaseId: LeaseIdSchema })
+  .strict();
+export const HarnessOpeningIntentSchema = z
+  .object({
+    openingRef: OpaqueId,
+    commandId: OpaqueId,
+    commandFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+    runAttemptId: RunAttemptIdSchema,
+    instanceId: OpaqueId,
+    processGeneration: z.string().uuid(),
+    authOwnerGeneration: Generation,
+    workspaceGrantId: OpaqueId,
+    checkoutLeaseId: LeaseIdSchema,
+    startSnapshotId: OpaqueId,
+    executionLease: z.discriminatedUnion("kind", [
+      HarnessOpeningCloudLeaseSchema,
+      HarnessOpeningLocalLeaseSchema,
+    ]),
+  })
+  .strict();
+export type HarnessOpeningIntent = z.infer<typeof HarnessOpeningIntentSchema>;
+export const HarnessOpeningCommitSchema = z
+  .object({
+    openingRef: OpaqueId,
+    commandFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+    processGeneration: z.string().uuid(),
+    phase: z.enum(["reserved", "dispatching", "acknowledged"]),
+  })
+  .strict();
+export type HarnessOpeningCommit = z.infer<typeof HarnessOpeningCommitSchema>;
+export const HarnessOpeningClaimFrameSchema = z
+  .object({
+    type: z.literal("opening_claim"),
+    deliveryId: id,
+    operation: z.enum(["reserve", "begin_dispatch"]),
+    intent: HarnessOpeningIntentSchema,
+  })
+  .strict();
+export const HarnessOpeningSessionFrameSchema = z
+  .object({
+    type: z.literal("opening_session"),
+    deliveryId: id,
+    intent: HarnessOpeningIntentSchema,
+    session: HarnessSessionSchema,
+  })
+  .strict();
+export const HarnessOpeningCommitFrameSchema = z
+  .object({
+    type: z.literal("opening_commit"),
+    deliveryId: id,
+    commit: HarnessOpeningCommitSchema,
+  })
+  .strict();
+export async function fingerprintHarnessCommand(
+  raw: HarnessStartCommand,
+): Promise<string> {
+  const command = HarnessStartCommandSchema.parse(raw);
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(command)),
+  );
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+export const HarnessOpeningFenceTargetSchema = z
+  .object({
+    userId: OpaqueId,
+    workspaceId: OpaqueId,
+    environmentId: OpaqueId,
+    turnId: TurnIdSchema,
+    runAttemptId: RunAttemptIdSchema,
+    instanceId: OpaqueId,
+    openingRef: OpaqueId,
+    commandFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+    processGeneration: z.string().uuid(),
+    executionLease: HarnessOpeningIntentSchema.shape.executionLease,
+  })
+  .strict();
+export type HarnessOpeningFenceTarget = z.infer<
+  typeof HarnessOpeningFenceTargetSchema
+>;
+export const HarnessOpeningFenceResultSchema = z
+  .object({
+    status: z.literal("unknown"),
+    processGeneration: z.string().uuid(),
+    reason: z.enum(["owner_unavailable", "scope_proof_unavailable"]),
+  })
+  .strict();
+export type HarnessOpeningFenceResult = z.infer<
+  typeof HarnessOpeningFenceResultSchema
+>;
 export const HarnessServiceRequestSchema = z.discriminatedUnion("operation", [
+  z
+    .object({
+      ...request,
+      operation: z.literal("opening_fence"),
+      target: HarnessOpeningFenceTargetSchema,
+      timeoutMs: z.number().int().min(1).max(60000),
+    })
+    .strict(),
   z
     .object({
       ...request,
       operation: z.literal("open"),
       command: HarnessStartCommandSchema,
+      executionLease: HarnessOpeningCloudLeaseSchema,
     })
     .strict(),
   z
@@ -377,6 +491,13 @@ export const HarnessServiceRequestSchema = z.discriminatedUnion("operation", [
 export type HarnessServiceRequest = z.infer<typeof HarnessServiceRequestSchema>;
 const result = { type: z.literal("result"), requestId: id };
 export const HarnessServiceResultSchema = z.discriminatedUnion("operation", [
+  z
+    .object({
+      ...result,
+      operation: z.literal("opening_fence"),
+      value: HarnessOpeningFenceResultSchema,
+    })
+    .strict(),
   z
     .object({
       ...result,
@@ -430,11 +551,14 @@ export const HarnessServiceWorkerFrameSchema = z.union([
   HarnessServiceConnectSchema,
   HarnessServiceRequestSchema,
   HarnessServiceAckFrameSchema,
+  HarnessOpeningCommitFrameSchema,
 ]);
 export const HarnessServiceHostFrameSchema = z.union([
   z.object({ type: z.literal("connected") }).strict(),
   HarnessServiceResultSchema,
   HarnessServiceObservationFrameSchema,
+  HarnessOpeningClaimFrameSchema,
+  HarnessOpeningSessionFrameSchema,
   HarnessServiceErrorFrameSchema,
 ]);
 export type HarnessServiceHostFrame = z.infer<

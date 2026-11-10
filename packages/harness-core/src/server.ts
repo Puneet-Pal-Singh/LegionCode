@@ -8,3 +8,6 @@ export * from "./server/HarnessDriver.js";
 export * from "./server/HarnessRegistry.js";
 export * from "./server/HarnessSessionManager.js";
 export * from "./server/HarnessExecutionPort.js";
+
+// Node composition consumes the canonical opening contract through this private facade.
+export { fingerprintHarnessCommand, HarnessStartCommandSchema } from "@repo/worker-protocol";
