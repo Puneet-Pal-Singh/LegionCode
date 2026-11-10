@@ -582,3 +582,10 @@ export {
   type ProviderProductEnvironment,
   type ProviderProductPolicy,
 } from "./byok/index.js";
+
+export {
+  GitHubUserSchema,
+  GitHubSessionResponseSchema,
+  type GitHubUser,
+  type GitHubSessionResponse,
+} from "./hosted-auth.js";
