@@ -592,6 +592,8 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
   ): StoredHarnessBinding {
     const selection = StoredHarnessSelectionSchema.parse(value);
     this.requireAdmission(selection);
+    if (events.length > 0 && this.isSettled(selection.turnId))
+      throw new HarnessPersistenceError("stale_origin", "Settled attempt cannot append freeze events or regain execution authority");
     for (const event of events) {
       assertEventScope(selection, event);
       this.appendLifecycle(event);
