@@ -527,7 +527,7 @@ export function ModelPickerPopover({
       return;
     }
     const providerId = selectedProviderId ?? effectiveSelection.providerId;
-    if (!providerId || providerModels[providerId]) {
+    if (!providerId) {
       return;
     }
     void onEnsureSelectedProviderModels(providerId).catch((error) => {
@@ -540,7 +540,6 @@ export function ModelPickerPopover({
     effectiveSelection.providerId,
     isOpen,
     onEnsureSelectedProviderModels,
-    providerModels,
     selectedProviderId,
   ]);
 

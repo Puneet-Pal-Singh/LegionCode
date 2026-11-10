@@ -45,6 +45,7 @@ type PickerRead = {
   credentials: Array<{ providerId: string }>;
   models: Record<string, ModelPickerModel[]>;
   pages: Record<string, Awaited<ReturnType<AppServerClient["getProviderModels"]>>>;
+  providerErrors: Record<string, string>;
   selection: Selection;
   visibleModelIds: Record<string, Set<string>>;
   error: string | null;
@@ -155,7 +156,7 @@ export function useDesktopModelPicker(
         const assertReadCurrent = () => {
           if (!active || activeScope.current !== scope) throw new Error("Provider scope changed");
         };
-        const pages = await Promise.all(
+        const inventories = await Promise.allSettled(
           credentials.map(async ({ providerId }) => {
             const visibleIds = new Set(preferences?.visibleModelIds[providerId] ?? []);
             const selectedModelId = selection?.providerId === providerId ? selection.modelId : undefined;
@@ -164,12 +165,23 @@ export function useDesktopModelPicker(
           }),
         );
         if (active && activeScope.current === scope) {
+          const pages = inventories.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+          const providerErrors: Record<string, string> = {};
+          inventories.forEach((result, index) => {
+            const credential = credentials[index];
+            if (result.status === "rejected" && credential) {
+              providerErrors[credential.providerId] = result.reason instanceof ProviderClientOperationError
+                ? result.reason.message
+                : "Provider models could not be loaded. Retry discovery or open provider setup.";
+            }
+          });
           setRead({
             scope,
             catalog,
             credentials,
             models: Object.fromEntries(pages.map(([id, page]) => [id, page.models])),
             pages: Object.fromEntries(pages),
+            providerErrors,
             selection,
             visibleModelIds: Object.fromEntries(
               Object.entries(preferences?.visibleModelIds ?? {}).map(
@@ -188,6 +200,7 @@ export function useDesktopModelPicker(
             credentials: [],
             models: {},
             pages: {},
+            providerErrors: {},
             selection: null,
             visibleModelIds: {},
             error: error instanceof ProviderClientOperationError
@@ -214,6 +227,8 @@ export function useDesktopModelPicker(
     ) {
       throw new Error("Connect this provider before selecting a model.");
     }
+    const providerError = current.providerErrors[providerId];
+    if (providerError) throw new Error(providerError);
     setSelectionError(null);
     setSaving(true);
     try {
@@ -269,16 +284,26 @@ export function useDesktopModelPicker(
       const models = refresh ? page.models : includeManagedPickerModels(
         reading.models[providerId] ?? [], page.models, new Set(page.models.map((model) => model.id)),
       );
-      setRead((value) => value?.scope === scope ? {
-        ...value, error: null,
-        models: { ...value.models, [providerId]: models },
-        pages: { ...value.pages, [providerId]: page },
-      } : value);
+      setRead((value) => {
+        if (value?.scope !== scope) return value;
+        const providerErrors = { ...value.providerErrors };
+        delete providerErrors[providerId];
+        return {
+          ...value, error: null, providerErrors,
+          models: { ...value.models, [providerId]: models },
+          pages: { ...value.pages, [providerId]: page },
+        };
+      });
       setSelectionError(null);
       return models;
     })().catch((error: unknown) => {
-      if (isReadCurrent()) setSelectionError(error instanceof ProviderClientOperationError
-        ? error.message : "Provider models could not be loaded. Retry discovery or open provider setup.");
+      if (isReadCurrent()) {
+        const message = error instanceof ProviderClientOperationError
+          ? error.message : "Provider models could not be loaded. Retry discovery or open provider setup.";
+        setRead((value) => value?.scope === scope ? {
+          ...value, providerErrors: { ...value.providerErrors, [providerId]: message },
+        } : value);
+      }
       throw error;
     }).finally(() => {
       if (modelReads.current.get(key) === request) modelReads.current.delete(key);
@@ -299,6 +324,18 @@ export function useDesktopModelPicker(
   }, [scope, readProviderModels]);
   // In-flight delivery identities belong to one client/grant/credential revision.
   useEffect(() => { modelReads.current.clear(); setReadingModels({}); }, [scope]);
+  const selectedProvider = current?.selection?.providerId;
+  const selectedCredentialPresent = Boolean(current && selectedProvider &&
+    current.credentials.some((item) => item.providerId === selectedProvider));
+  const selectedModel = current && selectedProvider
+    ? current.models[selectedProvider]?.find((model) => model.id === current.selection?.modelId)
+    : undefined;
+  const selectedModelError = current && selectedProvider && selectedCredentialPresent
+    ? current.providerErrors[selectedProvider] ??
+      (!selectedModel || (selectedModel.availability !== undefined && selectedModel.availability !== "available")
+        ? "The selected model is unavailable. Select another model or open provider setup."
+        : null)
+    : null;
   const unavailableReason = !scope.client || !scope.enabled
     ? "Desktop's provider connection is not ready. Reconnect to select a model."
     : !current
@@ -313,14 +350,15 @@ export function useDesktopModelPicker(
                   credential.providerId === current.selection?.providerId,
               )
             ? "Connect the selected provider before sending."
-            : undefined));
+            : selectedModelError ?? undefined));
 
   return {
     current,
     selection: current?.selection ?? null,
     selectModel,
     unavailableReason,
-    error: selectionError ?? current?.error ?? null,
+    error: selectionError ?? current?.error ?? selectedModelError ?? null,
+    providerErrors: current?.providerErrors ?? {},
     loading: Boolean(scope.client && scope.enabled && !current),
     saving,
     readingModels,
