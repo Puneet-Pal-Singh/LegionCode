@@ -74,6 +74,12 @@ export class ProviderConfigService {
     this.credentialVault = new CloudCredentialVault(
       options.credentialStore,
       options.userId,
+      async (providerId) => {
+        const preferences = await options.preferenceStore.getPreferences();
+        return preferences.defaultProviderId === providerId
+          ? preferences.defaultCredentialId
+          : undefined;
+      },
     );
     this.credentialService = new ProviderCredentialService(
       options.env,
