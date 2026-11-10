@@ -20,10 +20,9 @@ function createRegistryMock() {
 describe("ProviderConnectionService", () => {
   it("returns connected/disconnected states when connectivity checks succeed", async () => {
     const credentialService = {
-      isConnected: vi.fn(
-        async (providerId: ProviderId) => providerId === "openai",
+      resolveCredential: vi.fn(async (providerId: ProviderId) =>
+        providerId === "openai" ? { apiKey: "synthetic-test-key" } : null,
       ),
-      getConnectionConfig: vi.fn(async () => undefined),
     };
     const registryService = createRegistryMock();
 
@@ -50,13 +49,14 @@ describe("ProviderConnectionService", () => {
 
   it("marks providers as failed when credential lookup throws", async () => {
     const credentialService = {
-      isConnected: vi.fn(async (providerId: ProviderId) => {
+      resolveCredential: vi.fn(async (providerId: ProviderId) => {
         if (providerId === "google") {
           throw new Error("KV GET failed: 500 Internal Server Error");
         }
-        return providerId === "openai";
+        return providerId === "openai"
+          ? { apiKey: "synthetic-test-key" }
+          : null;
       }),
-      getConnectionConfig: vi.fn(async () => undefined),
     };
     const registryService = createRegistryMock();
 
