@@ -1,6 +1,7 @@
 import type { LocalProviderPreferenceScope } from "./protocol.js";
 import { APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES, appServerJsonByteLength } from "@repo/platform-protocol";
 import type { LocalWorkspaceListFilesParams, LocalWorkspaceListFilesResult, LocalWorkspaceReadFileParams } from "./protocol.js";
+import type { LocalWorkspaceGitStatusParams, LocalWorkspaceGitDiffParams } from "./protocol.js";
 import type { LocalWorkspaceFileMentionsParams, LocalWorkspaceFileMentionsResult } from "./protocol.js";
 import type { LocalChatImageReadParams, LocalChatImageReadResult } from "./protocol.js";
 import type { LocalTurnStartParams, LocalTurnInterruptParams, LocalThreadHistoryParams, LocalThreadHistoryResult, CheckoutListFilesResult, CheckoutReadFileResult } from "./protocol.js";
@@ -65,6 +66,10 @@ export type AppServerComposition = {
     fileMentions?(params: LocalWorkspaceFileMentionsParams): Promise<LocalWorkspaceFileMentionsResult>;
     listFiles(params: LocalWorkspaceListFilesParams): Promise<LocalWorkspaceListFilesResult>;
     readFile(params: LocalWorkspaceReadFileParams): Promise<CheckoutReadFileResult>;
+  };
+  localWorkspaceGitReadsService?: {
+    status(params: LocalWorkspaceGitStatusParams): Promise<GitStatusResponse>;
+    diff(params: LocalWorkspaceGitDiffParams): Promise<DiffContent>;
   };
   localChatMediaService?: {
     readImage(params: LocalChatImageReadParams): Promise<LocalChatImageReadResult>;
@@ -168,8 +173,8 @@ export type AppServerComposition = {
     commitTurnArtifact(request: CommitTurnArtifactRequest): Promise<CommitTurnArtifactResponse>;
   };
   hostedGitOperationsService?: {
-    status(params: Extract<AppServerRequest, { method: "git/status" }>['params']): Promise<GitStatusResponse>;
-    diff(params: Extract<AppServerRequest, { method: "git/diff" }>['params']): Promise<DiffContent>;
+    status(params: Extract<Extract<AppServerRequest, { method: "git/status" }>['params'], { runId: string }>): Promise<GitStatusResponse>;
+    diff(params: Extract<Extract<AppServerRequest, { method: "git/diff" }>['params'], { runId: string }>): Promise<DiffContent>;
     stage(params: Extract<AppServerRequest, { method: "git/stage" }>['params']): Promise<{ success: true }>;
     commit(params: Extract<AppServerRequest, { method: "git/commit" }>['params']): Promise<{ success: true }>;
     branch(params: Extract<AppServerRequest, { method: "git/branch" }>['params']): Promise<GitBranchMutationResult>;
@@ -482,10 +487,34 @@ async function dispatch(
       return composition.hostedCheckoutReadsService.readFile(request.params);
     }
     case "git/status": {
+      if ("workspaceId" in request.params) {
+        if (composition.environment !== "local") {
+          throw new AppServerOperationError(400, "invalid_request", "Workspace-scoped Git status requires a local environment", "git_scope_invalid", false);
+        }
+        if (!composition.localWorkspaceGitReadsService) {
+          throw new AppServerOperationError(503, "server_unavailable", "Local workspace Git reads are unavailable", "local_workspace_git_unavailable", false);
+        }
+        return composition.localWorkspaceGitReadsService.status(request.params);
+      }
+      if (composition.environment !== "hosted") {
+        throw new AppServerOperationError(400, "invalid_request", "Run-scoped Git status requires a hosted environment", "git_scope_invalid", false);
+      }
       if (!composition.hostedGitOperationsService) throw new Error("unsupported");
       return composition.hostedGitOperationsService.status(request.params);
     }
     case "git/diff": {
+      if ("workspaceId" in request.params) {
+        if (composition.environment !== "local") {
+          throw new AppServerOperationError(400, "invalid_request", "Workspace-scoped Git diff requires a local environment", "git_scope_invalid", false);
+        }
+        if (!composition.localWorkspaceGitReadsService) {
+          throw new AppServerOperationError(503, "server_unavailable", "Local workspace Git reads are unavailable", "local_workspace_git_unavailable", false);
+        }
+        return composition.localWorkspaceGitReadsService.diff(request.params);
+      }
+      if (composition.environment !== "hosted") {
+        throw new AppServerOperationError(400, "invalid_request", "Run-scoped Git diff requires a hosted environment", "git_scope_invalid", false);
+      }
       if (!composition.hostedGitOperationsService) throw new Error("unsupported");
       return composition.hostedGitOperationsService.diff(request.params);
     }
@@ -563,6 +592,7 @@ async function dispatch(
           serverId: composition.serverId,
           serverVersion: composition.serverVersion,
           localWorkspaceFilesAvailable: Boolean(composition.localWorkspaceFilesService),
+          localWorkspaceGitReadsAvailable: Boolean(composition.localWorkspaceGitReadsService),
           localTurnExecutionAvailable: Boolean(composition.localTurnService),
           localTurnConfiguration: composition.localTurnService?.getConfigurationOptions(),
           localSavedReviewAvailable: Boolean(composition.localTurnArtifactReadsService),

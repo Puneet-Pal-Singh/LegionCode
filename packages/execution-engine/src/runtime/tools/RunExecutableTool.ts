@@ -1,20 +1,22 @@
 import { z } from "zod";
 import type { ToolDefinition } from "./CodingToolRegistry.js";
 
-const boundedArgument = z
-  .string()
-  .max(4_096)
-  .refine(
+function boundedString(schema: z.ZodString) {
+  return schema.max(4_096).refine(
     (value) =>
       !value.includes("\0") && new TextEncoder().encode(value).length <= 4_096,
     "Arguments must be bounded strings without NUL bytes",
   );
+}
+
+const boundedArgument = boundedString(z.string());
 
 export const RUN_EXECUTABLE_TOOL_INPUT_SCHEMA = z
   .object({
-    executable: boundedArgument.refine(
-      (value) => value.startsWith("/"),
-      "Executable must be an absolute POSIX path",
+    executable: boundedString(
+      z.string()
+        .regex(/^\//, "Executable must be an absolute POSIX path")
+        .describe("Absolute POSIX executable path, for example /bin/pwd; no PATH lookup."),
     ),
     args: z.array(boundedArgument).max(255),
     cwd: z
@@ -36,7 +38,7 @@ export const RUN_EXECUTABLE_TOOL_DEFINITION = {
   id: "run_executable",
   title: "Run Executable",
   description:
-    "Run one executable with exact arguments using your macOS user file, network and IPC access, including outside this workspace. Subprocess creation is denied; direct signals are limited to self. Cwd is walked from the held workspace directory without symlinks or dot components. No shell parsing or expansion occurs in this tool.",
+    "Run one executable by its absolute POSIX path (for example /bin/pwd), with exact arguments using your macOS user file, network and IPC access, including outside this workspace. Subprocess creation is denied; direct signals are limited to self. Cwd is walked from the held workspace directory without symlinks or dot components. No PATH lookup, shell parsing or expansion occurs in this tool.",
   inputSchema: RUN_EXECUTABLE_TOOL_INPUT_SCHEMA,
   permission: { mode: "approval_required", scope: "host_user" },
   sandboxClass: "write",

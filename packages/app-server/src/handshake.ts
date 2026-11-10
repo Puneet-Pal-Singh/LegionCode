@@ -23,6 +23,7 @@ export function initializeAppServer(
     serverId: string;
     serverVersion: string;
     localWorkspaceFilesAvailable?: boolean;
+    localWorkspaceGitReadsAvailable?: boolean;
     localTurnExecutionAvailable?: boolean;
     localTurnConfiguration?: LocalTurnConfigurationOptions;
     localSavedReviewAvailable?: boolean;
@@ -63,6 +64,7 @@ export function initializeAppServer(
           ? [
               ...LOCAL_APP_SERVER_CAPABILITIES,
               ...(options.localWorkspaceFilesAvailable ? ["workspace-files-v1"] : []),
+              ...(options.localWorkspaceGitReadsAvailable ? ["workspace-git-reads-v1"] : []),
               ...(options.localTurnExecutionAvailable ? ["turn-execution-v1"] : []),
               ...(options.localSavedReviewAvailable ? ["artifact-review-v1"] : []),
               ...(options.localSavedCommitAvailable ? ["artifact-commit-v1"] : []),
