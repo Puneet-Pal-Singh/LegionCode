@@ -1757,3 +1757,8 @@ runtime route, freezes the validated private snapshot and uses its capabilities
 for image admission. The same captured values reach protected inference; volatile
 catalog metadata is not persisted in admission or request fingerprints. Canonical
 provider discovery and inference retain selection and runtime-route validation.
+
+Concurrent exact image retries derive a validation-only submitted fingerprint
+when another request commits before their image preparation. They use the same
+codec as initial receipt retries without persisting media or resolving providers;
+current Thread authorization and immutable saved-intent checks still gate return.

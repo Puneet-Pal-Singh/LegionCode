@@ -148,14 +148,9 @@ export class LocalTurnService {
       );
     if (previous) {
       // A receipt retry does not create records, acquire execution authority or resolve credentials.
-      let preparation: LocalTurnPreparedMedia | undefined;
-      try {
-        preparation = await this.prepareImages(images, this.resources.admissionSignal);
-      } catch {
-        throw new AppServerOperationError(409, "conflict", "Admission request key has different image content");
-      }
+      const imageFingerprint = await this.submittedImageFingerprint(images);
       const currentThread = await this.options.threads.get(thread.id);
-      return validateSavedAdmission(previous, params, currentThread, preparation?.fingerprint);
+      return validateSavedAdmission(previous, params, currentThread, imageFingerprint);
     }
     if (thread.status !== "active") {
       throw new AppServerOperationError(
@@ -251,6 +246,10 @@ export class LocalTurnService {
         params.clientRequestId,
       );
       if (saved) {
+        // A concurrent winner can commit before this request reaches image
+        // preparation. Derive only the submitted content identity for its receipt.
+        const imageFingerprint = preparedMedia?.fingerprint
+          ?? await this.submittedImageFingerprint(images);
         const currentThread = await this.options.threads.get(thread.id);
         if (currentThread.workspaceId !== params.workspaceId) {
           throw new AppServerOperationError(
@@ -259,7 +258,7 @@ export class LocalTurnService {
             "Local thread was not found in the granted workspace",
           );
         }
-        return validateSavedAdmission(saved, params, currentThread, preparedMedia?.fingerprint);
+        return validateSavedAdmission(saved, params, currentThread, imageFingerprint);
       }
       if (error instanceof EventStoreError && error.code === "idempotency_conflict") {
         throw new AppServerOperationError(409, "conflict", "Local Turn admission conflicts with its current thread state or request content", "local_admission_conflict", false);
@@ -278,6 +277,14 @@ export class LocalTurnService {
         }
       }
       await this.resources.closePreparation(preparation);
+    }
+  }
+
+  private async submittedImageFingerprint(images: LocalTurnStartParams["images"]): Promise<string | undefined> {
+    try {
+      return (await this.prepareImages(images, this.resources.admissionSignal))?.fingerprint;
+    } catch {
+      throw new AppServerOperationError(409, "conflict", "Admission request key has different image content");
     }
   }
 
