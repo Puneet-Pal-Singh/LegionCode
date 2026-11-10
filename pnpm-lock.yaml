@@ -919,6 +919,25 @@ importers:
         specifier: ~5.9.3
         version: 5.9.3
 
+  packages/harness-core:
+    dependencies:
+      '@repo/platform-protocol':
+        specifier: workspace:*
+        version: link:../platform-protocol
+      '@repo/runtime-kernel':
+        specifier: workspace:*
+        version: link:../runtime-kernel
+      '@repo/worker-protocol':
+        specifier: workspace:*
+        version: link:../worker-protocol
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.5
+      typescript:
+        specifier: 5.9.2
+        version: 5.9.2
+
   packages/hook-protocol:
     dependencies:
       '@repo/platform-protocol':
@@ -1175,6 +1194,9 @@ importers:
       '@repo/workspace-core':
         specifier: workspace:*
         version: link:../workspace-core
+      '@repo/worker-protocol':
+        specifier: workspace:*
+        version: link:../worker-protocol
     devDependencies:
       '@repo/contract-conformance':
         specifier: workspace:*
@@ -3267,6 +3289,9 @@ packages:
 
   '@types/node@20.19.30':
     resolution: {integrity: sha512-WJtwWJu7UdlvzEAUm484QNg5eAoq5QR08KDNx7g45Usrs2NtOPiX8ugDqmKdXkyL03rBqU5dYNYVQetEpBHq2g==}
+
+  '@types/node@22.20.5':
+    resolution: {integrity: sha512-U2+DNr+wSjpsTS/wZGYHq7GcwfuSmKiKvoPvK22zwTlRhU91yOniN4qRR5KhIjvif7ysw/dz/hKmfDH0Ris4aA==}
 
   '@types/node@24.10.9':
     resolution: {integrity: sha512-ne4A0IpG3+2ETuREInjPNhUGis1SFjv1d5asp8MzEAGtOZeTeHVDOYqOgqfhvseqg/iXty2hjBf1zAOb7RNiNw==}
@@ -8596,6 +8621,10 @@ snapshots:
   '@types/ms@2.1.0': {}
 
   '@types/node@20.19.30':
+    dependencies:
+      undici-types: 6.21.0
+
+  '@types/node@22.20.5':
     dependencies:
       undici-types: 6.21.0
 

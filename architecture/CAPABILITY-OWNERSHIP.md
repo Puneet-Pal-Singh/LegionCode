@@ -2854,10 +2854,10 @@ bytes and their real wire digest remain read/transport responsibilities.
 
 The platform protocol owns harness family, immutable pre-admission selection,
 instance/operation and measured-usage contracts, canonical question descriptors
-and response normalization. Active Run, Chat request and queued-input schemas
-remain unchanged and reject unsupported captured selection. Run capture must land
-with the Kernel's resolved-strategy guard; Chat capture requires routed admission,
-and queued capture requires its actual producer migration. Reference contracts
+and response normalization. Chat request and queued-input schemas remain unchanged and reject unsupported
+captured selection. Run capture lands with the Kernel's resolved-strategy guard;
+Chat capture requires routed admission, and queued capture requires its actual
+producer migration. Reference contracts
 alone never authorize a Native fallback. The existing lifecycle schema adds typed passive harness measurements
 and provider-limit observations, without introducing a producer or state store.
 
@@ -2905,8 +2905,8 @@ credentials and starts no provider or process.
 
 This foundation exposes private ports but does not activate a public local
 harness consumer. Binding validation parses captured selection from an opaque
-Run property; the unchanged strict Run schema still rejects that field until its
-Kernel strategy guard is merged atomically. Missing capture never selects Native
+Run property; the Kernel strategy guard lands atomically with the canonical Run
+field before any public delegated admission is enabled. Missing capture never selects Native
 or reconstructs external ownership. Final constructor/driver wiring remains
 separate. Current Native admission/lineage, immutable artifacts, lifecycle byte
 paging and provider custody retain their existing source and exports.
@@ -2961,3 +2961,46 @@ Web keeps its public type reexports and validates `/auth/session` with the share
 schema; cookie authorization, OAuth, session generation, HTTP reads and user state
 remain with their existing server and client owners. This extraction adds no
 Desktop authentication, credential forwarding, endpoint, session or transport.
+
+## Plans 048 / 061 — Kernel delegated execution foundation
+
+RuntimeKernel remains the sole canonical lifecycle, approval and terminal owner.
+It requires a nonnull frozen delegated Run selection and matches every captured
+field to the resolved execution strategy before any binding or runtime effect;
+exact scope and active binding remain independently required; it never routes that intent into Native
+execution or its preparation-failure fallback. Existing Native provider, guarded
+worker, restoration and artifact responsibilities remain on their current path.
+
+Delegated observation ingestion validates worker scope and commits through the
+existing lifecycle writer before its durable ACK. That transition owner rejects
+reused item, tool-call and approval identities before append, including already
+settled identities, so acknowledged history remains restorable. Recovery restores the same
+attempt and committed start snapshot; uncertain physical quiescence retains
+workspace ownership and cannot certify an immutable resume artifact. Canonical
+question/deadline handling and secret-safe public errors share the existing
+approval/lifecycle owner. Worker-protocol is the explicit package dependency.
+
+This is an execution foundation, not driver or public-route activation. Chat and
+queued-input capture, real host/driver construction and initialization identity
+remain with the final consumer slice. No credential resolver, process launcher,
+second event writer or client-owned lifecycle is introduced here.
+
+## Plans 048 / 061 — Private Node harness host foundation
+
+The private harness-core server facade composes pinned driver lookup, scoped
+sessions, host process ownership and an immutable delivery journal. RuntimeKernel
+remains the canonical lifecycle and approval writer; host observations are
+journaled before delivery and acknowledged only after canonical commit. Reply
+claims remain single-use even when external delivery is ambiguous.
+
+Host creation requires an injected launch policy to prove the real filesystem,
+Git, shell and descendant boundary. Path resolution and process-group cleanup
+alone do not establish that proof. Unknown launch or cleanup keeps the host fenced;
+physical quiescence and observation integrity remain distinct receipts. Instance
+auth/config and journal directories are separate from review/snapshot roots, and
+selected credentials never enter public client metadata.
+
+This package has no active local constructor, driver registration or public-route
+consumer yet. Its client facade exports protocol types only; Node SDK and process
+services stay behind the server export. Final driver/constructor wiring is the
+activation boundary, and no Native provider fallback is introduced.

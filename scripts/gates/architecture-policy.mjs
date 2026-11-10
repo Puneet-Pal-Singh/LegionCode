@@ -22,6 +22,7 @@ export const PACKAGE_DEPENDENCY_POLICY = {
     "@repo/event-store",
     "@repo/platform-protocol",
     "@repo/workspace-core",
+    "@repo/worker-protocol",
   ],
   "@repo/worker-protocol": ["@repo/artifact-store", "@repo/platform-protocol"],
   "@repo/workspace-core": ["@repo/platform-protocol"],
