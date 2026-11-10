@@ -37,11 +37,33 @@ export type ProcessGroupSettlement =
       readonly reason: "timeout" | "inspection_failed";
     };
 
+/** Pipe closure does not establish child/descendant confinement or canonical ACK drain. */
+export type ProcessOutputClosure =
+  | {
+      readonly kind: "natural_eof";
+      readonly processGeneration: string;
+      readonly checkedAt: string;
+    }
+  | {
+      readonly kind: "unknown";
+      readonly processGeneration: string;
+      readonly reason:
+        | "timeout"
+        | "output_error"
+        | "output_closed_early"
+        | "spawn_failed";
+    };
+
 export interface SupervisedProcess {
   readonly processGeneration: string;
   readonly child: ChildProcessWithoutNullStreams;
   readonly ready: Promise<void>;
   readonly exited: Promise<ProcessExit>;
+  /** Non-destructive wait for natural stdout AND stderr EOF. No resume/destroy
+   * side effects. An absent receipt port cannot establish output closure. */
+  awaitOutputClosure?(input: {
+    readonly timeoutMs: number;
+  }): Promise<ProcessOutputClosure>;
   /** No raw stderr is exported or logged. A caller's redactor sees only a bounded tail. */
   readStderr(redact: (tail: string) => string): string;
   terminate(input: {
@@ -94,6 +116,66 @@ export class ProcessSupervisor {
       stdio: ["pipe", "pipe", "pipe"],
     });
     const processGeneration = spec.processGeneration;
+    let groupQuiesced = false;
+    let outputClosure: ProcessOutputClosure | undefined;
+    let resolveOutputClosed!: (closure: ProcessOutputClosure) => void;
+    const outputClosed = new Promise<ProcessOutputClosure>((resolve) => {
+      resolveOutputClosed = resolve;
+    });
+    let stdoutEnded = false;
+    let stderrEnded = false;
+    const releaseClosedProcess = () => {
+      if (!groupQuiesced || outputClosure?.kind !== "natural_eof") return;
+      this.processes.delete(supervised);
+      stderr = Buffer.alloc(0);
+      child.stdin.destroy();
+    };
+    const recordOutputClosure = (closure: ProcessOutputClosure) => {
+      if (outputClosure) return;
+      outputClosure = Object.freeze(closure);
+      resolveOutputClosed(outputClosure);
+      releaseClosedProcess();
+    };
+    const ended = () => {
+      if (stdoutEnded && stderrEnded)
+        recordOutputClosure({
+          kind: "natural_eof",
+          processGeneration,
+          checkedAt: new Date().toISOString(),
+        });
+    };
+    child.stdout.once("end", () => {
+      stdoutEnded = true;
+      ended();
+    });
+    child.stderr.once("end", () => {
+      stderrEnded = true;
+      ended();
+    });
+    for (const stream of [child.stdout, child.stderr]) {
+      stream.once("close", () => {
+        if (!stream.readableEnded)
+          recordOutputClosure({
+            kind: "unknown",
+            processGeneration,
+            reason: "output_closed_early",
+          });
+      });
+      stream.on("error", () =>
+        recordOutputClosure({
+          kind: "unknown",
+          processGeneration,
+          reason: "output_error",
+        }),
+      );
+    }
+    child.once("error", () =>
+      recordOutputClosure({
+        kind: "unknown",
+        processGeneration,
+        reason: "spawn_failed",
+      }),
+    );
     let stderr = Buffer.alloc(0);
     const maxStderrBytes = 16 * 1024;
     child.stderr.on("data", (chunk: Buffer) => {
@@ -117,6 +199,29 @@ export class ProcessSupervisor {
       child,
       ready,
       exited,
+      awaitOutputClosure: async ({ timeoutMs }) => {
+        validateDuration(timeoutMs);
+        if (outputClosure) return outputClosure;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          return await Promise.race([
+            outputClosed,
+            new Promise<ProcessOutputClosure>((resolve) => {
+              timer = setTimeout(
+                () =>
+                  resolve({
+                    kind: "unknown",
+                    processGeneration,
+                    reason: "timeout",
+                  }),
+                timeoutMs,
+              );
+            }),
+          ]);
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+      },
       readStderr: (redact) => redact(stderr.toString("utf8")),
       terminate: (input) => {
         validateDuration(input.graceMs);
@@ -125,11 +230,10 @@ export class ProcessSupervisor {
           termination = terminateGroup(child, processGeneration, input).then(
             (result) => {
               if (result.kind === "process_group_quiesced") {
-                this.processes.delete(supervised);
-                stderr = Buffer.alloc(0);
-                child.stdin.destroy();
-                child.stdout.destroy();
-                child.stderr.destroy();
+                groupQuiesced = true;
+                // Never destroy readable pipes to manufacture EOF. Buffered frames
+                // and descendant-held descriptors must drain through their consumers.
+                releaseClosedProcess();
               }
               if (result.kind === "unknown") termination = undefined;
               return result;
