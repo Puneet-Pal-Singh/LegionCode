@@ -25,6 +25,7 @@ export type HarnessInstanceScope = Pick<
 export interface HarnessOpeningAuthority {
   reserve(input: { command: HarnessStartCommand; host: HarnessHost }): Promise<{
     beginDispatch(): Promise<void>;
+    cancelBeforeDispatch(): Promise<void>;
     acknowledge(
       session: import("@repo/worker-protocol").HarnessSession,
     ): Promise<void>;

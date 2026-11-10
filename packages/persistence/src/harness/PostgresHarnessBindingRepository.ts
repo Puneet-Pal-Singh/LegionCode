@@ -183,6 +183,22 @@ export class PostgresHarnessBindingRepository implements HarnessBindingRepositor
       );
     });
   }
+  async cancelReservedOpening(raw:HarnessOpeningInput):Promise<"cancelled_before_dispatch"|"not_reserved"> {
+    const input={selection:StoredHarnessSelectionSchema.parse(raw.selection),intent:HarnessOpeningIntentSchema.parse(raw.intent)};
+    return this.client.transaction(async tx=>{
+      await lockCanonicalTurn(tx,input.selection.turnId);
+      // Stop is allowed after terminal/revocation; it cannot authorize native work.
+      await requireAdmission(tx,input.selection,true);await requiredBinding(tx,input.selection);
+      const opening=await readOpening(tx,input.selection);
+      if(!opening)throw new HarnessPersistenceError("stale_origin","Opening reservation is missing");
+      assertHarnessOpeningIntent(opening,input.intent);
+      if(opening.phase==="cancelled_before_dispatch")return "cancelled_before_dispatch" as const;
+      if(opening.phase!=="reserved")return "not_reserved" as const;
+      await tx.query("UPDATE harness_bindings SET opening_json=$2::jsonb WHERE turn_id=$1",
+        [input.selection.turnId,JSON.stringify({...opening,phase:"cancelled_before_dispatch"})]);
+      return "cancelled_before_dispatch" as const;
+    });
+  }
   async acknowledgeOpening(
     raw: HarnessOpeningInput & { readonly origin: StoredHarnessAttachment },
   ): Promise<void> {
