@@ -2950,3 +2950,14 @@ canonical identity and image references) retain their existing behavior. SDK
 history projection remains UI-neutral; authentication, paging, replay, runtime
 state and durable transcript ownership remain with their existing owners. This
 extraction adds no Native history consumer or message content inferred from ACKs.
+
+## Shared hosted authentication response parsing
+
+`@repo/shared-types` owns the existing hosted GitHub cookie-session response
+schemas and public user/session response types, extracted unchanged from Web's
+`GitHubService`. Supporting commit identity validation retains its existing
+passthrough behavior and reuses the canonical `GitCommitIdentityState` type.
+Web keeps its public type reexports and validates `/auth/session` with the shared
+schema; cookie authorization, OAuth, session generation, HTTP reads and user state
+remain with their existing server and client owners. This extraction adds no
+Desktop authentication, credential forwarding, endpoint, session or transport.
