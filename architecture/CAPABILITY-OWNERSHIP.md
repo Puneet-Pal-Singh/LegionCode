@@ -2483,3 +2483,10 @@ renderer-supplied host path and does not manufacture a Turn scope for steering.
 
 - Steer image eligibility comes from the actual executor's existing captured admitted model snapshot, checked before publication and again at exact-attempt delivery. Missing support fails closed; live discovery is not a second decision owner. Text and saved-receipt retries retain their paths.
 - Native applied-input history enrichment respects the same opaque delegated boundary as inbox projection and Thread lineage. Shared lifecycle scope/producer validation and historical assistant handling remain unchanged.
+
+- Native local process composition now injects the SAME SQLite inbox into its
+  Turn service and media owner, routes existing input RPCs through the shared
+  command service, and connects positive original resource settlement to queued
+  advancement. Routes are composed only with the actual private queued physical
+  preparation port; absent ports do not advertise an optimistic fallback. The
+  original HTTP operation drain owns all input command promises through shutdown.
