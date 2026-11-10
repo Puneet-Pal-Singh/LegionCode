@@ -100,6 +100,7 @@ export class LocalPersistence {
   readonly environmentId: string;
   readonly harnessBindings: HarnessBindingRepository;
   readonly readAttachmentRetirement: LocalHarnessBindingRepository["readAttachmentRetirement"];
+  readonly readHarnessPreOpeningSettlement: LocalHarnessBindingRepository["readHarnessPreOpeningSettlement"];
   readonly retireHarnessAttachment: (input: Parameters<LocalHarnessBindingRepository["retireHarnessAttachment"]>[0]) => Promise<void>;
   readonly turnArtifacts: ReturnType<typeof createLocalTurnArtifactStore>;
   readonly turnAdmissions: {
@@ -205,6 +206,7 @@ export class LocalPersistence {
 
     const harnessBindings = new LocalHarnessBindingRepository(this.database, (event) => this.appendLifecycleWithin(event), this.admissions);
     this.readAttachmentRetirement = (scope) => this.guardHarnessStorage(() => harnessBindings.readAttachmentRetirement(scope));
+    this.readHarnessPreOpeningSettlement = (input) => this.guardHarnessStorage(() => harnessBindings.readHarnessPreOpeningSettlement(input));
     this.retireHarnessAttachment = (input) => this.guardHarnessStorage(() => harnessBindings.retireHarnessAttachment(input));
     this.harnessBindings = {
       reserveOpening:(input)=>this.guardHarnessStorage(()=>harnessBindings.reserveOpening(input)),

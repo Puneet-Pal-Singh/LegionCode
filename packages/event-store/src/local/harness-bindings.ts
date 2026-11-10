@@ -1,3 +1,4 @@
+import { CanonicalPreOpeningSettlementSchema, readCanonicalPreOpeningSettlement } from "./harness-pre-opening-settlement.js";
 import { HarnessOpeningIntentSchema, HarnessStartCommandSchema, fingerprintHarnessCommand,
   type HarnessOpeningIntent, type HarnessStartCommand } from "@repo/worker-protocol";
 import type Database from "better-sqlite3";
@@ -66,6 +67,22 @@ export const StoredHarnessOpeningSchema = z.object({
   phase:z.enum(["reserved","dispatching","acknowledged","retired","cancelled_before_dispatch"]),
 }).strict();
 export type StoredHarnessOpening = z.infer<typeof StoredHarnessOpeningSchema>;
+export const HarnessPreOpeningStateSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("unbound"), selection: z.null(), executionClaimId: z.null(), opening: z.null() }).strict(),
+  z.object({ kind: z.literal("frozen_unclaimed"), selection: StoredHarnessSelectionSchema,
+    executionClaimId: z.null(), opening: z.null() }).strict(),
+  z.object({ kind: z.literal("cancelled_before_dispatch"), selection: StoredHarnessSelectionSchema,
+    executionClaimId: text, opening: StoredHarnessOpeningSchema.refine((value) => value.phase === "cancelled_before_dispatch") }).strict(),
+]);
+export const HarnessPreOpeningSettlementSchema = CanonicalPreOpeningSettlementSchema.extend({
+  version: z.literal(1), status: z.literal("verified_pre_opening_settlement"), state: HarnessPreOpeningStateSchema,
+}).strict();
+export type HarnessPreOpeningSettlement = z.infer<typeof HarnessPreOpeningSettlementSchema>;
+export const HarnessPreOpeningSettlementResultSchema = z.union([
+  HarnessPreOpeningSettlementSchema,
+  z.object({ status: z.literal("owned_or_unknown") }).strict(),
+]);
+export type HarnessPreOpeningSettlementResult = z.infer<typeof HarnessPreOpeningSettlementResultSchema>;
 export interface ReserveHarnessOpeningInput {
   readonly selection:StoredHarnessSelection;
   readonly command:HarnessStartCommand;
@@ -473,6 +490,62 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
     private readonly admissions?: Pick<LocalTurnAdmissions, "getByTurn">,
   ) {}
 
+  /** Positive logical pre-dispatch evidence only. The physical candidate owner
+   * must separately drain its original publication and release its exact lease. */
+  async readHarnessPreOpeningSettlement(input: {
+    readonly admission: import("@repo/platform-protocol").TurnAdmission;
+  }): Promise<HarnessPreOpeningSettlementResult> {
+    return this.database.transaction(() => {
+      const unknown = { status: "owned_or_unknown" as const };
+      const canonical = readCanonicalPreOpeningSettlement(this.database, this.admissions, input.admission);
+      if (!canonical) return unknown;
+      const admission = canonical.admission;
+      const foreignAttempt = this.database.prepare("SELECT 1 FROM harness_bindings WHERE run_attempt_id=? AND turn_id<>?")
+        .get(admission.runAttemptId, admission.turn.id);
+      if (foreignAttempt) throw new HarnessPersistenceError("corrupt", "Pre-opening attempt has a foreign binding");
+      // No negative lookup alone authorizes release: the exact failed/interrupted
+      // terminal above fences future claims, dispatch and ordinary attachment.
+      const activity = this.database.prepare(`SELECT 1 FROM harness_process_generations WHERE turn_id=?
+        UNION ALL SELECT 1 FROM harness_observation_receipts WHERE turn_id=?
+        UNION ALL SELECT 1 FROM harness_reply_claims WHERE turn_id=? LIMIT 1`)
+        .get(admission.turn.id, admission.turn.id, admission.turn.id);
+      if (activity) return unknown;
+      const row = this.database.prepare(`SELECT run_attempt_id,user_id,selection_json,selection_fingerprint,
+        attachment_json,external_turn_id,last_observation_sequence,execution_claim_id,recovery_required,opening_json
+        FROM harness_bindings WHERE turn_id=?`).get(admission.turn.id) as {
+          run_attempt_id: string; user_id: string; selection_json: string; selection_fingerprint: string;
+          attachment_json: string | null; external_turn_id: string | null; last_observation_sequence: number;
+          execution_claim_id: string | null; recovery_required: number; opening_json: string | null;
+        } | undefined;
+      let state: z.infer<typeof HarnessPreOpeningStateSchema> = {
+        kind: "unbound", selection: null, executionClaimId: null, opening: null,
+      };
+      if (row) {
+        const selection = StoredHarnessSelectionSchema.parse(JSON.parse(row.selection_json));
+        this.requireAdmission(selection);
+        if (row.run_attempt_id !== admission.runAttemptId || row.user_id !== admission.run.userId ||
+            selection.turnId !== admission.turn.id || selection.runAttemptId !== admission.runAttemptId ||
+            selection.userId !== admission.run.userId || row.selection_fingerprint !== harnessSelectionFingerprint(selection) ||
+            !Number.isSafeInteger(row.last_observation_sequence) || row.last_observation_sequence < 0 ||
+            ![0, 1].includes(row.recovery_required))
+          throw new HarnessPersistenceError("corrupt", "Pre-opening binding conflicts with canonical admission");
+        if (row.attachment_json !== null || row.external_turn_id !== null || row.last_observation_sequence !== 0 ||
+            row.recovery_required !== 0) return unknown;
+        if (row.opening_json === null) {
+          if (row.execution_claim_id !== null) return unknown;
+          state = { kind: "frozen_unclaimed", selection, executionClaimId: null, opening: null };
+        } else {
+          const opening = StoredHarnessOpeningSchema.parse(JSON.parse(row.opening_json));
+          assertHarnessOpeningSelection(selection, opening.intent);
+          if (opening.phase !== "cancelled_before_dispatch" || row.execution_claim_id === null) return unknown;
+          state = { kind: "cancelled_before_dispatch", selection,
+            executionClaimId: text.parse(row.execution_claim_id), opening };
+        }
+      }
+      return HarnessPreOpeningSettlementSchema.parse({ ...canonical, status: "verified_pre_opening_settlement", version: 1, state });
+    }).immediate();
+  }
+
   async reserveOpening(input:ReserveHarnessOpeningInput):Promise<HarnessOpeningReservation> {
     const {selection,intent,command}=await validateHarnessOpeningCommand(input);
     if(intent.executionLease.kind!=="local" || intent.executionLease.leaseId!==command.leaseId)
@@ -592,6 +665,8 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
   ): StoredHarnessBinding {
     const selection = StoredHarnessSelectionSchema.parse(value);
     this.requireAdmission(selection);
+    if (events.length > 0 && this.isSettled(selection.turnId))
+      throw new HarnessPersistenceError("stale_origin", "Settled attempt cannot append freeze events or regain execution authority");
     for (const event of events) {
       assertEventScope(selection, event);
       this.appendLifecycle(event);
