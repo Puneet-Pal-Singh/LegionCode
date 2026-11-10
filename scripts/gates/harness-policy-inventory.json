@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updated": "2026-07-18",
+  "updated": "2026-11-11",
   "purpose": "Machine-readable inventory for LegionCode harness policy files. New *Policy.ts files must be classified here before they can enter apps/ or packages/.",
   "entries": [
     {
@@ -371,6 +371,14 @@
       "disposition": "keep-pure-policy",
       "purpose": "Classify retryable failures and calculate retry budget timing.",
       "gate": "corepack pnpm --filter @legioncode/execution-engine test"
+    },
+    {
+      "path": "packages/harness-opencode/src/server/OpenCodePermissionPolicy.ts",
+      "owner": "harness-opencode-native-permission-translation",
+      "category": "permission",
+      "disposition": "convert-typed-protocol-projector",
+      "purpose": "Capture immutable native permission rules and compare effective native representations for OpenCodeV2Driver, OpenCodeSession and OpenCodeEventMapper. Canonical resolution and attestation remain with the injected resolvePolicy/assertEffectivePolicy authority; this adapter is not a competing permission owner.",
+      "gate": "corepack pnpm --filter @repo/harness-opencode check-types"
     }
   ]
 }
