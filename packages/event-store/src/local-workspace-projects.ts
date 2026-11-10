@@ -85,7 +85,9 @@ export class LocalWorkspaceProjectRecords {
 
   private write(input: RecordValue): void {
     const record = KnownRecordSchema.parse(input);
+    const value = JSON.stringify(record);
+    if (Buffer.byteLength(value) > 32_768) throw new Error("Workspace project exceeds its storage bound");
     this.database.prepare("INSERT INTO metadata(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-      .run(`${PREFIX}${record.project.workspaceId}`, JSON.stringify(record));
+      .run(`${PREFIX}${record.project.workspaceId}`, value);
   }
 }
