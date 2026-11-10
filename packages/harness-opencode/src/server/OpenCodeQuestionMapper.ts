@@ -1,11 +1,11 @@
 import type { FormCreated, SessionFormReplyInput } from "@opencode/client";
-import { UserInputRequestSchema, normalizeUserInputResponse, type JsonRecord } from "@repo/platform-protocol";
+import { UserInputRequestSchema, normalizeUserInputResponse, type JsonRecord, type UserInputRequest } from "@repo/platform-protocol";
 import { OpenCodeTransportError } from "./OpenCodeClient.js";
 
 type NativeQuestion = FormCreated["data"]["form"];
 
 /** Only the official question tool's string/multiselect forms are presentation-compatible. */
-export function questionPayload(form: NativeQuestion): JsonRecord {
+export function questionPayload(form: NativeQuestion): UserInputRequest {
   if (form.metadata?.kind !== "question")
     throw new OpenCodeTransportError("non-question form unavailable", true);
   const questions = form.fields.map((field) => {
