@@ -643,3 +643,8 @@ export {
   type CommitTurnArtifactRequest,
   type CommitTurnArtifactResponse,
 } from "./git-artifact-operations.js";
+
+export {
+  ApprovalExecutionPresentationSchema,
+  type ApprovalExecutionPresentation,
+} from "./approval-presentation.js";

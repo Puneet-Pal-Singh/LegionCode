@@ -30,6 +30,8 @@ export function buildApprovalQuestion(
   pendingApproval: ApprovalRequest,
 ): string {
   switch (pendingApproval.category) {
+    case "outside_workspace":
+      return pendingApproval.reason;
     case "git_mutation":
       return "Do you want me to change the Git repository?";
     case "filesystem_write":
