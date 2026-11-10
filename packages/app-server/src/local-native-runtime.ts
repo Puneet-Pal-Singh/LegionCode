@@ -165,11 +165,29 @@ export function createLocalNativeRuntime(
         rootDirectory: binding.rootDirectory,
       });
       let manifestGitClosureUnknown = false;
+      let kernelPortsReturned = false;
       let attempt: LocalTurnAttemptIdentity | undefined;
       const executor = new LocalTurnExecutor<LocalWorkspaceExecutionBinding>({
         capability,
         producerId: workerId,
         lifecycleEvents: options.persistence.lifecycleEvents,
+        ...(capability.artifactCapture === "omitted_read_only" ? {
+          awaitPreparationQuiescence: async (identity: LocalTurnAttemptIdentity) => {
+            const expected = {
+              workspaceId: preparedAdmission.run.workspaceId,
+              threadId: preparedAdmission.run.threadId,
+              runId: preparedAdmission.run.id,
+              turnId: preparedAdmission.turn.id,
+              runAttemptId: preparedAdmission.runAttemptId,
+            };
+            if ((Object.keys(expected) as Array<keyof typeof expected>).some((key) => identity[key] !== expected[key])) return false;
+            // No NativeFS tool can run before this factory returns kernel ports.
+            // Every attempted Git operation either returned positive closure or
+            // set the sticky unknown marker. The Engine additionally requires
+            // settled execution and exact durable canonical terminal evidence.
+            return !kernelPortsReturned && !manifestGitClosureUnknown;
+          },
+        } : {}),
         async bindWorkspace(admission, signal) {
           signal.throwIfAborted();
           binding.assertCurrent();
@@ -238,7 +256,7 @@ export function createLocalNativeRuntime(
             signal,
             execution,
           });
-          return {
+          const kernelPorts = {
             ...provider,
             workspaceManifests: manifests,
             toolAuthorization: new RegistryToolAuthorization({
@@ -250,6 +268,8 @@ export function createLocalNativeRuntime(
             }),
             approvals,
           };
+          kernelPortsReturned = true;
+          return kernelPorts;
         },
       });
       const proveRelease = async (turnId: TurnAdmission["turn"]["id"]) => {

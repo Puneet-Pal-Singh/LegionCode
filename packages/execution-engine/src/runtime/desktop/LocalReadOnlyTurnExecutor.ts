@@ -79,6 +79,11 @@ export class LocalTurnExecutor<
         binding: TBinding,
         signal: AbortSignal,
       ) => RuntimeExecutionService | Promise<RuntimeExecutionService>;
+      /** Actual read-only factory proof for a settled preflight that never
+       * returned kernel ports. Worker absence alone never permits release. */
+      readonly awaitPreparationQuiescence?: (
+        attempt: LocalTurnAttemptIdentity,
+      ) => Promise<boolean>;
       readonly lifecycleEvents: RuntimeKernelDependencies["lifecycleEvents"];
       readonly producerId: string;
       readonly createKernelPorts: (
@@ -289,10 +294,19 @@ export class LocalTurnExecutor<
               turnId: admission.turn.id,
               timeoutMs,
             }) ?? Promise.resolve(false)
-          : preparationFailure?.awaitQuiescence({
-              turnId: admission.turn.id,
-              timeoutMs,
-            }) ?? Promise.resolve(false),
+          : preparationFailure
+            ? preparationFailure.awaitQuiescence({ turnId: admission.turn.id, timeoutMs })
+            : this.capability.artifactCapture === "omitted_read_only" &&
+                this.turns.get(admission.turn.id)?.finished === true &&
+                this.options.awaitPreparationQuiescence
+              ? this.options.awaitPreparationQuiescence({
+                  workspaceId: admission.run.workspaceId,
+                  threadId: admission.run.threadId,
+                  runId: admission.run.id,
+                  turnId: admission.turn.id,
+                  runAttemptId: admission.runAttemptId,
+                })
+              : Promise.resolve(false),
       isTerminal: () =>
         (kernelOwner?.getTurnTerminalStatus(admission.turn.id) ??
           preflightStatus) !== null,

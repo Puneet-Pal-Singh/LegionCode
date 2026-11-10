@@ -1641,3 +1641,9 @@ never release evidence. Unknown proof, failed binding close or workspace-owner
 quarantine rejects shutdown and retains the original resources. `shutdown()` and
 `hasActiveExecutions` let the generic server await this owner before SQLite close;
 that transport barrier is a separate integration dependency.
+
+A settled read-only preflight may release only with an explicit same-attempt
+factory quiescence proof: kernel ports never returned, no NativeFS tool could
+start, and every requested Git operation returned positive closure. The Engine
+still requires exact durable terminal evidence. Worker absence is not proof;
+unknown Git closure and the captured preparation proof path remain unchanged.
