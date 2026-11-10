@@ -1,5 +1,5 @@
 import { sameNativePermissions } from "./OpenCodePermissionPolicy.js";
-import { OpenCodePendingRequests } from "./OpenCodePendingRequests.js";
+import { OpenCodePendingRequests, type OpenCodeNativeRequestWithdrawal } from "./OpenCodePendingRequests.js";
 import { OpenCodeWorkTracker } from "./OpenCodeWorkTracker.js";
 import { Schema } from "effect";
 import { Session } from "@opencode/schema/session";
@@ -37,7 +37,7 @@ export class OpenCodeSession {
   static async create(
     transport: OpenCodeClient,
     input: SessionCreateInput,
-    commit: (event: OpenCodeEvent) => Promise<void>,
+    commit: (event: OpenCodeEvent, withdrawal?: OpenCodeNativeRequestWithdrawal) => Promise<void>,
   ): Promise<OpenCodeSession> {
     if (
       !input.model?.id ||
@@ -99,7 +99,7 @@ export class OpenCodeSession {
         event.data.inboxID !== session.promptId
       )
         return transport.invalidate("input outside admitted prompt binding");
-      await session.requests.observe(event, () => commit(event));
+      await session.requests.observe(event, (withdrawal) => commit(event, withdrawal));
     });
     session.root = await transport.mutate("session.create", (api, signal) =>
       api.session.create({ ...captured, id: rootID }, { signal }),
