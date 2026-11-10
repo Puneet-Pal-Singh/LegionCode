@@ -120,7 +120,7 @@ export class LocalTurnService {
   }
 
   private async admitTurn(params: LocalTurnStartParams, captured?: NonNullable<ChatRequestBody["harnessSelection"]>): Promise<TurnAdmission> {
-    await this.initialize();
+    const initialization = await this.initialize();
     params = LocalTurnStartParamsSchema.parse(params);
     const thread = await this.authorizeThread(params.threadId, params.workspaceId);
     if (thread.status !== "active") throw new AppServerOperationError(409, "invalid_request", "Local thread is archived");
@@ -137,6 +137,7 @@ export class LocalTurnService {
       }
       return previous; // Never restart an admitted or ambiguously delivered prompt.
     }
+    if (initialization.status === "recovery_required") throw new LocalHarnessRecoveryError(initialization.retainedTurnIds);
     if (!captured?.selection) throw new AppServerOperationError(409, "invalid_request", "Delegated admission requires an explicit captured harness selection");
     return this.options.harnessOperations.withSelection({
       environmentId: this.options.persistence.environmentId, workspaceId: thread.workspaceId,
@@ -198,7 +199,16 @@ export class LocalTurnService {
   }
 
   async savedTurnBackend(turnId: TurnId): Promise<LocalHarnessBackend> {
-    return localAdmissionBackend(await this.getTurn(turnId), this.options.persistence.environmentId);
+    const admission = await this.options.persistence.turnAdmissions.getByTurn(turnId);
+    if (!admission) throw new AppServerOperationError(404, "not_found", "Local turn was not found");
+    // Metadata authorization is shared by Native and delegated routing. Do not
+    // bind a delegated execution grant or consult today's harness picker here.
+    const thread = await this.options.threads.get(admission.run.threadId);
+    if (thread.workspaceId !== admission.run.workspaceId || thread.userId !== admission.run.userId ||
+        thread.userId !== this.options.threads.actorUserId) {
+      throw new AppServerOperationError(403, "unauthorized", "Local saved turn does not match its authorized Thread owner");
+    }
+    return localAdmissionBackend(admission, this.options.persistence.environmentId);
   }
 
   async getTurn(turnId: TurnId): Promise<TurnAdmission> {
