@@ -5,6 +5,9 @@ export interface ReplayLifecycleEventsInput {
   readonly turnId: TurnId;
   readonly afterSequence: number | null;
   readonly limit: number;
+  /** Exact UTF-8 JSON bytes of { events, nextSequence }, excluding transport framing.
+   * Omit for existing internal count-only replay. */
+  readonly maxBytes?: number;
 }
 
 export interface ReplayLifecycleEventsResult {

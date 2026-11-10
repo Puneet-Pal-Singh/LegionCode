@@ -67,8 +67,49 @@ export interface WorkspaceListItem {
   selected: boolean;
 }
 
+/** Configuration of an existing primary-repository workspace; not execution readiness. */
+export interface WorkspaceConfigurationRecord {
+  repository: RepositoryRecord;
+  workspace: WorkspaceRecord;
+  version: number;
+}
+
+/** Canonical namespace identity cannot be rebound by selection or settings writes. */
+export class RepositoryIdentityConflictError extends Error {
+  constructor() {
+    super(
+      "Repository identity conflict; reviewed identity recovery is required",
+    );
+    this.name = "RepositoryIdentityConflictError";
+  }
+}
+
+export interface UpdateWorkspaceConfigurationInput {
+  userId: string;
+  workspaceId: string;
+  expectedVersion: number;
+  /** Private binding captured from an owned saved record, never public input. */
+  expectedRepository: { id: string; providerRepoId: string };
+  patch: { name?: string; selectedBranch?: string };
+  now: string;
+}
+
+export type WorkspaceConfigurationUpdateResult =
+  | { status: "updated"; configuration: WorkspaceConfigurationRecord }
+  | { status: "conflict" }
+  | { status: "not_found" };
+
 export interface WorkspaceRepository {
-  selectWorkspace(input: SelectWorkspaceInput): Promise<WorkspaceBootstrapRecord>;
+  findWorkspaceConfiguration(
+    userId: string,
+    workspaceId: string,
+  ): Promise<WorkspaceConfigurationRecord | null>;
+  updateWorkspaceConfiguration(
+    input: UpdateWorkspaceConfigurationInput,
+  ): Promise<WorkspaceConfigurationUpdateResult>;
+  selectWorkspace(
+    input: SelectWorkspaceInput,
+  ): Promise<WorkspaceBootstrapRecord>;
   findWorkspaceSelection(
     userId: string,
   ): Promise<WorkspaceBootstrapRecord | null>;

@@ -1,9 +1,14 @@
+import { bootstrapDelegatedRecovery } from "./harness/DelegatedRecoveryBootstrap.js";
+import { HarnessSelectionSchema } from "@repo/platform-protocol";
+import { HarnessStartCommandSchema } from "@repo/worker-protocol";
+import { DelegatedTurnCoordinator, type DelegatedExecutionDependencies } from "./harness/DelegatedTurnCoordinator.js";
 import { omitsReadOnlyArtifacts } from "./ReadOnlyArtifactPolicy.js";
 import {
   ItemIdSchema,
   RunAttemptIdSchema,
   RunSchema,
   TurnSchema,
+  LifecycleEventSchema,
   LifecycleTransitionError,
   type LifecycleEvent,
   type Run,
@@ -13,6 +18,7 @@ import {
 import type { WorkspaceManifestRepository } from "@repo/workspace-core";
 import type { WorkspaceManifest } from "@repo/workspace-core";
 import { ApprovalCoordinator } from "./ApprovalCoordinator.js";
+import { CanonicalApprovalDeadlinePort } from "./CanonicalApprovalDeadlinePort.js";
 import {
   RuntimeKernelError,
   RuntimeLifecycleSettlementError,
@@ -51,18 +57,19 @@ export interface RuntimeKernelDependencies {
   readonly turnArtifacts?: RuntimeTurnArtifactPort;
   /** Explicit opt-in for a backend that cannot mutate the workspace. */
   readonly artifactCapture?: "required" | "omitted_read_only";
-  readonly workspaceManifests?: WorkspaceManifestRepository;
-  readonly contextAssembly: ContextAssemblyPort;
+  readonly workspaceManifests?: Pick<WorkspaceManifestRepository, "getLatestByRunId">;
+  readonly contextAssembly?: ContextAssemblyPort;
   readonly contextCompaction?: ContextCompactionPort;
-  readonly provider: ProviderPort;
-  readonly worker: WorkerProtocolPort;
-  readonly toolAuthorization: ToolAuthorizationPort;
-  readonly approvals: ApprovalWaitPort;
+  readonly provider?: ProviderPort;
+  readonly worker?: WorkerProtocolPort;
+  readonly toolAuthorization?: ToolAuthorizationPort;
+  readonly approvals?: ApprovalWaitPort;
   readonly hooks?: RuntimeHookOrchestrationPort;
   readonly producerId: string;
   readonly maxToolCalls?: number;
   readonly clock?: RuntimeKernelClock;
   readonly signal?: AbortSignal;
+  readonly delegated?: DelegatedExecutionDependencies;
 }
 
 interface PreparedTurn {
@@ -72,12 +79,13 @@ interface PreparedTurn {
   readonly workspace: WorkspaceManifest | null;
   readonly lifecycle: RuntimeLifecycleCoordinator;
   readonly artifacts: TurnArtifactSettlementCoordinator | null;
-  readonly tools: ToolExecutionCoordinator;
+  readonly tools: ToolExecutionCoordinator | null;
+  readonly delegated: DelegatedTurnCoordinator | null;
   readonly executionSignal: AbortSignal;
   readonly hookTriggerEvents: {
     readonly sessionStart: LifecycleEvent;
     readonly userPromptSubmit: LifecycleEvent;
-  };
+  } | null;
 }
 
 export class RuntimeKernel {
@@ -97,6 +105,7 @@ export class RuntimeKernel {
     string,
     Promise<TurnArtifactSettlementResult>
   >();
+  private readonly unsafeWorkspaces = new Set<string>();
   private readonly pendingInterrupts = new Map<string, string>();
   private readonly executions = new Map<string, Promise<StartTurnResult>>();
   private readonly preparedTurns = new Map<string, PreparedTurn>();
@@ -132,8 +141,10 @@ export class RuntimeKernel {
     readonly clientInputId: string;
     readonly transcriptMessageId: string;
   }): Promise<number> {
+    const delegated = this.preparedTurns.get(input.turnId)?.delegated;
+    if (delegated) return delegated.acceptThreadInput(input);
     const lifecycle = this.lifecycles.get(input.turnId);
-    if (!lifecycle || !this.dependencies.provider.enqueueThreadInput) {
+    if (!lifecycle || !this.dependencies.provider?.enqueueThreadInput) {
       throw new RuntimeKernelError(
         "turn_not_active",
         `Turn ${input.turnId} has no active model input owner`,
@@ -146,7 +157,7 @@ export class RuntimeKernel {
         transcriptMessageId: input.transcriptMessageId,
       },
       (acceptedSequence) => {
-        this.dependencies.provider.enqueueThreadInput?.({
+        this.dependencies.provider?.enqueueThreadInput?.({
           ...input.accepted,
           acceptedSequence,
         });
@@ -155,12 +166,20 @@ export class RuntimeKernel {
   }
 
   async startTurn(input: StartTurnInput): Promise<StartTurnResult> {
+    // Rejection must not enter the preparation-failure lifecycle appender.
+    await this.assertLifecycleStartAllowed(input);
     let prepared: PreparedTurn;
     try {
       prepared = await this.prepareTurn(input);
     } catch (error) {
       // A durable local admission must settle even if its workspace was revoked before start.
-      if ((this.dependencies.artifactCapture === "omitted_read_only" || this.dependencies.worker.executionCapability === "guarded_mutation") && !this.lifecycles.has(input.turn.id)) {
+      if (
+        (this.dependencies.artifactCapture === "omitted_read_only" ||
+          this.dependencies.worker?.executionCapability === "guarded_mutation") &&
+        input.execution?.kind !== "delegated" &&
+        input.run.harnessSelection?.selection == null &&
+        !this.lifecycles.has(input.turn.id)
+      ) {
         const run = RunSchema.parse(input.run);
         const turn = TurnSchema.parse(input.turn);
         const attempt = RunAttemptIdSchema.parse(input.runAttemptId);
@@ -180,7 +199,12 @@ export class RuntimeKernel {
     const pendingReason = this.pendingInterrupts.get(prepared.turn.id);
     if (pendingReason) {
       this.pendingInterrupts.delete(prepared.turn.id);
-      await this.interruptPreparedTurn(prepared, pendingReason, true);
+      let quiescent = true;
+      if (prepared.delegated && input.execution?.kind === "delegated" && input.execution.recovery === "same_attempt" && !prepared.lifecycle.isTerminalDecided) {
+        try { await prepared.delegated.stop(); await prepared.delegated.requireQuiescence(); }
+        catch { quiescent = false; }
+      }
+      if (!prepared.lifecycle.isTerminalDecided) await this.interruptPreparedTurn(prepared, pendingReason, quiescent);
       this.executionControllers.delete(prepared.turn.id);
       this.preparedTurns.delete(prepared.turn.id);
       return {
@@ -201,59 +225,143 @@ export class RuntimeKernel {
     }
   }
 
+  private async assertLifecycleStartAllowed(input: StartTurnInput): Promise<void> {
+    const run = RunSchema.parse(input.run);
+    const turn = TurnSchema.parse(input.turn);
+    const attempt = RunAttemptIdSchema.parse(input.runAttemptId);
+    this.assertTurnIdentity(run, turn);
+    this.assertTurnAvailable(turn);
+    // This read prevents blind restart; durable admission/checkout claims still
+    // exclusively arbitrate concurrent writers. A supplied cursor is no claim.
+    const replay = await this.dependencies.lifecycleEvents.replay({
+      turnId: turn.id, afterSequence: null, limit: 1,
+    });
+    this.assertTurnAvailable(turn);
+    if (!Array.isArray(replay.events) || replay.events.length > 1)
+      throw new RuntimeKernelError("invalid_turn_identity", "Lifecycle preflight exceeded its replay limit");
+    const recovery = input.execution?.kind === "delegated" && input.execution.recovery === "same_attempt";
+    if (replay.events.length === 0) {
+      if (replay.nextSequence !== null || turn.lastEventSequence !== 0 || recovery)
+        throw new RuntimeKernelError("invalid_turn_identity", "Empty canonical lifecycle conflicts with the requested cursor or recovery");
+      return;
+    }
+    const parsed = LifecycleEventSchema.safeParse(replay.events[0]);
+    if (!parsed.success)
+      throw new RuntimeKernelError("invalid_turn_identity", "Canonical lifecycle preflight returned a malformed event");
+    const first = parsed.data;
+    if (
+      first.turnId !== turn.id || first.threadId !== run.threadId ||
+      first.runAttemptId !== attempt || first.sequence !== 1 ||
+      (replay.nextSequence !== null && replay.nextSequence !== first.sequence)
+    )
+      throw new RuntimeKernelError("invalid_turn_identity", "Canonical lifecycle preflight has a different identity or sequence");
+    if (!recovery)
+      throw new RuntimeKernelError("turn_already_owned", "Canonical lifecycle history requires explicit supported recovery");
+    // Only the existing delegated strategy may continue to its full persisted
+    // session/generation, frozen binding and committed start-snapshot checks.
+  }
+
   private async prepareTurn(input: StartTurnInput): Promise<PreparedTurn> {
     const run = RunSchema.parse(input.run);
     const turn = TurnSchema.parse(input.turn);
     const runAttemptId = RunAttemptIdSchema.parse(input.runAttemptId);
     this.assertTurnIdentity(run, turn);
     this.assertTurnAvailable(turn);
+    const recoveryRequested = input.execution?.kind === "delegated" && input.execution.recovery === "same_attempt";
+    if (turn.lastEventSequence > 0 && !recoveryRequested) throw new RuntimeKernelError("turn_already_owned", "Existing attempt history requires explicit same-attempt recovery");
     const workspace = run.executionCapability === "conversation"
       ? null : await this.requireWorkspace(run);
-    const omitArtifacts = omitsReadOnlyArtifacts(this.dependencies, run);
+    const delegatedInput = input.execution?.kind === "delegated" ? input.execution : null;
+    if (!delegatedInput && run.harnessSelection?.selection != null) throw new RuntimeKernelError("invalid_turn_identity", "Admitted delegated selection requires its resolved delegated execution strategy");
+    if (delegatedInput) {
+      const selection = HarnessSelectionSchema.parse(delegatedInput.selection);
+      if (!workspace || !this.dependencies.delegated || selection.userId !== run.userId ||
+        selection.workspaceId !== run.workspaceId || selection.threadId !== run.threadId ||
+        selection.runId !== run.id || selection.turnId !== turn.id || selection.runAttemptId !== runAttemptId ||
+        selection.modelId !== run.modelId || selection.policyId !== run.permissionProfileId) {
+        throw new RuntimeKernelError("invalid_turn_identity", "Delegated selection does not match admitted execution");
+      }
+      const admittedSelection = run.harnessSelection;
+      if (!admittedSelection || admittedSelection.selection === null ||
+        admittedSelection.environmentId !== selection.environmentId ||
+        admittedSelection.selectionRevision !== selection.selectionRevision ||
+        admittedSelection.selection.harness !== selection.harness || admittedSelection.selection.instanceId !== selection.instanceId ||
+        admittedSelection.selection.connectionId !== selection.connectionId || admittedSelection.selection.modelId !== selection.modelId) {
+        throw new RuntimeKernelError("invalid_turn_identity", "Resolved harness binding differs from frozen admitted selection");
+      }
+      await this.dependencies.delegated.assertActive({ selection, leaseId: delegatedInput.leaseId,
+        filesystemRoot: workspace.filesystemRoot });
+    }
+    const omitArtifacts = omitsReadOnlyArtifacts(this.dependencies, run, input.execution);
     const artifactSettlement = workspace && !omitArtifacts
       ? this.createArtifactSettlement(run, turn, workspace) : null;
-    const startArtifacts = await artifactSettlement?.begin();
+    const recoverySession = recoveryRequested ? delegatedInput?.resumeSession : null;
+    if (recoveryRequested && (!recoverySession || recoverySession.runAttemptId !== runAttemptId || recoverySession.instanceId !== delegatedInput?.selection.instanceId)) {
+      throw new RuntimeKernelError("invalid_turn_identity", "Same-attempt recovery requires its exact persisted session");
+    }
+    const restored = recoverySession && this.dependencies.delegated
+      ? await bootstrapDelegatedRecovery({ persistence: this.dependencies.delegated.observations,
+          session: recoverySession, turnId: turn.id, minimumSequence: turn.lastEventSequence }) : null;
     const lifecycle = this.createLifecycle(run, turn, runAttemptId, input);
+    let startArtifacts: Awaited<ReturnType<TurnArtifactSettlementCoordinator["begin"]>> | undefined;
+    try {
+      if (restored) {
+        await lifecycle.restoreHarnessHistory(restored.recovery.lifecycleEvents);
+        artifactSettlement?.restoreCommittedStart(restored.start);
+        startArtifacts = restored.start;
+      } else startArtifacts = await artifactSettlement?.begin();
+    } catch (error) {
+      this.lifecycles.delete(turn.id);
+      throw error;
+    }
     if (artifactSettlement) this.artifactSettlements.set(turn.id, artifactSettlement);
     const approvals = new ApprovalCoordinator(
-      this.dependencies.approvals,
+      this.dependencies.approvals ?? new CanonicalApprovalDeadlinePort(),
       lifecycle,
     );
     this.approvalCoordinators.set(turn.id, approvals);
-    const tools = new ToolExecutionCoordinator(
-      this.dependencies.worker,
-      this.dependencies.toolAuthorization,
-      approvals,
-      lifecycle,
-    );
+    const native = delegatedInput ? null : this.requireNativePorts();
+    const tools = native ? new ToolExecutionCoordinator(native.worker, native.toolAuthorization, approvals, lifecycle) : null;
     const executionController = new AbortController();
     if (this.dependencies.signal?.aborted) {
       executionController.abort(this.dependencies.signal.reason);
     }
     this.executionControllers.set(turn.id, executionController);
-    const lifecycleStart = await lifecycle.start();
-    if (startArtifacts) await lifecycle.captureWorkspaceSnapshot(startArtifacts);
+    const lifecycleStart = restored ? null : await lifecycle.start();
+    if (!restored && startArtifacts) await lifecycle.captureWorkspaceSnapshot(startArtifacts);
+    const delegated = delegatedInput && this.dependencies.delegated && workspace && startArtifacts
+      ? new DelegatedTurnCoordinator({
+          dependencies: this.dependencies.delegated,
+          command: HarnessStartCommandSchema.parse({
+            mode: restored ? "recover_same_attempt" : "start",
+            commandId: `${runAttemptId}:start`, selection: delegatedInput.selection,
+            leaseId: delegatedInput.leaseId, startSnapshot: startArtifacts.snapshot,
+            filesystemRoot: workspace.filesystemRoot, prompt: delegatedInput.prompt,
+            resumeSession: delegatedInput.resumeSession,
+          }),
+          run, turn, lifecycle, approvals, signal: executionController.signal,
+        }) : null;
     return {
       run,
       turn,
       runAttemptId,
       workspace,
       lifecycle,
+      delegated,
       artifacts: artifactSettlement,
       tools,
       executionSignal: executionController.signal,
-      hookTriggerEvents: {
+      hookTriggerEvents: lifecycleStart ? {
         sessionStart: lifecycleStart.turnStarted,
         userPromptSubmit: lifecycleStart.runAttemptStarted,
-      },
+      } : null,
     };
   }
 
   private async executePreparedTurn(
     prepared: PreparedTurn,
   ): Promise<StartTurnResult> {
-    const { run, turn, runAttemptId, workspace, lifecycle, artifacts, tools } =
-      prepared;
+    const { turn, workspace, lifecycle, artifacts } = prepared;
     try {
       if (lifecycle.isTerminal) {
         return {
@@ -265,23 +373,9 @@ export class RuntimeKernel {
       }
       prepared.executionSignal.throwIfAborted();
       await this.runHooks(prepared);
-      const context = await this.assembleContext(
-        run,
-        turn,
-        workspace,
-        [],
-        prepared.executionSignal,
-      );
-      this.activeContexts.set(turn.id, context);
-      const result = await this.executeLoop(
-        prepared,
-        run,
-        runAttemptId,
-        turn,
-        workspace,
-        context,
-        tools,
-      );
+      const result = prepared.delegated
+        ? { status: "completed" as const, ...await prepared.delegated.execute() }
+        : await this.executeNativePreparedTurn(prepared);
       if (prepared.executionSignal.aborted || lifecycle.isTerminal) {
         throw new LifecycleTransitionError(
           "turn",
@@ -290,13 +384,16 @@ export class RuntimeKernel {
           "turn was interrupted before successful settlement",
         );
       }
-      if (this.dependencies.worker.executionCapability === "guarded_mutation") {
+      if (this.dependencies.worker?.executionCapability === "guarded_mutation") {
         await this.awaitGuardedQuiescence(turn.id);
         prepared.executionSignal.throwIfAborted();
       }
       await this.settleArtifacts(turn.id, lifecycle, artifacts);
-      prepared.executionSignal.throwIfAborted();
-      await lifecycle.complete(result.output, result.finalItemId);
+      // Snapshot capture awaits filesystem/Git work. Stop may have been accepted
+      // during that await; revalidate before entering terminal arbitration.
+      if (prepared.executionSignal.aborted) throw new RuntimeKernelError("turn_cancelled", "Turn stopped during artifact capture");
+      if (prepared.delegated) await prepared.delegated.requireQuiescence();
+      await lifecycle.complete(result.output, result.finalItemId, () => !prepared.executionSignal.aborted);
       return {
         status: result.status,
         output: result.output,
@@ -304,20 +401,26 @@ export class RuntimeKernel {
         workspace,
       };
     } catch (error) {
-      if (!lifecycle.isTerminal) {
+      if (!lifecycle.isTerminalDecided && !lifecycle.requiresHarnessRecovery) {
         if (!isArtifactSettlementError(error)) {
           const interrupted =
             isTurnCancelled(error) || prepared.executionSignal.aborted;
-          const requiresQuiescence = interrupted || this.dependencies.worker.executionCapability === "guarded_mutation";
-          let resumeQuiescent =
-            requiresQuiescence &&
-            (await this.dependencies.worker.awaitQuiescence?.({
-              turnId: turn.id,
-              timeoutMs: 500,
-            })) === true;
-          if (this.dependencies.worker.executionCapability === "guarded_mutation" && !resumeQuiescent) {
-            await this.awaitGuardedQuiescence(turn.id);
-            resumeQuiescent = true;
+          const requiresQuiescence = interrupted || prepared.delegated !== null ||
+            this.dependencies.worker?.executionCapability === "guarded_mutation";
+          let resumeQuiescent = false;
+          if (prepared.delegated) {
+            try {
+              await prepared.delegated.stop();
+              await prepared.delegated.requireQuiescence();
+              resumeQuiescent = true;
+            } catch { /* Unknown quiescence retains checkout ownership for recovery. */ }
+          } else {
+            resumeQuiescent = requiresQuiescence &&
+              (await this.dependencies.worker?.awaitQuiescence?.({ turnId: turn.id, timeoutMs: 500 })) === true;
+            if (this.dependencies.worker?.executionCapability === "guarded_mutation" && !resumeQuiescent) {
+              await this.awaitGuardedQuiescence(turn.id);
+              resumeQuiescent = true;
+            }
           }
           await this.settleArtifacts(
             turn.id,
@@ -350,9 +453,23 @@ export class RuntimeKernel {
     }
   }
 
+  private requireNativePorts(): { provider: ProviderPort; contextAssembly: ContextAssemblyPort; worker: WorkerProtocolPort; toolAuthorization: ToolAuthorizationPort } {
+    const { provider, contextAssembly, worker, toolAuthorization } = this.dependencies;
+    if (!provider || !contextAssembly || !worker || !toolAuthorization) throw new RuntimeKernelError("worker_failed", "Native execution requires its configured native ports");
+    return { provider, contextAssembly, worker, toolAuthorization };
+  }
+
+  private async executeNativePreparedTurn(prepared: PreparedTurn) {
+    const { run, turn, runAttemptId, workspace, tools } = prepared;
+    if (!tools) throw new RuntimeKernelError("worker_failed", "Native tool ports are unavailable for this strategy");
+    const context = await this.assembleContext(run, turn, workspace, [], prepared.executionSignal);
+    this.activeContexts.set(turn.id, context);
+    return this.executeLoop(prepared, run, runAttemptId, turn, workspace, context, tools);
+  }
+
   private async runHooks(prepared: PreparedTurn): Promise<void> {
     const hooks = this.dependencies.hooks;
-    if (!hooks || !prepared.workspace) return;
+    if (!hooks || !prepared.workspace || !prepared.hookTriggerEvents) return;
 
     const base = {
       run: prepared.run,
@@ -379,17 +496,19 @@ export class RuntimeKernel {
         `Turn ${turnId} is not owned by this runtime kernel`,
       );
     }
-    if (lifecycle.isTerminal) return;
+    if (lifecycle.isTerminalDecided) return;
 
     this.pendingInterrupts.set(turnId, reason);
     this.executionControllers
       .get(turnId)
       ?.abort(new DOMException(reason, "AbortError"));
+    const delegated = this.preparedTurns.get(turnId)?.delegated;
+    if (delegated) await delegated.stop();
     const execution = this.executions.get(turnId);
     let executionSettled = !execution;
     if (execution) {
       try {
-        if (this.dependencies.worker.executionCapability === "guarded_mutation") {
+        if (this.dependencies.worker?.executionCapability === "guarded_mutation") {
           await execution;
         } else {
           await withBoundedCancellationSettlement(execution);
@@ -411,12 +530,13 @@ export class RuntimeKernel {
         );
       }
       this.pendingInterrupts.delete(turnId);
-      const quiescent =
-        executionSettled &&
-        (await this.dependencies.worker.awaitQuiescence?.({
-          turnId,
-          timeoutMs: 500,
-        })) === true;
+      let quiescent = false;
+      if (prepared.delegated) {
+        try { await prepared.delegated.requireQuiescence(); quiescent = true; }
+        catch { /* No release or immutable snapshot while mutation may continue. */ }
+      } else {
+        quiescent = executionSettled && (await this.dependencies.worker?.awaitQuiescence?.({ turnId, timeoutMs: 500 })) === true;
+      }
       await this.interruptPreparedTurn(prepared, reason, quiescent);
     }
   }
@@ -461,6 +581,29 @@ export class RuntimeKernel {
       );
     }
     await approvals.resolve(approvalId, resolution);
+  }
+
+  /** Bind this actual canonical callback into HarnessRecovery before retiring a
+   * damaged journal. A physical stop alone is never a successful resolution. */
+  async resolveObservationIntegrity(input: {
+    readonly command: import("@repo/worker-protocol").HarnessStartCommand;
+    readonly session: import("@repo/worker-protocol").HarnessSession;
+    readonly signal: AbortSignal;
+  }): Promise<import("./harness/DelegatedHarnessPort.js").HarnessObservationRecovery> {
+    const delegated = this.preparedTurns.get(input.command.selection.turnId)?.delegated;
+    if (!delegated) throw new RuntimeKernelError("turn_not_active", "No canonical delegated owner exists for integrity resolution");
+    return delegated.resolveObservationIntegrity(input);
+  }
+
+  async respondUserInput(input: {
+    readonly turnId: Turn["id"];
+    readonly requestId: string;
+    readonly response: import("@repo/platform-protocol").JsonRecord;
+    readonly respondedBy: import("@repo/platform-protocol").UserId | null;
+  }): Promise<void> {
+    const delegated = this.preparedTurns.get(input.turnId)?.delegated;
+    if (!delegated) throw new RuntimeKernelError("turn_not_active", "No active delegated user input owner");
+    await delegated.respondUserInput(input.requestId, input.response, input.respondedBy);
   }
 
   async compactTurn(
@@ -547,7 +690,7 @@ export class RuntimeKernel {
       let step: Awaited<ReturnType<ProviderPort["generateNext"]>>;
       try {
         prepared.executionSignal.throwIfAborted();
-        step = await this.dependencies.provider.generateNext(providerInput);
+        step = await this.requireNativePorts().provider.generateNext(providerInput);
         prepared.executionSignal.throwIfAborted();
       } catch (error) {
         if (error instanceof RuntimeKernelError) throw error;
@@ -585,10 +728,10 @@ export class RuntimeKernel {
       }
       if (step.kind === "complete") {
         const reserved = await prepared.lifecycle.reserveCompletion(
-          () => this.dependencies.provider.hasPendingThreadInputs?.() ?? false,
+          () => this.requireNativePorts().provider.hasPendingThreadInputs?.() ?? false,
         );
         if (!reserved) {
-          const flushed = await this.dependencies.provider.flushThreadInputs?.();
+          const flushed = await this.requireNativePorts().provider.flushThreadInputs?.();
           if (flushed) {
             toolCallCount -= 1;
             continue;
@@ -686,7 +829,7 @@ export class RuntimeKernel {
     toolResults: readonly ToolResult[],
     signal: AbortSignal,
   ): Promise<Awaited<ReturnType<ContextAssemblyPort["assemble"]>>> {
-    const context = await this.dependencies.contextAssembly.assemble({
+    const context = await this.requireNativePorts().contextAssembly.assemble({
       run,
       turn,
       workspace,
@@ -805,10 +948,11 @@ export class RuntimeKernel {
 
   /** Keep this kernel continuation and its prepared resources alive until the real worker drains. */
   private async awaitGuardedQuiescence(turnId: Turn["id"]): Promise<void> {
-    if (!this.dependencies.worker.awaitQuiescence) {
+    const worker = this.dependencies.worker;
+    if (!worker?.awaitQuiescence) {
       throw new RuntimeKernelError("worker_failed", "Captured worker has no physical quiescence port");
     }
-    while (!(await this.dependencies.worker.awaitQuiescence({ turnId, timeoutMs: 500 }))) {
+    while (!(await worker.awaitQuiescence({ turnId, timeoutMs: 500 }))) {
       // A backend may return false immediately; yield without abandoning settlement ownership.
       await new Promise<void>((resolve) => setTimeout(resolve, 50));
     }
@@ -819,7 +963,7 @@ export class RuntimeKernel {
     reason: string,
     resumeWorkspaceQuiescent: boolean,
   ): Promise<void> {
-    if (this.dependencies.worker.executionCapability === "guarded_mutation" && !resumeWorkspaceQuiescent) {
+    if (this.dependencies.worker?.executionCapability === "guarded_mutation" && !resumeWorkspaceQuiescent) {
       await this.awaitGuardedQuiescence(prepared.turn.id);
       resumeWorkspaceQuiescent = true;
     }
@@ -933,6 +1077,13 @@ export class RuntimeKernel {
     resumeUnavailableReason?: ResumeWorkspaceUnavailableReason,
   ): Promise<TurnArtifactSettlementResult> {
     if (!coordinator) return {};
+    if (resumeUnavailableReason === "worker_not_quiescent") {
+      if (!this.unsafeWorkspaces.has(turnId)) {
+        await lifecycle.markWorkspaceSnapshotUnavailable("worker_not_quiescent");
+        this.unsafeWorkspaces.add(turnId);
+      }
+      return { resumeUnavailableReason };
+    }
     const existing = this.artifactSettlementEmissions.get(turnId);
     if (existing) return await existing;
     const settlement = this.settleArtifactsNow(

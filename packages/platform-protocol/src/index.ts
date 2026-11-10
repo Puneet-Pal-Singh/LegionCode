@@ -229,6 +229,7 @@ export {
 export {
   ProtocolErrorCodeSchema,
   ProtocolErrorSchema,
+  toPublicProtocolError,
   type ProtocolError,
   type ProtocolErrorCode,
 } from "./errors.js";
@@ -617,6 +618,12 @@ export {
 } from "./hosted-sessions.js";
 
 export {
+  HostedWorkspaceConfigurationReadRequestSchema,
+  HostedWorkspaceConfigurationUpdateRequestSchema,
+  HostedWorkspaceConfigurationSchema,
+  type HostedWorkspaceConfigurationReadRequest,
+  type HostedWorkspaceConfigurationUpdateRequest,
+  type HostedWorkspaceConfiguration,
   HostedWorkspaceSelectRequestSchema,
   HostedWorkspaceListResponseSchema,
   HostedWorkspaceSelectResponseSchema,
@@ -627,6 +634,18 @@ export {
   type HostedWorkspaceListItem,
   type HostedWorkspaceListResponse,
 } from "./hosted-workspaces.js";
+export * from "./harness/index.js";
+
+export {
+  HarnessBillingRouteSchema, HarnessQuotaWindowSchema, HarnessAccountQuotaSchema,
+  HarnessActivityMeasurementSchema, HarnessUsageObservationSchema,
+  HarnessProviderLimitNotificationSchema, type HarnessProviderLimitNotification,
+  type HarnessBillingRoute, type HarnessQuotaWindow, type HarnessAccountQuota,
+  type HarnessActivityMeasurement, type HarnessUsageObservation,
+} from "./harness/usage.js";
+export * from "./harness/operations.js";
+
+export * from "./harness/observation-events.js";
 
 export {
   TurnArtifactCommitSelectionSchema,
@@ -636,3 +655,15 @@ export {
   type CommitTurnArtifactRequest,
   type CommitTurnArtifactResponse,
 } from "./git-artifact-operations.js";
+
+export {
+  UserInputQuestionSchema,
+  UserInputRequestSchema,
+  UserInputResponseSchema,
+  SubmitUserInputResponseRequestSchema,
+  type SubmitUserInputResponseRequest,
+  normalizeUserInputResponse,
+  type UserInputQuestion,
+  type UserInputRequest,
+  type UserInputResponse,
+} from "./questions.js";

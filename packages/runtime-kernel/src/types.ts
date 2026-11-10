@@ -124,6 +124,15 @@ export interface StartTurnInput {
   readonly runAttemptId: RunAttemptId;
   readonly continuationOfTurnId?: TurnId;
   readonly originalPromptId?: string;
+  /** Frozen by the existing admission owner; omission preserves native execution. */
+  readonly execution?: { readonly kind: "native" } | {
+    readonly kind: "delegated";
+    readonly recovery?: "same_attempt";
+    readonly selection: import("@repo/platform-protocol").HarnessSelection;
+    readonly leaseId: import("@repo/platform-protocol").LeaseId;
+    readonly prompt: string;
+    readonly resumeSession: import("@repo/worker-protocol").HarnessSession | null;
+  };
 }
 
 export interface StartTurnResult {
