@@ -136,14 +136,15 @@ export async function runLocalAppServerProcess(
     return;
   }
   server.once("runtime-shutdown-failed", () => parentPort.postMessage({ type: "fatal" }));
-  const exitAfterClose = () => {
-    void server.closed.then(() => process.exit(1), () => undefined);
+  const exitAfterSettlement = (exitCode: number) => {
+    void server.closed.then(() => process.exit(exitCode), () => undefined);
   };
+  const exitAfterClose = () => exitAfterSettlement(1);
   server.once("error", () => {
     parentPort.postMessage({ type: "fatal" });
     server.close(exitAfterClose);
   });
-  process.once("SIGTERM", () => server.close(exitAfterClose));
+  process.once("SIGTERM", () => server.close(() => exitAfterSettlement(0)));
   server.listen(0, "127.0.0.1", () => {
     const address = server.address();
     if (!address || typeof address === "string") {
