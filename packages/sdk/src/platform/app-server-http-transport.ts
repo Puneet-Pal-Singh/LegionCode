@@ -1,4 +1,5 @@
 import type { AppServerRequest, AppServerTransport } from "./app-server-client.js";
+import { APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES } from "@repo/platform-protocol";
 import {
   AppServerErrorSchema,
   AppServerFailureResponseSchema,
@@ -28,7 +29,6 @@ export type AppServerHttpResponseMetadata = {
   headers: Headers;
 };
 
-const MAX_RESPONSE_BYTES = 1_048_576;
 
 export class AppServerTransportError extends Error {
   constructor(
@@ -91,7 +91,7 @@ export function createAppServerHttpTransport(
         onResponse?.(responseMetadata);
         const result = await readBoundedJson(
           response,
-          options.maxResponseBytes === undefined ? MAX_RESPONSE_BYTES : options.maxResponseBytes,
+          options.maxResponseBytes === undefined ? APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES : options.maxResponseBytes,
           options.responsePreviewLimit ?? 120,
         );
         if (result === undefined) {

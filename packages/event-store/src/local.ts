@@ -112,8 +112,8 @@ export class LocalPersistence {
     admit(candidate: TurnAdmission): Promise<{ admission: TurnAdmission; newlyAdmitted: boolean }>;
     findByRequest(threadId: string, clientRequestId: string): Promise<TurnAdmission | null>;
     getByTurn(turnId: string): Promise<TurnAdmission | null>;
-    listByThread(input: { threadId: string; afterCursor: EventCursor | null; limit: number }): Promise<{
-      admissions: readonly TurnAdmission[]; nextCursor: EventCursor | null;
+    listByThread(input: { threadId: string; afterCursor: EventCursor | null; limit: number; latest?: boolean }): Promise<{
+      admissions: readonly TurnAdmission[]; nextCursor: EventCursor | null; hasEarlier?: boolean;
     }>;
   };
   readonly workspaceGrants: {
