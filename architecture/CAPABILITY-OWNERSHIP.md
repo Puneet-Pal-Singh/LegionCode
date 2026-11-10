@@ -1995,3 +1995,10 @@ Concurrent exact image retries derive a validation-only submitted fingerprint
 when another request commits before their image preparation. They use the same
 codec as initial receipt retries without persisting media or resolving providers;
 current Thread authorization and immutable saved-intent checks still gate return.
+
+The actual Desktop utility and per-child supervisor consume that private
+shutdown control and closed receipt. Stop fences request/credential delivery;
+only the matching child's positive receipt clears the ownership obligation.
+Exit, error, timeout or notification loss retain that exact child and block
+restart. Late positive receipts remain valid across request-generation changes.
+The existing before-quit caller waits for this proof; no force-kill is substituted.
