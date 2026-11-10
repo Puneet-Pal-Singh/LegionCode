@@ -1670,7 +1670,8 @@ lifecycle records to derive Thread runtime facts without writing projection stat
 or platform terminal events. An immutable harnessSelection tag on the Run or user
 message denotes delegated ownership and is skipped without parsing driver data;
 Native lifecycle facts must come from the admitted worker's canonical producer.
-Without indexed Native admissions this read leaves the base projection unchanged. The latest indexed admission supplies its user leaf
+Without indexed Native admissions this read leaves the base projection unchanged.
+The latest indexed Native admission supplies its user leaf
 until settled; a settled Turn may supply its completed final assistant item.
 The Thread service applies that leaf only when the admission Run matches its
 existing latest platform Run pointer, preserving newer external runtime leaves.
@@ -1682,3 +1683,18 @@ to that last settled Turn and its current canonical leaf. Native factory wiring
 must inject this narrow read port from its existing single LocalPersistence owner.
 No second admission store, lifecycle reducer, terminal writer or Thread table is
 introduced; root startup composition owns the same-store injection.
+
+## Plan 057 — Canonical named repository HEAD evidence
+
+`DefaultGitService.readRepositoryHead` owns the read-only named-HEAD observation
+used by native workspace manifests. Git reports the actual SHA-1 or SHA-256
+format; born HEAD must resolve to the same nonzero commit, while unborn HEAD
+reuses the snapshot owner's existing missing-HEAD, symbolic branch and absent-ref
+classifier. Its format-sized zero object ID is an explicit absent-HEAD guard,
+never a fabricated commit or captured tree. Two complete observations reject an
+observed change without claiming an atomic hostile-namespace snapshot.
+
+The existing read-only App Server Git adapter forwards this narrow port through
+the same held-root executor and closure checks. No command runner, ref parser,
+GitService interface migration, lifecycle writer or Desktop host authority is
+added. The native runtime consumes the fact in its separately owned composition.
