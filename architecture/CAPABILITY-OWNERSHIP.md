@@ -1776,3 +1776,16 @@ against that same protected config before inference. No static model allowlist,
 second catalog, credential store or app-local routing algorithm replaces these
 owners. Shared provider discovery/routing dependencies and trusted Desktop host
 injection remain separately sequenced integration requirements.
+
+### Local discovery's protected utility-process consumer
+
+The existing Desktop utility startup now injects that same shared discovery
+factory alongside workspace file composition. Main alone reads an atomic
+OS-protected key/config value and lends a delivery lease bound to the vault's
+mutation epoch. The supervisor rechecks the exact child, generation, provider
+and current lease immediately before private delivery. Lookup and delivery
+queues are bounded; timed-out work remains counted until its resolver settles.
+Stop and process loss clear delivery timers and prevent late secret delivery.
+No credential-read renderer IPC, Native runtime activation, mode advertisement
+or competing vault is added. The existing packaged credential case remains
+unchanged and exercises this actual first catalog consumer.
