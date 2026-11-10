@@ -43,6 +43,9 @@ function createPostgresHarnessAdmissionBindings(
       withBindings((bindings) => bindings.lookupImmutable(...args)),
     freezeAndClaim: (input) =>
       withBindings((bindings) => bindings.freezeAndClaim(input)),
+    reserveOpening: (input) => withBindings((bindings) => bindings.reserveOpening(input)),
+    beginOpeningDispatch: (input) => withBindings((bindings) => bindings.beginOpeningDispatch(input)),
+    acknowledgeOpening: (input) => withBindings((bindings) => bindings.acknowledgeOpening(input)),
     attach: (input) => withBindings((bindings) => bindings.attach(input)),
     assertActive: (...args) =>
       withBindings((bindings) => bindings.assertActive(...args)),

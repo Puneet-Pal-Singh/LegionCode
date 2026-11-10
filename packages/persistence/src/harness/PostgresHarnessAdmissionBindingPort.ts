@@ -7,8 +7,10 @@ import {
   type HarnessSelection,
 } from "@repo/platform-protocol";
 import {
-  HarnessSessionSchema,
+  HarnessSessionSchema, HarnessStartCommandSchema, HarnessOpeningIntentSchema,
   type HarnessSession,
+  type HarnessStartCommand,
+  type HarnessOpeningIntent,
 } from "@repo/worker-protocol";
 import {
   HarnessPersistenceError,
@@ -154,6 +156,44 @@ export class PostgresHarnessAdmissionBindingPort {
       this.client,
       envelope(principal, selection),
     );
+  }
+  async reserveOpening(input: { principal: Principal; selection: HarnessSelection; command: HarnessStartCommand; intent: HarnessOpeningIntent }): Promise<void> {
+    input = { ...input, principal: { ...input.principal }, selection: HarnessSelectionSchema.parse(input.selection),
+      intent: HarnessOpeningIntentSchema.parse(input.intent), command: HarnessStartCommandSchema.parse(input.command) };
+    await this.client.transaction(async (tx) => {
+      await lock(tx, input.principal.turnId);
+      await this.active(tx, input.principal, input.selection);
+      const result = await new PostgresHarnessBindingRepository(tx).reserveOpening({
+        selection: envelope(input.principal, input.selection), command: input.command, intent: input.intent,
+      });
+      if (result.status !== "reserved") reject("Existing opening requires explicit recovery");
+    });
+  }
+  async beginOpeningDispatch(input: { principal: Principal; selection: HarnessSelection; intent: HarnessOpeningIntent }): Promise<void> {
+    input = { ...input, principal: { ...input.principal }, selection: HarnessSelectionSchema.parse(input.selection),
+      intent: HarnessOpeningIntentSchema.parse(input.intent) };
+    await this.client.transaction(async (tx) => {
+      await lock(tx, input.principal.turnId);
+      await this.active(tx, input.principal, input.selection);
+      await new PostgresHarnessBindingRepository(tx).beginOpeningDispatch({
+        selection: envelope(input.principal, input.selection), intent: input.intent,
+      });
+    });
+  }
+  async acknowledgeOpening(input: { principal: Principal; selection: HarnessSelection; intent: HarnessOpeningIntent; session: HarnessSession }): Promise<void> {
+    input = { ...input, principal: { ...input.principal }, selection: HarnessSelectionSchema.parse(input.selection),
+      intent: HarnessOpeningIntentSchema.parse(input.intent), session: HarnessSessionSchema.parse(input.session) };
+    const session = HarnessSessionSchema.parse(input.session);
+    if (session.runAttemptId !== input.selection.runAttemptId || session.instanceId !== input.selection.instanceId ||
+        session.processGeneration !== input.intent.processGeneration) reject("Opening acknowledgement identity mismatch");
+    await this.client.transaction(async (tx) => {
+      await lock(tx, input.principal.turnId);
+      await new PostgresHarnessBindingRepository(tx).acknowledgeOpening({
+        selection: envelope(input.principal, input.selection), intent: input.intent,
+        origin: { instanceId: session.instanceId, externalSessionId: session.externalSessionId,
+          processGeneration: session.processGeneration, authOwnerGeneration: input.selection.authOwnerGeneration },
+      });
+    });
   }
   async attach(input: {
     principal: Principal;

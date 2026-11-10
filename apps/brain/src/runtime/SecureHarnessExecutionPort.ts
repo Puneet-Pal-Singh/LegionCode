@@ -12,15 +12,18 @@ import {
   HarnessServiceConnectSchema,
   HarnessServiceHostFrameSchema,
   HarnessServiceWorkerFrameSchema,
-  HarnessServiceRequestSchema,
+  HarnessServiceRequestSchema, HarnessStartCommandSchema, HarnessOpeningFenceTargetSchema, fingerprintHarnessCommand,
   type HarnessServiceRequest,
   type HarnessServiceResult,
   type HarnessServiceScope,
   type HarnessServiceCapability,
   type HarnessObservation,
   type HarnessCommitAck,
+  type HarnessOpeningIntent,
+  type HarnessStartCommand,
+  type HarnessSession,
 } from "@repo/worker-protocol";
-import type { SecureExecutionSessionPort } from "../services/secure-execution/SecureExecutionSessionClient";
+import type { SecureExecutionSessionHandle, SecureExecutionSessionPort } from "../services/secure-execution/SecureExecutionSessionClient";
 import type { Env } from "../types/ai";
 
 const MAX_FRAME = 16 * 1024 * 1024;
@@ -30,6 +33,21 @@ const MAX_PENDING_BYTES = 32 * 1024 * 1024;
 export class SecureHarnessExecutionPort implements DelegatedHarnessPort {
   private socket: WebSocket | null = null;
   private executionSession: SecureExecutionSessionPort | null = null;
+  private cleanupSession: SecureExecutionSessionHandle | null = null;
+  bindCleanupSession(session: SecureExecutionSessionHandle): void {
+    if (this.cleanupSession || this.executionSession) throw new Error("Cleanup session already bound");
+    this.cleanupSession = Object.freeze({...session, lease: Object.freeze({...session.lease})});
+  }
+  async fenceOpening(target: import("@repo/worker-protocol").HarnessOpeningFenceTarget, timeoutMs = 5_000) {
+    target = HarnessOpeningFenceTargetSchema.parse(target);
+    await this.connect(new AbortController().signal);
+    try {
+      const result = await this.request({type: "request", requestId: crypto.randomUUID(), operation: "opening_fence", target, timeoutMs});
+      if (result.operation !== "opening_fence") throw new Error("Opening cleanup correlation mismatch");
+      return result.value;
+    } finally { this.fence(); }
+  }
+
   private observer:
     | ((observation: HarnessObservation) => Promise<HarnessCommitAck>)
     | null = null;
@@ -52,6 +70,18 @@ export class SecureHarnessExecutionPort implements DelegatedHarnessPort {
     private readonly scope: HarnessServiceScope,
   ) {}
 
+  private openingAuthority: {
+    reserve(command: HarnessStartCommand, intent: HarnessOpeningIntent): Promise<void>;
+    beginDispatch(intent: HarnessOpeningIntent): Promise<void>;
+    acknowledge(intent: HarnessOpeningIntent, session: HarnessSession): Promise<void>;
+  } | null = null;
+  private openingCommand: HarnessStartCommand | null = null;
+  private openingFingerprint: string | null = null;
+  private openingLease: SecureExecutionSessionHandle["lease"] | null = null;
+  bindOpeningAuthority(authority: NonNullable<SecureHarnessExecutionPort["openingAuthority"]>): void {
+    if (this.openingAuthority) throw new Error("Opening authority is already bound");
+    this.openingAuthority = Object.freeze({reserve: authority.reserve.bind(authority), beginDispatch: authority.beginDispatch.bind(authority), acknowledge: authority.acknowledge.bind(authority)});
+  }
   bindExecutionSession(session: SecureExecutionSessionPort): void {
     if (this.executionSession)
       throw new Error("Harness lease authority is already bound");
@@ -81,12 +111,20 @@ export class SecureHarnessExecutionPort implements DelegatedHarnessPort {
     return HarnessServiceCapabilitySchema.parse(await response.json());
   }
   async open(input: Parameters<DelegatedHarnessPort["open"]>[0]) {
+    if (!this.openingAuthority || this.openingCommand) throw new Error("Durable opening authority unavailable or already used");
+    const command = HarnessStartCommandSchema.parse(input.command);
+    this.openingCommand = command;
+    this.openingFingerprint = await fingerprintHarnessCommand(command);
     await this.connect(input.signal);
+    if (!this.executionSession) throw new Error("Opening checkout lease unavailable");
+    const { lease } = await this.executionSession.acquire();
+    this.openingLease = Object.freeze({...lease});
     const result = await this.request({
       type: "request",
       requestId: crypto.randomUUID(),
       operation: "open",
-      command: input.command,
+      executionLease: {kind: "cloud", leaseId: lease.leaseId, sandboxId: lease.sandboxId, generation: lease.generation},
+      command,
     });
     if (result.operation !== "open")
       throw new Error("Harness service open correlation mismatch");
@@ -165,9 +203,11 @@ export class SecureHarnessExecutionPort implements DelegatedHarnessPort {
     if (this.closed)
       throw new Error("Harness service is fenced; explicit recovery required");
     if (this.socket) return;
-    if (!this.executionSession)
+    if (!this.executionSession && !this.cleanupSession)
       throw new Error("Harness service requires the canonical checkout lease");
-    const session = await this.executionSession.acquire();
+    const owner = this.executionSession;
+    const session = this.cleanupSession ?? (owner ? await owner.acquire() : null);
+    if (!session) throw new Error("Canonical cleanup checkout unavailable");
     signal.throwIfAborted();
     const response = await this.env.SECURE_API.fetch(
       `http://internal${HARNESS_SERVICE_BRIDGE_PATH}`,
@@ -259,6 +299,32 @@ export class SecureHarnessExecutionPort implements DelegatedHarnessPort {
       if (!this.connected) throw new Error("Unexpected service handshake");
       this.connected.resolve();
       this.connected = null;
+      return;
+    }
+    if (frame.type === "opening_claim" || frame.type === "opening_session") {
+      const authority = this.openingAuthority, command = this.openingCommand;
+      if (!authority || !command || !this.executionSession) throw new Error("Opening has no canonical authority");
+      const intent = frame.intent;
+      if (intent.commandFingerprint !== this.openingFingerprint || intent.commandId !== command.commandId ||
+          intent.runAttemptId !== command.selection.runAttemptId || intent.instanceId !== command.selection.instanceId ||
+          intent.authOwnerGeneration !== command.selection.authOwnerGeneration || intent.workspaceGrantId !== command.selection.workspaceGrantId ||
+          intent.checkoutLeaseId !== command.leaseId || intent.startSnapshotId !== command.startSnapshot.snapshotKey ||
+          intent.openingRef !== `${command.selection.runAttemptId}:${intent.processGeneration}`)
+        throw new Error("Opening differs from captured canonical command");
+      const lease = this.openingLease;
+      if (!lease) throw new Error("Opening has no retained checkout identity");
+      if (intent.executionLease.kind !== "cloud" || intent.executionLease.leaseId !== lease.leaseId ||
+          intent.executionLease.sandboxId !== lease.sandboxId || intent.executionLease.generation !== lease.generation)
+        throw new Error("Opening checkout lease mismatch");
+      if (frame.type === "opening_session") await authority.acknowledge(intent, frame.session);
+      else if (frame.operation === "reserve") await authority.reserve(command, intent);
+      else await authority.beginDispatch(intent);
+      // Each adapter promise resolves only AFTER its canonical database COMMIT.
+      this.send({ type: "opening_commit", deliveryId: frame.deliveryId, commit: {
+        openingRef: intent.openingRef, commandFingerprint: intent.commandFingerprint,
+        processGeneration: intent.processGeneration,
+        phase: frame.type === "opening_session" ? "acknowledged" : frame.operation === "reserve" ? "reserved" : "dispatching",
+      } });
       return;
     }
     if (frame.type === "observation") {

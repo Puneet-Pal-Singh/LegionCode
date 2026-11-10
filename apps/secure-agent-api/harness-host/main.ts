@@ -86,6 +86,7 @@ export function startCloudHarnessHost(options?: {
           context.command,
           context.cleanupOnly,
           context.cleanupSession,
+          context.cleanupOpening,
         ),
       );
     })()

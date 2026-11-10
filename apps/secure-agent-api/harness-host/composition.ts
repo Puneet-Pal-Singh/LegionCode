@@ -1,3 +1,4 @@
+import { HarnessStartCommandSchema } from "@repo/worker-protocol";
 import type { DelegatedHarnessPort } from "@repo/runtime-kernel";
 import {
   createHarnessHost,
@@ -65,6 +66,16 @@ export class SandboxHarnessLaunchPolicy implements HarnessLaunchPolicy {
  * executable paths, credentials, or a replacement launch policy.
  */
 export class CloudHarnessComposition {
+  private openingBinding: { command: string; authority: import("@repo/harness-core/server").HarnessInstance["openingAuthority"]; closed: boolean } | null = null;
+  bindOpeningAuthority(command: HarnessStartCommand, authority: import("@repo/harness-core/server").HarnessInstance["openingAuthority"]): () => void {
+    const captured = HarnessStartCommandSchema.parse(command);
+    if (this.openingBinding) throw new Error("Cloud opening authority cannot be replaced");
+    const binding = { command: JSON.stringify(captured), authority: Object.freeze({reserve: authority.reserve.bind(authority)}), closed: false };
+    this.openingBinding = binding;
+    return () => { binding.closed = true; };
+  }
+  fenceOpening(input: Parameters<HarnessExecutionPort["fenceOpening"]>[0]) { return this.hostExecution.fenceOpening(input); }
+
   private readonly registry = new HarnessRegistry();
   private readonly hostExecution = new HarnessExecutionPort(
     new HarnessSessionManager(this.registry),
@@ -168,6 +179,17 @@ export class CloudHarnessComposition {
     this.registry.register({
       scope,
       driver,
+      openingAuthority: { reserve: async (input) => {
+        const binding = this.openingBinding;
+        if (!binding || binding.closed || binding.command !== JSON.stringify(input.command))
+          throw new Error("Authenticated durable opening authority unavailable");
+        const reserved = await binding.authority.reserve(input);
+        if (binding.closed) throw new Error("Opening authority connection closed");
+        return {
+          beginDispatch: async () => { if (binding.closed) throw new Error("Opening authority connection closed"); await reserved.beginDispatch(); if (binding.closed) throw new Error("Opening authority connection closed after dispatch commit"); },
+          acknowledge: async (session) => { if (binding.closed) throw new Error("Opening authority connection closed"); await reserved.acknowledge(session); if (binding.closed) throw new Error("Opening authority connection closed after identity commit"); },
+        };
+      } },
       createHost: async (command) => {
         await this.authority.assertActive({ operation: "open", command });
         // OpenCode boot can auto-resume claims. Gate even open, BEFORE resolving

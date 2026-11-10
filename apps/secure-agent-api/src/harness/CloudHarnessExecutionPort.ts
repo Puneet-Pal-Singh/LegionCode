@@ -15,6 +15,25 @@ import { CloudHarnessSupervisor } from "./CloudHarnessSupervisor";
 
 /** Real Worker-side kernel consumer. No concrete driver or Node runtime imports. */
 export class CloudHarnessExecutionPort implements DelegatedHarnessPort {
+  private openingAuthority: { executionLease: import("@repo/worker-protocol").HarnessOpeningIntent["executionLease"];
+    commit: import("./CloudHarnessBridgeClient").CloudOpeningCommitter } | null = null;
+  bindOpeningAuthority(authority: NonNullable<CloudHarnessExecutionPort["openingAuthority"]>): void {
+    if (this.openingAuthority || authority.executionLease.kind !== "cloud") throw new Error("Cloud opening authority cannot be replaced");
+    const executionLease = structuredClone(authority.executionLease);
+    this.openingAuthority = Object.freeze({executionLease, commit: authority.commit});
+  }
+  async fenceOpening(input: {target: import("@repo/worker-protocol").HarnessOpeningFenceTarget; timeoutMs: number}) {
+    const target = {operation: "opening_fence" as const, opening: input.target};
+    const client = new CloudHarnessBridgeClient(this.supervisor, target, this.requestTimeoutMs);
+    try {
+      await client.connect(new AbortController().signal);
+      const result = await client.request(CloudHarnessRequestSchema.parse({type: "request", requestId: crypto.randomUUID(),
+        operation: "opening_fence", target: input.target, timeoutMs: input.timeoutMs}));
+      if (result.operation !== "opening_fence") throw new Error("Opening cleanup correlation mismatch");
+      return result.value;
+    } finally { client.fence(); }
+  }
+
   // Deliberately retained for this composition's lifetime: eviction requires
   // canonical terminal + physical quiescence + immutable artifact settlement,
   // plus a durable command tombstone requery. No such release port is supplied.
@@ -43,6 +62,8 @@ export class CloudHarnessExecutionPort implements DelegatedHarnessPort {
       throw new Error(
         "Cloud harness prior-generation resume unavailable; recovery required",
       );
+    const authority = this.openingAuthority;
+    if (!authority || authority.executionLease.kind !== "cloud") throw new Error("Durable cloud opening authority unavailable");
     const command = HarnessStartCommandSchema.parse(input.command);
     const startCommandFingerprint = await fingerprintCommand(command);
     const request = CloudHarnessRequestSchema.parse({
@@ -50,6 +71,7 @@ export class CloudHarnessExecutionPort implements DelegatedHarnessPort {
       requestId: crypto.randomUUID(),
       operation: "open",
       command,
+      executionLease: authority.executionLease,
     });
     encodeCloudHarnessBridgeFrame(request); // preflight BEFORE bootstrap or credential resolution
     if (this.clients.size >= 128)
@@ -59,6 +81,7 @@ export class CloudHarnessExecutionPort implements DelegatedHarnessPort {
       { operation: "open", command },
       this.requestTimeoutMs,
     );
+    client.bindOpeningCommitter(authority.commit);
     try {
       await client.connect(input.signal);
       const result = await client.request(request, () =>

@@ -7,6 +7,8 @@ import {
   HarnessServiceHostFrameSchema,
   HarnessServiceResultSchema,
   type HarnessServiceRequest,
+  type HarnessOpeningCommit,
+  type HarnessOpeningIntent,
 } from "@repo/worker-protocol";
 import { SessionCreateResponseSchema } from "../schemas/http-api";
 import { composeCloudHarnessRuntime } from "../factories/RuntimeCompositionFactory";
@@ -110,6 +112,8 @@ export function handleCloudHarnessBridge(
   let activeRequests = 0;
   let pendingBytes = 0;
   const seen = new Set<string>();
+  const openingCommits = new Map<string, {intent: HarnessOpeningIntent; phase: HarnessOpeningCommit["phase"];
+    resolve(commit: HarnessOpeningCommit): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout>}>();
   let connection:
     | ReturnType<typeof HarnessServiceConnectSchema.parse>
     | undefined;
@@ -119,6 +123,8 @@ export function handleCloudHarnessBridge(
   const fence = () => {
     if (closed) return;
     closed = true;
+    for (const pending of openingCommits.values()) { clearTimeout(pending.timer); pending.reject(new Error("Opening commit outcome unknown")); }
+    openingCommits.clear();
     clearTimeout(timer);
     try {
       server.close(1008, "Harness service recovery required");
@@ -166,15 +172,14 @@ export function handleCloudHarnessBridge(
   const dispatch = async (operation: HarnessServiceRequest) => {
     const target = cloudHarnessRequestTarget(operation);
     const { scope } = await verify();
-    if (!isCloudHarnessCleanup(target)) {
-      send({
-        type: "error",
-        requestId: operation.requestId,
-        code: "unavailable",
-      });
-      return;
-    }
-    if (target.session.runAttemptId !== scope.runAttemptId)
+    if (!isCloudHarnessCleanup(target)) assertCloudHarnessLaunchAvailable();
+    if (target.operation === "opening_fence") {
+      const opening = target.opening, current = await verify();
+      if (opening.runAttemptId !== scope.runAttemptId || opening.turnId !== scope.turnId ||
+          opening.userId !== scope.userId || opening.workspaceId !== scope.workspaceId || opening.executionLease.kind !== "cloud" ||
+          opening.executionLease.leaseId !== current.lease.leaseId || opening.executionLease.sandboxId !== current.lease.sandboxId ||
+          opening.executionLease.generation !== current.lease.generation) throw new Error("Opening cleanup scope mismatch");
+    } else if ("session" in target && target.session.runAttemptId !== scope.runAttemptId)
       throw new Error("Harness cleanup scope mismatch");
     const { record } = await verify();
     // The trusted Node host binds its cleanup-only grant to this existing
@@ -185,7 +190,10 @@ export function handleCloudHarnessBridge(
       {
         assertActive: async () => assertCloudHarnessLaunchAvailable(),
         assertCleanup: async (requested) => {
-          if (!sameCloudHarnessSession(requested.session, target.session))
+          if (requested.operation === "opening_fence") {
+            if (target.operation !== "opening_fence" || JSON.stringify(requested.opening) !== JSON.stringify(target.opening))
+              throw new Error("Opening cleanup generation mismatch");
+          } else if (!("session" in target) || !sameCloudHarnessSession(requested.session, target.session))
             throw new Error("Harness cleanup generation mismatch");
           await verify();
         },
@@ -203,7 +211,30 @@ export function handleCloudHarnessBridge(
       },
       65_000,
     );
-    if (
+    if (operation.operation === "open") {
+      const current = await verify();
+      if (operation.executionLease.leaseId !== current.lease.leaseId || operation.executionLease.sandboxId !== current.lease.sandboxId ||
+          operation.executionLease.generation !== current.lease.generation) throw new Error("Opening checkout mismatch");
+      port.bindOpeningAuthority({ executionLease: operation.executionLease, commit: async (frame) => {
+        await verify();
+        if (frame.intent.executionLease.kind !== "cloud" || JSON.stringify(frame.intent.executionLease) !== JSON.stringify(operation.executionLease))
+          throw new Error("Opening host lease mismatch");
+        const phase = frame.type === "opening_session" ? "acknowledged" : frame.operation === "reserve" ? "reserved" : "dispatching";
+        if (openingCommits.size >= 3 || openingCommits.has(frame.deliveryId)) throw new Error("Opening commit capacity exceeded");
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(fence, 60_000);
+          openingCommits.set(frame.deliveryId, {intent: frame.intent, phase, resolve, reject, timer});
+          try { send(frame); } catch { fence(); }
+        });
+      } });
+      const value = await port.open({command: operation.command, signal: new AbortController().signal});
+      await verify();
+      send(HarnessServiceResultSchema.parse({type: "result", requestId: operation.requestId, operation: "open", value}));
+    } else if (operation.operation === "opening_fence") {
+      const value = await port.fenceOpening({target: operation.target, timeoutMs: operation.timeoutMs});
+      await verify();
+      send(HarnessServiceResultSchema.parse({type: "result", requestId: operation.requestId, operation: "opening_fence", value}));
+    } else if (
       operation.operation === "control" &&
       (operation.command.kind === "interrupt" ||
         operation.command.kind === "dispose")
@@ -271,6 +302,16 @@ export function handleCloudHarnessBridge(
     }
     if (!ready) {
       fence();
+      return;
+    }
+    if (frame.type === "opening_commit") {
+      const pending = openingCommits.get(frame.deliveryId), commit = frame.commit;
+      if (!pending || commit.openingRef !== pending.intent.openingRef || commit.commandFingerprint !== pending.intent.commandFingerprint ||
+          commit.processGeneration !== pending.intent.processGeneration || commit.phase !== pending.phase) { fence(); return; }
+      void verify().then(() => {
+        if (closed || openingCommits.get(frame.deliveryId) !== pending) return;
+        openingCommits.delete(frame.deliveryId); clearTimeout(pending.timer); pending.resolve(commit);
+      }).catch(fence);
       return;
     }
     if (

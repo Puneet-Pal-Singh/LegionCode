@@ -4,6 +4,7 @@ import {
   type HarnessCommitAck,
   type HarnessObservation,
   type HarnessSession,
+  type HarnessOpeningCommit,
 } from "@repo/worker-protocol";
 import {
   CloudHarnessHostFrameSchema,
@@ -25,7 +26,15 @@ import {
 type Observe = (observation: HarnessObservation) => Promise<HarnessCommitAck>;
 type Result = Extract<CloudHarnessHostFrame, { type: "result" }>;
 
+export type CloudOpeningFrame = Extract<CloudHarnessHostFrame, {type: "opening_claim" | "opening_session"}>;
+export type CloudOpeningCommitter = (frame: CloudOpeningFrame) => Promise<HarnessOpeningCommit>;
 export class CloudHarnessBridgeClient {
+  private openingCommitter: CloudOpeningCommitter | null = null;
+  bindOpeningCommitter(committer: CloudOpeningCommitter): void {
+    if (this.openingCommitter) throw new Error("Opening committer cannot be replaced");
+    this.openingCommitter = committer;
+  }
+
   private transport?: CloudHarnessBridgeTransport;
   private readonly pending = new Map<
     string,
@@ -107,6 +116,18 @@ export class CloudHarnessBridgeClient {
   private async receive(encoded: string): Promise<void> {
     const frame = CloudHarnessHostFrameSchema.parse(JSON.parse(encoded));
     if (this.closed) throw new Error("Cloud harness transport fenced");
+    if (frame.type === "opening_claim" || frame.type === "opening_session") {
+      if (!this.openingCommitter || !this.transport) throw new Error("Opening commit authority unavailable");
+      // A late learned identity is cleanup data: PG's exact-intent CAS remains
+      // authoritative even after provider authorization is revoked.
+      if (frame.type === "opening_claim") await this.supervisor.authorize(this.target);
+      const commit = await this.openingCommitter(frame);
+      if (this.closed || commit.openingRef !== frame.intent.openingRef || commit.commandFingerprint !== frame.intent.commandFingerprint ||
+          commit.processGeneration !== frame.intent.processGeneration || commit.phase !== (frame.type === "opening_session" ? "acknowledged" : frame.operation === "reserve" ? "reserved" : "dispatching"))
+        throw new Error("Opening commit identity mismatch");
+      this.transport.send(encodeCloudHarnessBridgeFrame({type: "opening_commit", deliveryId: frame.deliveryId, commit}));
+      return;
+    }
     if (frame.type === "observation") {
       const observation = HarnessObservationSchema.parse(frame.observation);
       const observer = this.observer;

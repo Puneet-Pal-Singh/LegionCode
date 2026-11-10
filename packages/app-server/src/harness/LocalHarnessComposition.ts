@@ -1,4 +1,5 @@
 import { createHarnessHost, HarnessExecutionPort, HarnessRegistry, HarnessSessionManager, type HarnessDriver, type HarnessInstance, type HarnessInstanceScope, type HarnessHost } from "@repo/harness-core/server";
+import { fingerprintHarnessCommand, HarnessStartCommandSchema } from "@repo/harness-core/server";
 import { CodexDriver } from "@repo/harness-codex/server";
 import { ClaudeDriver } from "@repo/harness-claude/server";
 import { OpenCodeV2Driver } from "@repo/harness-opencode/server";
@@ -226,6 +227,38 @@ export class LocalHarnessComposition {
     this.registry.register({
       scope,
       driver,
+      openingAuthority: {
+        reserve: async ({ command: rawCommand, host }) => {
+          const command = HarnessStartCommandSchema.parse(rawCommand);
+          const processGeneration = host.processGeneration;
+          await this.assertLocalExecution(command);
+          const selection = command.selection;
+          const stored = { userId: selection.userId, sessionId: selection.threadId, runId: selection.runId,
+            workspaceId: selection.workspaceId, threadId: selection.threadId, turnId: selection.turnId,
+            runAttemptId: selection.runAttemptId, selectionJson: JSON.stringify(selection) };
+          const intent = {
+            openingRef: `${selection.runAttemptId}:${processGeneration}`, commandId: command.commandId,
+            commandFingerprint: await fingerprintHarnessCommand(command), runAttemptId: selection.runAttemptId,
+            instanceId: selection.instanceId, processGeneration,
+            authOwnerGeneration: selection.authOwnerGeneration, workspaceGrantId: selection.workspaceGrantId,
+            checkoutLeaseId: command.leaseId, startSnapshotId: command.startSnapshot.snapshotKey,
+            executionLease: { kind: "local" as const, leaseId: command.leaseId },
+          };
+          const reserved = await this.persistence.harnessBindings.reserveOpening({ selection: stored, command, intent });
+          if (reserved.status !== "reserved") throw new Error("Local opening requires explicit recovery");
+          return {
+            beginDispatch: async () => {
+              await this.assertLocalExecution(command);
+              await this.persistence.harnessBindings.beginOpeningDispatch({ selection: stored, intent });
+            },
+            acknowledge: async (session) => {
+              await this.persistence.harnessBindings.acknowledgeOpening({ selection: stored, intent,
+                origin: { instanceId: session.instanceId, externalSessionId: session.externalSessionId,
+                  processGeneration: session.processGeneration, authOwnerGeneration: selection.authOwnerGeneration } });
+            },
+          };
+        },
+      },
       createHost: async (command) => {
         const { thread, grant } = await this.assertLocalExecution(command);
         // Resolve the selected instance's protected environment only after local scope checks.

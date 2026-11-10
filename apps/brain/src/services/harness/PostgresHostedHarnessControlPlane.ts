@@ -2,7 +2,7 @@ import {
   AppServerEnvironmentIdSchema,
   HarnessModelsResponseSchema,
   HarnessInstanceStatusSchema,
-  HarnessSelectionSchema,
+  HarnessSelectionSchema, RunAttemptIdSchema, ThreadIdSchema, TurnIdSchema,
   InterruptTurnRequestSchema,
   type HarnessSetupRequest,
 } from "@repo/platform-protocol";
@@ -11,10 +11,13 @@ import {
   PostgresHarnessBindingRepository,
   PostgresHarnessAdmissionBindingPort,
   PostgresTurnAdmissionRepository,
+  PostgresTaskWorkspaceRepository,
   StoredHarnessAttachmentSchema,
   type SqlClient,
   HarnessControlPlaneConflictError,
 } from "@repo/persistence";
+import { SecureHarnessExecutionPort } from "../../runtime/SecureHarnessExecutionPort";
+import { SecureExecutionSessionClient } from "../secure-execution/SecureExecutionSessionClient";
 import { AppServerController } from "../../controllers/AppServerController";
 import { AppServerOperationError } from "@legioncode/app-server/server";
 import { builtinProviderRegistry } from "@repo/provider-core";
@@ -166,6 +169,7 @@ export function createPostgresHostedHarnessControlPlane(
               const bindings = new PostgresHarnessBindingRepository(client);
               const authority = new PostgresHarnessAdmissionBindingPort(client);
               const targets = [];
+              const openingTargets = [];
               let ambiguousOwnership = false;
               for (const { turn_id } of candidates.rows) {
                 const admission = await admissions.getByTurnId(turn_id);
@@ -215,6 +219,17 @@ export function createPostgresHostedHarnessControlPlane(
                   selected.authOwnerGeneration >= ownerGeneration
                 )
                   continue;
+                const opening = await bindings.readOpening({userId: scope.userId, turnId: admission.turnId, runAttemptId: admission.runAttemptId});
+                if (opening && opening.phase !== "retired" && opening.phase !== "cancelled_before_dispatch") {
+                  const checkout = await new PostgresTaskWorkspaceRepository(client).getByRunAttemptId(RunAttemptIdSchema.parse(admission.runAttemptId));
+                  const intent = opening.intent;
+                  if (!checkout || checkout.workspaceId !== selected.workspaceId || checkout.threadId !== admission.threadId ||
+                      checkout.turnId !== admission.turnId || intent.executionLease.kind !== "cloud" ||
+                      intent.executionLease.leaseId !== checkout.leaseId || intent.executionLease.sandboxId !== checkout.sandboxId ||
+                      intent.executionLease.generation !== checkout.generation || intent.instanceId !== selected.instanceId ||
+                      intent.authOwnerGeneration !== selected.authOwnerGeneration) ambiguousOwnership = true;
+                  else openingTargets.push({admission, selected, opening, checkout});
+                }
                 const generations = await client.query<{
                   process_generation: string;
                   origin_json: unknown;
@@ -263,10 +278,34 @@ export function createPostgresHostedHarnessControlPlane(
                   targets.push(admission);
                 }
               }
-              return { targets, ambiguousOwnership };
+              return { targets, openingTargets, ambiguousOwnership };
             },
           );
-          const { targets: active, ambiguousOwnership } = ownership;
+          const { targets: active, openingTargets } = ownership;
+          let ambiguousOwnership = ownership.ambiguousOwnership;
+          for (const {admission, selected, opening, checkout} of openingTargets) {
+            try {
+              // Borrow only the exact persisted session. Never acquire/resume,
+              // replace a sandbox, or reauthenticate a revoked provider here.
+              const session = await new SecureExecutionSessionClient(env, admission.sessionId, admission.runId,
+                {runId: admission.runId, threadId: admission.threadId, turnId: admission.turnId,
+                  runAttemptId: admission.runAttemptId, workspaceId: selected.workspaceId, root: checkout.filesystemRoot},
+                {secureSessionId: checkout.secureSessionId, leaseId: checkout.leaseId, sandboxId: checkout.sandboxId,
+                  generation: checkout.generation}).borrowOriginal();
+              const port = new SecureHarnessExecutionPort(env, {userId: admission.userId, workspaceId: selected.workspaceId,
+                sessionId: admission.sessionId, runId: admission.runId, threadId: ThreadIdSchema.parse(admission.threadId),
+                turnId: TurnIdSchema.parse(admission.turnId), runAttemptId: RunAttemptIdSchema.parse(admission.runAttemptId)});
+              port.bindCleanupSession(session);
+              await port.fenceOpening({userId: admission.userId, workspaceId: selected.workspaceId,
+                environmentId: selected.environmentId, turnId: TurnIdSchema.parse(admission.turnId), runAttemptId: RunAttemptIdSchema.parse(admission.runAttemptId),
+                instanceId: selected.instanceId, openingRef: opening.intent.openingRef,
+                commandFingerprint: opening.intent.commandFingerprint, processGeneration: opening.intent.processGeneration,
+                executionLease: opening.intent.executionLease});
+              // Current host result is explicitly unknown. It cannot retire a
+              // durable opening, release custody, or certify descendants.
+              ambiguousOwnership = true;
+            } catch { ambiguousOwnership = true; }
+          }
           // No credential/admission locks or live SQL port cross into RPC work.
           const commands = composeHostedTurnCommands(env, scope.userId);
           for (const attempt of active) {

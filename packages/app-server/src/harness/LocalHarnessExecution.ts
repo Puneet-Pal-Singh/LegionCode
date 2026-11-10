@@ -7,35 +7,14 @@ import type { DelegatedHarnessPort } from "@repo/runtime-kernel";
  */
 export class LocalHarnessExecution implements DelegatedHarnessPort {
   constructor(
-    private readonly persistence: LocalPersistence,
+    _persistence: LocalPersistence,
     private readonly harness: DelegatedHarnessPort,
   ) {}
 
   async open(input: Parameters<DelegatedHarnessPort["open"]>[0]) {
-    const session = await this.harness.open(input);
-    const selection = input.command.selection;
-    try {
-      await this.persistence.harnessBindings.attach({
-        selection: {
-          userId: selection.userId, sessionId: selection.threadId, runId: selection.runId,
-          workspaceId: selection.workspaceId, threadId: selection.threadId, turnId: selection.turnId,
-          runAttemptId: selection.runAttemptId, selectionJson: JSON.stringify(selection),
-        },
-        origin: {
-          instanceId: session.instanceId, externalSessionId: session.externalSessionId,
-          processGeneration: session.processGeneration, authOwnerGeneration: selection.authOwnerGeneration,
-        },
-        expectedProcessGeneration: null,
-      });
-      return session;
-    } catch (error) {
-      // Identity creation may already have started a process. A failed/ambiguous
-      // attach cannot dispatch the prompt; Stop is cleanup, never settlement.
-      // The canonical kernel/lease retains ownership if cleanup is unproven.
-      await this.harness.control({ kind: "interrupt", commandId: `${selection.runAttemptId}:attach-failed`, session });
-      await this.harness.awaitQuiescence({ session, timeoutMs: 5_000 });
-      throw error;
-    }
+    // Core's required opening authority reserves the actual host generation and
+    // commits native identity before journal registration. Never attach after open.
+    return this.harness.open(input);
   }
 
   execute(input: Parameters<DelegatedHarnessPort["execute"]>[0]) {

@@ -1,6 +1,8 @@
 import { z } from "zod";
 import {
   HarnessServiceRequestSchema,
+  HarnessOpeningClaimFrameSchema, HarnessOpeningSessionFrameSchema, HarnessOpeningCommitFrameSchema,
+  type HarnessOpeningFenceTarget,
   HarnessServiceResultSchema,
   HarnessServiceObservationFrameSchema,
   HarnessServiceAckFrameSchema,
@@ -21,11 +23,13 @@ export const CloudHarnessErrorFrameSchema = HarnessServiceErrorFrameSchema;
 export const CloudHarnessWorkerFrameSchema = z.union([
   CloudHarnessRequestSchema,
   CloudHarnessAckFrameSchema,
+  HarnessOpeningCommitFrameSchema,
 ]);
 export const CloudHarnessHostFrameSchema = z.union([
   CloudHarnessResultSchema,
   CloudHarnessObservationFrameSchema,
   CloudHarnessErrorFrameSchema,
+  HarnessOpeningClaimFrameSchema, HarnessOpeningSessionFrameSchema,
 ]);
 export type CloudHarnessHostFrame = z.infer<typeof CloudHarnessHostFrameSchema>;
 
@@ -49,7 +53,8 @@ export type CloudHarnessActiveTarget = (
   | { readonly command: HarnessStartCommand }
   | { readonly session: HarnessSession }
 ) & { readonly operation: CloudHarnessActiveOperation };
-export type CloudHarnessCleanupTarget = {
+export type CloudHarnessOpeningCleanupTarget = { readonly operation: "opening_fence"; readonly opening: HarnessOpeningFenceTarget };
+export type CloudHarnessCleanupTarget = CloudHarnessOpeningCleanupTarget | {
   readonly session: HarnessSession;
   readonly operation: CloudHarnessCleanupOperation;
 };
@@ -59,7 +64,7 @@ export type CloudHarnessTarget =
 export function isCloudHarnessCleanup(
   target: CloudHarnessTarget,
 ): target is CloudHarnessCleanupTarget {
-  return ["interrupt", "dispose", "quiescence", "cleanup_connect"].includes(
+  return ["interrupt", "dispose", "quiescence", "cleanup_connect", "opening_fence"].includes(
     target.operation,
   );
 }
@@ -67,6 +72,7 @@ export function cloudHarnessRequestTarget(
   request: CloudHarnessRequest,
 ): CloudHarnessTarget {
   switch (request.operation) {
+    case "opening_fence": return { operation: "opening_fence", opening: request.target };
     case "open":
     case "execute":
       return { operation: request.operation, command: request.command };

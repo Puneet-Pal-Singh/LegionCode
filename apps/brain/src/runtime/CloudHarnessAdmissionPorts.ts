@@ -8,7 +8,7 @@ import type {
 } from "@repo/platform-protocol";
 import type { HarnessObservationCommitPort } from "@repo/runtime-kernel";
 import type { ProviderId } from "@repo/shared-types";
-import type { HarnessSession } from "@repo/worker-protocol";
+import type { HarnessOpeningIntent, HarnessStartCommand, HarnessSession } from "@repo/worker-protocol";
 
 export interface HarnessAdmissionPrincipal {
   readonly userId: string;
@@ -80,6 +80,12 @@ export interface HarnessAdmissionBindingPort {
     principal: HarnessAdmissionPrincipal,
     selection: HarnessSelection,
   ): HarnessObservationCommitPort;
+  reserveOpening(input: { readonly principal: HarnessAdmissionPrincipal; readonly selection: HarnessSelection;
+    readonly command: HarnessStartCommand; readonly intent: HarnessOpeningIntent }): Promise<void>;
+  beginOpeningDispatch(input: { readonly principal: HarnessAdmissionPrincipal; readonly selection: HarnessSelection;
+    readonly intent: HarnessOpeningIntent }): Promise<void>;
+  acknowledgeOpening(input: { readonly principal: HarnessAdmissionPrincipal; readonly selection: HarnessSelection;
+    readonly intent: HarnessOpeningIntent; readonly session: HarnessSession }): Promise<void>;
   attach(input: {
     readonly principal: HarnessAdmissionPrincipal;
     readonly selection: HarnessSelection;
