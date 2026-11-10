@@ -2832,3 +2832,22 @@ inline rail or popup presentation while preserving that explicit visibility;
 window width and resize never open a closed card. Web and Desktop use the same
 provider and menu. This replaces automatic wide-window expansion without changing
 environment data, Git review or runtime ownership.
+
+## Plans 048 / 061 — Same-writer local harness persistence foundation
+
+The existing exclusive LocalPersistence SQLite connection owns durable local
+harness bindings, observation ingress/reply claims, opening phases and verified
+attachment retirement. Its constructor validates and initializes those indexes
+and one environment identity; no second writer or runtime registry is introduced.
+Control-plane setup/selection uses that same writer and the caller's canonical
+local actor. It reuses the same strict versioned grant parser as LocalPersistence,
+including v2 Git metadata identity in its grant fingerprint. It stores no
+credentials and starts no provider or process.
+
+This foundation exposes private ports but does not activate a public local
+harness consumer. Binding validation parses captured selection from an opaque
+Run property; the unchanged strict Run schema still rejects that field until its
+Kernel strategy guard is merged atomically. Missing capture never selects Native
+or reconstructs external ownership. Final constructor/driver wiring remains
+separate. Current Native admission/lineage, immutable artifacts, lifecycle byte
+paging and provider custody retain their existing source and exports.
