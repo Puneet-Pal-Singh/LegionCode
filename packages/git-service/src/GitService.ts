@@ -669,7 +669,7 @@ export class DefaultGitService {
   }
 
   private async executeRequired(
-    workspace: GitFileLineCountsInput["workspace"],
+    workspace: GitFilesystemContext,
     args: readonly string[],
     environment?: Readonly<Record<string, string>>,
   ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
