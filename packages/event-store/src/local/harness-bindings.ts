@@ -622,6 +622,9 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
     sequence: number,
     terminalEventId: EventId,
   ) {
+    const admission = this.admissions?.getByTurn(selection.turnId);
+    if (!admission)
+      throw new HarnessPersistenceError("admission_required", "Retirement requires its canonical admitted producer");
     const selected = HarnessSelectionSchema.parse(JSON.parse(selection.selectionJson));
     if (origin.instanceId !== selected.instanceId || origin.authOwnerGeneration !== selected.authOwnerGeneration)
       throw new HarnessPersistenceError("stale_origin", "Retirement origin differs from admitted instance or account generation");
@@ -631,13 +634,24 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
     if (!generation || !sameHarnessOrigin(StoredHarnessAttachmentSchema.parse(JSON.parse(generation.origin_json)), origin))
       throw new HarnessPersistenceError("stale_origin", "Retirement generation history does not match");
     const historyRows = this.database.prepare(
-      "SELECT event_json FROM events WHERE family='lifecycle' AND stream_id=? ORDER BY sequence LIMIT 10001",
-    ).all(selection.turnId) as { event_json: string }[];
+      "SELECT event_json,event_id,thread_id,turn_id,stream_type,stream_id,sequence,cursor,idempotency_key,fingerprint FROM events WHERE family='lifecycle' AND (stream_id=? OR turn_id=?) ORDER BY sequence LIMIT 10001",
+    ).all(selection.turnId, selection.turnId) as {
+      event_json: string; event_id: string; thread_id: string; turn_id: string | null;
+      stream_type: string; stream_id: string; sequence: number; cursor: string | null;
+      idempotency_key: string; fingerprint: string;
+    }[];
     if (historyRows.length > 10000)
       throw new HarnessPersistenceError("corrupt", "Retirement exceeds bounded canonical replay");
     const history = historyRows.map((row, index) => {
       const event = LifecycleEventSchema.parse(JSON.parse(row.event_json));
       assertEventScope(selection, event);
+      if (event.producer.id !== admission.run.workerId)
+        throw new HarnessPersistenceError("binding_conflict", "Retirement lifecycle producer differs from canonical admission");
+      if (row.event_id !== event.eventId || row.thread_id !== event.threadId ||
+          row.turn_id !== event.turnId || row.stream_type !== "turn" || row.stream_id !== event.turnId ||
+          row.sequence !== event.sequence || row.cursor !== null ||
+          row.idempotency_key !== event.idempotencyKey || row.fingerprint !== createStableEventFingerprint(event))
+        throw new HarnessPersistenceError("corrupt", "Retirement lifecycle index conflicts with canonical evidence");
       if (event.sequence !== index + 1)
         throw new HarnessPersistenceError("corrupt", "Retirement canonical replay has a gap");
       return event;
@@ -728,7 +742,10 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
         "SELECT execution_claim_id,recovery_required,selection_fingerprint FROM harness_bindings WHERE turn_id=? AND run_attempt_id=? AND user_id=?",
       ).get(scope.turnId, scope.runAttemptId, scope.userId) as {
         execution_claim_id: string | null; recovery_required: number; selection_fingerprint: string;
-      };
+      } | undefined;
+      if (!state)
+        throw new HarnessPersistenceError("corrupt", "Retirement binding disappeared within its read transaction");
+      if (state.execution_claim_id !== null) text.parse(state.execution_claim_id);
       if (binding.selection.userId !== scope.userId || binding.selection.turnId !== scope.turnId ||
           binding.selection.runAttemptId !== scope.runAttemptId ||
           harnessSelectionFingerprint(binding.selection) !== state.selection_fingerprint ||
