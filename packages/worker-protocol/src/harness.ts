@@ -374,7 +374,7 @@ export const HarnessOpeningCommitSchema = z
     openingRef: OpaqueId,
     commandFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
     processGeneration: z.string().uuid(),
-    phase: z.enum(["reserved", "dispatching", "acknowledged"]),
+    phase: z.enum(["reserved", "dispatching", "acknowledged", "cancelled_before_dispatch"]),
   })
   .strict();
 export type HarnessOpeningCommit = z.infer<typeof HarnessOpeningCommitSchema>;
@@ -382,7 +382,7 @@ export const HarnessOpeningClaimFrameSchema = z
   .object({
     type: z.literal("opening_claim"),
     deliveryId: id,
-    operation: z.enum(["reserve", "begin_dispatch"]),
+    operation: z.enum(["reserve", "begin_dispatch", "cancel_before_dispatch"]),
     intent: HarnessOpeningIntentSchema,
   })
   .strict();

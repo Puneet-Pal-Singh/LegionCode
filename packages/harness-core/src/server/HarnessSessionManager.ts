@@ -18,7 +18,7 @@ import {
 import type { HarnessLiveSession } from "./HarnessDriver.js";
 import type { ProcessGroupSettlement } from "./ProcessSupervisor.js";
 import type { HarnessHost } from "./HarnessHost.js";
-import { HarnessRegistry } from "./HarnessRegistry.js";
+import { HarnessRegistry, type HarnessOpeningAuthority } from "./HarnessRegistry.js";
 import { ObservationDeliveryJournal } from "./ObservationDeliveryJournal.js";
 import { HarnessHostError } from "./errors.js";
 
@@ -43,6 +43,8 @@ interface Attachment {
     }
   >;
   opening?: Promise<HarnessSession>;
+  openingAuthority?: Awaited<ReturnType<HarnessOpeningAuthority["reserve"]>>;
+  openingCancellation?: Promise<void>;
   host?: HarnessHost;
   live?: HarnessLiveSession;
   session?: HarnessSession;
@@ -136,7 +138,11 @@ export class HarnessSessionManager {
           command,
           host,
         });
-        if (attachment.stopping) throw new HarnessHostError("stale_session");
+        attachment.openingAuthority = opening;
+        if (attachment.stopping) {
+          await this.cancelOpeningBeforeDispatch(attachment);
+          throw new HarnessHostError("stale_session");
+        }
         await opening.beginDispatch();
         if (attachment.stopping) throw new HarnessHostError("stale_session");
         const live = await instance.driver.open({
@@ -624,8 +630,21 @@ export class HarnessSessionManager {
     }
   }
 
+  private cancelOpeningBeforeDispatch(attachment: Attachment): Promise<void> | undefined {
+    if (!attachment.openingAuthority || attachment.session) return undefined;
+    if (!attachment.openingCancellation) {
+      const cancel = attachment.openingAuthority.cancelBeforeDispatch.bind(attachment.openingAuthority);
+      attachment.openingCancellation = Promise.resolve().then(cancel);
+      // A lost commit or a dispatch winner remains unknown. This never releases
+      // the host, journal, workspace lease or immutable settlement obligation.
+      void attachment.openingCancellation.catch(() => undefined);
+    }
+    return attachment.openingCancellation;
+  }
+
   private beginStop(attachment: Attachment): void {
     this.fenceMutations(attachment);
+    this.cancelOpeningBeforeDispatch(attachment);
     if (attachment.stopTimer) clearTimeout(attachment.stopTimer);
     attachment.stopTimer = undefined;
     attachment.controller.abort();

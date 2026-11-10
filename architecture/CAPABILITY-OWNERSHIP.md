@@ -2125,3 +2125,13 @@ The LOCAL packet reconciles approved handoff `37d5a77548669d1661b2cf2db26314cc72
 Canonical protocol and RuntimeKernel own frozen selection, question claims and lifecycle settlement. The four Node harness packages own external transport/session mechanics; the local SQLite owner owns opening reservations, binding/control-plane records, observation commits and attachment retirement. Persistence exports the shared storage schema/types without adopting hosted Postgres, migration or credential-custody implementations. LocalHarnessComposition and the actual App Server constructor share the existing workspace/thread/provider/SQLite resource graph; saved commands select their durable backend while Native start/configuration authority remains separate. Existing Native restoration, media, history, preferences, review/commit and live Git-read owners remain authoritative.
 
 The same attached shutdown owner retains both original Native and delegated initialization promises and drains both before positive persistence closure, after signaling the actual shutdown owners. Its initialization result includes retained `recovery_required` outcomes. Private process readiness/listen/control remains separately owned and must consume this actual result before launch; this prerequisite checkpoint does not certify readiness. Physical Mac external-harness confinement, account proof, installed runtime packaging and acceptance remain unavailable release gates. This packet excludes hosted PG/custody, Brain, Desktop and mounted UI.
+
+
+## Reserved harness opening cancellation
+
+The existing SQLite binding owner serializes exact reserved-opening cancellation
+against dispatch; CORE Stop invokes that actual authority before any native open.
+The local composition consumes the same mandatory callback. A cancelled opening
+remains owned until genuine same-generation physical closure and canonical
+terminal/immutable-artifact retirement are verified. Cancellation is not a lease
+release receipt; missing enforcing-owner proof remains unknown.

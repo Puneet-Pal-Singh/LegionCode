@@ -251,6 +251,10 @@ export class LocalHarnessComposition {
               await this.assertLocalExecution(command);
               await this.persistence.harnessBindings.beginOpeningDispatch({ selection: stored, intent });
             },
+            cancelBeforeDispatch: async () => {
+              const cancelled = await this.persistence.harnessBindings.cancelReservedOpening({selection: stored, intent});
+              if (cancelled !== "cancelled_before_dispatch") throw new Error("Local opening dispatch is ambiguous; recovery required");
+            },
             acknowledge: async (session) => {
               await this.persistence.harnessBindings.acknowledgeOpening({ selection: stored, intent,
                 origin: { instanceId: session.instanceId, externalSessionId: session.externalSessionId,

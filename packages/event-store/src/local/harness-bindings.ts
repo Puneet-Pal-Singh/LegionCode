@@ -63,7 +63,7 @@ export interface StoredHarnessBinding {
 }
 export const StoredHarnessOpeningSchema = z.object({
   intent: HarnessOpeningIntentSchema,
-  phase:z.enum(["reserved","dispatching","acknowledged","retired"]),
+  phase:z.enum(["reserved","dispatching","acknowledged","retired","cancelled_before_dispatch"]),
 }).strict();
 export type StoredHarnessOpening = z.infer<typeof StoredHarnessOpeningSchema>;
 export interface ReserveHarnessOpeningInput {
@@ -103,6 +103,7 @@ export interface HarnessExecutionClaimResult {
 export interface HarnessBindingRepository {
   reserveOpening(input:ReserveHarnessOpeningInput):Promise<HarnessOpeningReservation>;
   beginOpeningDispatch(input:HarnessOpeningInput):Promise<void>;
+  cancelReservedOpening(input:HarnessOpeningInput):Promise<"cancelled_before_dispatch"|"not_reserved">;
   acknowledgeOpening(input:HarnessOpeningInput & {readonly origin:StoredHarnessAttachment}):Promise<void>;
   readOpening(scope:Pick<StoredHarnessSelection,"userId"|"turnId"|"runAttemptId">):Promise<StoredHarnessOpening|null>;
   freezeAndClaim(input: {
@@ -426,7 +427,7 @@ export function validateLocalHarnessBindings(
         const opening=StoredHarnessOpeningSchema.parse(JSON.parse(extra.opening_json));
         assertHarnessOpeningSelection(selection,opening.intent);
         if(!row.execution_claim_id ||
-          ((opening.phase==="reserved" || opening.phase==="dispatching" || opening.phase==="retired") && row.attachment_json!==null) ||
+          ((opening.phase==="reserved" || opening.phase==="dispatching" || opening.phase==="cancelled_before_dispatch" || opening.phase==="retired") && row.attachment_json!==null) ||
           (opening.phase==="acknowledged" && row.attachment_json===null))
           throw new LocalPersistenceError("corrupt","Local opening phase conflicts with durable claim or origin");
         if(row.attachment_json!==null)assertHarnessOpeningOrigin(opening,StoredHarnessAttachmentSchema.parse(JSON.parse(row.attachment_json)));
@@ -518,6 +519,22 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {
         throw new HarnessPersistenceError("stale_origin","Opening dispatch cannot be repeated or recovered by resend");
       this.database.prepare("UPDATE harness_bindings SET opening_json=? WHERE turn_id=?")
         .run(JSON.stringify({...opening,phase:"dispatching"}),input.selection.turnId);
+    }).immediate();
+  }
+  async cancelReservedOpening(raw:HarnessOpeningInput):Promise<"cancelled_before_dispatch"|"not_reserved"> {
+    const input={selection:StoredHarnessSelectionSchema.parse(raw.selection),
+      intent:HarnessOpeningIntentSchema.parse(raw.intent)};
+    return this.database.transaction(()=>{
+      this.requireAdmission(input.selection);this.requireClaim(input.selection.turnId);this.required(input.selection);
+      const opening=this.readOpeningWithin(input.selection);
+      if(!opening)throw new HarnessPersistenceError("stale_origin","Opening reservation is missing");
+      assertHarnessOpeningIntent(opening,input.intent);
+      if(opening.phase==="cancelled_before_dispatch")return "cancelled_before_dispatch" as const;
+      if(opening.phase!=="reserved")return "not_reserved" as const;
+      // Same immediate writer as beginOpeningDispatch; no physical proof is inferred.
+      this.database.prepare("UPDATE harness_bindings SET opening_json=? WHERE turn_id=?")
+        .run(JSON.stringify({...opening,phase:"cancelled_before_dispatch"}),input.selection.turnId);
+      return "cancelled_before_dispatch" as const;
     }).immediate();
   }
   async acknowledgeOpening(raw:HarnessOpeningInput & {readonly origin:StoredHarnessAttachment}):Promise<void> {
