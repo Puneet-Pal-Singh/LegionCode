@@ -26,6 +26,8 @@ import type {
   HostedSessionPullRequestsResponse,
   RepositoryReadRepository,
 } from "@legioncode/sdk";
+import type { LocalTurnConfigurationOptions } from "@repo/platform-protocol";
+import { LocalExecutionDetails } from "../environment/LocalExecutionDetails.js";
 import { useOutsideDismiss } from "../hooks/useOutsideDismiss.js";
 import { useViewportPopoverPosition } from "../hooks/useViewportPopoverPosition.js";
 import { cn } from "../classnames.js";
@@ -54,6 +56,7 @@ export interface EnvironmentSummaryMenuProps {
   readOnlyBranch?: boolean;
   pullRequestResult?: HostedSessionPullRequestsResponse;
   savedSources?: EnvironmentSavedSources;
+  commandExecution?: LocalTurnConfigurationOptions["commandExecution"];
   onBranchChange?: (branch: string) => void;
   onOpenChanges?: () => void;
   onOpenCommit?: () => void;
@@ -273,9 +276,12 @@ function EnvironmentActions(props: EnvironmentActionsProps) {
       props.pullRequestResult.pullRequests.length > 0);
   const showSources =
     savedSources.status !== "ready" || savedSources.images.length > 0;
+  const hasExecutionDetails = Boolean(
+    props.commandExecution?.plan || props.commandExecution?.build,
+  );
   const hasSummaryContent =
-    showPullRequests || showSources || hasEnvironmentActions;
-  const hasSummarySection = showPullRequests || showSources;
+    showPullRequests || showSources || hasExecutionDetails || hasEnvironmentActions;
+  const hasSummarySection = showPullRequests || showSources || hasExecutionDetails;
   return (
     <>
       {showPullRequests ? (
@@ -298,6 +304,16 @@ function EnvironmentActions(props: EnvironmentActionsProps) {
             sources={savedSources}
             onOpenSources={props.onOpenSources}
           />
+        </div>
+      ) : null}
+      {hasExecutionDetails ? (
+        <div
+          className={cn(
+            "pt-1",
+            (showPullRequests || showSources) && "border-t border-zinc-700/70",
+          )}
+        >
+          <LocalExecutionDetails commandExecution={props.commandExecution} />
         </div>
       ) : null}
       {hasEnvironmentActions ? (

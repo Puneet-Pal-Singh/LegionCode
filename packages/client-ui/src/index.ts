@@ -156,3 +156,5 @@ export { ConversationContinuationNotice, type ConversationContinuationNoticeProp
 
 export { usePendingTitleProjectionRefresh, type PendingTitleProjection, type PendingTitleProjectionRefreshInput } from "./titles/usePendingTitleProjectionRefresh.js";
 export { shouldRetainCurrentTitleProjection, type TitleProjectionVersion } from "./titles/titleProjectionVersion.js";
+
+export { LocalExecutionDetails } from "./environment/LocalExecutionDetails.js";

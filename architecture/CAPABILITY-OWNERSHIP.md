@@ -2811,3 +2811,15 @@ The active SDK legacy question wrapper remains unchanged until that consumer
 migrates its shared route and removes the old DTO; this foundation alone does not
 claim that client/runtime integration. Native capture, current byte paging and
 provider custody retain their existing owners and exports.
+
+## Plan 057 — Shared local execution details
+
+The existing local turn configuration handshake optionally describes command
+execution per product mode. The captured Native capability supplies its actual
+Build profile; Plan remains command-unavailable. Omitted metadata stays unknown.
+The shared environment summary renders this descriptor through one client-ui
+component, mounted by Desktop's existing ready Native binding. This is descriptive
+metadata only: the runtime tool registry, approval policy and process helper retain
+execution authority. Hosted Web callers omit it and retain their existing summary.
+A future harness selector must scope this descriptor to the selected backend;
+it does not describe Codex subscription execution or ordinary shell support.

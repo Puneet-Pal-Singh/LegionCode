@@ -671,6 +671,8 @@ function DesktopApp(): React.JSX.Element {
 
   const environmentSummary = (onOpenChanges: () => void) => selectedThread ? (
     <EnvironmentSummaryMenu
+      commandExecution={sdkReady && environment.kind === "local" && environment.status === "ready"
+        ? turnConfigurationOptions?.commandExecution : undefined}
       repo={workspace ? { default_branch: workspace.branch ?? "" } : null}
       branch={workspace?.branch ?? ""}
       readOnlyBranch={Boolean(workspace?.branch)}
