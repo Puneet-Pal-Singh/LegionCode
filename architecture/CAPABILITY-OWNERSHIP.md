@@ -1617,6 +1617,16 @@ history, authorize Threads or introduce a new endpoint; the actual Turn service
 must delegate to the canonical bounded query and reauthorize before returning.
 That service-method integration remains with its current owner.
 
+## Plan 057 — Private bounded startup admission enumeration
+
+LocalTurnAdmissions exposes a private cursor page over its existing canonical
+admission references, limited to 25 records and one MiB of reconstructed data.
+It validates the actual run-event cursor and resumes after the last returned
+record, without a copied status table or recovery writer. Startup admission
+index validation streams existing rows instead of collecting the whole index.
+The sole LocalPersistence owner guards the query; Native runtime policy and
+before-ready reconciliation remain separate consumers and own settlement.
+
 ## Local chat image read and SDK hydration boundary
 
 `LocalChatMediaReads` delegates current grant/Thread authorization to the existing
