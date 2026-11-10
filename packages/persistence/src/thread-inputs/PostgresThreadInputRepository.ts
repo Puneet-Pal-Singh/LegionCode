@@ -127,6 +127,24 @@ export class PostgresThreadInputRepository implements ThreadInputRepository {
     });
   }
 
+  /** Point-read every state under the existing queue owner, without allocating
+   * state/order/revision or treating a filtered queue snapshot as absence. */
+  async getByClientInputId(input: ThreadInputScope & { clientInputId: string }): Promise<StoredThreadInput | null> {
+    const captured = {sessionId: input.sessionId, userId: input.userId, threadId: input.threadId,
+      workspaceId: input.workspaceId, clientInputId: input.clientInputId};
+    return await this.client.transaction(async (tx) => {
+      await assertOwnedScope(tx, captured);
+      // Existing writers lock this state before looking up/inserting an input.
+      // Unlike lockState(), this read never inserts or updates a state row.
+      await tx.query("SELECT revision FROM thread_input_state WHERE session_id=$1 AND thread_id=$2 AND workspace_id=$3 FOR UPDATE",
+        [captured.sessionId, captured.threadId, captured.workspaceId]);
+      const result = await tx.query<InputRow>(
+        "SELECT * FROM thread_inputs WHERE session_id=$1 AND user_id=$2 AND thread_id=$3 AND workspace_id=$4 AND client_input_id=$5 FOR UPDATE",
+        [captured.sessionId, captured.userId, captured.threadId, captured.workspaceId, captured.clientInputId]);
+      return result.rows[0] ? mapInput(result.rows[0]) : null;
+    });
+  }
+
   async getById(input: ThreadInputScope & { itemId: string }): Promise<StoredThreadInput | null> {
     return await this.client.transaction(async (tx) => {
       await assertOwnedScope(tx, input);

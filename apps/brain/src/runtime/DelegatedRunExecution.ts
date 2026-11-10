@@ -1,3 +1,4 @@
+import type { CoreMessage } from "ai";
 import type { RunUserInputResponseRegistry } from "./RunUserInputResponseRegistry";
 import {
   RuntimeKernel,
@@ -16,6 +17,32 @@ import type { RunInterruptRegistry } from "./RunInterruptRegistry";
 import type { RunApprovalResolutionRegistry } from "./RunApprovalResolutionRegistry";
 import type { RunThreadInputRegistry } from "./RunThreadInputRegistry";
 import type { TaskCheckoutRunLifecycle } from "./task-workspaces/TaskCheckoutRunLifecycle";
+
+/** This error is constructed only while inspecting input, before canonical
+ * acceptance or external controls. Downstream failures must never use it. */
+export class DelegatedThreadInputPreacceptError extends Error {
+  static readonly code = "DELEGATED_THREAD_INPUT_PREACCEPT_INVALID";
+  constructor() {
+    super("Delegated steering requires non-empty text without images or other content.");
+    this.name = "DelegatedThreadInputPreacceptError";
+  }
+}
+
+/** Preserve every text part, including whitespace and boundaries, in order. */
+export function normalizeDelegatedThreadInputText(content: CoreMessage["content"]): string {
+  let text: string;
+  if (typeof content === "string") text = content;
+  else {
+    if (!Array.isArray(content) || content.length === 0) throw new DelegatedThreadInputPreacceptError();
+    text = "";
+    for (const part of content) {
+      if (!part || part.type !== "text" || typeof part.text !== "string") throw new DelegatedThreadInputPreacceptError();
+      text += part.text;
+    }
+  }
+  if (!text.trim()) throw new DelegatedThreadInputPreacceptError();
+  return text;
+}
 
 type DelegatedInput = StartTurnInput & {
   execution: Extract<
@@ -116,14 +143,16 @@ export async function executeDelegatedRun(input: {
   input.approvals.register(turnId, (approvalId, resolution) =>
     kernel.resolveApproval(turnId, approvalId, resolution),
   );
-  input.threadInputs.register(turnId, (threadInput) =>
-    kernel.acceptThreadInput({
+  input.threadInputs.register(turnId, (threadInput) => {
+    if (threadInput.message.role !== "user") throw new DelegatedThreadInputPreacceptError();
+    const message = { ...threadInput.message, content: normalizeDelegatedThreadInputText(threadInput.message.content) };
+    return kernel.acceptThreadInput({
       turnId,
-      accepted: { inputId: threadInput.inputId, message: threadInput.message },
+      accepted: { inputId: threadInput.inputId, message },
       clientInputId: threadInput.clientInputId,
       transcriptMessageId: threadInput.transcriptMessageId,
-    }),
-  );
+    });
+  });
   prepared.checkoutLifecycle.beginRuntimeExecution({
     turnId,
     runAttemptId: start.runAttemptId,

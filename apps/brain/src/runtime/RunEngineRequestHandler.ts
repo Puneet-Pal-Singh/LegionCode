@@ -4,7 +4,7 @@ import { InMemoryRunUserInputResponseRegistry, type RunUserInputResponseRegistry
 import { authorizeLifecycleApproval, findLifecycleApprovalEvents } from "./LifecycleApprovalAuthorization";
 import { readRunHarnessAdmission } from "./RunHarnessAdmission";
 import { CloudDelegatedRunPreparation } from "./CloudDelegatedRunPreparation";
-import { executeDelegatedRun, type DelegatedRunPreparationPort } from "./DelegatedRunExecution";
+import { executeDelegatedRun, DelegatedThreadInputPreacceptError, type DelegatedRunPreparationPort } from "./DelegatedRunExecution";
 import { isDelegatedHarnessRoute } from "./HarnessExecutionRoute";
 import { claimExecutionWithStartupInterrupt } from "./RunExecutionStartup";
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
@@ -574,6 +574,10 @@ export class RunEngineRequestHandler {
     if (!this.threadInputRegistry.has(payload.turnId)) {
       return runEngineErrorResponse(request, this.env, "Turn has no live input owner", 409, "turn_not_active");
     }
+    if (admission.harnessSelection?.selection && payload.mediaRefs.length > 0) {
+      const error = new DelegatedThreadInputPreacceptError();
+      return runEngineErrorResponse(request, this.env, error.message, 400, DelegatedThreadInputPreacceptError.code);
+    }
     const images = payload.mediaRefs.map((ref) => ref);
     const providerImages = [];
     if (images.length > 0) {
@@ -605,7 +609,10 @@ export class RunEngineRequestHandler {
         transcriptMessageId: payload.transcriptMessageId,
         message,
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof DelegatedThreadInputPreacceptError) {
+        return runEngineErrorResponse(request, this.env, error.message, 400, DelegatedThreadInputPreacceptError.code);
+      }
       // Only the explicit owner check above proves a terminal/owner conflict.
       // Append and storage errors can happen after durable inbox admission, so
       // callers must retain the row and reconcile it by input ID.

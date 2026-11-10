@@ -1765,3 +1765,26 @@ against the same existing one-MiB response budget. This adapter does not select
 history, authorize Threads or introduce a new endpoint; the actual Turn service
 must delegate to the canonical bounded query and reauthorize before returning.
 That service-method integration remains with its current owner.
+
+
+## Delegated steering text ingress (Cloud 1f941 repair)
+
+Brain's shared delegated thread-input registry normalizes ordered all-text user
+message parts to their complete string before canonical acceptance. Empty and
+non-text/mixed content raises a dedicated preaccept error. Direct and queued
+hosted steer preflight uses the immutable admitted harness selection, before
+Native media discovery or queue creation/claim. Native rich input is unchanged.
+The existing generic App Server error maps only this proven rejection to 400
+`invalid_request`; postmutation transport, storage and control uncertainty stays
+503 and retains the existing row for reconciliation. No accepted/applied fact,
+queue reset, provider fallback or launch readiness is inferred. OpenCode and
+Claude steering limitations and Codex acknowledgement-versus-applied semantics
+remain with their existing driver/runtime owners.
+
+The existing inbox repository supplies an owner-scoped point read by client input
+ID across all states, with read-only locking of existing queue state. Direct
+retries compare their original target, content fingerprint and deterministic
+media identity before returning prior receipts; unknown prior claims remain
+retained. A null read is a transaction ordering point, not a claim that a later
+concurrent request can never accept that identity. This adds no schema or inbox
+mutation authority.

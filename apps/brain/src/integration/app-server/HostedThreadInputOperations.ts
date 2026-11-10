@@ -1,3 +1,4 @@
+import { DelegatedThreadInputPreacceptError, normalizeDelegatedThreadInputText } from "../../runtime/DelegatedRunExecution";
 import {
   ResumeTurnReceiptSchema,
   StartQueuedThreadInputCommandSchema,
@@ -197,6 +198,39 @@ async function steerTurn(input: {
       message: "The selected turn scope has changed.",
     }), 409);
   }
+  const delegated = admission.harnessSelection?.selection != null;
+  if (delegated) {
+    const prior = await withThreadInputRepository(env, (repository) =>
+      repository.getByClientInputId({...scope, clientInputId: command.clientInputId})).catch(() => {
+        throw operationError(503, "server_unavailable", "Steering outcome is being reconciled. Retry with the same input ID.", "THREAD_INPUT_OUTCOME_UNKNOWN");
+      });
+    if (prior) {
+      if (prior.delivery !== "steer" || prior.targetTurnId !== command.expectedTurnId ||
+          prior.targetRunAttemptId !== command.expectedRunAttemptId || prior.mediaRefs.length !== command.content.images.length) {
+        throw new ThreadInputConflictError("Client input ID was reused with different content or target", "client_input_conflict");
+      }
+      // Compare the existing deterministic media identity without persisting or
+      // loading an image, discovering a Native model, or guessing a new ref.
+      for (const [index, image] of command.content.images.entries()) {
+        const attachmentId = `in_${(await sha256(`${command.clientInputId}:${index}:${image.dataUrl}`)).slice(0, 32)}`;
+        const ref = prior.mediaRefs[index];
+        if (!ref || ref.attachmentId !== attachmentId || ref.name !== image.name || ref.mediaType !== image.mediaType) {
+          throw new ThreadInputConflictError("Client input ID was reused with different content", "client_input_conflict");
+        }
+      }
+      const expectedFingerprint = await sha256(JSON.stringify({operation: command.operation, text: command.content.text,
+        mediaRefs: prior.mediaRefs, targetTurnId: command.expectedTurnId, targetRunAttemptId: command.expectedRunAttemptId}));
+      if (prior.fingerprint !== expectedFingerprint) {
+        throw new ThreadInputConflictError("Client input ID was reused with different content", "client_input_conflict");
+      }
+      if (prior.receipt && ["accepted", "applied", "unconfirmed"].includes(prior.receipt.status)) return outcome(prior.receipt);
+      throw operationError(503, "server_unavailable", "Steering outcome is being reconciled. Retry with the same input ID.", "THREAD_INPUT_OUTCOME_UNKNOWN");
+    }
+    // This point read is linearized before this request's rejection, not proof
+    // that a concurrent/later request can never accept the same client identity.
+    if (command.content.images.length > 0) throw new DelegatedThreadInputPreacceptError();
+    normalizeDelegatedThreadInputText(command.content.text);
+  }
   if (command.content.images.length > 0) {
     const run = await withRunRepository(env, (repository) =>
       repository.getRun(admission.runId, userId),
@@ -247,73 +281,81 @@ async function steerTurn(input: {
   if (existing && ["accepted", "applied", "unconfirmed"].includes(existing.status)) {
     return outcome(existing);
   }
-  const runtimeResponse = await fetchRunRuntimeRoute(env, admission.runId, "execution-engine-v1", {
-    method: "POST",
-    path: "/thread/inputs/steer",
-    body: JSON.stringify({
-      sessionId: scope.sessionId,
-      userId,
-      runId: admission.runId,
-      workspaceId: command.workspaceId,
-      threadId: command.threadId,
-      turnId: command.expectedTurnId,
-      runAttemptId: command.expectedRunAttemptId,
-      inputId: stored.item.itemId,
-      clientInputId: command.clientInputId,
-      transcriptMessageId: `thread-input:${stored.item.itemId}`,
-      text: command.content.text,
-      mediaRefs,
-    }),
-    headers: { "Content-Type": "application/json" },
-  });
-  const runtimeBody = await runtimeResponse.json().catch(() => null) as Record<string, unknown> | null;
-  if (!runtimeResponse.ok) {
-    if (runtimeResponse.status >= 500) {
-      throw operationError(503, "server_unavailable", "Steering outcome is being reconciled. Retry with the same input ID.", "THREAD_INPUT_OUTCOME_UNKNOWN");
-    }
-    if (runtimeResponse.status !== 409 ||
-      (runtimeBody?.code !== "turn_not_active" && runtimeBody?.code !== "target_superseded")) {
-      throw operationError(502, "server_unavailable", "Steering was not confirmed. Retry with the same input ID.", "THREAD_INPUT_NOT_CONFIRMED");
-    }
-    const conflict = ThreadInputReceiptSchema.parse({
-      status: "conflict",
-      code: runtimeBody.code,
-      message: typeof runtimeBody.error === "string" ? runtimeBody.error : "The selected turn no longer accepts input.",
+  if (delegated && stored.duplicate) {
+    throw operationError(503, "server_unavailable", "Steering outcome is being reconciled. Retry with the same input ID.", "THREAD_INPUT_OUTCOME_UNKNOWN");
+  }
+  try {
+    const runtimeResponse = await fetchRunRuntimeRoute(env, admission.runId, "execution-engine-v1", {
+      method: "POST",
+      path: "/thread/inputs/steer",
+      body: JSON.stringify({
+        sessionId: scope.sessionId,
+        userId,
+        runId: admission.runId,
+        workspaceId: command.workspaceId,
+        threadId: command.threadId,
+        turnId: command.expectedTurnId,
+        runAttemptId: command.expectedRunAttemptId,
+        inputId: stored.item.itemId,
+        clientInputId: command.clientInputId,
+        transcriptMessageId: `thread-input:${stored.item.itemId}`,
+        text: command.content.text,
+        mediaRefs,
+      }),
+      headers: { "Content-Type": "application/json" },
     });
-    await withThreadInputRepository(env, (repository) => repository.recordReceipt({
-      ...scope,
-      itemId: stored.item.itemId,
-      expectedVersion: stored.item.version,
-      receipt: conflict,
-      state: "cancelled",
-    }));
-    return outcome(conflict, 409);
-  }
-  const acceptedSequence = Number(runtimeBody?.acceptedSequence);
-  ThreadInputReceiptSchema.parse({
-    status: "accepted",
-    clientInputId: command.clientInputId,
-    inputId: stored.item.itemId,
-    targetTurnId: command.expectedTurnId,
-    targetRunAttemptId: command.expectedRunAttemptId,
-    acceptedSequence,
-  });
-  const authoritative = await withThreadInputRepository(env, (repository) =>
-    repository.getById({ ...scope, itemId: stored.item.itemId }),
-  );
-  const authoritativeReceipt = authoritative?.receipt;
-  if (!authoritativeReceipt) {
-    throw operationError(503, "server_unavailable", "Steering outcome is being reconciled. Retry with the same input ID.", "THREAD_INPUT_OUTCOME_UNKNOWN");
-  }
-  if (authoritativeReceipt.status === "unconfirmed") return outcome(authoritativeReceipt);
-  if (authoritativeReceipt.status === "accepted" || authoritativeReceipt.status === "applied") {
-    if (authoritativeReceipt.acceptedSequence !== acceptedSequence) {
+    const runtimeBody = await runtimeResponse.json().catch(() => null) as Record<string, unknown> | null;
+    if (!runtimeResponse.ok) {
+      if (runtimeResponse.status >= 500) {
+        throw operationError(503, "server_unavailable", "Steering outcome is being reconciled. Retry with the same input ID.", "THREAD_INPUT_OUTCOME_UNKNOWN");
+      }
+      if (runtimeResponse.status !== 409 ||
+        (runtimeBody?.code !== "turn_not_active" && runtimeBody?.code !== "target_superseded")) {
+        throw operationError(503, "server_unavailable", "Steering outcome is being reconciled. Retry with the same input ID.", "THREAD_INPUT_OUTCOME_UNKNOWN");
+      }
+      const conflict = ThreadInputReceiptSchema.parse({
+        status: "conflict",
+        code: runtimeBody.code,
+        message: typeof runtimeBody.error === "string" ? runtimeBody.error : "The selected turn no longer accepts input.",
+      });
+      await withThreadInputRepository(env, (repository) => repository.recordReceipt({
+        ...scope,
+        itemId: stored.item.itemId,
+        expectedVersion: stored.item.version,
+        receipt: conflict,
+        state: "cancelled",
+      }));
+      return outcome(conflict, 409);
+    }
+    const acceptedSequence = Number(runtimeBody?.acceptedSequence);
+    ThreadInputReceiptSchema.parse({
+      status: "accepted",
+      clientInputId: command.clientInputId,
+      inputId: stored.item.itemId,
+      targetTurnId: command.expectedTurnId,
+      targetRunAttemptId: command.expectedRunAttemptId,
+      acceptedSequence,
+    });
+    const authoritative = await withThreadInputRepository(env, (repository) =>
+      repository.getById({ ...scope, itemId: stored.item.itemId }),
+    );
+    const authoritativeReceipt = authoritative?.receipt;
+    if (!authoritativeReceipt) {
       throw operationError(503, "server_unavailable", "Steering outcome is being reconciled. Retry with the same input ID.", "THREAD_INPUT_OUTCOME_UNKNOWN");
     }
-  } else {
+    if (authoritativeReceipt.status === "unconfirmed") return outcome(authoritativeReceipt);
+    if (authoritativeReceipt.status === "accepted" || authoritativeReceipt.status === "applied") {
+      if (authoritativeReceipt.acceptedSequence !== acceptedSequence) {
+        throw operationError(503, "server_unavailable", "Steering outcome is being reconciled. Retry with the same input ID.", "THREAD_INPUT_OUTCOME_UNKNOWN");
+      }
+    } else {
+      throw operationError(503, "server_unavailable", "Steering outcome is being reconciled. Retry with the same input ID.", "THREAD_INPUT_OUTCOME_UNKNOWN");
+    }
+    return outcome(authoritativeReceipt, stored.duplicate ? 200 : 202);
+  } catch {
     throw operationError(503, "server_unavailable", "Steering outcome is being reconciled. Retry with the same input ID.", "THREAD_INPUT_OUTCOME_UNKNOWN");
   }
-  return outcome(authoritativeReceipt, stored.duplicate ? 200 : 202);
+
 }
 
 async function enqueueThreadInput(input: {
@@ -441,6 +483,20 @@ async function steerQueuedThreadInput(input: {
   if (runtimeScope.userId !== userId || runtimeScope.workspaceId !== command.workspaceId) {
     throw operationError(409, "conflict", "The selected turn scope has changed.", "TARGET_SUPERSEDED");
   }
+  if (admission.harnessSelection?.selection) {
+    try {
+      if (item.mediaRefs.length > 0) throw new DelegatedThreadInputPreacceptError();
+      normalizeDelegatedThreadInputText(item.text);
+    } catch (error) {
+      if (!(error instanceof DelegatedThreadInputPreacceptError)) throw error;
+      // An existing steering claim may already have been accepted. Keep that
+      // legacy/ambiguous row for reconciliation rather than claiming nonacceptance.
+      if (item.delivery === "steer" || item.state !== "pending") {
+        throw operationError(503, "server_unavailable", "Steering outcome is being reconciled. Retry from the current queue snapshot.", "THREAD_INPUT_OUTCOME_UNKNOWN");
+      }
+      throw error;
+    }
+  }
   if (item.mediaRefs.length > 0) {
     const run = await withRunRepository(env, (repository) =>
       repository.getRun(admission.runId, userId),
@@ -479,71 +535,76 @@ async function steerQueuedThreadInput(input: {
     }
     expectedReceiptVersion = claimed.item.version;
   }
-  const runtimeResponse = await fetchRunRuntimeRoute(env, admission.runId, "execution-engine-v1", {
-    method: "POST",
-    path: "/thread/inputs/steer",
-    body: JSON.stringify({
-      sessionId: scope.sessionId,
-      userId,
-      runId: admission.runId,
-      workspaceId: command.workspaceId,
-      threadId: command.threadId,
-      turnId: command.expectedTurnId,
-      runAttemptId: command.expectedRunAttemptId,
-      inputId: item.itemId,
-      clientInputId: item.clientInputId,
-      transcriptMessageId: `thread-input:${item.itemId}`,
-      text: item.text,
-      mediaRefs: item.mediaRefs,
-    }),
-    headers: { "Content-Type": "application/json" },
-  });
-  const runtimeBody = await runtimeResponse.json().catch(() => null) as Record<string, unknown> | null;
-  if (!runtimeResponse.ok) {
-    if (runtimeResponse.status >= 500 || runtimeResponse.status !== 409 ||
-      (runtimeBody?.code !== "turn_not_active" && runtimeBody?.code !== "target_superseded")) {
-      throw operationError(503, "server_unavailable", "Steering outcome is being reconciled. Retry from the current queue snapshot.", "THREAD_INPUT_OUTCOME_UNKNOWN");
-    }
-    const code = runtimeBody.code === "target_superseded" ? "target_superseded" : "turn_not_active";
-    const conflict = ThreadInputReceiptSchema.parse({
-      status: "conflict",
-      code,
-      message: typeof runtimeBody.error === "string" ? runtimeBody.error : "The selected turn no longer accepts input.",
+  try {
+    const runtimeResponse = await fetchRunRuntimeRoute(env, admission.runId, "execution-engine-v1", {
+      method: "POST",
+      path: "/thread/inputs/steer",
+      body: JSON.stringify({
+        sessionId: scope.sessionId,
+        userId,
+        runId: admission.runId,
+        workspaceId: command.workspaceId,
+        threadId: command.threadId,
+        turnId: command.expectedTurnId,
+        runAttemptId: command.expectedRunAttemptId,
+        inputId: item.itemId,
+        clientInputId: item.clientInputId,
+        transcriptMessageId: `thread-input:${item.itemId}`,
+        text: item.text,
+        mediaRefs: item.mediaRefs,
+      }),
+      headers: { "Content-Type": "application/json" },
     });
-    await withThreadInputRepository(env, (repository) => repository.recordReceipt({
-      ...scope,
-      itemId: command.itemId,
-      expectedVersion: expectedReceiptVersion,
-      receipt: conflict,
-      state: "cancelled",
-    }));
-    return outcome(conflict, 409);
-  }
-  const acceptedSequence = Number(runtimeBody?.acceptedSequence);
-  ThreadInputReceiptSchema.parse({
-    status: "accepted",
-    clientInputId: item.clientInputId,
-    inputId: item.itemId,
-    targetTurnId: command.expectedTurnId,
-    targetRunAttemptId: command.expectedRunAttemptId,
-    acceptedSequence,
-  });
-  const authoritative = await withThreadInputRepository(env, (repository) =>
-    repository.getById({ ...scope, itemId: command.itemId }),
-  );
-  const authoritativeReceipt = authoritative?.receipt;
-  if (!authoritativeReceipt) {
-    throw operationError(503, "server_unavailable", "Steering outcome is being reconciled. Retry from the current queue snapshot.", "THREAD_INPUT_OUTCOME_UNKNOWN");
-  }
-  if (authoritativeReceipt.status === "unconfirmed") return outcome(authoritativeReceipt);
-  if (authoritativeReceipt.status === "accepted" || authoritativeReceipt.status === "applied") {
-    if (authoritativeReceipt.acceptedSequence !== acceptedSequence) {
+    const runtimeBody = await runtimeResponse.json().catch(() => null) as Record<string, unknown> | null;
+    if (!runtimeResponse.ok) {
+      if (runtimeResponse.status >= 500 || runtimeResponse.status !== 409 ||
+        (runtimeBody?.code !== "turn_not_active" && runtimeBody?.code !== "target_superseded")) {
+        throw operationError(503, "server_unavailable", "Steering outcome is being reconciled. Retry from the current queue snapshot.", "THREAD_INPUT_OUTCOME_UNKNOWN");
+      }
+      const code = runtimeBody.code === "target_superseded" ? "target_superseded" : "turn_not_active";
+      const conflict = ThreadInputReceiptSchema.parse({
+        status: "conflict",
+        code,
+        message: typeof runtimeBody.error === "string" ? runtimeBody.error : "The selected turn no longer accepts input.",
+      });
+      await withThreadInputRepository(env, (repository) => repository.recordReceipt({
+        ...scope,
+        itemId: command.itemId,
+        expectedVersion: expectedReceiptVersion,
+        receipt: conflict,
+        state: "cancelled",
+      }));
+      return outcome(conflict, 409);
+    }
+    const acceptedSequence = Number(runtimeBody?.acceptedSequence);
+    ThreadInputReceiptSchema.parse({
+      status: "accepted",
+      clientInputId: item.clientInputId,
+      inputId: item.itemId,
+      targetTurnId: command.expectedTurnId,
+      targetRunAttemptId: command.expectedRunAttemptId,
+      acceptedSequence,
+    });
+    const authoritative = await withThreadInputRepository(env, (repository) =>
+      repository.getById({ ...scope, itemId: command.itemId }),
+    );
+    const authoritativeReceipt = authoritative?.receipt;
+    if (!authoritativeReceipt) {
       throw operationError(503, "server_unavailable", "Steering outcome is being reconciled. Retry from the current queue snapshot.", "THREAD_INPUT_OUTCOME_UNKNOWN");
     }
-  } else {
+    if (authoritativeReceipt.status === "unconfirmed") return outcome(authoritativeReceipt);
+    if (authoritativeReceipt.status === "accepted" || authoritativeReceipt.status === "applied") {
+      if (authoritativeReceipt.acceptedSequence !== acceptedSequence) {
+        throw operationError(503, "server_unavailable", "Steering outcome is being reconciled. Retry from the current queue snapshot.", "THREAD_INPUT_OUTCOME_UNKNOWN");
+      }
+    } else {
+      throw operationError(503, "server_unavailable", "Steering outcome is being reconciled. Retry from the current queue snapshot.", "THREAD_INPUT_OUTCOME_UNKNOWN");
+    }
+    return outcome(authoritativeReceipt, 202);
+  } catch {
     throw operationError(503, "server_unavailable", "Steering outcome is being reconciled. Retry from the current queue snapshot.", "THREAD_INPUT_OUTCOME_UNKNOWN");
   }
-  return outcome(authoritativeReceipt, 202);
+
 }
 
 async function resolveThreadScope(
@@ -619,6 +680,9 @@ function outcome<T>(result: T, statusCode: HostedThreadInputOutcome["statusCode"
 }
 
 function mapThreadInputError(error: unknown): AppServerOperationError | OutcomeError {
+  if (error instanceof DelegatedThreadInputPreacceptError) {
+    return operationError(400, "invalid_request", error.message, DelegatedThreadInputPreacceptError.code);
+  }
   if (error instanceof AppServerOperationError) return error;
   if (error instanceof ResumeTurnError) {
     if (error.status === 409) {

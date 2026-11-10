@@ -56,6 +56,7 @@ export type ThreadInputMutation =
 export interface ThreadInputRepository {
   enqueue(input: CreateThreadInput): Promise<{ item: StoredThreadInput; revision: number; duplicate: boolean }>;
   list(input: ThreadInputScope): Promise<ThreadInputQueueSnapshot>;
+  getByClientInputId(input: ThreadInputScope & { clientInputId: string }): Promise<StoredThreadInput | null>;
   getById(input: ThreadInputScope & { itemId: string }): Promise<StoredThreadInput | null>;
   update(input: UpdateThreadInput): Promise<ThreadInputMutation>;
   claimForSteering(input: ClaimQueuedInputForSteering): Promise<ThreadInputMutation & { readonly revision?: number }>;
