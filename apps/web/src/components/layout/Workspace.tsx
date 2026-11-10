@@ -47,7 +47,6 @@ import { useCompletedTurnReview } from "@legioncode/client-ui";
 import { buildHookSettingsAuditReadModel, type HookSettingsAuditReadModel } from "@legioncode/sdk";
 import { useWorkspaceViewport } from "../../hooks/useWorkspaceViewport";
 import type { SavedChatSourcesProjection } from "../../lib/saved-chat-sources";
-import type { TopEnvironmentSummaryProps } from "../navigation/TopEnvironmentSummary";
 
 interface WorkspaceProps {
   sessionId: string;
@@ -88,7 +87,6 @@ interface WorkspaceProps {
   onTabChange?: (tab: TabType) => void;
   summaryActionRequest?: { id: number; action: "changes" | "commit" | "sources" } | null;
   savedSources?: SavedChatSourcesProjection;
-  environmentSummary?: TopEnvironmentSummaryProps;
   onOpenRepositoryPicker?: () => void;
 }
 
@@ -125,7 +123,6 @@ export function Workspace({
   onTabChange,
   summaryActionRequest,
   savedSources,
-  environmentSummary,
   onOpenRepositoryPicker,
 }: WorkspaceProps) {
   const isSessionPersisted = isSessionPersistenceReady(
@@ -734,7 +731,7 @@ export function Workspace({
                 onGitReviewOpenChange?.(true);
               }}
               onCloseSidebar={() => setIsRightSidebarOpen?.(false)}
-              environmentSummary={environmentSummary}
+              position={isMobile ? "inline" : "fixed"}
             />
           ) : null}
 

@@ -105,13 +105,13 @@ function TopNavActions({
       {!isMobile ? (
         <OpenDropdown onSelect={onOpenIde} disabled={!onOpenIde} />
       ) : null}
+      {environmentSummary ? (
+        <TopEnvironmentSummary {...environmentSummary} />
+      ) : null}
       {!isRightSidebarOpen ? (
         <WorkspaceReviewControls
           onToggleRightSidebar={onToggleRightSidebar}
         />
-      ) : null}
-      {environmentSummary && !isRightSidebarOpen ? (
-        <TopEnvironmentSummary {...environmentSummary} />
       ) : null}
     </div>
   );

@@ -1084,7 +1084,6 @@ function AppContent() {
                         onTabChange={setActiveTab}
                         summaryActionRequest={summaryActionRequest}
                         savedSources={savedSources}
-                        environmentSummary={environmentSummary}
                         onOpenRepositoryPicker={handleOpenRepositoryPicker}
                       />
                     </motion.div>

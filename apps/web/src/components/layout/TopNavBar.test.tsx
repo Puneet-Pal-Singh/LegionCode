@@ -48,6 +48,10 @@ describe("TopNavBar shared adapter", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Review" })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Toggle summary" })
+        .compareDocumentPosition(screen.getByRole("button", { name: "Toggle right sidebar" })) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open IDE" }));
     fireEvent.click(screen.getByRole("button", { name: "Toggle summary" }));
     expect(onOpenIde).toHaveBeenCalledWith("vscode");
@@ -63,10 +67,13 @@ describe("TopNavBar shared adapter", () => {
         onToggleRightSidebar={vi.fn()}
         isRightSidebarOpen
         isAuthenticated
+        environmentSummary={{ repo: null, branch: "main", onOpenChanges: vi.fn() }}
       />,
     );
 
     expect(screen.queryByRole("button", { name: "Review" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open IDE" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Toggle summary" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Toggle right sidebar" })).not.toBeInTheDocument();
   });
 });
