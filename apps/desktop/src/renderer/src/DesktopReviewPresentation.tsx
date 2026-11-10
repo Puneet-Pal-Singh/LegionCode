@@ -30,6 +30,7 @@ export function DesktopReviewPresentation({
   selectedFile = null,
   onSelectFile = () => {},
   diff = null,
+  diffSections,
   message,
   error = false,
   onRetry,
@@ -44,6 +45,7 @@ export function DesktopReviewPresentation({
   selectedFile?: ReviewFile | null;
   onSelectFile?: (file: ReviewFile) => void;
   diff?: DiffContent | null;
+  diffSections?: readonly { label: string; diff: DiffContent }[];
   message?: string;
   error?: boolean;
   onRetry?: () => void;
@@ -108,7 +110,23 @@ export function DesktopReviewPresentation({
           onSelectFile={onSelectFile}
           allCollapsed={viewState.allDiffsCollapsed}
         >
-          {selectedFile && diff ? (
+          {selectedFile && diffSections ? (
+            diffSections.map((section) => (
+              <section key={section.label} aria-label={section.label}>
+                <p className="border-b border-zinc-800 px-4 py-2 text-xs text-zinc-400">{section.label}</p>
+                <DiffViewer
+                  diff={section.diff}
+                  className="min-h-[200px] w-full overflow-hidden"
+                  layout={viewState.diffLayout}
+                  onLayoutChange={viewState.setDiffLayout}
+                  wordWrap={viewState.wordWrap}
+                  onWordWrapChange={viewState.setWordWrap}
+                  showHeader={false}
+                  showFileSummary={false}
+                />
+              </section>
+            ))
+          ) : selectedFile && diff ? (
             <DiffViewer
               key={selectedFile.path}
               diff={diff}

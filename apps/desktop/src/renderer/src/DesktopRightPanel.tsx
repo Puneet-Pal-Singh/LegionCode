@@ -10,6 +10,7 @@ import type { LocalWorkspaceGrant, ThreadId } from "@repo/platform-protocol";
 import type { DesktopReviewSelection } from "./DesktopReview";
 
 export interface DesktopRightPanelControls {
+  isReviewVisible?: boolean;
   selectedPath: string | null;
   onSelectFile: (path: string) => void;
   isChangesOpen: boolean;
@@ -22,9 +23,9 @@ export interface DesktopRightPanelReview {
   scope: Pick<
     LocalWorkspaceGrant,
     "workspaceId" | "grantedAt" | "readiness"
-  > & { threadId: ThreadId };
+  > & { threadId: ThreadId | null };
   selection: DesktopReviewSelection | null;
-  /** Main supplies the existing immutable SDK adapter with these presentation ports. */
+  /** Main supplies explicit saved Turn and live workspace SDK adapters. */
   content: (controls: DesktopRightPanelControls) => ReactNode;
 }
 
@@ -122,6 +123,7 @@ export function DesktopRightPanel({
   }, [matchingReview?.selection]);
 
   const controls: DesktopRightPanelControls = {
+    isReviewVisible: !isViewingContent,
     selectedPath,
     onSelectFile: (path) => {
       setFileSelection({ scope: fileScope, path });
@@ -203,10 +205,6 @@ export function DesktopRightPanel({
         ) : !workspaceReady ? (
           <p role="status" className="p-4 text-sm text-zinc-400">
             Restore workspace access to review saved changes.
-          </p>
-        ) : !threadId ? (
-          <p role="status" className="p-4 text-sm text-zinc-400">
-            Open a thread to select a settled turn.
           </p>
         ) : !matchingReview ? (
           <p role="status" className="p-4 text-sm text-zinc-400">

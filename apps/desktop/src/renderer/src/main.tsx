@@ -29,7 +29,8 @@ import { DesktopComposer } from "./DesktopComposer";
 import { DesktopComposerWorkspaceBar } from "./DesktopComposerWorkspaceBar";
 import { useDesktopProjectNavigation, type DesktopProjectIntent } from "./useDesktopProjectNavigation";
 import { useDesktopComposerDraft } from "./useDesktopComposerDraft";
-import { DesktopReview } from "./DesktopReview";
+import { DesktopWorkspaceReview } from "./DesktopWorkspaceReview";
+import type { DesktopReviewSource } from "./DesktopReviewPresentation";
 import { DesktopSavedCommitDialog } from "./DesktopSavedCommitDialog";
 import { useDesktopSavedReviewSelection } from "./useDesktopSavedReviewSelection";
 import { DesktopWorkspaceBootstrapHero, useDesktopWorkspaceBootstrap } from "./DesktopWorkspaceBootstrap";
@@ -53,6 +54,7 @@ function DesktopApp(): React.JSX.Element {
   const [settingsTarget, setSettingsTarget] = useState<"general" | "connect-only" | "manage-models-only" | null>(null);
   const [providerRevision, setProviderRevision] = useState(0);
   const [commitOpen, setCommitOpen] = useState(false);
+  const [reviewSource, setReviewSource] = useState<{ key: string; value: DesktopReviewSource } | null>(null);
   const [rightPanelOpen, setRightPanelOpen] = useState(
     () => window.matchMedia("(min-width: 1280px)").matches,
   );
@@ -173,6 +175,8 @@ function DesktopApp(): React.JSX.Element {
     environment?.status === "ready" &&
       environment.capabilities.includes("artifact-review-v1"),
   );
+  const reviewSourceKey = JSON.stringify([workspace?.workspaceId, workspace?.grantedAt, selectedThread?.id]);
+  const activeReviewSource = reviewSource?.key === reviewSourceKey ? reviewSource.value : "turn-diff";
 
   useEffect(() => { setSettingsTarget(null); }, [workspace?.workspaceId, workspace?.grantedAt, workspace?.readiness]);
   useEffect(() => { setCommitOpen(false); }, [
@@ -659,9 +663,10 @@ function DesktopApp(): React.JSX.Element {
       repo={workspace ? { default_branch: workspace.branch ?? "" } : null}
       branch={workspace?.branch ?? ""}
       readOnlyBranch={Boolean(workspace?.branch)}
-      changedFileCount={savedReview.read.status === "ready" ? savedReview.read.diff?.files.length : undefined}
-      onOpenChanges={savedReview.selection ? onOpenChanges : undefined}
+      changedFileCount={activeReviewSource === "turn-diff" && savedReview.read.status === "ready" ? savedReview.read.diff?.files.length : undefined}
+      onOpenChanges={savedReview.selection || environment.capabilities.includes("workspace-git-reads-v1") ? onOpenChanges : undefined}
       onOpenCommit={
+        activeReviewSource === "turn-diff" &&
         sdkReady && environment.status === "ready" &&
         environment.capabilities.includes("artifact-commit-v1") &&
         savedReview.read.status === "ready" && savedReview.read.diff?.files.length
@@ -745,33 +750,48 @@ function DesktopApp(): React.JSX.Element {
                 workspace={workspace}
                 threadId={selectedThread?.id ?? null}
                 review={
-                  reviewScope
+                  appServerClient && sdkReady && environment.status === "ready" &&
+                  environment.kind === "local" && workspace?.readiness === "ready"
                     ? {
-                        scope: reviewScope,
+                        scope: {
+                          workspaceId: workspace.workspaceId,
+                          grantedAt: workspace.grantedAt,
+                          readiness: workspace.readiness,
+                          threadId: selectedThread?.id ?? null,
+                        },
                         selection: savedReview.selection,
                         content: (controls) => (
-                          <DesktopReview
+                          <DesktopWorkspaceReview
+                            client={appServerClient}
+                            workspaceId={workspace.workspaceId}
+                            liveAvailable={environment.capabilities.includes("workspace-git-reads-v1")}
                             controls={controls}
-                            read={savedReview.read}
-                            onRetry={savedReview.retry}
-                            selection={savedReview.selection}
-                            scope={{
-                              workspaceId: reviewScope.workspaceId,
-                              threadId: reviewScope.threadId,
-                              grantGrantedAt: reviewScope.grantedAt,
+                            scopeControls={{
+                              value: activeReviewSource,
+                              onChange: (value) => {
+                                setReviewSource({ key: reviewSourceKey, value });
+                                setCommitOpen(false);
+                              },
+                              availableScopes: environment.capabilities.includes("workspace-git-reads-v1")
+                                ? ["turn-diff", "git-changes"] : ["turn-diff"],
                             }}
-                            availability={
-                              environment.status === "ready" &&
-                              environment.capabilities.includes(
-                                "artifact-review-v1",
-                              )
+                            saved={{
+                              read: savedReview.read,
+                              onRetry: savedReview.retry,
+                              selection: savedReview.selection,
+                              scope: reviewScope ? {
+                                workspaceId: reviewScope.workspaceId,
+                                threadId: reviewScope.threadId,
+                                grantGrantedAt: reviewScope.grantedAt,
+                              } : null,
+                              availability: environment.capabilities.includes("artifact-review-v1")
                                 ? { available: true }
                                 : {
                                     available: false,
                                     reason:
                                       "This environment does not provide saved turn review.",
-                                  }
-                            }
+                                  },
+                            }}
                           />
                         ),
                       }
@@ -862,7 +882,11 @@ function DesktopApp(): React.JSX.Element {
                 void refreshThreads();
               }}
               onReviewTurn={(turn) => {
+                if (renderedThreadScope !== threadScope.current ||
+                    turn.workspaceId !== workspace.workspaceId ||
+                    turn.threadId !== selectedThread.id) return;
                 savedReview.select(turn);
+                setReviewSource({ key: reviewSourceKey, value: "turn-diff" });
                 setRightPanelOpen(true);
               }}
             />
@@ -918,7 +942,7 @@ function DesktopApp(): React.JSX.Element {
             workspace?.workspaceId, workspace?.grantedAt,
             selectedThread?.id, savedReview.selection?.turnId,
           ])}
-          isOpen={commitOpen}
+          isOpen={commitOpen && activeReviewSource === "turn-diff"}
           onClose={() => setCommitOpen(false)}
           client={appServerClient}
           selection={savedReview.selection}
