@@ -239,6 +239,17 @@ export function useDesktopProviderSettings(
         assertCurrent(scope);
         if (scope.credentialGeneration.get(providerId) !== generation) throw new Error("Provider credential changed.");
       };
+      const invalidateInventory = () => {
+        scope.inventoryGeneration.set(providerId, (scope.inventoryGeneration.get(providerId) ?? 0) + 1);
+        setModels((current) => {
+          const next = { ...current }; delete next[providerId]; return next;
+        });
+        setManageModels((current) => {
+          const next = { ...current }; delete next[providerId]; return next;
+        });
+        setLoading((current) => ({ ...current, [providerId]: false }));
+        setManageLoading((current) => ({ ...current, [providerId]: false }));
+      };
       let saved = false;
       let confirmedStatus: DesktopCredentialStatus | null = null;
       try {
@@ -266,27 +277,20 @@ export function useDesktopProviderSettings(
             "Protected credential storage did not confirm the save.",
           );
         confirmedStatus = receipt;
-        await scope.client.refreshProviderModels(providerId);
-        assertCredentialCurrent();
-        // Invalidate in-flight catalog deliveries from before this refresh;
-        // the protected credential generation remains unchanged.
-        scope.inventoryGeneration.set(providerId, (scope.inventoryGeneration.get(providerId) ?? 0) + 1);
-        setModels((current) => {
-          const next = { ...current }; delete next[providerId]; return next;
-        });
-        setManageModels((current) => {
-          const next = { ...current }; delete next[providerId]; return next;
-        });
-        setLoading((current) => ({ ...current, [providerId]: false }));
-        setManageLoading((current) => ({ ...current, [providerId]: false }));
         setCredentials((current) => [
           ...current.filter((item) => item.providerId !== providerId),
           { providerId, status: receipt.status },
         ]);
+        invalidateInventory();
+        await scope.client.refreshProviderModels(providerId);
+        assertCredentialCurrent();
+        // Invalidate in-flight catalog deliveries from before this refresh;
+        // the protected credential generation remains unchanged.
+        invalidateInventory();
         const discovered = await loadModels(providerId);
         assertCredentialCurrent();
         const first = discovered.find(
-          (model) => model.availability !== "unsupported_transport",
+          (model) => model.availability === undefined || model.availability === "available",
         );
         if (first) {
           const selected = await scope.client.selectProvider(
@@ -295,15 +299,14 @@ export function useDesktopProviderSettings(
           );
           assertCredentialCurrent();
           setSelection(selected);
-        }
+        } else throw new Error("No available provider model was discovered.");
         setError(null);
+        setModelError(null);
       } catch {
         if (confirmedStatus && active.current === scope && scope.credentialGeneration.get(providerId) === generation) {
-          const actualStatus = confirmedStatus.status;
-          setCredentials((current) => [
-            ...current.filter((item) => item.providerId !== providerId),
-            { providerId, status: actualStatus },
-          ]);
+          setModelError(null);
+          setError("Credential saved in protected storage. Model discovery or selection is unavailable; retry discovery or choose an available model in Manage models.");
+          return;
         }
         throw new Error(
           saved
