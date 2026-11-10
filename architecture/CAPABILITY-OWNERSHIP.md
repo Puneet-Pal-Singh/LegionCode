@@ -2055,3 +2055,13 @@ check. Native and delegated admission producers consume the same current Thread
 parents; stale prepared candidates conflict rather than being reparented. No
 terminal mirror, projection table, second reducer or recovery authority is added.
 Native process-loss recovery retains its separate opaque delegated exclusion.
+
+## Plan 057 — Shared raw-patch projection
+
+`shared-types/src/git-diff-patch` owns the existing pure raw-patch-to-`DiffContent`
+projection. The SDK's saved-Turn adapter delegates its immutable patch and exact
+path to that owner, preserving file selection, quoted UTF-8 paths, metadata-only
+changes, binary flags and hunk line semantics. This moves the existing algorithm;
+it does not read Git or change lifecycle/artifact ownership. The hosted plugin's
+legacy optional-path diff parser remains unchanged until its separate response
+contract is migrated; it is not used by this shared raw-patch projection.

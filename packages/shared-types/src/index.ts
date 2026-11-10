@@ -25,6 +25,8 @@ export {
   type InternalRuntimeEventEnvelope,
 } from "./runtime-events.js";
 
+export { buildDiffContentFromPatch } from "./git-diff-patch.js";
+
 export type {
   FileStatusType,
   FileStatus,
