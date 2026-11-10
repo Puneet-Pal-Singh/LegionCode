@@ -2198,6 +2198,23 @@ holds its never-exposed authority. Only the same writer's combined release and
 original binding close complete cleanup. A lost publisher acknowledgement can
 reconcile to this cleanup-only path, never newly authorize execution.
 
+Physical admission candidates synchronously freeze the complete private harness
+selection, including policy/runtime/account-generation pins, and validate it
+against canonical admission and captured client selection before acquisition.
+The original publisher atomically reserves preparation on the same P11 binding
+row; raw authority transfer includes that exact immutable preparation identity.
+The actual 061 caller must win reserved-to-begun once before any preparation work.
+Existing-request receipts retain the winner's own persisted private binding;
+server-derived parent/default/policy changes do not replace client retry intent.
+
+Cancellation after transfer first seals new execution and metadata loans on the
+same physical writer entry and drains originals. Only an unexposed entry plus
+the exact reserved-to-cancelled preparation CAS and canonical failed/interrupted
+proof permit early close. A begun preparation or physical exposure refuses that
+path without consuming the normal runtime release; retained settlement authority
+remains usable for its original cleanup owner. No terminal, absent opening or
+preparation label alone establishes physical release.
+
 ## Issue 810 — Versioned hosted workspace configuration
 
 The existing `WorkspaceRepository` owns saved configuration for one primary

@@ -46,6 +46,9 @@ export interface LocalWorkspaceWriterLease extends LocalWorkspaceWriterAuthority
   /** Caller must fence and await its original publication before this canonical
    * read. Any admission, tracked physical resource or unknown result retains. */
   releaseUnadmitted(readCanonicalAdmission: () => Promise<TurnAdmission | null>): Promise<boolean>;
+  /** One-shot active-work seal. Refuses ever-exposed leases without consuming
+   * normal settlement/release; proof must certify the same cancelled preparation. */
+  releaseBeforeExposure(proof: LocalTurnExecutor["awaitResourceRelease"]): Promise<boolean>;
 }
 
 export interface LocalWorkspaceWriterReleaseReceipt {
@@ -68,6 +71,8 @@ type Entry = {
   readonly loans: Set<Promise<unknown>>;
   readonly resources: Set<Resource>;
   physicalExposure: boolean;
+  executionSealed: boolean;
+  beforeExposureRelease?: Promise<boolean>;
   file?: FileHandle;
   fileIdentity?: BigIntStats;
   namespaceIdentity?: BigIntStats;
@@ -179,6 +184,7 @@ export class LocalWorkspaceWriterLeaseOwner {
       loans: new Set(),
       resources: new Set(),
       physicalExposure: false,
+      executionSealed: false,
       unknown: false,
       releasing: false,
       released: false,
@@ -276,6 +282,9 @@ export class LocalWorkspaceWriterLeaseOwner {
       settlement: boolean,
       operation: (value: LocalWorkspaceWriterAuthority) => Promise<T>,
     ): Promise<T> => {
+      if (entry.unknown || entry.releasing || entry.released || (!settlement && entry.executionSealed)) {
+        return Promise.reject(new LocalWorkspaceWriterLeaseError("workspace_writer_unavailable"));
+      }
       // Sticky: even a completed loan may have authorized physical execution.
       entry.physicalExposure = true;
       const loan = (async () => {
@@ -294,6 +303,9 @@ export class LocalWorkspaceWriterLeaseOwner {
     return Object.freeze({
       ...authority,
       withPredecessorVerification: <T>(operation: (identity: LocalWorkspaceWriterReleaseReceipt) => Promise<T>) => {
+        if (entry.unknown || entry.executionSealed || entry.releasing || entry.released) {
+          return Promise.reject(new LocalWorkspaceWriterLeaseError("workspace_writer_unavailable"));
+        }
         const loan = Promise.resolve().then(async () => {
           if (entry.releasing || entry.released) throw new LocalWorkspaceWriterLeaseError("workspace_writer_unavailable");
           await this.assertEntry(entry, false);
@@ -323,7 +335,46 @@ export class LocalWorkspaceWriterLeaseOwner {
         entry.release ??= this.releaseUnadmitted(entry, readCanonicalAdmission);
         return entry.release;
       },
+      releaseBeforeExposure: (proof: LocalTurnExecutor["awaitResourceRelease"]) => this.releaseBeforeExposure(entry, proof),
     });
+  }
+
+  private releaseBeforeExposure(entry: Entry, proof: LocalTurnExecutor["awaitResourceRelease"]): Promise<boolean> {
+    // A refused early path must never poison the original runtime's release.
+    if (entry.physicalExposure || entry.unknown || entry.releasing || entry.released ||
+        entry.release || this.entries.get(entry.key) !== entry) return Promise.resolve(false);
+    if (entry.beforeExposureRelease) return entry.beforeExposureRelease;
+    entry.executionSealed = true;
+    entry.active.abort("Unused preparation is sealing active execution");
+    entry.beforeExposureRelease = Promise.resolve().then(async () => {
+      await Promise.allSettled([...entry.loans]);
+      if (entry.physicalExposure || entry.unknown || entry.resources.size || entry.loans.size || entry.release ||
+          !(await proof(entry.attempt.turnId))) return false;
+      // Existing settlement work may have begun during the canonical CAS/read.
+      // A begun preparation still belongs to its normal runtime cleanup owner.
+      if (entry.physicalExposure || entry.unknown || entry.resources.size || entry.loans.size ||
+          entry.release || entry.releasing || entry.released || this.entries.get(entry.key) !== entry) return false;
+      entry.releasing = true;
+      entry.release = Promise.resolve().then(async () => {
+        try {
+          if (!(await proof(entry.attempt.turnId))) throw new Error("Preparation settlement proof changed");
+          await this.assertEntry(entry, true);
+          if (entry.physicalExposure || entry.unknown || entry.resources.size || entry.loans.size) {
+            throw new Error("Preparation acquired physical work after sealing");
+          }
+          await entry.file!.close();
+          entry.released = true;
+          entry.retained.abort("Unused preparation released");
+          this.entries.delete(entry.key);
+          return true;
+        } catch {
+          this.markUnknown(entry);
+          return false;
+        }
+      });
+      return entry.release;
+    }).catch(() => false);
+    return entry.beforeExposureRelease;
   }
 
   private release(
