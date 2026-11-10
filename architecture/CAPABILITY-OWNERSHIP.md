@@ -1768,6 +1768,50 @@ Discovery does not prove containment: the original root authority, canonical
 readiness predicate, guardian and no-fork profile remain mandatory. No system
 shim, PATH, shell or xcrun process fallback is introduced.
 
+## Plan 057 — Read-only local Git service construction
+
+`createLocalReadOnlyGitService` exposes only `probeRepository` and `getStatus`
+from `DefaultGitService` through the existing canonical Node Git executor and
+verified Mac transport. Every command uses read-only probe policy; private-index
+requests are rejected. The original host lender retains root lifetime and
+quarantine responsibility, with an optional turn signal combined inside its loan.
+This private builder/export creates no runner, pin, lease or mutation capability.
+Actual native runtime consumer composition remains separate integration work.
+
+## Plan 057 — Local interruption command adapter
+
+`LocalInterruptionService` validates the requested workspace, Thread, Run, Turn
+and Run Attempt against durable admission, then delegates active Stop to the
+existing executor. Canonical lifecycle replay alone supplies a terminal receipt;
+delivery acknowledgement without terminal evidence reports only
+`interrupt_requested`. Replay validates the exact scope through the final page
+and rejects events after a terminal. The caller retains current Thread/grant
+authorization. RuntimeKernel remains the only terminal producer; this adapter
+adds no polling, state store or resource-release proof. LocalTurnService and App
+Server composition remain separate integration work.
+
+## Local original image bytes and resource disposition
+
+`LocalChatMediaStore` owns private original image bytes through the shared
+`@repo/chat-media` decoder, sniffer and normalizer. The six-field canonical
+admission scope and ordered image fingerprint bind immutable references, MIME,
+size and SHA256 verification; caller filenames remain labels, never paths.
+Provider hydration requires the admitted fingerprint and verifies the original
+bytes before creating a transient normalized provider image. Data URLs and
+normalized derivatives are not persisted as durable image evidence.
+
+The private media resource journal reserves bounded pending bytes before writes
+and records only byte disposition, never admission or lifecycle truth. The
+existing canonical admission lookup alone confirms accepted scope, fingerprint
+and references. Proven absence after settled admission permits cleanup; unknown
+outcomes retain their bytes and quota. Durable discarding markers make cleanup
+resumable without deleting unfamiliar evidence or accepted immutable batches.
+
+This prepared backend depends on the shared codec package and exported local
+media-limit contract. Actual admission, runtime/provider hydration and authorized
+read/API consumers remain separate composition work. No EventStore media journal,
+renderer transport, capability advertisement or second acceptance owner is added.
+
 ### Local workspace provider preferences
 
 `LocalProviderPreferences` owns secret-free model visibility and default metadata
@@ -1787,6 +1831,23 @@ Thread principal. Foreign stored user/workspace/credential identities are reject
 Profile isolation remains the existing Desktop user-data SQLite owner. Runtime
 factory composition owns injecting this service with the same grant authority and
 SQLite instance. These source changes do not claim installed persistence proof.
+
+## Plan 057 — Canonical local request byte budgets
+
+The existing local HTTP reader enforces the protocol-exported 256 KiB request
+budget after authentication and before schema validation/dispatch. This replaces
+its private 32 KiB literal so valid 24,000-code-unit text prompts fit their JSON
+envelope. Timeouts, response limits, prompt validation and uncertain-delivery
+semantics retain their existing owners. The same protocol owner gives image-bearing
+`turn/start` envelopes a bounded opt-in budget: four images and at most 10 MiB
+decoded in aggregate, with base64 expansion plus the text envelope budget. The SDK
+sets the private opt-in only for authenticated loopback transport; the local HTTP
+reader authenticates before accepting that capacity, then requires the canonical
+start schema and an image-bearing method before dispatch. Other methods keep the
+text budget. The start contract reuses canonical image/text-presence validation
+and may carry an expected provider/model assertion; actual media normalization,
+quota, immutable storage, provider-route checks and runtime admission remain with
+their composed owners. These request contracts enable no execution mode.
 
 ## Plan 057 — Local approval command adapter
 
@@ -1809,3 +1870,93 @@ This schema foundation does not select runtime behavior, project availability,
 validate actual composed ports or enable attachments, tools or mutations. The
 Turn service/runtime admission and handshake composition retain those obligations.
 Hosted request behavior and existing Git/provider contracts remain unchanged.
+
+## Plan 057 — Canonical local admission configuration metadata
+
+The existing runtime `createLocalTurnAdmission` producer may retain validated
+canonical configuration and a content-digest image fingerprint in the durable
+user-message JSON. It reuses RunMode and the existing configuration/digest schemas;
+optional fields preserve existing callers and the default ask mode. Empty text
+requires a valid digest, but digest syntax is not image authorization or evidence
+that image bytes exist. The actual trusted Turn/runtime caller remains responsible
+for composed mode/permission availability and deriving the fingerprint from real
+authorized images. No image bytes, media store, admission owner, lifecycle producer
+or capability is introduced by this metadata leaf.
+
+## Plan 057 — Shared App Server response budget
+
+The platform protocol owns the existing one-MiB default JSON response budget and
+its UTF-8 serialized-byte helper. The SDK HTTP transport reuses that same value;
+its explicit maxResponseBytes override and bounded response reader are unchanged.
+This foundation does not increase limits, alter history queries or add a second
+transport owner. Whole-Turn history selection and final server envelope checks
+remain separate consumers of this shared contract.
+
+## Plan 057 — Bounded local admission history storage
+
+`LocalTurnAdmissions.listByThread` remains the sole query over canonical admission
+and event references. Optional latest reads use insertion order, one bounded extra
+identity and chronological output; forward cursors keep their existing ownership.
+Both directions use the shared response budget to return whole fitting Turns,
+with an actual returned-row cursor and real earlier-history evidence. A single
+next/newest oversized Turn fails with `history_row_too_large`; no row is skipped
+or truncated. Thread authorization, public protocol and Turn-service translation
+remain their existing owners' separate integration responsibilities. No history
+payload copy, table, projection or lifecycle producer is added.
+
+## Plan 057 — Explicit bounded history transport contract
+
+The existing `thread/history` contract accepts explicit latest reads without an
+after cursor and carries optional `hasEarlier` evidence. The SDK requires that
+receipt for latest requests and documents cursor-based continuation rather than
+inferring completion from row count. App Server checks the final history envelope
+against the same existing one-MiB response budget. This adapter does not select
+history, authorize Threads or introduce a new endpoint; the actual Turn service
+must delegate to the canonical bounded query and reauthorize before returning.
+That service-method integration remains with its current owner.
+
+## Plan 057 — Private bounded startup admission enumeration
+
+LocalTurnAdmissions exposes a private cursor page over its existing canonical
+admission references, limited to 25 records and one MiB of reconstructed data.
+It validates the actual run-event cursor and resumes after the last returned
+record, without a copied status table or recovery writer. Startup admission
+index validation streams existing rows instead of collecting the whole index.
+The sole LocalPersistence owner guards the query; Native runtime policy and
+before-ready reconciliation remain separate consumers and own settlement.
+
+## Local chat image read and SDK hydration boundary
+
+`LocalChatMediaReads` delegates current grant/Thread authorization to the existing
+Turn owner before and after each read, checks canonical user-message membership
+and fingerprint, and reads verified originals from the existing media store.
+The shared `media/readImage` contract transfers bounded 256 KiB chunks without
+host paths. Its optional App Server port rejects absent or nonlocal composition
+with non-retryable 503; actual host injection remains separate.
+SDK `readLocalChatImage` requires ordered ranges, immutable reference agreement
+and the complete SHA-256 before returning bytes, with abort checks before return.
+Clients own transient display URLs. No blob store, admission/lifecycle producer,
+capability advertisement or Desktop activation is added by this boundary.
+
+## Plan 057 — Native Plan process-loss reconciliation
+
+The runtime lifecycle coordinator remains the only terminal writer. Its shared
+restoration reducer retains the existing isolated approval-wait policy and adds
+strict Native read-only restoration, including tool names/batches, durable
+approval/tool receipts and context compaction. Recovery finishes already-durable
+item results before failing remaining work; a typed compaction failure now uses
+the canonical item failure envelope.
+
+The Engine's `LocalNativePlanRecovery` adapter validates the admitted worker,
+permission profile and immutable Plan configuration. It reads complete scoped
+lifecycle history in bounded pages, stages coordinator-produced repair and failure
+events, and appends them in one atomic batch. Durable terminal replay reconciles
+lost acknowledgements. Completed receipts remain unchanged. Oversized unsettled,
+corrupt, mutating or independently owned history does not authorize a partial
+restore. No provider, tool, credential, workspace or writer fence is reacquired,
+replayed or released. Startup must call this adapter only after the existing
+SQLite exclusive-lock owner is open and before new commands become ready.
+
+The private admission enumeration, native runtime port and App Server before-ready
+barrier are separately owned integration dependencies. This leaf does not claim
+to activate that startup barrier or recover captured Build resources.
