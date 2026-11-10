@@ -1148,6 +1148,12 @@ never rendered as a successfully verified closed pull request.
   allocating client identity. A transport failure retains that exact request for
   explicit retry; a typed server receipt retires it. Each conversation creates
   its own binding; there is no global product cache or new lifecycle authority.
+- Shared client UI `useThreadInputQueue` owns the existing queue read/mutation
+  delivery hook through an injected SDK client and host read key. Web retains its
+  authenticated client and unchanged full hosted scope key in a thin wrapper.
+  The shared hook renders server snapshots/receipts; it does not admit turns,
+  store durable inputs, or dispatch queued work. Desktop mounting remains gated
+  on an actual local input capability and canonical server/runtime owner.
 - Web `useConversationInputCommands` keeps composer draft/version and active
   conversation generation checks, resolves current provider/harness settings,
   presents receipts/errors and applies server-returned scope. The SDK dispatches

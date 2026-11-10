@@ -75,6 +75,12 @@ export { ChatInterfaceView, type ChatInterfaceViewProps } from "./conversation/c
 
 export { ChatErrorNotice, type ChatErrorNoticeProps } from "./conversation/ChatErrorNotice.js";
 export { ThreadInputQueuePanel } from "./conversation/conversation/ThreadInputQueuePanel.js";
+export {
+  useThreadInputQueue,
+  type ThreadInputQueueClient,
+  type ThreadInputQueueScope,
+  type ThreadInputQueueActiveTarget,
+} from "./conversation/conversation/useThreadInputQueue.js";
 export { type ComposerDelivery } from "./conversation/conversation/composer-keyboard.js";
 export { resumeUnavailableMessage } from "./conversation/chat-interface/workspace-snapshot-status.js";
 
