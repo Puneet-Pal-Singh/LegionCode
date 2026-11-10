@@ -45,7 +45,7 @@ export interface DesktopRightPanelProps {
   onClose?: () => void;
   onResize?: (delta: number) => void;
   headerWidth?: number;
-  environmentSummary?: ReactNode;
+  environmentSummary?: (onOpenChanges: () => void) => ReactNode;
 }
 
 // Match the shared frame's full-width right-panel breakpoint.
@@ -236,7 +236,7 @@ export function DesktopRightPanel({
           isViewingContent={isViewingContent}
           position={isCompact ? "inline" : "fixed"}
           sidebarWidth={isCompact ? "100%" : headerWidth}
-          environmentSummary={environmentSummary}
+          environmentSummary={environmentSummary?.(headerActions.onOpenChanges)}
           onCloseReview={onClose}
           onCloseSidebar={onClose}
           onExpand={() => setIsExpanded(true)}

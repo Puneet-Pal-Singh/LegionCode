@@ -672,13 +672,13 @@ function DesktopApp(): React.JSX.Element {
     return <ClientShellLoading label="Loading Desktop" />;
   }
 
-  const environmentSummary = selectedThread ? (
+  const environmentSummary = (onOpenChanges: () => void) => selectedThread ? (
     <EnvironmentSummaryMenu
       repo={workspace ? { default_branch: workspace.branch ?? "" } : null}
       branch={workspace?.branch ?? ""}
       readOnlyBranch={Boolean(workspace?.branch)}
       changedFileCount={savedReview.read.status === "ready" ? savedReview.read.diff?.files.length : undefined}
-      onOpenChanges={savedReview.selection ? () => setRightPanelOpen(true) : undefined}
+      onOpenChanges={savedReview.selection ? onOpenChanges : undefined}
       onOpenCommit={
         sdkReady && environment.status === "ready" &&
         environment.capabilities.includes("artifact-commit-v1") &&
@@ -750,7 +750,7 @@ function DesktopApp(): React.JSX.Element {
                   onToggleRightSidebar={() => setRightPanelOpen((open) => !open)}
                   toggleButtonRef={rightPanelToggleRef}
                 />
-                {environmentSummary}
+                {environmentSummary(() => setRightPanelOpen(true))}
               </> : undefined}
             />
           }
