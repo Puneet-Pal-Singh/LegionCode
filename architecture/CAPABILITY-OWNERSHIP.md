@@ -1855,3 +1855,11 @@ A private closed receipt is sent only after the same positive physical and
 SQLite closure barrier, before process exit. Exit observation alone is not this
 receipt. A shutdown request also prevents a late listen callback from publishing
 readiness; the supervisor binds receipts to its actual child instance.
+
+The same shutdown barrier also owns the actual saved-commit composition. Its
+required private shutdown port fences new physical commits and awaits original
+commit operations and canonical lease/binding closure. A successful irreversible
+commit receipt with uncertain cleanup cannot authorize SQLite closure. The generic
+combiner calls every owner synchronously before HTTP drain, awaits all original
+shutdown results, and retains the actual compositions on any rejection. It adds
+no commit, terminal or resource-proof authority.

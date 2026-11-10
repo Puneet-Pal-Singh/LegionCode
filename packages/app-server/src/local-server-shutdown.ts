@@ -1,9 +1,35 @@
 import type { Server } from "node:http";
 
+export type LocalShutdownOwner = { shutdown(): Promise<void> };
+
+/** Fence every actual owner synchronously, then await all original cleanup.
+ * Rejection is never transformed into a positive physical closure receipt. */
+export function combineLocalShutdownOwners(
+  ...services: Array<LocalShutdownOwner | undefined>
+): LocalShutdownOwner | undefined {
+  const owners = services.filter((service): service is LocalShutdownOwner => service !== undefined);
+  if (!owners.length) return undefined;
+  let shutdown: Promise<void> | undefined;
+  return {
+    shutdown(): Promise<void> {
+      if (shutdown) return shutdown;
+      const pending = owners.map((owner) => {
+        try { return owner.shutdown(); }
+        catch (error) { return Promise.reject(error); }
+      });
+      shutdown = Promise.allSettled(pending).then((results) => {
+        if (results.some((result) => result.status === "rejected"))
+          throw new Error("Owned local resources remain unsettled");
+      });
+      return shutdown;
+    },
+  };
+}
+
 type ShutdownResources = {
   readonly server: Server;
   readonly persistence: { close(): void };
-  readonly runtime: { shutdown(): Promise<void> } | undefined;
+  readonly runtime: LocalShutdownOwner | undefined;
   readonly hasUnsettledResources: () => boolean;
   keepAlive?: ReturnType<typeof setInterval>;
 };
@@ -16,7 +42,7 @@ const retainedShutdowns = new Set<ShutdownResources>();
 export function attachLocalServerShutdown(
   server: Server,
   persistence: { close(): void },
-  runtime: { shutdown(): Promise<void> } | undefined,
+  runtime: LocalShutdownOwner | undefined,
   hasUnsettledResources: () => boolean,
 ): Server & { readonly closed: Promise<void>; requestShutdown(): Promise<void> } {
   let resolveClosed!: () => void;

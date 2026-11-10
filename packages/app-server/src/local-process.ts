@@ -21,7 +21,7 @@ import { LocalProviderService, ProviderConfigurationSchema } from "./local-provi
 import type { LocalProviderModelCatalog } from "./local-provider-model-catalog.js";
 import { LocalTurnService, type LocalTurnRuntime } from "./local-turns.js";
 import { reconcileLostLocalTurns } from "./local-turn-recovery.js";
-import { attachLocalServerShutdown } from "./local-server-shutdown.js";
+import { attachLocalServerShutdown, combineLocalShutdownOwners, type LocalShutdownOwner } from "./local-server-shutdown.js";
 import { LocalProviderPreferences } from "./local-provider-preferences.js";
 import { LocalTurnArtifactReads } from "./local-turn-artifact-reads.js";
 import { LocalChatMediaStore } from "./local-chat-media-store.js";
@@ -61,7 +61,7 @@ export type LocalAppServerCompositionOptions = {
     persistence: Pick<LocalPersistence, "turnAdmissions" | "lifecycleEvents" | "turnArtifacts" | "workspaceGrants">;
     workspaces: LocalWorkspaceService;
     reads: LocalTurnArtifactReads;
-  }): NonNullable<AppServerComposition["localTurnArtifactCommitService"]>;
+  }): NonNullable<AppServerComposition["localTurnArtifactCommitService"]> & LocalShutdownOwner;
 };
 
 export async function createLocalAppServer(config: LocalAppServerStartConfig, options?: LocalAppServerCompositionOptions) {
@@ -125,7 +125,10 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
     const server = createServer((request, response) => {
       void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, turnService, providerPreferences, artifactReads, imageReads, artifactCommits);
     });
-    return attachLocalServerShutdown(server, persistence, turnService, () => workspaceService.hasUnsettledResources);
+    return attachLocalServerShutdown(
+      server, persistence, combineLocalShutdownOwners(turnService, artifactCommits),
+      () => workspaceService.hasUnsettledResources,
+    );
   } catch (error) {
     persistence.close();
     throw error;
