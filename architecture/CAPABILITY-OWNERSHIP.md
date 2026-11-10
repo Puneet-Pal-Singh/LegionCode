@@ -2465,9 +2465,12 @@ platform fallback. Shutdown aborts title requests synchronously, joins existing
 admission preparations, then positively drains recovery, logical jobs and original
 provider Promises before its aggregate may release SQLite. A logical title timeout
 does not release an original request. Unknown drain retains actual owners and
-process liveness. The owned deferred startup composition must invoke the same
-initializeTitles Promise after shutdown owners are attached and before readiness;
-normal new admissions also await it.
+process liveness. Node startup retains one private deferred initializeTitles
+Promise on the attached shutdown owner and awaits it before listening. Private
+shutdown control remains available while initialization is pending; a referenced
+keepalive lasts until listening or positive closure. Normal new admissions also
+await that title initialization. This hook does not move the existing earlier
+Native reconciliation or establish ownership of that separate startup boundary.
 
 Shared client popovers measure the current VisualViewport, including pan,
 resize and keyboard-related offsets. Optional companion panels use the same
