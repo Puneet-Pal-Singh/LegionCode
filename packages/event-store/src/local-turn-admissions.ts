@@ -127,9 +127,9 @@ export class LocalTurnAdmissions {
     const rows = this.database.prepare(`SELECT a.* FROM turn_admissions a
       JOIN events e ON e.event_id = a.run_event_id WHERE a.thread_id = ?
       ORDER BY e.insertion_order`).iterate(scope.threadId) as Iterable<AdmissionRow>;
-    const owner = this;
+    const reconstruct = (row: AdmissionRow) => this.reconstruct(row);
     function* admissions() {
-      for (const row of rows) yield owner.reconstruct(row);
+      for (const row of rows) yield reconstruct(row);
     }
     return readLocalThreadRuntimeSummary(this.database, scope, admissions());
   }
