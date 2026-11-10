@@ -634,3 +634,13 @@ export * from "./harness/operations.js";
 
 export { AppServerEnvironmentIdSchema } from "./app-server.js";
 export * from "./harness/observation-events.js";
+
+export {
+  UserInputQuestionSchema,
+  UserInputRequestSchema,
+  UserInputResponseSchema,
+  normalizeUserInputResponse,
+  type UserInputQuestion,
+  type UserInputRequest,
+  type UserInputResponse,
+} from "./questions.js";

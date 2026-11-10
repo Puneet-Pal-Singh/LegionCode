@@ -1,3 +1,4 @@
+import { UserInputRequestSchema, normalizeUserInputResponse } from "@repo/platform-protocol";
 import type { ToolRequestUserInputResponse } from "./protocol/generated/v2/ToolRequestUserInputResponse.js";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -58,17 +59,29 @@ export function codexQuestion(
     authOwnerGeneration,
   };
   const requestId = `codex-input-${createHash("sha256").update(JSON.stringify(origin)).digest("hex")}`;
+  const payload = UserInputRequestSchema.parse({
+    prompt: null,
+    questions: p.questions.map((question) => ({
+      id: question.id,
+      header: question.header,
+      question: question.question,
+      multiple: true,
+      required: true,
+      allowCustom: question.isOther || question.options === null,
+      customMultiple: true,
+      maxAnswerLength: 8192,
+      options: (question.options ?? []).map((option) => ({
+        id: option.label, label: option.label, description: option.description,
+      })),
+    })),
+  });
   let used = false;
   return {
     payload: {
       kind: "user_input_requested",
       itemId: codexItemId(session.runAttemptId, p.itemId),
       requestId,
-      payload: {
-        questions: p.questions,
-        isBlocking: p.isBlocking,
-        experimental: true,
-      },
+      payload,
       replyTo: origin,
     },
     reply: (input) => {
@@ -83,7 +96,7 @@ export function codexQuestion(
           ),
         })
         .strict()
-        .parse(input.response);
+        .parse(normalizeUserInputResponse(payload, input.response));
       const keys = Object.keys(result.answers);
       if (
         keys.length !== p.questions.length ||

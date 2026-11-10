@@ -52,6 +52,7 @@ export class HarnessObservationIngestor {
   // Notification receipts survive rehydration within this ingress owner. They
   // are not reply claims: persistence still owns single-use reply delivery.
   private readonly requestOrigins = new Set<string>();
+  private readonly pendingRequests = new Map<string, Approval | UserInput>();
 
   constructor(
     private readonly options: {
@@ -61,6 +62,10 @@ export class HarnessObservationIngestor {
       readonly persistence: HarnessObservationCommitPort;
       readonly onApproval: (approval: Approval) => void;
       readonly onUserInput: (request: UserInput) => void;
+      readonly onWithdrawal: (request: Extract<HarnessObservation["payload"], { kind: "request_withdrawn" }>) => {
+        committed(): void;
+        failed(error: unknown): void;
+      };
     },
   ) {}
 
@@ -134,6 +139,7 @@ export class HarnessObservationIngestor {
         this.reject("Recovery quiescence identity mismatch");
       this.quiescent = evidence.status === "quiescent";
     }
+    this.pendingRequests.clear();
     for (const input of recovered.pendingRequests) {
       const request = HarnessObservationPayloadSchema.parse(input);
       if (
@@ -147,6 +153,7 @@ export class HarnessObservationIngestor {
           this.options.selection.authOwnerGeneration
       )
         this.reject("Recovery request has a stale origin");
+      this.pendingRequests.set(JSON.stringify(request.replyTo), request);
       this.notifyRequest(request);
     }
   }
@@ -261,6 +268,19 @@ export class HarnessObservationIngestor {
         fact.processGeneration !== session.processGeneration
       ) this.reject("Measurement identity differs from the admitted process binding");
     }
+    let withdrawal: ReturnType<NonNullable<typeof this.options.onWithdrawal>> | undefined;
+    if (payload.kind === "request_withdrawn") {
+      const origin = JSON.stringify(payload.replyTo);
+      const pending = this.pendingRequests.get(origin);
+      const matches = pending && sameHarnessSession(payload.replyTo.session, session) &&
+        payload.replyTo.authOwnerGeneration === selection.authOwnerGeneration &&
+        (pending.kind === "approval_requested"
+          ? payload.requestType === "approval" && pending.request.approvalId === payload.requestId && pending.request.itemId === payload.itemId
+          : payload.requestType === "user_input" && pending.requestId === payload.requestId && pending.itemId === payload.itemId);
+      if (!matches) { this.fenced = true; this.reject("Native withdrawal does not match a pending canonical request"); }
+      try { withdrawal = this.options.onWithdrawal(payload); }
+      catch (error) { this.fenced = true; throw error; }
+    }
     let applied = false;
     const ack = await lifecycle.commitHarnessObservation(
       observation,
@@ -295,6 +315,9 @@ export class HarnessObservationIngestor {
             await draft.failToolCall(tool, payload.failure);
             break;
           }
+          case "request_withdrawn":
+            await draft.withdrawHarnessRequest(payload);
+            break;
           case "user_input_requested":
             await draft.requestUserInput(
               payload.itemId,
@@ -330,8 +353,13 @@ export class HarnessObservationIngestor {
             break;
         }
       },
-    );
+    ).catch((error: unknown) => {
+      if (withdrawal) { this.fenced = true; withdrawal.failed(error); }
+      throw error;
+    });
     this.validateAck(ack, observation);
+    withdrawal?.committed();
+    if (payload.kind === "request_withdrawn") this.pendingRequests.delete(JSON.stringify(payload.replyTo));
     if (!applied && observation.sequence > this.lastSequence) {
       // Another initialized owner committed between the two immutable lookups.
       // Restore every canonical/pending/terminal fact before acknowledging it.
@@ -359,8 +387,10 @@ export class HarnessObservationIngestor {
       if (
         payload.kind === "user_input_requested" ||
         payload.kind === "approval_requested"
-      )
+      ) {
+        this.pendingRequests.set(JSON.stringify(payload.replyTo), payload);
         this.notifyRequest(payload);
+      }
     }
     return ack;
   }

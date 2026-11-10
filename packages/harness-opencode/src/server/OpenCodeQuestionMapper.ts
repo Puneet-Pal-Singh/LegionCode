@@ -1,5 +1,5 @@
 import type { FormCreated, SessionFormReplyInput } from "@opencode/client";
-import { JsonRecordSchema, type JsonRecord } from "@repo/platform-protocol";
+import { UserInputRequestSchema, normalizeUserInputResponse, type JsonRecord } from "@repo/platform-protocol";
 import { OpenCodeTransportError } from "./OpenCodeClient.js";
 
 type NativeQuestion = FormCreated["data"]["form"];
@@ -43,6 +43,8 @@ export function questionPayload(form: NativeQuestion): JsonRecord {
       multiple: field.type === "multiselect",
       required: field.required ?? false,
       allowCustom: field.custom === true || field.options === undefined,
+      customMultiple: field.type === "multiselect",
+      maxAnswerLength: 8192,
       options: (field.options ?? []).map((option) => ({
         id: option.value,
         label: option.label,
@@ -50,7 +52,7 @@ export function questionPayload(form: NativeQuestion): JsonRecord {
       })),
     };
   });
-  return JsonRecordSchema.parse({ prompt: form.title, questions });
+  return UserInputRequestSchema.parse({ prompt: form.title, questions });
 }
 
 /** Uses the existing SDK's answers-by-question-id shape, retaining native option values. */
@@ -58,7 +60,7 @@ export function questionAnswer(
   form: NativeQuestion,
   response: JsonRecord,
 ): SessionFormReplyInput["answer"] {
-  questionPayload(form);
+  response = normalizeUserInputResponse(questionPayload(form), response);
   const answers = response.answers;
   if (
     Object.keys(response).length !== 1 ||
