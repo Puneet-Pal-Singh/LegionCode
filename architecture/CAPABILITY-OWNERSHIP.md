@@ -1550,8 +1550,13 @@ and explicitly unavailable pull request status for the real local thread.
 The Changes action uses Web's existing summary action request and Desktop's
 scoped right-panel callback, including when the file count is zero or unknown;
 unknown counts are not fabricated. `WorkspaceReviewControls` retains only the
-actual right-sidebar toggle, with review access inside the summary. Right-panel
-header placement and immutable versus live review owners remain unchanged.
+actual right-sidebar toggle, with review access inside the summary. Both hosts
+keep the summary toggle in the main chat header, immediately before the closed
+sidebar toggle. The pane header contains no summary mount. Its actual fixed DOM
+width registers a token-scoped inset with the same transient presentation owner,
+so the main header cannot be covered by the pane; inline mobile headers reserve
+no inset. Desktop's scoped presentation request preserves Changes navigation
+from an open file tab. Immutable versus live review owners remain unchanged.
 No runtime, SDK product-state, filesystem or Git authority is added.
 The existing Web fullscreen review overlay, close control and focus lifecycle live
 in `client-ui/workspace/ReviewDialogFrame`; both clients mount this source.
