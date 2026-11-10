@@ -1,0 +1,116 @@
+{
+  "base": "bdc618cd9ef0b2a44a2d7218608baadc8922c813",
+  "head": "829db163b76f0ac21636e8a898f03718f2c0b7fa",
+  "branch": "codex/fix-r3-selected-custody-consumers-20261110",
+  "worktree": "/workspace/LegionCode-R3-CUSTODY-CONSUMERS-20261110",
+  "node": "v24.22.1",
+  "pnpm": "9.0.0",
+  "changed_paths": [
+    "apps/brain/src/services/ai/AdapterSelectionService.test.ts",
+    "apps/brain/src/services/ai/AdapterSelectionService.ts",
+    "apps/brain/src/services/providers/CloudCredentialVault.test.ts",
+    "apps/brain/src/services/providers/CloudCredentialVault.ts",
+    "apps/brain/src/services/providers/ProviderConfigService.ts",
+    "apps/brain/src/services/providers/ProviderConnectionService.test.ts",
+    "apps/brain/src/services/providers/ProviderConnectionService.ts",
+    "apps/brain/src/services/providers/ProviderCredentialService.ts",
+    "architecture/CAPABILITY-OWNERSHIP.md",
+    "packages/persistence/src/providers/MemoryProviderStores.ts",
+    "packages/persistence/src/providers/PostgresCredentialStore.ts",
+    "packages/persistence/src/providers/PostgresPreferenceStore.ts",
+    "packages/persistence/src/providers/types.ts"
+  ],
+  "commits": [
+    "fb29d3888957a865c63394520498c7243224a2b8",
+    "d318b95781841d4b8f301729f10111208b77a9fb",
+    "a1a8b9618fe06cd2f025871f44befec088bccdf5",
+    "829db163b76f0ac21636e8a898f03718f2c0b7fa"
+  ],
+  "checks": [
+    {
+      "command": "corepack pnpm --filter @repo/persistence check-types",
+      "revision": "829db163b76f0ac21636e8a898f03718f2c0b7fa",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-ACCOUNT-20261110/custody-consumers/persistence-types.log",
+      "log_sha256": "db2e2fa0d47e8cee35834a9c95a23787094f34b595096aa243ebd1fcd6e25bb1"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/persistence build",
+      "revision": "829db163b76f0ac21636e8a898f03718f2c0b7fa",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-ACCOUNT-20261110/custody-consumers/persistence-build.log",
+      "log_sha256": "074aeaa788b77047a00aa6815fe8c4ca320a0d3e6b8d36758f44649d57fbaf69"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/brain check-types",
+      "revision": "829db163b76f0ac21636e8a898f03718f2c0b7fa",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-ACCOUNT-20261110/custody-consumers/brain-types.log",
+      "log_sha256": "1b61a996eb8492fd8d630d0219f27816e1d92e7fd2ecf688b69cf45b3310ad18"
+    },
+    {
+      "command": "node node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/cli.mjs --tsconfig apps/brain/tsconfig.json /tmp/lc-r3-custody-consumer-probe.ts",
+      "revision": "829db163b76f0ac21636e8a898f03718f2c0b7fa",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-ACCOUNT-20261110/custody-consumers/probe-final.log",
+      "log_sha256": "46dfba4af2d989eac5ceee4c63b8ec886c40929cae5b029fa4139c815e85fae1"
+    }
+  ],
+  "probe_passed_checks": 28,
+  "probe_result_sha256": "3ce785cb8c12e52a9165f3e0c02d9d705c0d486720a33c573744591c64eb46d9",
+  "probe_script_sha256": "42b88b45eacfac5123ccc4992529fd69a773cc0c19201488ab03e40c7f2882ad",
+  "existing_fixtures": [
+    {
+      "path": "apps/brain/src/services/ai/AdapterSelectionService.test.ts",
+      "unchanged_registration_count": 4
+    },
+    {
+      "path": "apps/brain/src/services/providers/CloudCredentialVault.test.ts",
+      "unchanged_registration_count": 5
+    },
+    {
+      "path": "apps/brain/src/services/providers/ProviderConnectionService.test.ts",
+      "unchanged_registration_count": 2
+    }
+  ],
+  "active_consumer_audit": [
+    {
+      "path": "apps/brain/src/services/ai/AdapterSelectionService.ts",
+      "result": "fixed inference to one key/config resolveCredential result"
+    },
+    {
+      "path": "apps/brain/src/services/providers/ProviderConnectionService.ts",
+      "result": "fixed status/config to one credential resolution"
+    },
+    {
+      "path": "apps/brain/src/services/AIService.ts",
+      "result": "key-only structured inference plus separately explicit protected endpoint; no scalar config pair; unchanged"
+    },
+    {
+      "path": "packages/provider-core/src/discovery/ProviderModelDiscoveryService.ts",
+      "result": "already one paired credential result per operation; extracted algorithm unchanged"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/provider/ProtectedProviderInference.ts",
+      "result": "already resolves one credential object; protected resolution unchanged"
+    },
+    {
+      "path": "apps/brain/src/runtime/adapters/CloudflareProviderAdapter.ts",
+      "result": "throwing stub; not active credential delivery; unchanged"
+    }
+  ],
+  "store_changes_requiring_root_real_pg_rerun": [
+    "Existing setCredential/deleteCredential optional expected acquisition checked against captured default id/generation/material version under durable default fence",
+    "Direct PG revokeConnection advances same durable default epoch before raw credential update in same transaction; already-fenced primitive avoids duplicate internal transactions",
+    "PG preference read/provider validation/UPSERT serialized in one transaction with absent-row advisory lock and credential FOR SHARE",
+    "PG+Memory full custody ingress tuples/payloads/config snapshots before first await, including refresh claim ID and OAuth material; metadata updates copied before branch/read"
+  ],
+  "limitation": "Explicit nondefault or revoked selected credential reconnect fails closed before any default write. No replaceConnection operation invented; selected preference stays sticky. Selection change after captured mutation reports conflict and does not imply rollback.",
+  "status": "",
+  "no_pr": true,
+  "no_merge": true,
+  "no_real_db_calls": true,
+  "no_provider_network_calls": true,
+  "no_native_calls": true,
+  "no_host_or_provider_identity_claim": true
+}

@@ -1,0 +1,78 @@
+{
+  "revision": "784257eb937d56b72f19e585ce65c102b3cd171a",
+  "parents": [
+    "829db163b76f0ac21636e8a898f03718f2c0b7fa",
+    "0353bb2765c61e5dd10bf7b99f35722c2034e7a6"
+  ],
+  "approved_dev": "0353bb2765c61e5dd10bf7b99f35722c2034e7a6",
+  "branch": "codex/fix-r3-selected-custody-consumers-20261110",
+  "published_remote_sha": "784257eb937d56b72f19e585ce65c102b3cd171a",
+  "host": "8575502e05f6",
+  "os": "Linux",
+  "node": "v24.22.1",
+  "pnpm": "9.0.0",
+  "approved_manifest_revision": "37d5a77548669d1661b2cf2db26314cc7213adb7",
+  "verified_manifest_files": 19,
+  "source_write_read_remove_proof": true,
+  "merge_conflicts": [
+    {
+      "path": "architecture/CAPABILITY-OWNERSHIP.md",
+      "resolution": "Preserved approved dev Desktop shutdown/replay and canonical Thread-lineage append before the selected cloud custody section. No other feature edits."
+    }
+  ],
+  "checks": [
+    {
+      "command": "corepack pnpm --filter @repo/persistence check-types",
+      "environment": {},
+      "exit_code": 0,
+      "log": "/workspace/work/R3-ACCOUNT-20261110/custody-consumers/merge0353/persistence-types.log",
+      "sha256": "db2e2fa0d47e8cee35834a9c95a23787094f34b595096aa243ebd1fcd6e25bb1"
+    },
+    {
+      "command": "corepack pnpm --filter @repo/persistence build",
+      "environment": {},
+      "exit_code": 0,
+      "log": "/workspace/work/R3-ACCOUNT-20261110/custody-consumers/merge0353/persistence-build.log",
+      "sha256": "074aeaa788b77047a00aa6815fe8c4ca320a0d3e6b8d36758f44649d57fbaf69"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/brain check-types",
+      "environment": {},
+      "exit_code": 0,
+      "log": "/workspace/work/R3-ACCOUNT-20261110/custody-consumers/merge0353/brain-types.log",
+      "sha256": "1b61a996eb8492fd8d630d0219f27816e1d92e7fd2ecf688b69cf45b3310ad18"
+    },
+    {
+      "command": "node scripts/gates/check-architecture-boundaries.mjs",
+      "environment": {},
+      "exit_code": 0,
+      "log": "/workspace/work/R3-ACCOUNT-20261110/custody-consumers/merge0353/architecture.log",
+      "sha256": "91500b0d9dfbc3ce9fab62ce2f083e0c6d82c41531528f48c54ecaa9dfd763a0"
+    },
+    {
+      "command": "node scripts/gates/check-rebuild-governance.mjs",
+      "environment": {
+        "REBUILD_CHANGED_FILES": "git diff --name-only 0353bb2765c61e5dd10bf7b99f35722c2034e7a6..784257eb937d56b72f19e585ce65c102b3cd171a"
+      },
+      "exit_code": 1,
+      "log": "/workspace/work/R3-ACCOUNT-20261110/custody-consumers/merge0353/governance.log",
+      "sha256": "d8eee78798b4aec3594a26904fb8bfafad5032c12a8f1fcebfee46073c7a51d7"
+    }
+  ],
+  "governance_failure": "Persistence migration changes require a matching migration safety test update.",
+  "proposed_existing_fixture": {
+    "path": "packages/persistence/src/migrations/PostgresMigrationRunner.test.ts",
+    "existing_test_title": "applies only pending migrations",
+    "proposal_file": "/workspace/work/R3-ACCOUNT-20261110/custody-consumers/merge0353/migration-safety-existing-fixture.proposed.patch",
+    "proposal_sha256": "555c2a407845e44b2720b79953522030777a97902d59536d284e81a3fe7970b4",
+    "proposal_only": true,
+    "change": "Include0037 in actual runner input/applied statements/ledger/second-run skip and assert bounded generation/default index/epoch definitions. No new test registration/title."
+  },
+  "source_status": "",
+  "explicit_remote_ref_divergence": "0\t0",
+  "metadata_publication": "Exact JSON supplied to root for its existing public metadata artifact publication; no metadata source edit on this merge branch.",
+  "tests_run": false,
+  "providers_called": false,
+  "no_pr_merge_to_dev_or_deployment": true,
+  "ownership_returned": "All13 custody followup paths plus finite mechanical merge overlap returned to root."
+}
