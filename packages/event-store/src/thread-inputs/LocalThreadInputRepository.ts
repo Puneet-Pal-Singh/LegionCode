@@ -254,13 +254,19 @@ export class LocalThreadInputRepository implements ThreadInputRepository {
     }
     if (isTerminal(event)) {
       this.ensureState(scope);
-      for (const row of this.database.prepare("SELECT * FROM local_thread_inputs WHERE thread_id=? AND state='consuming' AND delivery='steer'").iterate(scope.threadId) as Iterable<Row>) {
+      let unknownInput = false;
+      for (const row of this.database.prepare("SELECT * FROM local_thread_inputs WHERE thread_id=? AND state IN ('pending','consuming') AND delivery='steer'").iterate(scope.threadId) as Iterable<Row>) {
         const item = this.parseRow(row);
-        if (item.targetTurnId !== event.turnId || item.targetRunAttemptId !== event.runAttemptId || item.receipt?.status !== "accepted") continue;
+        if (item.targetTurnId !== event.turnId || item.targetRunAttemptId !== event.runAttemptId) continue;
+        if (item.receipt === null) { unknownInput = true; continue; }
+        if (item.receipt.status !== "accepted") continue;
+        unknownInput = true;
         this.put({ ...item, version: item.version + 1, receipt: ThreadInputReceiptSchema.parse({ status: "unconfirmed", inputId: item.itemId,
           targetTurnId: event.turnId, targetRunAttemptId: event.runAttemptId, acceptedSequence: item.receipt.acceptedSequence, terminalSequence: event.sequence }) }, item.version);
       }
-      if (event.type !== "turn.completed") this.database.prepare("UPDATE local_thread_input_state SET paused=1,pause_reason=? WHERE thread_id=?").run(event.type, scope.threadId);
+      if (event.type !== "turn.completed" || unknownInput)
+        this.database.prepare("UPDATE local_thread_input_state SET paused=1,pause_reason=? WHERE thread_id=?")
+          .run(unknownInput ? "Steering delivery requires reconciliation." : event.type, scope.threadId);
       this.bump(scope);
     }
   }

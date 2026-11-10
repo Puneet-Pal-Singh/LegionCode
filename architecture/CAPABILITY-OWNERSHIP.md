@@ -2408,3 +2408,5 @@ preparation label or new receipt is substituted for surviving-child exclusion.
 - Saved known input conflicts/cancellations are terminal command receipts and are never re-delivered by the shared command owner. SQLite startup rejects conflicting queue/Steer target, receipt/state and pause representations.
 
 - Completion-triggered queue reconciliation is registered with the existing preparation tracker before its first await, because the released executor is already removed. Shutdown drains this original operation before persistence closes. Receipt retries check the canonical stored delivery before requiring a still-active executor. Native inbox startup applies the same opaque delegated-owner boundary as its lifecycle projection.
+
+- Canonical terminal projection pauses queued advancement for both accepted-but-unapplied inputs and targeted pending/claimed inputs with no authoritative delivery receipt. It preserves the exact inbox row and never invents an accepted sequence or silently retries unknown delivery.
