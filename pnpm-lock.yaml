@@ -1175,6 +1175,9 @@ importers:
       '@repo/workspace-core':
         specifier: workspace:*
         version: link:../workspace-core
+      '@repo/worker-protocol':
+        specifier: workspace:*
+        version: link:../worker-protocol
     devDependencies:
       '@repo/contract-conformance':
         specifier: workspace:*
