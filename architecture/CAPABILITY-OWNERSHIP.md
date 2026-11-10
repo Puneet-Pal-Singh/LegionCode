@@ -1774,8 +1774,9 @@ uses the canonical provider route resolver with the protected connection config.
 It retains provider/model/availability checks and validates Cloudflare routing
 against that same protected config before inference. No static model allowlist,
 second catalog, credential store or app-local routing algorithm replaces these
-owners. Shared provider discovery/routing dependencies and trusted Desktop host
-injection remain separately sequenced integration requirements.
+owners. Shared provider discovery/routing is now merged, and the private utility
+consumer below supplies the catalog. Native runtime activation and installed
+acceptance remain separately sequenced integration requirements.
 
 ### Local discovery's protected utility-process consumer
 
