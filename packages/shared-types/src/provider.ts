@@ -252,12 +252,14 @@ export type BYOKValidateResponse = z.infer<typeof BYOKValidateResponseSchema>;
 export const BYOKPreferencesPatchSchema = z
   .object({
     defaultProviderId: ProviderIdSchema.optional(),
+    defaultCredentialId: z.string().uuid().optional(),
     defaultModelId: z.string().min(1).optional(),
     visibleModelIds: z.record(z.string(), z.array(z.string())).optional(),
   })
   .refine(
     (value) =>
       value.defaultProviderId !== undefined ||
+      value.defaultCredentialId !== undefined ||
       value.defaultModelId !== undefined ||
       value.visibleModelIds !== undefined,
     {
@@ -268,6 +270,7 @@ export type BYOKPreferencesPatch = z.infer<typeof BYOKPreferencesPatchSchema>;
 
 export const BYOKPreferencesSchema = z.object({
   defaultProviderId: ProviderIdSchema.optional(),
+  defaultCredentialId: z.string().uuid().optional(),
   defaultModelId: z.string().min(1).optional(),
   visibleModelIds: z.record(z.string(), z.array(z.string())).optional(),
   credentialLabels: z.record(z.string(), z.string()).optional(),

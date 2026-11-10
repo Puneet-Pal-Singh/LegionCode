@@ -1,3 +1,7 @@
+import {
+  HarnessActivityMeasuredPayloadSchema,
+  HarnessProviderLimitNotifiedPayloadSchema,
+} from "./harness/observation-events.js";
 import { z } from "zod";
 import {
   EventSequenceSchema,
@@ -798,6 +802,8 @@ export const LifecycleEventTypeSchema = z.enum([
   "file_change.patch_updated",
   "context_budget.updated",
   "usage.updated",
+  "harness.activity_measured",
+  "harness.provider_limit_notified",
   "context_compaction.requested",
   "context_compaction.started",
   "context_compaction.completed",
@@ -1079,6 +1085,17 @@ const UsageUpdatedEventSchema = z
   })
   .strict();
 
+const HarnessActivityMeasuredEventSchema = z.object({
+  ...LifecycleEventEnvelopeShape,
+  type: z.literal("harness.activity_measured"),
+  payload: HarnessActivityMeasuredPayloadSchema,
+}).strict();
+const HarnessProviderLimitNotifiedEventSchema = z.object({
+  ...LifecycleEventEnvelopeShape,
+  type: z.literal("harness.provider_limit_notified"),
+  payload: HarnessProviderLimitNotifiedPayloadSchema,
+}).strict();
+
 const ContextCompactionLifecycleEventSchema = z
   .object({
     ...LifecycleEventEnvelopeShape,
@@ -1178,6 +1195,8 @@ const TurnLifecycleEventSchema = z
       "turn.input.applied",
       "context_budget.updated",
       "usage.updated",
+      "harness.activity_measured",
+      "harness.provider_limit_notified",
       "context_compaction.requested",
       "context_compaction.started",
       "context_compaction.completed",
@@ -1205,6 +1224,8 @@ export const LifecycleEventSchema = z.union([
   RequestLifecycleEventSchema,
   ContextBudgetUpdatedEventSchema,
   UsageUpdatedEventSchema,
+  HarnessActivityMeasuredEventSchema,
+  HarnessProviderLimitNotifiedEventSchema,
   ContextCompactionLifecycleEventSchema,
   TurnCompletedEventSchema,
   TurnInterruptedEventSchema,

@@ -1,4 +1,7 @@
 import type {
+  CredentialSecret,
+  CredentialAcquisition,
+  CredentialRefreshClaim,
   BYOKDiscoveredProviderModel,
   BYOKModelDiscoverySource,
   BYOKPreferences,
@@ -46,6 +49,11 @@ export function buildProviderAuditStatusSqlList(): string {
 
 export interface ProviderCredentialRecord {
   credentialId: string;
+  authOwnerGeneration: number;
+  tokenMaterialVersion: number;
+  credentialKind: CredentialSecret["type"];
+  refreshClaimId: string | null;
+  isDefault: boolean;
   userId: string;
   workspaceId: string;
   providerId: ProviderId;
@@ -74,15 +82,62 @@ export interface SetCredentialInput {
   createdBy?: string;
 }
 
-export interface CredentialStore {
+export interface CreateCredentialConnectionInput {
+  userId: string;
+  providerId: ProviderId;
+  label: string;
+  secret: CredentialSecret;
+  connectionConfig?: ProviderConnectionConfig;
+}
+export interface CredentialConnectionStore {
+  createConnection(
+    input: CreateCredentialConnectionInput,
+  ): Promise<ProviderCredentialRecord>;
+  getConnection(connectionId: string): Promise<ProviderCredentialRecord | null>;
+  acquireConnection(expected: CredentialAcquisition): Promise<{
+    record: ProviderCredentialRecord;
+    secret: CredentialSecret;
+  } | null>;
+  claimRefresh(expected: CredentialAcquisition): Promise<{
+    claim: CredentialRefreshClaim;
+    secret: Extract<CredentialSecret, { type: "oauth" }>;
+  } | null>;
+  completeRefresh(
+    claim: CredentialRefreshClaim,
+    secret: Extract<CredentialSecret, { type: "oauth" }>,
+  ): Promise<ProviderCredentialRecord | null>;
+  revokeConnection(
+    expected: CredentialAcquisition,
+  ): Promise<ProviderCredentialRecord | null>;
+}
+
+/** Private optimistic snapshot of the existing workspace preference row. */
+export interface CredentialSelectionSnapshot {
+  readonly providerId?: ProviderId;
+  readonly credentialId?: string;
+  readonly version: string | null;
+}
+
+export interface CredentialStore extends CredentialConnectionStore {
+  /** Explicit Connect replaces a captured credential and its preference atomically. */
+  reconnectCredential(
+    input: SetCredentialInput,
+    preferences: PreferenceStore,
+  ): Promise<ProviderCredentialRecord>;
   getCredential(
     providerId: ProviderId,
   ): Promise<ProviderCredentialRecord | null>;
   getCredentialWithKey(
     providerId: ProviderId,
   ): Promise<{ record: ProviderCredentialRecord; apiKey: string } | null>;
-  setCredential(input: SetCredentialInput): Promise<ProviderCredentialRecord>;
-  deleteCredential(providerId: ProviderId): Promise<void>;
+  setCredential(
+    input: SetCredentialInput,
+    expected?: CredentialAcquisition,
+  ): Promise<ProviderCredentialRecord>;
+  deleteCredential(
+    providerId: ProviderId,
+    expected?: CredentialAcquisition,
+  ): Promise<void>;
   listCredentialProviders(): Promise<ProviderId[]>;
   updateCredentialMetadata(
     providerId: ProviderId,

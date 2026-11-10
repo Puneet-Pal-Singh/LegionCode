@@ -1,3 +1,4 @@
+export { workspaceConfigurationVersionMigration } from "./migrations/0041-workspace-configuration-version.js";
 export type { SqlClient, SqlQueryResult, SqlRow, SqlValue } from "./sql.js";
 export {
   PgSqlClient,
@@ -209,6 +210,8 @@ export type {
   IdentitySessionRepository,
 } from "./identity/types.js";
 export type {
+  CredentialConnectionStore,
+  CreateCredentialConnectionInput,
   CredentialStore,
   ProviderAuditEvent,
   ProviderAuditLog,
@@ -234,6 +237,9 @@ export {
 export type {
   RepositoryRecord,
   SelectWorkspaceInput,
+  WorkspaceConfigurationRecord,
+  UpdateWorkspaceConfigurationInput,
+  WorkspaceConfigurationUpdateResult,
   WorkspaceBootstrapRecord,
   WorkspaceListItem,
   WorkspaceRecord,
@@ -241,6 +247,7 @@ export type {
   WorkspaceSelectionRecord,
   WorkspaceStatus,
 } from "./workspaces/types.js";
+export { RepositoryIdentityConflictError } from "./workspaces/types.js";
 export { WORKSPACE_STATUSES } from "./workspaces/types.js";
 export type {
   AppendExistingTranscriptMessageInput,
@@ -374,3 +381,8 @@ export { sessionReadReceiptsMigration } from "./migrations/0033-session-read-rec
 export { PostgresSessionReadReceiptRepository } from "./session-read-receipts/PostgresSessionReadReceiptRepository.js";
 export { SessionReadReceiptError } from "./session-read-receipts/types.js";
 export type { SessionReadState, SessionReadReceipt, SessionReadReceiptRepository } from "./session-read-receipts/types.js";
+
+export { PostgresCredentialDefaultFence } from "./providers/PostgresCredentialDefaultFence.js";
+export type { CredentialDefaultScope, CredentialDefaultWriteResult } from "./providers/PostgresCredentialDefaultFence.js";
+export { providerCredentialDefaultEpochs } from "./schema/credential-default-epochs.js";
+export { providerConnectionCustodyMigration } from "./migrations/0037-provider-connection-custody.js";

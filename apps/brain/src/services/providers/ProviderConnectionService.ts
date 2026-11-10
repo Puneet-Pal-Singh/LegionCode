@@ -56,10 +56,10 @@ export class ProviderConnectionService {
       ? this.registryService.getProviderCapabilities(providerId)
       : undefined;
     try {
-      const isConnected = await this.credentialService.isConnected(providerId);
-      const config = isConnected
-        ? await this.credentialService.getConnectionConfig(providerId)
-        : undefined;
+      const credential =
+        await this.credentialService.resolveCredential(providerId);
+      const isConnected = credential !== null;
+      const config = credential?.connectionConfig;
       return {
         providerId,
         status: isConnected ? "connected" : "disconnected",
