@@ -42,7 +42,6 @@ export class LocalGuardedFileWorker implements WorkerProtocolPort {
   private readonly identity: LocalMutationIdentity;
   private readonly admission: Pick<
     StartTurnInput,
-  ToolAuthorizationPort,
     "run" | "turn" | "runAttemptId"
   >;
   private readonly filesystem: NativeFilesystemBridge;
