@@ -898,6 +898,11 @@ ordering live in shared client UI behind host-owned read/delivery ports. Web
 forwards its existing authenticated session reader to that hook. The hook only
 observes canonical pending statuses; it cannot claim attempts, infer generated
 titles or publish title events. Host scope changes suppress late deliveries.
+Desktop binds the same refresh hook to SDK Thread reads and a fresh matching
+workspace grant before delivery. It merges only canonical title fields into the
+existing Thread list/selection, retaining runtime and navigation state; SDK,
+grant generation and Thread-scope changes invalidate late reads. This display
+binding does not activate local inference or manufacture pending title status.
 
 The existing platform OpenRouter free route remains a coordinator-owned,
 sanitized fallback for a failed selected route. No new provider fallback is
