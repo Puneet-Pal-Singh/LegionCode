@@ -5,7 +5,7 @@ import { getBuiltinRegistry, builtinProviderRegistry } from "@repo/provider-core
 import { LocalProviderService, type ProviderSelection } from "./local-providers.js";
 
 describe("LocalProviderService", () => {
-  it("uses supported API-key registry entries and returns registry-sourced model data", () => {
+  it("uses supported API-key registry entries and returns registry-sourced model data", async () => {
     const { service } = createService();
     const expected = getBuiltinRegistry().providers.filter((provider) =>
       provider.launchStage === "supported" && provider.authModes.includes("api_key"),
@@ -13,7 +13,7 @@ describe("LocalProviderService", () => {
     expect(service.listCatalog()).toEqual(expected);
 
     for (const provider of expected) {
-      const response = service.listModels(provider.providerId);
+      const response = await service.listModels(provider.providerId);
       expect(response.providerId).toBe(provider.providerId);
       expect(response.metadata).toMatchObject({ source: "registry", stale: false, status: "available" });
       expect(response.models.map(({ id }) => id)).toEqual(
@@ -65,6 +65,27 @@ describe("LocalProviderService", () => {
 function createService() {
   let saved: ProviderSelection | null = null;
   const service = new LocalProviderService({
+    modelCatalog: {
+      getDiscoveredModels: async (providerId, query) => {
+        const models = builtinProviderRegistry.listModels(providerId).map((model) => ({
+          id: model.modelId, name: model.displayName, providerId,
+          ...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
+          capabilities: {
+            supportsTools: model.supportsTools, supportsVision: model.supportsVision,
+            supportsReasoning: model.supportsReasoning,
+          },
+        }));
+        return {
+          providerId, view: query.view, models,
+          page: { limit: Math.max(1, models.length), hasMore: false },
+          metadata: { fetchedAt: new Date().toISOString(), stale: false, source: "registry", status: "available" },
+        };
+      },
+      refreshDiscoveredModels: async (providerId) => ({
+        providerId, refreshedAt: new Date().toISOString(), source: "provider_api",
+        cacheInvalidated: true, modelsCount: builtinProviderRegistry.listModels(providerId).length,
+      }),
+    },
     selectionStore: {
       read: async () => saved,
       write: async (selection) => { saved = selection; },

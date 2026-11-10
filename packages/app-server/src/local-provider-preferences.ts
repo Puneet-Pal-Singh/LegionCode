@@ -9,7 +9,7 @@ import {
   type BYOKPreference,
   type BYOKPreferencesUpdateRequest,
 } from "@repo/shared-types";
-import type { LocalWorkspaceGrant, WorkspaceId } from "@repo/platform-protocol";
+import { ProviderIdSchema, type LocalWorkspaceGrant, type WorkspaceId } from "@repo/platform-protocol";
 import type { LocalProviderService } from "./local-providers.js";
 
 export interface LocalProviderPreferencesOptions {
@@ -18,7 +18,7 @@ export interface LocalProviderPreferencesOptions {
     read(workspaceId: WorkspaceId): Promise<unknown | null>;
     write(workspaceId: WorkspaceId, preferences: unknown): Promise<void>;
   };
-  providers: Pick<LocalProviderService, "listCatalog" | "listModels">;
+  providers: Pick<LocalProviderService, "listCatalog" | "getModel">;
 }
 
 /** Canonical workspace-scoped preferences; never credentials or runtime resolution. */
@@ -46,7 +46,7 @@ export class LocalProviderPreferences {
         ...patch,
         updatedAt: new Date().toISOString(),
       });
-      this.validateModels(next);
+      await this.validateModels(next);
       await this.assertCurrent(grant);
       await this.options.store.write(grant.workspaceId, next);
       return next;
@@ -111,13 +111,13 @@ export class LocalProviderPreferences {
       preference.defaultCredentialId !== undefined
     )
       throw new Error("Stored provider preferences identity is invalid");
-    this.validateModels(preference);
+    await this.validateModels(preference);
     await this.assertCurrent(grant);
     if (stored === null)
       await this.options.store.write(grant.workspaceId, preference);
     return preference;
   }
-  private validateModels(preference: BYOKPreference): void {
+  private async validateModels(preference: BYOKPreference): Promise<void> {
     const providers = new Set(
       this.options.providers.listCatalog().map((entry) => entry.providerId),
     );
@@ -132,12 +132,9 @@ export class LocalProviderPreferences {
         new Set(models).size !== models.length
       )
         throw new Error("Provider model visibility is invalid");
-      const declared = new Set(
-        this.options.providers
-          .listModels(providerId)
-          .models.map((model) => model.id),
-      );
-      if (models.some((model) => !declared.has(model)))
+      const id = ProviderIdSchema.parse(providerId);
+      const declared = await Promise.all(models.map((model) => this.options.providers.getModel(id, model)));
+      if (declared.some((model) => model === null))
         throw new Error("Provider model visibility names an unavailable model");
     }
     if (
@@ -145,14 +142,11 @@ export class LocalProviderPreferences {
       !providers.has(preference.defaultProviderId)
     )
       throw new Error("Default provider is unavailable");
-    if (
-      preference.defaultModelId &&
-      (!preference.defaultProviderId ||
-        !this.options.providers
-          .listModels(preference.defaultProviderId)
-          .models.some((model) => model.id === preference.defaultModelId))
-    )
-      throw new Error("Default provider model is unavailable");
+    if (preference.defaultModelId) {
+      if (!preference.defaultProviderId || !await this.options.providers.getModel(
+        ProviderIdSchema.parse(preference.defaultProviderId), preference.defaultModelId,
+      )) throw new Error("Default provider model is unavailable");
+    }
   }
   private async requireWorkspace(): Promise<LocalWorkspaceGrant> {
     const grant = await this.options.getWorkspace();
