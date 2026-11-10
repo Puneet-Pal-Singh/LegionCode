@@ -14,6 +14,13 @@ export interface GitStatusInput {
   readonly workspaceRoot: string;
 }
 
+/** Unborn zero IDs represent absent HEAD guards, never commits. */
+export type GitRepositoryHead = {
+  readonly objectFormat: "sha1" | "sha256";
+  readonly branchRef: string;
+  readonly headSha: string;
+} & ({ readonly kind: "born" } | { readonly kind: "unborn" });
+
 export interface GitDiffInput {
   readonly workspace: GitFilesystemContext;
   readonly paths: readonly string[];

@@ -8,6 +8,9 @@ import {
   LocalWorkspaceFileMentionsParamsSchema,
   type LocalWorkspaceFileMentionsParams,
   type LocalWorkspaceFileMentionsResult,
+  LocalChatImageReadParamsSchema,
+  type LocalChatImageReadParams,
+  type LocalChatImageReadResult,
   LocalProviderPreferenceScopeSchema,
   type LocalProviderPreferenceScope,
   LocalWorkspaceReadFileParamsSchema,
@@ -247,6 +250,7 @@ export type AppServerClient = {
   getRepositoryContents(params: RepositoryContentsRequest): Promise<RepositoryContentsResult>;
   listWorkspaceFiles(params: LocalWorkspaceListFilesParams): Promise<LocalWorkspaceListFilesResult>;
   listWorkspaceFileMentions(params: LocalWorkspaceFileMentionsParams): Promise<LocalWorkspaceFileMentionsResult>;
+  readLocalChatImageChunk(params: LocalChatImageReadParams): Promise<LocalChatImageReadResult>;
   readWorkspaceFile(params: LocalWorkspaceReadFileParams): Promise<CheckoutReadFileResult>;
   getWorkspaceGrant(): Promise<LocalWorkspaceGrant | null>;
   grantWorkspace(source: WorkspaceGrantSource): Promise<LocalWorkspaceGrant>;
@@ -282,6 +286,9 @@ export function createAppServerClient(
     listWorkspaceFileMentions: (params) => request(options, {
       method: "workspace/fileMentions", params: LocalWorkspaceFileMentionsParamsSchema.parse(params),
     }, AppServerResultSchemas["workspace/fileMentions"]),
+    readLocalChatImageChunk: (params) => request(options, {
+      method: "media/readImage", params: LocalChatImageReadParamsSchema.parse(params),
+    }, AppServerResultSchemas["media/readImage"]),
     listWorkspaceFiles: (params) => request(options, {
       method: "workspace/listFiles", params: LocalWorkspaceListFilesParamsSchema.parse(params),
     }, AppServerResultSchemas["workspace/listFiles"]),
