@@ -1,12 +1,16 @@
 import {
   useCallback,
   useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
   type ReactNode,
   type RefObject,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   ChevronDown,
   FileDiff,
@@ -25,6 +29,9 @@ import type {
 import { useOutsideDismiss } from "../hooks/useOutsideDismiss.js";
 import { useViewportPopoverPosition } from "../hooks/useViewportPopoverPosition.js";
 import { cn } from "../classnames.js";
+import { shouldIgnoreGlobalKeyDown } from "../hooks/global-keydown.js";
+import { getVisibleFocusTargets } from "../hooks/modal-focus.js";
+import { useWorkspaceSummaryLayout } from "./WorkspaceSummaryLayout.js";
 import type { ChatImagePreview } from "../conversation/ChatImageGallery.js";
 
 export interface EnvironmentSavedSources {
@@ -56,79 +63,107 @@ export interface EnvironmentSummaryMenuProps {
 }
 
 export function EnvironmentSummaryMenu(props: EnvironmentSummaryMenuProps) {
-  const [isOpen, setIsOpen] = useState(false);
+  const layout = useWorkspaceSummaryLayout();
+  const [localOpen, setLocalOpen] = useState(false);
   const [isBranchOpen, setIsBranchOpen] = useState(false);
+  const panelId = `environment-summary-${useId()}`;
   const rootRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const branchTriggerRef = useRef<HTMLButtonElement>(null);
   const branchPanelRef = useRef<HTMLDivElement>(null);
-  const panelPosition = useViewportPopoverPosition(
-    isOpen,
-    triggerRef,
-    panelRef,
-  );
+  const inline = Boolean(layout?.inlineVisible && layout.inlineTarget);
+  const isOpen = layout ? !layout.inlineEligible && layout.popupOpen : localOpen;
+  const visible = inline || isOpen;
+  const setHasSummary = layout?.setHasSummary;
+  const registerTrigger = layout?.registerTrigger;
+  const dismissPopup = layout?.dismissPopup;
+  useLayoutEffect(() => {
+    setHasSummary?.(true);
+    return () => { setHasSummary?.(false); };
+  }, [setHasSummary]);
+  const bindTrigger = useCallback((element: HTMLButtonElement | null) => {
+    triggerRef.current = element;
+    registerTrigger?.(element);
+  }, [registerTrigger]);
+  const panelPosition = useViewportPopoverPosition(isOpen, triggerRef, panelRef);
   const branchPanelPosition = useViewportPopoverPosition(
-    isBranchOpen && Boolean(props.repo),
-    branchTriggerRef,
-    branchPanelRef,
+    isBranchOpen && Boolean(props.repo), branchTriggerRef, branchPanelRef,
   );
   const close = useCallback(() => {
-    setIsOpen(false);
+    setLocalOpen(false);
+    dismissPopup?.();
     setIsBranchOpen(false);
-  }, []);
-  useOutsideDismiss(rootRef, isOpen || isBranchOpen, close);
+  }, [dismissPopup]);
+  const additionalRefs = useMemo(() => [panelRef, branchPanelRef], []);
+  useOutsideDismiss(rootRef, isOpen || isBranchOpen, close, { additionalRefs });
+  useEffect(() => { setIsBranchOpen(false); }, [layout?.inlineEligible]);
+  const wasVisible = useRef(false);
+  useEffect(() => {
+    if (visible && !wasVisible.current) props.onOpen?.();
+    wasVisible.current = visible;
+  }, [visible, props.onOpen]);
+  useLayoutEffect(() => {
+    if (!isOpen || !panelRef.current) return;
+    (getVisibleFocusTargets(panelRef.current)[0] ?? panelRef.current).focus();
+  }, [isOpen, layout?.overlayTarget]);
   useEffect(() => {
     if (!isOpen && !isBranchOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (shouldIgnoreGlobalKeyDown(event) || event.key !== "Escape") return;
       event.preventDefault();
-      close();
-      triggerRef.current?.focus();
+      if (isBranchOpen) {
+        setIsBranchOpen(false);
+        branchTriggerRef.current?.focus();
+      } else {
+        close();
+        triggerRef.current?.focus();
+      }
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [close, isBranchOpen, isOpen]);
-
+  const panel = visible ? (
+    <EnvironmentPanel
+      {...props}
+      inline={inline}
+      panelId={panelId}
+      onClose={close}
+      panelRef={panelRef}
+      panelPosition={inline ? undefined : panelPosition}
+      branchTriggerRef={branchTriggerRef}
+      onOpenBranch={() => setIsBranchOpen((current) => !current)}
+    />
+  ) : null;
+  const branchPanel = isBranchOpen && props.repo
+    ? props.renderBranchPanel?.({ panelRef: branchPanelRef, style: branchPanelPosition, onClose: () => setIsBranchOpen(false) })
+    : null;
   return (
     <div ref={rootRef} className="relative">
       <button
-        ref={triggerRef}
+        ref={bindTrigger}
         type="button"
         onClick={() => {
-          const next = !isOpen;
-          setIsOpen(next);
-          if (next) props.onOpen?.();
+          setIsBranchOpen(false);
+          if (layout) layout.toggle();
+          else setLocalOpen((open) => !open);
         }}
         aria-label="Toggle environment summary"
-        aria-expanded={isOpen}
-        aria-haspopup="dialog"
-        aria-controls="environment-summary-panel"
+        aria-expanded={visible}
+        aria-haspopup={layout?.inlineEligible ? undefined : "dialog"}
+        aria-controls={panelId}
         title="Toggle summary"
         className={cn(
           "size-8 rounded-lg p-1.5 text-zinc-400 outline-none transition-colors hover:bg-zinc-800 hover:text-white focus-visible:ring-1 focus-visible:ring-zinc-500",
-          isOpen && "bg-zinc-800 text-white",
+          visible && "bg-zinc-800 text-white",
         )}
       >
         <SquareMenu size={16} />
       </button>
-      {isOpen ? (
-        <EnvironmentPanel
-          {...props}
-          onClose={close}
-          panelRef={panelRef}
-          panelPosition={panelPosition}
-          branchTriggerRef={branchTriggerRef}
-          onOpenBranch={() => setIsBranchOpen((current) => !current)}
-        />
-      ) : null}
-      {isBranchOpen && props.repo
-        ? props.renderBranchPanel?.({
-            panelRef: branchPanelRef,
-            style: branchPanelPosition,
-            onClose: () => setIsBranchOpen(false),
-          })
-        : null}
+      {inline && layout?.inlineTarget
+        ? createPortal(panel, layout.inlineTarget)
+        : layout?.overlayTarget ? createPortal(panel, layout.overlayTarget) : panel}
+      {layout?.overlayTarget ? createPortal(branchPanel, layout.overlayTarget) : branchPanel}
     </div>
   );
 }
@@ -138,7 +173,9 @@ function EnvironmentPanel(
     onClose: () => void;
     onOpenBranch: () => void;
     panelRef: RefObject<HTMLDivElement | null>;
-    panelPosition: CSSProperties;
+    panelPosition?: CSSProperties;
+    inline?: boolean;
+    panelId: string;
     branchTriggerRef: RefObject<HTMLButtonElement | null>;
   },
 ) {
@@ -163,6 +200,8 @@ function EnvironmentPanel(
   return (
     <EnvironmentPanelView
       actions={actions}
+      inline={props.inline}
+      panelId={props.panelId}
       panelRef={props.panelRef}
       panelPosition={props.panelPosition}
     />
@@ -173,18 +212,25 @@ function EnvironmentPanelView({
   actions,
   panelRef,
   panelPosition,
+  inline,
+  panelId,
 }: {
   actions: EnvironmentActionsProps;
+  inline?: boolean;
+  panelId: string;
   panelRef: RefObject<HTMLDivElement | null>;
-  panelPosition: CSSProperties;
+  panelPosition?: CSSProperties;
 }) {
   return (
     <div
       ref={panelRef}
-      id="environment-summary-panel"
-      role="dialog"
+      id={panelId}
+      role={inline ? "region" : "dialog"}
+      tabIndex={inline ? undefined : -1}
       aria-label="Environment summary"
-      className="ui-surface-popover fixed left-0 top-0 z-[120] max-h-[min(70vh,560px)] w-[min(21.25rem,calc(100vw-1rem))] overflow-y-auto p-2"
+      className={inline
+        ? "ui-surface-popover w-full min-w-0 overflow-y-auto p-2"
+        : "ui-surface-popover fixed left-0 top-0 z-[120] w-[21.25rem] overflow-y-auto p-2"}
       style={panelPosition}
     >
       <EnvironmentActions {...actions} />
@@ -209,7 +255,7 @@ function EnvironmentActions(props: EnvironmentActionsProps) {
     onOpenCommit,
   } = props;
   const hasEnvironmentActions = Boolean(
-    (repo && (props.onBranchChange || props.readOnlyBranch)) ||
+    onOpenChanges || (repo && (props.onBranchChange || props.readOnlyBranch)) ||
     (changedFileCount !== undefined &&
       changedFileCount > 0 &&
       (onOpenChanges || onOpenCommit)),
@@ -396,12 +442,11 @@ function ChangesAction({
   count?: number;
   onClick: () => void;
 }) {
-  if (count === undefined || count === 0) return null;
   return (
     <SummaryButton
       icon={<FileDiff size={15} />}
       label="Changes"
-      detail={`${count}`}
+      detail={count === undefined ? undefined : `${count}`}
       onClick={onClick}
     />
   );

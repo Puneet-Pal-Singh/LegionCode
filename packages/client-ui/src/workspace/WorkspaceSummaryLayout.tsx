@@ -36,7 +36,8 @@ export function WorkspaceSummaryProvider({ children }: { children: ReactNode }) 
   const [hasSummary, setHasSummary] = useState(false);
   const [inlineTarget, setTarget] = useState<HTMLDivElement | null>(null);
   const inlineRef = useRef<HTMLDivElement | null>(null);
-  const [overlayTarget, setOverlayTarget] = useState<HTMLDivElement | null>(null);
+  const [overlayTarget, setOverlayElement] = useState<HTMLDivElement | null>(null);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const setInlineTarget = useCallback((element: HTMLDivElement | null) => {
     inlineRef.current = element;
@@ -45,10 +46,15 @@ export function WorkspaceSummaryProvider({ children }: { children: ReactNode }) 
   const registerTrigger = useCallback((element: HTMLButtonElement | null) => {
     triggerRef.current = element;
   }, []);
+  const setOverlayTarget = useCallback((element: HTMLDivElement | null) => {
+    overlayRef.current = element;
+    setOverlayElement(element);
+  }, []);
   const setInlineEligible = useCallback((eligible: boolean) => {
     if (eligibleRef.current === eligible) return;
     // Move focus before a measured collapse removes the inline card.
-    if (inlineRef.current?.contains(document.activeElement)) triggerRef.current?.focus();
+    if (inlineRef.current?.contains(document.activeElement) ||
+        overlayRef.current?.contains(document.activeElement)) triggerRef.current?.focus();
     eligibleRef.current = eligible;
     setEligible(eligible);
     setPopupOpen(false);
@@ -72,7 +78,7 @@ export function WorkspaceSummaryProvider({ children }: { children: ReactNode }) 
     toggle,
     dismissPopup,
   }), [inlineEligible, hasSummary, inlineHidden, popupOpen, inlineTarget, overlayTarget,
-    setInlineTarget, setInlineEligible, registerTrigger, toggle, dismissPopup]);
+    setInlineTarget, setOverlayTarget, setInlineEligible, registerTrigger, toggle, dismissPopup]);
   return <SummaryLayoutContext.Provider value={value}>{children}</SummaryLayoutContext.Provider>;
 }
 
