@@ -134,4 +134,3 @@ function validateReplay(input: ReplayLifecycleEventsInput): void {
     );
   }
 }
-
