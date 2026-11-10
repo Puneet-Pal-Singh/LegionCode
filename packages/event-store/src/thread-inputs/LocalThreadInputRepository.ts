@@ -93,6 +93,7 @@ export class LocalThreadInputRepository implements ThreadInputRepository {
       if (event.type !== "turn.input.accepted" && event.type !== "turn.input.applied") throw corrupt("Input history query returned a foreign event");
       const admission = this.admissions.getByTurn(event.turnId);
       if (!admission) throw corrupt("Input history has no canonical admission");
+      if (isDelegated(admission)) continue;
       const item = this.get(scopeOf(admission), event.payload.inputId);
       if (!item || (item.receipt?.status !== "accepted" && item.receipt?.status !== "applied" && item.receipt?.status !== "unconfirmed") ||
           item.receipt.acceptedSequence !== (event.type === "turn.input.accepted" ? event.sequence : event.payload.acceptedSequence))
