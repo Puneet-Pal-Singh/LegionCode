@@ -204,3 +204,4 @@ export {
   type WorkspaceSnapshotRequest,
   type WorkspaceSnapshotResponse,
 } from "./workspaces.js";
+export * from "./harness.js";

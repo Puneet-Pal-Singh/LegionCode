@@ -37,6 +37,8 @@ import type {
   LifecycleEvent,
   ReplayLifecycleEventsRequest,
   ReplayLifecycleEventsResponse,
+  ReadLifecycleEventChunkRequest,
+  ReadLifecycleEventChunkResponse,
   SubmitLifecycleApprovalRequest,
   ThreadInputCommand,
 } from "@repo/platform-protocol";
@@ -153,6 +155,7 @@ export type AppServerComposition = {
   };
   localLifecycleReplayService?: {
     replayLifecycleEvents(params: ReplayLifecycleEventsRequest): Promise<ReplayLifecycleEventsResponse>;
+    readLifecycleEventChunk?(params: ReadLifecycleEventChunkRequest): Promise<ReadLifecycleEventChunkResponse>;
   };
   hostedLifecycleOperationsService?: {
     replayLifecycleEvents(params: ReplayLifecycleEventsRequest): Promise<ReplayLifecycleEventsResponse>;
@@ -293,8 +296,11 @@ export async function handleAppServerHttpRequest(
       ok: true,
       result,
     });
-    if (request.method === "thread/history" && appServerJsonByteLength(response) > APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES) {
-      throw new AppServerOperationError(503, "server_unavailable", "History page exceeds the supported response size", "history_page_too_large", false);
+    if ((request.method === "thread/history" || request.method === "turn/lifecycleEvents" || request.method === "turn/lifecycleEventChunk") &&
+        appServerJsonByteLength(response) > APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES) {
+      throw new AppServerOperationError(503, "server_unavailable",
+        request.method === "thread/history" ? "History page exceeds the supported response size" : "Lifecycle response exceeds the supported response size",
+        request.method === "thread/history" ? "history_page_too_large" : "lifecycle_response_too_large", false);
     }
     return { statusCode, headers: JSON_HEADERS, payload: response };
   } catch (error) {
@@ -446,6 +452,15 @@ async function dispatch(
       }
       if (!composition.hostedLifecycleOperationsService) throw new Error("unsupported");
       return composition.hostedLifecycleOperationsService.replayLifecycleEvents(request.params);
+    }
+    case "turn/lifecycleEventChunk": {
+      if (composition.environment !== "local") {
+        throw new AppServerOperationError(400, "invalid_request", "Lifecycle event byte reads require a local environment", undefined, false);
+      }
+      if (!composition.localLifecycleReplayService?.readLifecycleEventChunk) {
+        throw new AppServerOperationError(503, "server_unavailable", "Lifecycle event byte reads are unavailable", undefined, false);
+      }
+      return composition.localLifecycleReplayService.readLifecycleEventChunk(request.params);
     }
     case "turn/diff": {
       if (composition.environment === "local") {

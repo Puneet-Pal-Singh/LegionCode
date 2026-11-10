@@ -2138,6 +2138,26 @@ deadline requests abort only; unknown binding cleanup retains the exact binding,
 service and slot and prevents positive SQLite/process closure. No timeout, client
 disconnect, empty active map or forced exit releases those physical obligations.
 
+## Plan 057 — Canonical lifecycle event byte transport
+
+The existing lifecycle event store remains the only event authority. Local replay
+uses an exact UTF-8 result budget derived from the actual App Server response
+frame. A page returns its largest contiguous prefix without consuming an excluded
+row. If its first event exceeds the budget, the same admitted, authorized reader
+returns a small versioned reference to that immutable event, including its full
+UTF-8 byte length and SHA-256. `turn/lifecycleEventChunk` reads that same row;
+references do not create artifacts, projections, lifecycle events or another store.
+Admission scope and the current granted Thread are checked before and after reads.
+
+The SDK hydrates bounded byte chunks, validates exact reference/ranges, full digest,
+fatal UTF-8 decoding and canonical event identity/schema, and only then returns the
+unchanged replay result to the existing ordering owner. An aborted or incomplete
+read cannot advance the lifecycle cursor. Transport limits do not truncate tool
+inputs or lower public tool limits. Canonical events have no global size cap;
+complete event materialization uses memory proportional to the declared event and
+allocation/validation failure remains explicit. Original HTTP handlers remain
+owned by the server's persistence shutdown barrier even after a disconnect.
+
 The same server shutdown barrier also drains original HTTP handler promises.
 A disconnected/closed socket is not proof that its asynchronous grant, file,
 history or metadata operation finished. Handlers are registered before their
@@ -2255,3 +2275,24 @@ lifecycle authority changes. Public HTTP byte paging remains inactive until the
 separately owned lossless event hydration and cursor-aware consumers are wired;
 this foundation alone does not make oversized public replay deliverable. Chunk
 bytes and their real wire digest remain read/transport responsibilities.
+
+## Plans 048 / 061 — Local harness protocol foundation
+
+The platform protocol owns harness family, immutable pre-admission selection,
+instance/operation and measured-usage contracts, canonical question descriptors
+and response normalization. Active Run, Chat request and queued-input schemas
+remain unchanged and reject unsupported captured selection. Run capture must land
+with the Kernel's resolved-strategy guard; Chat capture requires routed admission,
+and queued capture requires its actual producer migration. Reference contracts
+alone never authorize a Native fallback. The existing lifecycle schema adds typed passive harness measurements
+and provider-limit observations, without introducing a producer or state store.
+
+The worker protocol consumes those public contracts for scoped host commands,
+observations, opening reservations, replies and positive quiescence receipts.
+These definitions do not enable a driver, create a host, resolve credentials or
+certify physical containment. Required initialize environment identity is deferred
+to its actual constructor/handshake consumer and existing fixture migration.
+The active SDK legacy question wrapper remains unchanged until that consumer
+migrates its shared route and removes the old DTO; this foundation alone does not
+claim that client/runtime integration. Native capture, current byte paging and
+provider custody retain their existing owners and exports.
