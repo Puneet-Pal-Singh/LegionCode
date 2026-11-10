@@ -1,3 +1,4 @@
+import type { SubmitUserInputResponseRequest } from "@repo/platform-protocol";
 import type { LocalProviderPreferenceScope } from "./protocol.js";
 import { APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES, appServerJsonByteLength } from "@repo/platform-protocol";
 import type { LocalWorkspaceListFilesParams, LocalWorkspaceListFilesResult, LocalWorkspaceReadFileParams } from "./protocol.js";
@@ -86,6 +87,7 @@ export type AppServerComposition = {
     readHistory(params: LocalThreadHistoryParams): Promise<LocalThreadHistoryResult>;
     interruptTurn(params: LocalTurnInterruptParams): Promise<InterruptTurnResponse>;
     submitLifecycleApproval(params: SubmitLifecycleApprovalRequest): Promise<LifecycleEvent>;
+    submitUserInputResponse?(params: SubmitUserInputResponseRequest): Promise<LifecycleEvent>;
   };
   providerService?: LocalProviderService;
   hostedProviderDiscoveryService?: {
@@ -149,6 +151,7 @@ export type AppServerComposition = {
     replayLifecycleEvents(params: ReplayLifecycleEventsRequest): Promise<ReplayLifecycleEventsResponse>;
     getTurnDiff(params: GetTurnDiffRequest): Promise<GetTurnDiffResponse>;
     submitLifecycleApproval(params: SubmitLifecycleApprovalRequest): Promise<LifecycleEvent>;
+    submitUserInputResponse?(params: SubmitUserInputResponseRequest): Promise<LifecycleEvent>;
     compactTurn(params: CompactTurnRequest): Promise<CompactTurnResponse>;
   };
   hostedEditArtifactReadsService?: {
@@ -446,6 +449,16 @@ async function dispatch(
       }
       if (!composition.hostedLifecycleOperationsService) throw new Error("unsupported");
       return composition.hostedLifecycleOperationsService.submitLifecycleApproval(request.params);
+    }
+    case "turn/userInput": {
+      if (composition.environment === "local") {
+        const service = composition.localTurnService;
+        if (!service?.submitUserInputResponse) throw new AppServerOperationError(503, "server_unavailable", "Local question responses are unavailable", undefined, false);
+        return service.submitUserInputResponse(request.params);
+      }
+      const service = composition.hostedLifecycleOperationsService;
+      if (!service?.submitUserInputResponse) throw new Error("unsupported");
+      return service.submitUserInputResponse(request.params);
     }
     case "turn/compact": {
       if (!composition.hostedLifecycleOperationsService) throw new Error("unsupported");
