@@ -2477,6 +2477,15 @@ the exact immutable Turn scope, and saved commit controls are absent in live mod
 The existing saved-review reader and selected-artifact commit remain their sole
 owners; a live query never fills a missing or failed immutable diff.
 
+Executable approval presentation is emitted by the canonical registry from its
+validated executable, argv and workspace-relative cwd. The SDK validates and
+projects those exact display facts, escaping control and directional characters
+without shell parsing or input repair. Both clients feed the existing shared
+approval dock; executable host-access questions retain the canonical reason.
+Metadata presentation and category do not change policy, grant matching, options
+or decision delivery. Missing legacy executable details are explicit; ordinary
+non-executable approvals do not acquire an irrelevant command block.
+
 The canonical executable tool publishes its existing absolute-path restriction
 as a provider-visible JSON Schema pattern and description. All Native provider
 adapters consume that one registry definition; no PATH lookup, shell expansion,
