@@ -146,3 +146,6 @@ export type { GitCommitDialogViewProps, CommitNextStep, GitFlowSuccessState, Git
 
 export { useConversationTurnLifecycle, type ConversationLifecycleClient } from "./conversation/chat-interface/useConversationTurnLifecycle.js";
 export { ConversationContinuationNotice, type ConversationContinuationNoticeProps } from "./conversation/chat-interface/ConversationContinuationNotice.js";
+
+export { usePendingTitleProjectionRefresh, type PendingTitleProjection, type PendingTitleProjectionRefreshInput } from "./titles/usePendingTitleProjectionRefresh.js";
+export { shouldRetainCurrentTitleProjection, type TitleProjectionVersion } from "./titles/titleProjectionVersion.js";

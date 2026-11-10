@@ -893,6 +893,12 @@ Web refreshes this projection once when the canonical workflow starts, then
 uses its existing bounded pending-title polling. A long chat response does not
 delay the first title read; Web still does not manufacture title state.
 
+The existing bounded pending-title projection refresh and title-version merge
+ordering live in shared client UI behind host-owned read/delivery ports. Web
+forwards its existing authenticated session reader to that hook. The hook only
+observes canonical pending statuses; it cannot claim attempts, infer generated
+titles or publish title events. Host scope changes suppress late deliveries.
+
 The existing platform OpenRouter free route remains a coordinator-owned,
 sanitized fallback for a failed selected route. No new provider fallback is
 introduced. Remove it when an explicitly configured title route replaces this
