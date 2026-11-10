@@ -1,0 +1,26 @@
+--- a/local/handoffs/r3-review-20261110/cf-preview/wrapper.cjs
++++ b/local/handoffs/r3-review-20261110/cf-preview/wrapper.cjs
+@@ -48,6 +48,14 @@
+         const inVscodeJsDebugTerminal = !!process.env.VSCODE_INSPECTOR_OPTIONS;
+         return this.latestConfig?.dev.inspector !== false && !inVscodeJsDebugTerminal;
+       }`);
++  // Fixed-category discrimination only; no token, bundle ID, URL or error text.
++  source = one(source, '        if (bundleId !== this.#currentBundleId || !token) {', `        require(${JSON.stringify(path.join(__dirname, "stages.cjs"))}).record(bundleId !== this.#currentBundleId ? "preview_result_stale" : !token ? "preview_result_missing" : "preview_result_current");
++        if (bundleId !== this.#currentBundleId || !token) {`);
++  source = one(source, '          if (err instanceof Error && err.name == "AbortError") {\n            return;\n          }\n          const shouldRestartSession = handlePreviewSessionUploadError(', `          if (err instanceof Error && err.name == "AbortError") {
++            require(${JSON.stringify(path.join(__dirname, "stages.cjs"))}).record("preview_token_aborted");
++            return;
++          }
++          const shouldRestartSession = handlePreviewSessionUploadError(`);
+   // Diagnostic-only downstream boundaries; preserve all original control flow.
+   source = one(source, "      async #updatePreviewToken(config, bundle, auth, routes, bundleId) {", `      async #updatePreviewToken(config, bundle, auth, routes, bundleId) {
+       require(${JSON.stringify(path.join(__dirname, "stages.cjs"))}).record("remote_bindings_enter");`);
+--- a/local/handoffs/r3-review-20261110/cf-preview/stages.cjs
++++ b/local/handoffs/r3-review-20261110/cf-preview/stages.cjs
+@@ -1,5 +1,5 @@
+ 'use strict';
+-const STAGES=new Set(['wrapper_entered','wrapper_prepared','guard_passed','compile_entered','compile_returned','compile_failed','cli_main_rejected','createPreviewSession_entered','initializer_request_enter','initializer_request_ok','initializer_request_fail','initializer_validated','exchange_enter','exchange_request_ok','exchange_request_fail','exchange_unavailable','exchange_token','subdomain_enter','subdomain_ok','subdomain_fail','protocol_returned','remote_bindings_enter','preview_init_enter','preview_upload_enter','preview_upload_returned','preview_token_rejected','proxy_access_enter','proxy_reload_enter','remote_reload_rejected','proxy_bootstrap_rejected','proxy_bootstrap_ready']);
++const STAGES=new Set(['wrapper_entered','wrapper_prepared','guard_passed','compile_entered','compile_returned','compile_failed','cli_main_rejected','createPreviewSession_entered','initializer_request_enter','initializer_request_ok','initializer_request_fail','initializer_validated','exchange_enter','exchange_request_ok','exchange_request_fail','exchange_unavailable','exchange_token','subdomain_enter','subdomain_ok','subdomain_fail','protocol_returned','remote_bindings_enter','preview_init_enter','preview_upload_enter','preview_upload_returned','preview_token_rejected','proxy_access_enter','proxy_reload_enter','remote_reload_rejected','proxy_bootstrap_rejected','proxy_bootstrap_ready','preview_result_stale','preview_result_missing','preview_result_current','preview_token_aborted']);
+ const NAMES=new Set(['Error','TypeError','ReferenceError','SyntaxError','RangeError','CompatibilityFailure','APIError','UserError','FatalError','AbortError']);
+ const CODES=new Set(['MODULE_NOT_FOUND','ERR_MODULE_NOT_FOUND','ERR_REQUIRE_ESM','ERR_INVALID_ARG_TYPE','ERR_UNKNOWN_FILE_EXTENSION','ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING','ERR_VM_MODULE_NOT_MODULE','ENOENT','EACCES','EPERM','ECONNREFUSED','ECONNRESET','ETIMEDOUT','ENOTFOUND','ABORT_ERR']);
+ function record(stage,error,sink=line=>process.stderr.write(line)) {
