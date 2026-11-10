@@ -2490,3 +2490,21 @@ renderer-supplied host path and does not manufacture a Turn scope for steering.
   advancement. Routes are composed only with the actual private queued physical
   preparation port; absent ports do not advertise an optimistic fallback. The
   original HTTP operation drain owns all input command promises through shutdown.
+## Plan 057 — Held Native queued preparation
+
+The existing Native writer owner acquires the candidate lease before queued
+admission. One synchronously returned preparation object retains the original
+acquisition and cleanup tasks. Under that held writer, the canonical latest
+Thread admission is read and its existing immutable Native resource-settlement
+receipt is verified; missing legacy evidence remains recovery-required. The
+verified predecessor identity is passed to the same SQLite queued-admission CAS.
+
+Captured Build uses the exact reserved lease and original binding after full
+admission/attempt identity checks, without reacquiring a writer. Queued Plan
+retains that same writer through the original executor's positive settlement.
+Unused cleanup first fences new work and drains original acquisition/publication;
+only canonical candidate absence or an exact known unused-acquisition proof can
+release it. Unknown closure retains the binding and lease. The existing Desktop
+ABI probe, lexical lease owner, capture and resource-receipt callbacks remain
+canonical. Public route availability still requires the actual runtime consumer
+and same-transaction predecessor guard; this port alone does not activate it.
