@@ -36,8 +36,8 @@ parentPort.on("message", ({ data }) => {
     return;
   }
   started = true;
-  void createDesktopNativeComposition(data, runtimeCredentials).then((composition) => {
-    runLocalAppServerProcess(parentPort, data, composition);
+  void createDesktopNativeComposition(data, runtimeCredentials).then(async (composition) => {
+    await runLocalAppServerProcess(parentPort, data, composition);
   }).catch(() => {
     runtimeCredentials.close();
     parentPort.postMessage({ type: "fatal" });
