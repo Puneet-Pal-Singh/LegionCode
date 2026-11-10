@@ -1673,3 +1673,26 @@ attempts retain their existing quarantine rather than receiving false closure.
 Generic local lifecycle replay reauthorizes its canonical Thread after the
 awaited event-store read as well as before it, matching the Turn/history/media
 read boundary. A changed grant refuses the page before bytes are returned.
+
+## Plan 057 — Private bounded startup admission enumeration
+
+LocalTurnAdmissions exposes a private cursor page over its existing canonical
+admission references, limited to 25 records and one MiB of reconstructed data.
+It validates the actual run-event cursor and resumes after the last returned
+record, without a copied status table or recovery writer. Startup admission
+index validation streams existing rows instead of collecting the whole index.
+The sole LocalPersistence owner guards the query; Native runtime policy and
+before-ready reconciliation remain separate consumers and own settlement.
+
+## Local chat image read and SDK hydration boundary
+
+`LocalChatMediaReads` delegates current grant/Thread authorization to the existing
+Turn owner before and after each read, checks canonical user-message membership
+and fingerprint, and reads verified originals from the existing media store.
+The shared `media/readImage` contract transfers bounded 256 KiB chunks without
+host paths. Its optional App Server port rejects absent or nonlocal composition
+with non-retryable 503; actual host injection remains separate.
+SDK `readLocalChatImage` requires ordered ranges, immutable reference agreement
+and the complete SHA-256 before returning bytes, with abort checks before return.
+Clients own transient display URLs. No blob store, admission/lifecycle producer,
+capability advertisement or Desktop activation is added by this boundary.
