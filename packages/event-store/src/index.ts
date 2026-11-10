@@ -71,3 +71,13 @@ export {
   LocalHarnessControlPlaneError,
 } from "./local/harness-control-plane.js";
 export type { LocalHarnessControlPlanePort } from "./local/harness-control-plane.js";
+export { ThreadInputConflictError } from "./thread-inputs/errors.js";
+export type {
+  ThreadInputScope,
+  StoredThreadInput,
+  CreateThreadInput,
+  UpdateThreadInput,
+  ClaimQueuedInputForSteering,
+  ThreadInputMutation,
+  ThreadInputRepository,
+} from "./thread-inputs/types.js";

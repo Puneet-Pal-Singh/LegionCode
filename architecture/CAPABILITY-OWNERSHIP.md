@@ -2392,3 +2392,13 @@ This package has no active local constructor, driver registration or public-rout
 consumer yet. Its client facade exports protocol types only; Node SDK and process
 services stay behind the server export. Final driver/constructor wiring is the
 activation boundary, and no Native provider fallback is introduced.
+
+## Plan 057 — Shared durable input repository contract
+
+Event-store owns the placement-independent thread-input repository contract and
+its conflict error. Persistence reexports that same contract for hosted callers;
+its existing Postgres writer remains authoritative. Private optional input identity
+and immutable media batch fields support the same local image owner without
+adding public queue fields or storing image bytes in queue rows. Native SQLite
+and shared command-service activation follow in the same integration slice; this
+contract move alone does not enable local queue or steering.
