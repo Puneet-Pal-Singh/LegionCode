@@ -18,6 +18,7 @@ import { createNodeGitExecutor } from "./local-node-git-executor.js";
 import type { VerifiedMacGitExecution, VerifiedMacGitOptions } from "./local-mac-git-execution.js";
 import { LocalThreadNotFoundError, LocalThreadService } from "./local-threads.js";
 import { LocalProviderService, ProviderConfigurationSchema } from "./local-providers.js";
+import type { LocalProviderModelCatalog } from "./local-provider-model-catalog.js";
 import { LocalTurnService, type LocalTurnRuntime } from "./local-turns.js";
 import { LocalProviderPreferences } from "./local-provider-preferences.js";
 import { LocalTurnArtifactReads } from "./local-turn-artifact-reads.js";
@@ -43,6 +44,7 @@ export type LocalAppServerParentPort = {
 };
 
 export type LocalAppServerCompositionOptions = {
+  providerModelCatalog?: LocalProviderModelCatalog;
   createMetadataInspector?: LocalWorkspaceServiceOptions["createMetadataInspector"];
   createProbeExecution?: (authority: Pick<VerifiedMacGitOptions, "probeRoot" | "withRootAuthority">) => Promise<VerifiedMacGitExecution>;
   createWorkspaceFilesService?(workspaces: LocalWorkspaceService): NonNullable<AppServerComposition["localWorkspaceFilesService"]>;
@@ -81,6 +83,7 @@ export function createLocalAppServer(config: LocalAppServerStartConfig, options?
     });
     const providerService = new LocalProviderService({
       selectionStore: persistence.providerSelection,
+      modelCatalog: options?.providerModelCatalog,
     });
     const providerPreferences = new LocalProviderPreferences({
       getWorkspace: () => workspaceService.getAuthorizedCurrent(),
