@@ -929,7 +929,7 @@ function boundedDirectoryPage(
   }
 }
 
-function reservedComponent(name: string): boolean {
+export function reservedComponent(name: string): boolean {
   const lower = name.toLowerCase();
   return lower === ".git" || lower.startsWith(".legioncode-edit-");
 }

@@ -2,12 +2,19 @@ import type { RuntimeExecutionService } from "../types.js";
 import {
   codingToolRegistry,
   READ_FILE_TOOL_INPUT_SCHEMA,
+  LIST_FILES_TOOL_INPUT_SCHEMA,
 } from "../tools/CodingToolRegistry.js";
 import type { LocalReadOnlyWorkspaceBinding } from "./LocalReadOnlyWorkspaceBinding.js";
 import type { LocalTurnAttemptIdentity } from "./LocalReadOnlyTurnExecutor.js";
 import { formatLocalReadFile } from "./LocalReadFileOutput.js";
+import { LOCAL_READ_ONLY_TOOL_IDS } from "./LocalReadOnlyExecutionService.js";
+import {
+  formatLocalDirectory,
+  LOCAL_DIRECTORY_ENTRY_LIMIT,
+} from "./LocalDirectoryOutput.js";
+import type { NativeFilesystemBridge } from "./NativeFilesystemBridge.js";
 
-/** Read-only adapter for NativeFilesystemBridge.readFile bound to the host's held root FD.
+/** Read-only adapter for NativeFilesystemBridge bound to the host's held root FD.
  * The host supplies the real bound method; this adapter has no file-opening,
  * helper-path, LCFM framing or mutation authority.
  */
@@ -22,13 +29,19 @@ export function createNativeReadExecutionService(options: {
     content: string;
     bytes: number;
   }>;
+  readonly listDirectory: NativeFilesystemBridge["listDirectory"];
 }): RuntimeExecutionService {
   const attempt = { ...options.attempt };
   const binding = options.binding;
   const readFile = options.readFile;
+  const listDirectory = options.listDirectory;
   return {
     async execute(plugin, action, payload, execution) {
-      const route = codingToolRegistry.getDefinition("read_file");
+      const route = LOCAL_READ_ONLY_TOOL_IDS.map((id) =>
+        codingToolRegistry.getDefinition(id),
+      ).find(
+        (tool) => tool?.route.plugin === plugin && tool.route.action === action,
+      );
       if (
         !route ||
         route.sandboxClass !== "read" ||
@@ -50,8 +63,11 @@ export function createNativeReadExecutionService(options: {
       ) {
         throw new Error("Native read does not match the granted exact attempt");
       }
-      const input = READ_FILE_TOOL_INPUT_SCHEMA.parse(payload);
-      if (/[\r\n\0]/.test(input.path))
+      const path =
+        route.id === "list_files"
+          ? LIST_FILES_TOOL_INPUT_SCHEMA.parse(payload).path || "."
+          : READ_FILE_TOOL_INPUT_SCHEMA.parse(payload).path;
+      if (/[\r\n\0]/.test(path))
         throw new Error(
           "Control characters are not allowed in workspace paths",
         );
@@ -61,6 +77,28 @@ export function createNativeReadExecutionService(options: {
       signal.throwIfAborted();
       await binding.assertCurrent();
       signal.throwIfAborted();
+      if (route.id === "list_files") {
+        // One first page only. The canonical list_files schema has no cursor input.
+        const page = await listDirectory({
+          path,
+          limit: LOCAL_DIRECTORY_ENTRY_LIMIT,
+          signal,
+        });
+        await binding.assertCurrent();
+        signal.throwIfAborted();
+        if (
+          page.path !== path ||
+          typeof page.truncated !== "boolean" ||
+          (page.truncated
+            ? typeof page.nextCursor !== "string" || !page.nextCursor
+            : page.nextCursor !== null)
+        )
+          throw new Error(
+            "Native directory returned an invalid bounded receipt",
+          );
+        return formatLocalDirectory(page);
+      }
+      const input = READ_FILE_TOOL_INPUT_SCHEMA.parse(payload);
       // readFile is the actual bridge R operation, which resolves only after child and pipe closure.
       const result = await readFile({ path: input.path, signal });
       await binding.assertCurrent();

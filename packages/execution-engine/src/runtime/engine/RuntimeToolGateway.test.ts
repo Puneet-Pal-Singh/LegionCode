@@ -3,12 +3,14 @@ import type { LLMTextRequest, LLMTextResponse } from "../llm/types.js";
 import type { LocalReadOnlyWorkspaceBinding } from "../desktop/LocalReadOnlyWorkspaceBinding.js";
 import { LocalReadOnlyTurnExecutor } from "../desktop/LocalReadOnlyTurnExecutor.js";
 import { RegistryToolAuthorization } from "../contracts/RegistryToolAuthorization.js";
-import { ThreadSchema, ItemIdSchema, ToolCallIdSchema, WorkerIdSchema, PermissionProfileIdSchema, type LifecycleEvent } from "@repo/platform-protocol";
+import { ThreadSchema, ItemIdSchema, ToolCallIdSchema, WorkerIdSchema, PermissionProfileIdSchema, RunIdSchema, TurnIdSchema, ThreadIdSchema, type LifecycleEvent } from "@repo/platform-protocol";
 import type { RuntimeKernelDependencies } from "@repo/runtime-kernel";
 import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalReadOnlyExecutionService } from "../desktop/LocalReadOnlyExecutionService.js";
+import { createNativeReadExecutionService } from "../desktop/LocalNativeReadExecutionService.js";
+import { codingToolRegistry } from "../tools/CodingToolRegistry.js";
 import { describe, expect, it, vi } from "vitest";
 import { RunAttemptIdSchema, WorkspaceIdSchema } from "@repo/platform-protocol";
 import { createCloudSandboxRunCapabilityManifest } from "../capabilities/RuntimeCapabilityManifest.js";
@@ -56,7 +58,46 @@ describe("RuntimeToolGateway", () => {
       await writeFile(join(root, "src", "a.txt"), "first\nsecond\nthird\n");
       await symlink(tmpdir(), join(root, "outside"));
       await expect(executor.execute("filesystem", "read_file", { path: "src/a.txt", offset: 1, limit: 1 }, { scope })).resolves.toMatchObject({ output: expect.stringContaining("2: second"), metadata: { truncated: true, nextOffset: 2 } });
-      await expect(executor.execute("filesystem", "list_files", { path: "src" }, { scope })).rejects.toThrow("denies");
+      await expect(executor.execute("filesystem", "list_files", { path: "src" }, { scope })).resolves.toMatchObject({ output: expect.stringContaining('"path":"src/a.txt"'), metadata: { truncated: false, returnedEntries: 1 } });
+      await expect(executor.execute("filesystem", "list_files", {}, { scope })).resolves.toMatchObject({ output: expect.stringContaining('"kind":"symlink"') });
+      await expect(executor.execute("filesystem", "list_files", { path: "outside" }, { scope })).rejects.toThrow("symbolic");
+      await expect(executor.execute("filesystem", "list_files", { path: "../outside" }, { scope })).rejects.toThrow("escapes");
+      await expect(executor.execute("filesystem", "list_files", { path: "src" }, { scope, signal: AbortSignal.abort() })).rejects.toThrow();
+      await mkdir(join(root, ".git"));
+      await expect(executor.execute("filesystem", "list_files", { path: ".git" }, { scope })).rejects.toThrow("Reserved");
+      await expect(executor.execute("filesystem", "read_file", { path: ".git/config" }, { scope })).rejects.toThrow("Reserved");
+      await writeFile(join(root, "src", "line\nbreak.txt"), "escaped filename");
+      const escapedName = await executor.execute("filesystem", "list_files", { path: "src" }, { scope });
+      expect(String((escapedName as { output: string }).output)).toContain('line\\nbreak.txt');
+      for (let index = 0; index < 201; index += 1) await writeFile(join(root, "src", `entry-${index}.txt`), "bounded");
+      const capped = await executor.execute("filesystem", "list_files", { path: "src" }, { scope });
+      expect(capped).toMatchObject({ truncated: true, metadata: { truncated: true, returnedEntries: 200 } });
+      const normalizedListing = await codingToolRegistry.getDefinition("list_files")!.execute({ path: "src" }, { execute: async () => capped });
+      expect(normalizedListing).toMatchObject({ truncated: true, metadata: { truncated: true } });
+      expect(Buffer.byteLength((capped as { output: string }).output)).toBeLessThanOrEqual(24_000);
+      let directoryClosed = false;
+      let listCalls = 0;
+      let staleDirectory = false;
+      const native = createNativeReadExecutionService({
+        attempt: { workspaceId, runId: RunIdSchema.parse(scope.runId), threadId: ThreadIdSchema.parse(scope.threadId), turnId: TurnIdSchema.parse(scope.turnId), runAttemptId: RunAttemptIdSchema.parse(scope.runAttemptId) },
+        binding,
+        readFile: async () => { throw new Error("Directory dispatch must not read a file"); },
+        listDirectory: async ({ path, limit, signal }) => {
+          listCalls += 1;
+          if (staleDirectory) throw new Error("Directory generation changed");
+          expect(path).toBe("."); expect(limit).toBe(200); signal.throwIfAborted();
+          directoryClosed = true;
+          return { path, entries: [{ name: "line\nbreak.txt", path: "line\nbreak.txt", kind: "file", bytes: 1, mode: 0o600 }], truncated: true, nextCursor: "trusted-first-page-cursor" };
+        },
+      });
+      await expect(native.execute("filesystem", "list_files", {}, { scope })).resolves.toMatchObject({ output: expect.stringContaining('line\\nbreak.txt'), truncated: true, metadata: { truncated: true } });
+      expect(directoryClosed).toBe(true);
+      await expect(native.execute("filesystem", "list_files", {}, { scope: { ...scope, threadId: "thr_wrong" } })).rejects.toThrow("exact attempt");
+      await expect(native.execute("filesystem", "list_files", {}, { scope, signal: AbortSignal.abort() })).rejects.toThrow();
+      expect(listCalls).toBe(1);
+      staleDirectory = true;
+      await expect(native.execute("filesystem", "list_files", {}, { scope })).rejects.toThrow("generation changed");
+      expect(listCalls).toBe(2);
       await expect(executor.execute("filesystem", "write_file", { path: "src/a.txt", content: "changed" }, { scope })).rejects.toThrow("denies");
       await expect(executor.execute("bash", "execute", { command: "pwd" }, { scope })).rejects.toThrow("denies");
       await expect(executor.execute("filesystem", "read_file", { path: "../secret" }, { scope })).rejects.toThrow("escapes");
@@ -66,6 +107,8 @@ describe("RuntimeToolGateway", () => {
       await verifyLocalExecutor(root, binding);
       granted = false;
       await expect(executor.execute("filesystem", "read_file", { path: "src/a.txt" }, { scope })).rejects.toThrow("not granted");
+      await expect(executor.execute("filesystem", "list_files", {}, { scope })).rejects.toThrow("not granted");
+      await expect(native.execute("filesystem", "list_files", {}, { scope })).rejects.toThrow("not granted");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -330,12 +373,13 @@ async function verifyLocalExecutor(root: string, binding: LocalReadOnlyWorkspace
   const allow = { defaultEffect: "allow" as const, defaultRiskLevel: "low" as const, rules: [] };
   const toolAuthorization = new RegistryToolAuthorization({ resolve: async () => ({ commands: allow, paths: allow, network: allow, git: allow, packageManagers: allow, secrets: allow, externalServices: allow, tools: allow }) });
   const provider = vi.fn(async (call: LLMTextRequest): Promise<LLMTextResponse> => {
-    expect(Object.keys(call.tools ?? {})).toEqual(["read_file"]);
+    expect(Object.keys(call.tools ?? {})).toEqual(["read_file", "list_files"]);
     expect(call.context.sessionId).toBe(thread.id);
     expect(call.context.turnId).toMatch(/^trn_/);
     const usage = { provider: "openai", model: "gpt-5", promptTokens: 10, completionTokens: 3, totalTokens: 13 };
-    if (!call.messages.some((message) => message.role === "tool")) return { parts: [], usage, toolCalls: [{ id: "provider_read_001", toolName: "read_file", args: { path: "src/a.txt" } }] };
+    if (!call.messages.some((message) => message.role === "tool")) return { parts: [], usage, toolCalls: [{ id: "provider_read_001", toolName: "read_file", args: { path: "src/a.txt" } }, { id: "provider_list_001", toolName: "list_files", args: { path: "src" } }] };
     expect(JSON.stringify(call.messages)).toContain("1: first");
+    expect(JSON.stringify(call.messages)).toContain("[list_files]");
     return { parts: [{ id: "part-local-final", schemaVersion: 1, runId: call.context.runId, turnId: call.context.turnId!, sequence: 0, createdAt: now, type: "visible_text", visibility: "visible", text: "Read completed", finalized: false }], usage };
   });
   const executor = new LocalReadOnlyTurnExecutor({
@@ -362,7 +406,7 @@ async function verifyLocalExecutor(root: string, binding: LocalReadOnlyWorkspace
   expect(admission.userMessage).toMatchObject({ type: "user_message", status: "completed", role: "user", content: { text: input.prompt }, runId: admission.run.id, turnId: admission.turn.id });
   const execution = executor.execute(admission);
   expect(executor.execute(admission)).toBe(execution);
-  await expect(execution).resolves.toMatchObject({ output: "Read completed", toolCallCount: 1 });
+  await expect(execution).resolves.toMatchObject({ output: "Read completed", toolCallCount: 2 });
   expect(events.filter((event) => event.type === "turn.completed")).toHaveLength(1);
   expect(events.some((event) => ["artifact.created", "workspace.snapshot_captured", "turn.diff_updated"].includes(event.type))).toBe(false);
   const identity = { workspaceId: admission.run.workspaceId, threadId: admission.run.threadId, runId: admission.run.id, turnId: admission.turn.id, runAttemptId: admission.runAttemptId };
