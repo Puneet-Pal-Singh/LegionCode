@@ -779,7 +779,13 @@ export class RuntimeLifecycleCoordinator {
         payload.itemId,
         terminal,
         terminal === "failed"
-          ? { reason: payload.error ?? "Context compaction failed" }
+          ? { failure: {
+              code: "internal_error",
+              message: payload.error ?? "Context compaction failed",
+              retryable: false,
+              correlationId: null,
+              details: { phase: "context_compaction" },
+            } }
           : {
               result: {
                 preservedContextReference: payload.preservedContextReference,
