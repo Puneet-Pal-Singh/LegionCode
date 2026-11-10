@@ -179,12 +179,13 @@ describe("Local App Server supervisor generation safety", () => {
       params: {},
     });
     const stopping = supervisor.stop();
+    expect(child.messages.slice(messagesBeforeStop)).toEqual([{ type: "shutdown" }]);
     child.emit("message", { type: "closed" });
     child.emit("exit");
     await stopping;
     credentialResult.resolve({ credential: { apiKey: "fixture-stale-secret" }, canDeliver: () => true });
     await settleMessages();
-    expect(child.messages).toHaveLength(messagesBeforeStop);
+    expect(child.messages).toHaveLength(messagesBeforeStop + 1);
     requestResult.resolve({ ok: true });
     await expect(request).rejects.toThrow(
       "Local App Server changed during the request",
