@@ -502,8 +502,6 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
     }, repositoryRoot);
     await initialOpenSidebar.click();
     await workspaceSidebar.getByRole("button", { name: "Add project", exact: true }).click();
-    await expect(page.getByRole("dialog", { name: "Grant workspace access", exact: true }).getByRole("region", { name: "Selected folder" }).getByText("repository", { exact: true })).toBeVisible();
-    await page.getByRole("dialog", { name: "Grant workspace access", exact: true }).getByRole("button", { name: "Grant access", exact: true }).click();
     try {
       await expect(page.getByRole("heading", { level: 1 }).filter({ has: page.getByRole("button", { name: "Change project from repository", exact: true }) })).toBeVisible();
     } catch (failure) {
@@ -566,6 +564,7 @@ test("the packaged Desktop app reopens and revokes a local workspace grant", asy
     }
     await expect(workspaceSidebar.getByRole("group", { name: "repository", exact: true })).toBeVisible();
     await expect.poll(() => readWorkspaceGrant(page)).toMatchObject({ displayName: "repository", branch: "main", readiness: "ready" });
+    await expect(page.getByRole("dialog", { name: "Grant workspace access", exact: true })).toHaveCount(0);
     await expect(workspaceSidebar).toBeVisible();
     await expect(initialCloseSidebar).toBeVisible();
     await initialCloseSidebar.click();
