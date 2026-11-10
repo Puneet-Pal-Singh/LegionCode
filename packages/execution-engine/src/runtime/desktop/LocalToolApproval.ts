@@ -12,7 +12,7 @@ import { createGrantMatcherKey } from "../contracts/RegistryToolAuthorization.js
 type ExecutionInput = Parameters<WorkerProtocolPort["executeTool"]>[0];
 
 /** Read canonical approval evidence; workers retain their own root/lease authority. */
-export async function assertLocalToolApproved(options: {
+type LocalToolApprovalOptions = {
   readonly admission: Pick<StartTurnInput, "run" | "turn" | "runAttemptId">;
   readonly lifecycleEvents: Pick<
     RuntimeKernelDependencies["lifecycleEvents"],
@@ -20,7 +20,96 @@ export async function assertLocalToolApproved(options: {
   >;
   readonly input: ExecutionInput;
   readonly schema: { parse(value: unknown): Record<string, unknown> };
-}): Promise<void> {
+};
+
+/** Explicit canonical approval remains mandatory for command execution. */
+export async function assertLocalToolApproved(options: LocalToolApprovalOptions): Promise<void> {
+  const { admission, input } = options;
+  const { run } = admission;
+  const { events, tool, recorded, parsed } = await readCanonicalLocalToolRequest(options, true);
+  const approval = input.approval;
+  if (!approval) throw new Error("Local mutation requires an explicit canonical approval");
+  const approvalItems = events.filter(
+    (event) =>
+      event.type === "item.started" &&
+      event.payload.kind === "approval_request" &&
+      event.payload.parentItemId === tool.itemId,
+  );
+  const approvalItem = approvalItems[0];
+  if (
+    approvalItems.length !== 1 ||
+    approvalItem?.type !== "item.started" ||
+    approvalItem.sequence <= recorded.sequence
+  ) {
+    throw new Error("Approval item is missing or ambiguous");
+  }
+  const requests = events.filter(
+    (event) =>
+      event.type === "approval.requested" &&
+      event.itemId === approvalItem.itemId,
+  );
+  const request = requests[0];
+  if (
+    requests.length !== 1 ||
+    request?.type !== "approval.requested" ||
+    request.sequence <= approvalItem.sequence
+  ) {
+    throw new Error("Approval request is missing or ambiguous");
+  }
+  const matcherKey = await createGrantMatcherKey(
+    input.toolCall.toolName,
+    parsed,
+    run,
+  );
+  const metadata = request.payload.metadata;
+  if (
+    typeof metadata !== "object" ||
+    metadata === null ||
+    Array.isArray(metadata) ||
+    metadata.toolName !== input.toolCall.toolName ||
+    metadata.permissionProfileId !== run.permissionProfileId ||
+    metadata.grantWorkspaceId !== run.workspaceId ||
+    metadata.grantMatcherKey !== matcherKey
+  )
+    throw new Error(
+      "Approval policy context does not match the admitted tool request",
+    );
+  const decisions = events.filter(
+    (event) =>
+      event.type === "approval.decided" &&
+      event.approvalId === request.approvalId,
+  );
+  const decision = decisions[0];
+  if (
+    decisions.length !== 1 ||
+    decision?.type !== "approval.decided" ||
+    decision.itemId !== request.itemId ||
+    decision.sequence <= request.sequence ||
+    decision.payload.status !== "approved" ||
+    decision.payload.decidedBy !== approval.decidedBy ||
+    decision.payload.reason !== approval.reason ||
+    decision.payload.grantScope !== approval.grantScope ||
+    events.some(
+      (event) =>
+        "toolCallId" in event &&
+        event.toolCallId === input.toolCall.toolCallId &&
+        (event.type === "tool_call.completed" ||
+          event.type === "tool_call.failed" ||
+          event.type === "tool_call.declined" ||
+          event.type === "tool_call.interrupted"),
+    )
+  )
+    throw new Error(
+      "Canonical approval receipt does not authorize this active tool request",
+    );
+  input.signal?.throwIfAborted();
+}
+
+/** One canonical request reader shared by explicit and policy authorization. */
+async function readCanonicalLocalToolRequest(
+  options: LocalToolApprovalOptions,
+  requireApproval: boolean,
+) {
   const { admission, input, schema } = options;
   const { run, turn, runAttemptId } = admission;
   if (
@@ -41,9 +130,11 @@ export async function assertLocalToolApproved(options: {
   )
     throw new Error("Local tool identity or permission context changed");
   if (
-    !input.approval ||
-    input.approval.decision !== "approved" ||
-    input.approval.timedOut
+    requireApproval && (
+      !input.approval ||
+      input.approval.decision !== "approved" ||
+      input.approval.timedOut
+    )
   ) {
     throw new Error("Local mutation requires an explicit canonical approval");
   }
@@ -126,78 +217,5 @@ export async function assertLocalToolApproved(options: {
   ) {
     throw new Error("Approved tool input does not match execution");
   }
-  const approvalItems = events.filter(
-    (event) =>
-      event.type === "item.started" &&
-      event.payload.kind === "approval_request" &&
-      event.payload.parentItemId === tool.itemId,
-  );
-  const approvalItem = approvalItems[0];
-  if (
-    approvalItems.length !== 1 ||
-    approvalItem?.type !== "item.started" ||
-    approvalItem.sequence <= recorded.sequence
-  ) {
-    throw new Error("Approval item is missing or ambiguous");
-  }
-  const requests = events.filter(
-    (event) =>
-      event.type === "approval.requested" &&
-      event.itemId === approvalItem.itemId,
-  );
-  const request = requests[0];
-  if (
-    requests.length !== 1 ||
-    request?.type !== "approval.requested" ||
-    request.sequence <= approvalItem.sequence
-  ) {
-    throw new Error("Approval request is missing or ambiguous");
-  }
-  const matcherKey = await createGrantMatcherKey(
-    input.toolCall.toolName,
-    parsed,
-    run,
-  );
-  const metadata = request.payload.metadata;
-  if (
-    typeof metadata !== "object" ||
-    metadata === null ||
-    Array.isArray(metadata) ||
-    metadata.toolName !== input.toolCall.toolName ||
-    metadata.permissionProfileId !== run.permissionProfileId ||
-    metadata.grantWorkspaceId !== run.workspaceId ||
-    metadata.grantMatcherKey !== matcherKey
-  )
-    throw new Error(
-      "Approval policy context does not match the admitted tool request",
-    );
-  const decisions = events.filter(
-    (event) =>
-      event.type === "approval.decided" &&
-      event.approvalId === request.approvalId,
-  );
-  const decision = decisions[0];
-  if (
-    decisions.length !== 1 ||
-    decision?.type !== "approval.decided" ||
-    decision.itemId !== request.itemId ||
-    decision.sequence <= request.sequence ||
-    decision.payload.status !== "approved" ||
-    decision.payload.decidedBy !== input.approval.decidedBy ||
-    decision.payload.reason !== input.approval.reason ||
-    decision.payload.grantScope !== input.approval.grantScope ||
-    events.some(
-      (event) =>
-        "toolCallId" in event &&
-        event.toolCallId === input.toolCall.toolCallId &&
-        (event.type === "tool_call.completed" ||
-          event.type === "tool_call.failed" ||
-          event.type === "tool_call.declined" ||
-          event.type === "tool_call.interrupted"),
-    )
-  )
-    throw new Error(
-      "Canonical approval receipt does not authorize this active tool request",
-    );
-  input.signal?.throwIfAborted();
+  return { events, tool, recorded, parsed };
 }
