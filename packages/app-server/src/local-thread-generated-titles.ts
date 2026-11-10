@@ -9,6 +9,7 @@ import {
   type Thread,
   type ThreadId,
   type TurnAdmission,
+  type WorkspaceId,
 } from "@repo/platform-protocol";
 import { normalizeGeneratedTitle } from "./thread-titles/ThreadTitleOutput.js";
 import type { ThreadTitleScope } from "./thread-titles/ThreadTitleTypes.js";
@@ -37,7 +38,30 @@ export class LocalThreadGeneratedTitleMetadata {
   constructor(private readonly options: {
     events: Pick<LocalPersistence["events"], "listAll" | "append">;
     serializeMetadataMutation<T>(threadId: ThreadId, mutation: (scope: MetadataScope) => Promise<T>): Promise<T>;
+    serializeRecoveryMutation<T>(threadId: ThreadId, workspaceId: WorkspaceId,
+      mutation: (scope: { readThread: () => Promise<Thread> }) => Promise<T>): Promise<T>;
   }) {}
+
+  /** Startup only, after the prior process owner has closed. Never called by reads. */
+  recover(thread: Thread, readFirst: FirstAdmissionReader): Promise<Thread | null> {
+    const expected = { ...thread };
+    return this.options.serializeRecoveryMutation(expected.id, expected.workspaceId, async ({ readThread }) => {
+      const current = await readThread();
+      if (current.userId !== expected.userId || current.titleVersion !== expected.titleVersion ||
+          current.titleSource !== "preview" || current.titleStatus !== "pending") return null;
+      const first = await this.readFirst(current, readFirst);
+      if (!first || !this.matchesTitleEvent(await this.readTitleEvent(current), current, first, "pending"))
+        throw new Error("Pending title recovery requires its canonical first admission and title event");
+      await this.append({ assertCurrent: async () => {
+        const latest = await readThread();
+        if (latest.titleVersion !== current.titleVersion || latest.titleSource !== "preview" ||
+            latest.titleStatus !== "pending") throw new Error("Pending title recovery scope changed");
+      } }, current, first, {
+        title: current.title, source: "preview", status: "failed", version: current.titleVersion + 1,
+      });
+      return readThread();
+    });
+  }
 
   claim(admission: TurnAdmission, readFirst: FirstAdmissionReader): Promise<LocalGeneratedTitleClaim | null> {
     const captured = TurnAdmissionSchema.parse(admission);
@@ -128,7 +152,7 @@ export class LocalThreadGeneratedTitleMetadata {
       event.payload.titleStatus === status);
   }
 
-  private async append(scope: MetadataScope, thread: Thread, first: TurnAdmission, next: {
+  private async append(scope: Pick<MetadataScope, "assertCurrent">, thread: Thread, first: TurnAdmission, next: {
     title: string; source: "preview" | "generated"; status: "pending" | "ready" | "failed"; version: number;
   }): Promise<void> {
     const payload = ThreadTitleUpdatedPayloadSchema.parse({
