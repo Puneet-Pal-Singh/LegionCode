@@ -37,8 +37,9 @@ const preloadPath = fileURLToPath(
 const isPrimaryInstance = app.requestSingleInstanceLock();
 if (!isPrimaryInstance) app.quit();
 let credentialVault: DesktopCredentialVault | null = null;
-const localAppServer = new LocalAppServerSupervisor((request) =>
-  providerRequestHeaders(request),
+const localAppServer = new LocalAppServerSupervisor(
+  (request) => providerRequestHeaders(request),
+  async (providerId) => credentialVault?.acquireRuntimeCredentialLease(providerId) ?? null,
 );
 const pendingWorkspaceSelections = new WorkspaceSelectionTokens();
 const expectedRendererUrls = new Map<number, string>();
