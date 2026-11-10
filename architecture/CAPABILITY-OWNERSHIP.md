@@ -1734,3 +1734,22 @@ Browser callers retain the pure root entry; server discovery is not re-exported
 through that browser surface. Existing discovery checks migrate their imports
 and required credential-port fixtures without adding test registrations. Native
 App Server catalog injection remains a separately owned consumer integration.
+
+## Plan 057 — Policy-authorized captured file tools
+
+The Native composition supplies one per-attempt canonical ToolAuthorizationPort
+to both RuntimeKernel and captured workers. The Engine requires that owner before
+captured admission or lease acquisition and rejects a different Kernel port.
+Captured composition forwards the same object to the guarded file worker.
+
+Only write_file and edit_file may execute without an approval receipt. They must
+first match the full recorded active canonical tool request and current input,
+with no related approval item/request/decision; orphan approval evidence is
+refused. The same trusted policy owner must independently authorize the exact
+captured Run, item and normalized tool call. The worker repeats authorization
+before native commit, alongside the existing grant, root, lease and immutable
+baseline checks. Explicit approvals retain their existing canonical validation.
+Run_executable still requires explicit approval and the unchanged no-fork port.
+No permission-mode string, profile suffix, synthesized approval, policy copy or
+second lifecycle authority bypasses these checks. Native mode advertisement and
+per-attempt policy construction remain separate composition work.

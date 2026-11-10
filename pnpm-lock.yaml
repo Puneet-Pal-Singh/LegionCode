@@ -518,6 +518,9 @@ importers:
       '@repo/provider-core':
         specifier: workspace:*
         version: link:../provider-core
+      '@repo/runtime-kernel':
+        specifier: workspace:*
+        version: link:../runtime-kernel
       '@repo/shared-types':
         specifier: workspace:*
         version: link:../shared-types
