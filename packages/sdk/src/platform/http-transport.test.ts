@@ -427,6 +427,14 @@ describe("createPlatformHttpTransport", () => {
               payload: { status: "approved", decision: "approved" },
             }));
           }
+          if (envelope.method === "turn/userInput") {
+            return appServerResult("turn/userInput", createLifecycleEvent(3, {
+              type: "user_input.responded", itemId: TEST_IDS.userInputItemId,
+              requestId: "input_123456",
+              payload: { response: { answers: { continue: { answers: ["continue"] } } }, respondedBy: TEST_IDS.userId },
+            }));
+          }
+          expect(envelope.method).toBe("turn/diff");
           diffResponseCount += 1;
           if (diffResponseCount === 2) return appServerResult("turn/diff", null);
           if (diffResponseCount === 3) return appServerResult("turn/diff", { diff: "wrong" });
@@ -462,11 +470,15 @@ describe("createPlatformHttpTransport", () => {
       decidedBy: TEST_IDS.userId,
       reason: null,
     });
-    await client.submitUserInputResponse({
+    await expect(client.submitUserInputResponse({
       turnId: TEST_IDS.turnId,
       requestId: "input_123456",
       respondedBy: TEST_IDS.userId,
-      response: { value: "continue" },
+      response: { answers: { continue: { answers: ["continue"] } } },
+    })).resolves.toMatchObject({
+      type: "user_input.responded", turnId: TEST_IDS.turnId,
+      itemId: TEST_IDS.userInputItemId, requestId: "input_123456",
+      payload: { response: { answers: { continue: { answers: ["continue"] } } }, respondedBy: TEST_IDS.userId },
     });
     await client.getTurnDiff({ turnId: TEST_IDS.turnId });
     await expect(client.getTurnDiff({ turnId: TEST_IDS.turnId })).rejects.toBeInstanceOf(PlatformClientContractError);
@@ -483,10 +495,21 @@ describe("createPlatformHttpTransport", () => {
       "https://control-plane.test/app-server/request",
       "https://control-plane.test/app-server/request",
       "https://control-plane.test/app-server/request",
+      "https://control-plane.test/app-server/request",
     ]);
     expect(JSON.parse(String(calls[0]?.init.body))).toMatchObject({
       method: "turn/approval",
       params: { turnId: TEST_IDS.turnId, approvalId: TEST_IDS.approvalId },
+    });
+    expect(calls[1]?.init).toMatchObject({ method: "POST", credentials: "include" });
+    expect(new Headers(calls[1]?.init.headers).get("Content-Type")).toBe("application/json");
+    expect(JSON.parse(String(calls[1]?.init.body))).toMatchObject({
+      protocolVersion: APP_SERVER_PROTOCOL_VERSION,
+      method: "turn/userInput",
+      params: {
+        turnId: TEST_IDS.turnId, requestId: "input_123456", respondedBy: TEST_IDS.userId,
+        response: { answers: { continue: { answers: ["continue"] } } },
+      },
     });
     expect(JSON.parse(String(calls[2]?.init.body))).toMatchObject({
       method: "turn/diff",

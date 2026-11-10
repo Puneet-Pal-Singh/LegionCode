@@ -69,7 +69,7 @@ function createTransport(
         type: "user_input.responded",
         itemId: TEST_IDS.userInputItemId,
         requestId: "input_123456",
-        payload: { response: { ok: true } },
+        payload: { response: { answers: { continue: { answers: ["continue"] } } }, respondedBy: TEST_IDS.userId },
       }),
     ),
     getTurnDiff: vi.fn(async () => ({ diff: createTurnDiff() })),
@@ -266,9 +266,16 @@ describe("DefaultPlatformClient", () => {
         turnId: TEST_IDS.turnId,
         requestId: "input_123456",
         respondedBy: TEST_IDS.userId,
-        response: { value: "continue" },
+        response: { answers: { continue: { answers: ["continue"] } } },
       }),
-    ).resolves.toMatchObject({ type: "user_input.responded" });
+    ).resolves.toMatchObject({
+      type: "user_input.responded", requestId: "input_123456",
+      payload: { response: { answers: { continue: { answers: ["continue"] } } }, respondedBy: TEST_IDS.userId },
+    });
+    expect(transport.submitUserInputResponse).toHaveBeenCalledWith({
+      turnId: TEST_IDS.turnId, requestId: "input_123456", respondedBy: TEST_IDS.userId,
+      response: { answers: { continue: { answers: ["continue"] } } },
+    }, undefined);
   });
 
   it("reads the immutable turn diff explicitly", async () => {
