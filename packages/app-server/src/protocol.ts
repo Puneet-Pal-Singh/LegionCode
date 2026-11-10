@@ -23,6 +23,7 @@ import {
   AppServerErrorSchema,
   AppServerInitializeResponseSchema,
   LocalWorkspaceGrantResponseSchema,
+  LocalWorkspaceProjectsResponseSchema,
   LocalWorkspaceGrantSchema,
   ProviderIdSchema,
   ModelIdSchema,
@@ -159,7 +160,10 @@ const WorkspaceGrantSourceSchema = z.union([
 ]);
 
 export const ThreadCreateParamsSchema = z
-  .object({ title: z.string().trim().min(1).max(80).optional() })
+  .object({
+    title: z.string().trim().min(1).max(80).optional(),
+    expectedWorkspace: LocalWorkspaceGrantSchema.pick({ workspaceId: true, grantedAt: true }).strict().optional(),
+  })
   .strict();
 export const ThreadRenameParamsSchema = z
   .object({ threadId: ThreadIdSchema, title: z.string().trim().min(1).max(80) })
@@ -492,6 +496,8 @@ export const AppServerMethodSchema = z.enum([
   "media/readImage",
   "workspace/readFile",
   "workspace/current",
+  "workspace/localProjects",
+  "workspace/forgetLocalProject",
   "workspace/grant",
   "workspace/revoke",
   "thread/list",
@@ -584,6 +590,8 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("media/readImage"), params: LocalChatImageReadParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/readFile"), params: LocalWorkspaceReadFileParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/current"), params: EmptyParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("workspace/localProjects"), params: EmptyParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("workspace/forgetLocalProject"), params: z.object({ workspaceId: WorkspaceIdSchema }).strict() }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/grant"), params: WorkspaceGrantSourceSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/revoke"), params: EmptyParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("thread/list"), params: EmptyParamsSchema }).strict(),
@@ -672,6 +680,8 @@ export const AppServerResultSchemas = {
   "media/readImage": LocalChatImageReadResultSchema,
   "workspace/readFile": LocalWorkspaceReadFileResultSchema,
   "workspace/current": LocalWorkspaceGrantResponseSchema,
+  "workspace/localProjects": LocalWorkspaceProjectsResponseSchema,
+  "workspace/forgetLocalProject": z.object({ forgotten: z.literal(true) }).strict(),
   "workspace/grant": LocalWorkspaceGrantResponseSchema,
   "workspace/revoke": z.object({ revoked: z.literal(true) }).strict(),
   "thread/list": z.object({ threads: z.array(ThreadSchema) }).strict(),
@@ -760,6 +770,8 @@ export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
   success("media/readImage", AppServerResultSchemas["media/readImage"]),
   success("workspace/readFile", AppServerResultSchemas["workspace/readFile"]),
   success("workspace/current", AppServerResultSchemas["workspace/current"]),
+  success("workspace/localProjects", AppServerResultSchemas["workspace/localProjects"]),
+  success("workspace/forgetLocalProject", AppServerResultSchemas["workspace/forgetLocalProject"]),
   success("workspace/grant", AppServerResultSchemas["workspace/grant"]),
   success("workspace/revoke", AppServerResultSchemas["workspace/revoke"]),
   success("thread/list", AppServerResultSchemas["thread/list"]),

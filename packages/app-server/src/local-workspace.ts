@@ -21,6 +21,7 @@ import {
   WorkspaceIdSchema,
   workspaceIdFromExternalId,
   type LocalWorkspaceGrant,
+  type LocalWorkspaceProject,
   type WorkspaceId,
 } from "@repo/platform-protocol";
 import type { DefaultGitService } from "@repo/git-service";
@@ -118,7 +119,20 @@ export class LocalWorkspaceService {
     this.assertProbingAvailable();
     if (grant.readiness !== "ready") return grant;
     signal.throwIfAborted();
+    await this.workspaceGrants.rememberValidatedCurrent({ ...stored, grant });
+    this.assertGeneration(generation);
+    signal.throwIfAborted();
     return grant;
+  }
+
+  /** Navigation metadata is not a physical grant and cannot authorize execution. */
+  async listProjects(legacyWorkspaceIds: readonly WorkspaceId[]): Promise<{
+    projects: LocalWorkspaceProject[]; selectedWorkspaceId: WorkspaceId | null;
+  }> {
+    const current = await this.workspaceGrants.read();
+    await this.workspaceGrants.rememberUnlinked(current ? [...legacyWorkspaceIds, current.grant.workspaceId] : legacyWorkspaceIds);
+    const projects = await this.workspaceGrants.listProjects();
+    return { projects, selectedWorkspaceId: current?.grant.workspaceId ?? null };
   }
 
   async grant(input: unknown): Promise<LocalWorkspaceGrant> {
@@ -126,6 +140,8 @@ export class LocalWorkspaceService {
     try {
       this.assertProbingAvailable();
       const { path } = GrantLocalWorkspaceRequestSchema.parse(input);
+      // Seed the previous validated association before replacing the singleton.
+      await this.getCurrentGrant("physical");
       const generation = this.invalidateExecutionBindings();
       const signal = this.executionController.signal;
       this.transitioning = true;
@@ -152,14 +168,15 @@ export class LocalWorkspaceService {
         await this.assertIdentity(pin, gitMetadataIdentity);
         stage = "persistence";
         const previous = await this.workspaceGrants.read();
+        const knownWorkspaceId = await this.workspaceGrants.findKnownWorkspaceId(gitMetadataIdentity);
         this.assertGeneration(generation);
-        const workspaceId =
+        const workspaceId = knownWorkspaceId ?? (
           previous?.version === 2 &&
           previous.gitMetadataIdentity === gitMetadataIdentity
             ? previous.grant.workspaceId
             : WorkspaceIdSchema.parse(
                 workspaceIdFromExternalId(`local-${randomUUID()}`),
-              );
+              ));
         const grant = buildGrant(repoRoot, probe, workspaceId);
         const stored: Extract<StoredLocalWorkspaceGrant, { version: 2 }> = {
           version: 2,
@@ -191,6 +208,17 @@ export class LocalWorkspaceService {
     } catch (error) {
       throw workspaceGrantFailure(error, stage);
     }
+  }
+
+  /** Hide navigation only. Existing revocation owns current physical authority. */
+  async forgetProject(workspaceId: WorkspaceId): Promise<void> {
+    const id = WorkspaceIdSchema.parse(workspaceId);
+    if (this.transitioning) throw new Error("Local workspace grant is changing");
+    const current = await this.workspaceGrants.read();
+    if (this.transitioning) throw new Error("Local workspace grant is changing");
+    if (current?.grant.workspaceId === id) await this.revoke();
+    if (this.transitioning) throw new Error("Local workspace grant is changing");
+    await this.workspaceGrants.hideProject(id);
   }
 
   async revoke(): Promise<void> {

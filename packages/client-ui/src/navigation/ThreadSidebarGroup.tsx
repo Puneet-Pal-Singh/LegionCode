@@ -52,6 +52,7 @@ export interface ThreadSidebarGroupProps {
   onArchive?: (selectionId: string) => void | Promise<void>;
   onUnarchive?: (selectionId: string) => void | Promise<void>;
   onRenameSession?: (selectionId: string, title: string) => Promise<void>;
+  threadMutationUnavailableReason?: (selectionId: string) => string | undefined;
   pullRequestsBySessionId?: ReadonlyMap<string, HostedSessionPullRequestsResponse>;
   pullRequestUnavailableReason?: string;
   onVisibleSelectionChange?: (selectionId: string, visible: boolean) => void;
@@ -267,6 +268,7 @@ export function ThreadSidebarGroup(props: ThreadSidebarGroupProps): React.ReactE
                     onArchive={props.onArchive}
                     onUnarchive={props.onUnarchive}
                     onRenameSession={props.onRenameSession}
+                    mutationUnavailableReason={props.threadMutationUnavailableReason?.(item.selectionId)}
                     pullRequestResult={props.pullRequestsBySessionId?.get(item.selectionId)}
                     pullRequestUnavailableReason={props.pullRequestUnavailableReason}
                     onVisibleSelectionChange={props.onVisibleSelectionChange}
@@ -315,6 +317,7 @@ interface ThreadSidebarRowProps {
   onArchive?: (selectionId: string) => void | Promise<void>;
   onUnarchive?: (selectionId: string) => void | Promise<void>;
   onRenameSession?: (selectionId: string, title: string) => Promise<void>;
+  mutationUnavailableReason?: string;
   pullRequestResult?: HostedSessionPullRequestsResponse;
   pullRequestUnavailableReason?: string;
   onVisibleSelectionChange?: (selectionId: string, visible: boolean) => void;
@@ -344,6 +347,7 @@ function ThreadSidebarRow({
   onArchive,
   onUnarchive,
   onRenameSession,
+  mutationUnavailableReason,
   pullRequestResult,
   pullRequestUnavailableReason,
   onVisibleSelectionChange,
@@ -420,6 +424,7 @@ function ThreadSidebarRow({
   }
 
   function beginRename(): void {
+    if (mutationUnavailableReason) return;
     if (previewTimerRef.current !== null) {
       window.clearTimeout(previewTimerRef.current);
       previewTimerRef.current = null;
@@ -430,6 +435,10 @@ function ThreadSidebarRow({
   }
 
   async function saveRename(): Promise<void> {
+    if (mutationUnavailableReason) {
+      setRenameError(mutationUnavailableReason);
+      return;
+    }
     const title = renameDraft.trim().slice(0, 80);
     if (!title || !onRenameSession || isRenamePending) return;
     if (title === item.title) {
@@ -541,6 +550,7 @@ function ThreadSidebarRow({
     };
   }, [isDetailsOpen, isRenaming, renameError, item.selectionId, item.title, workspaceLabel, relativeTime, pullRequestResult, pullRequestUnavailableReason, onPreviewClose]);
 
+  const mutationReasonId = mutationUnavailableReason ? `thread-mutation-unavailable-${item.selectionId}` : undefined;
   const pinAction = item.isPinned ? onUnpin : onPin;
   const PinActionIcon = item.isPinned ? PinOff : Pin;
 
@@ -561,6 +571,7 @@ function ThreadSidebarRow({
         if (!ownsPreviewTarget(event.relatedTarget)) schedulePreviewClose();
       }}
     >
+      {mutationReasonId ? <span id={mutationReasonId} className="sr-only">{mutationUnavailableReason}</span> : null}
       <button
         type="button"
         ref={(element) => {
@@ -573,7 +584,7 @@ function ThreadSidebarRow({
         id={`thread-${item.selectionId}`}
         role="option"
         aria-selected={item.isSelected}
-        aria-describedby={isDetailsOpen ? detailsId : undefined}
+        aria-describedby={[isDetailsOpen ? detailsId : undefined, mutationReasonId].filter(Boolean).join(" ") || undefined}
         aria-label={`${item.title}${item.displayStatus === "waiting_for_approval" ? ", awaiting approval" : item.displayStatus === "failed" ? ", failed" : ""}${item.isUnread ? ", unread activity" : ""}`}
         tabIndex={focusedIndex === index ? 0 : -1}
         onFocus={() => onFocus(index)}
@@ -634,7 +645,9 @@ function ThreadSidebarRow({
             <button
               type="button"
               aria-label={`${item.isPinned ? "Unpin" : "Pin"} ${item.title}`}
-              title={`${item.isPinned ? "Unpin" : "Pin"} ${item.title}`}
+              title={mutationUnavailableReason ?? `${item.isPinned ? "Unpin" : "Pin"} ${item.title}`}
+              disabled={Boolean(mutationUnavailableReason)}
+              aria-describedby={mutationReasonId}
               onClick={() => { void pinAction(item.selectionId); }}
               className="grid size-6 place-items-center rounded p-1 text-zinc-500 transition hover:bg-zinc-700/70 hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
             >
@@ -646,6 +659,9 @@ function ThreadSidebarRow({
               type="button"
               data-testid="task-archive-action"
               aria-label={`Unarchive ${item.title}`}
+              title={mutationUnavailableReason}
+              disabled={Boolean(mutationUnavailableReason)}
+              aria-describedby={mutationReasonId}
               onClick={() => { void onUnarchive(item.selectionId); }}
               className="grid size-6 place-items-center rounded p-1 text-zinc-500 transition hover:bg-zinc-700/70 hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
             >
@@ -656,7 +672,9 @@ function ThreadSidebarRow({
               type="button"
               data-testid="task-archive-action"
               aria-label={`Archive ${item.title}`}
-              title={`Archive ${item.title}`}
+              title={mutationUnavailableReason ?? `Archive ${item.title}`}
+              disabled={Boolean(mutationUnavailableReason)}
+              aria-describedby={mutationReasonId}
               onClick={() => setPendingArchiveId(item.selectionId)}
               className="grid size-6 place-items-center rounded p-1 text-zinc-500 transition hover:bg-zinc-700/70 hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
             >
@@ -679,6 +697,9 @@ function ThreadSidebarRow({
           <button
             type="button"
             aria-label={`Confirm archive for ${item.title}`}
+            title={mutationUnavailableReason}
+            disabled={Boolean(mutationUnavailableReason)}
+            aria-describedby={mutationReasonId}
             onClick={(event) => { event.stopPropagation(); void onConfirmArchive(item.selectionId); }}
             className="rounded border border-red-700/70 bg-red-950/40 px-1.5 py-0.5 text-[10px] font-semibold text-red-300 transition-colors hover:bg-red-900/40"
           >
@@ -721,7 +742,9 @@ function ThreadSidebarRow({
                       ref={renameInputRef}
                       maxLength={80}
                       value={renameDraft}
-                      disabled={isRenamePending}
+                      disabled={isRenamePending || Boolean(mutationUnavailableReason)}
+                      title={mutationUnavailableReason}
+                      aria-describedby={mutationReasonId}
                       onChange={(event) => setRenameDraft(event.currentTarget.value)}
                       onKeyDown={(event) => {
                         if (event.key === "Escape") {
@@ -762,7 +785,9 @@ function ThreadSidebarRow({
                       ref={renameButtonRef}
                       type="button"
                       aria-label={`Rename ${item.title}`}
-                      title={`Rename ${item.title}`}
+                      title={mutationUnavailableReason ?? `Rename ${item.title}`}
+                      disabled={Boolean(mutationUnavailableReason)}
+                      aria-describedby={mutationReasonId}
                       onClick={beginRename}
                       className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
                     >
