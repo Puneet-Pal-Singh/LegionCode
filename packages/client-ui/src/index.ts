@@ -158,3 +158,6 @@ export { usePendingTitleProjectionRefresh, type PendingTitleProjection, type Pen
 export { shouldRetainCurrentTitleProjection, type TitleProjectionVersion } from "./titles/titleProjectionVersion.js";
 
 export { LocalExecutionDetails } from "./environment/LocalExecutionDetails.js";
+
+export { WorkspaceDialogFrame } from "./workspace/WorkspaceDialogFrame.js";
+export { WorkspaceBranchField } from "./workspace/WorkspaceBranchField.js";
