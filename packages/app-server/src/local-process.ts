@@ -158,9 +158,11 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
       }),
       () => workspaceService.hasUnsettledResources,
     );
-    // Attach the actual resource owner before either recovery operation starts.
-    nativeInitialization = runtime ? reconcileLostLocalTurns(persistence, runtime) : Promise.resolve();
-    delegatedInitialization = harness.turnService.initialize();
+    // Retain both original promises in the attached owner before either call
+    // executes, including a synchronous initialization failure.
+    nativeInitialization = Promise.resolve().then(() =>
+      runtime ? reconcileLostLocalTurns(persistence, runtime) : undefined);
+    delegatedInitialization = Promise.resolve().then(() => harness.turnService.initialize());
     const localHarnessInitialization = Promise.allSettled([nativeInitialization, delegatedInitialization]).then(([native, delegated]) => {
       if (native.status === "rejected") throw native.reason;
       if (delegated.status === "rejected") throw delegated.reason;
@@ -225,11 +227,15 @@ export async function runLocalAppServerProcess(
   let finalExitCode = 0;
   let stopRequested = false;
   let exitAfterClosed: Promise<void> | undefined;
+  // Initialization can await owners without an HTTP listener or other active
+  // handles. Keep this actual process alive until listening or positive closure.
+  const startupKeepAlive = setInterval(() => undefined, 1_000);
   const exitAfterSettlement = (exitCode: number): Promise<void> => {
     stopRequested = true;
     if (exitCode !== 0) finalExitCode = 1;
     const closed = server.requestShutdown();
     exitAfterClosed ??= closed.then(() => {
+      clearInterval(startupKeepAlive);
       // Physical closure receipt is separate from observing child process exit.
       try { parentPort.postMessage({ type: "closed" }); }
       finally { process.exit(finalExitCode); }
@@ -241,22 +247,36 @@ export async function runLocalAppServerProcess(
     exitAfterSettlement(1);
   });
   process.on("SIGTERM", () => exitAfterSettlement(0));
-  server.listen(0, "127.0.0.1", () => {
-    if (stopRequested) return;
-    const address = server.address();
-    if (!address || typeof address === "string") {
-      postFatal();
-      exitAfterSettlement(1);
-      return;
-    }
-    try {
-      parentPort.postMessage({
-        type: "ready",
-        baseUrl: `http://127.0.0.1:${address.port}`,
-      });
-    } catch { void exitAfterSettlement(1); }
+  // Return private shutdown control without waiting for recovery: the utility
+  // parent must be able to fence a still-initializing process through this owner.
+  void startListening().catch(() => {
+    postFatal();
+    void exitAfterSettlement(1);
   });
   return { requestShutdown: () => exitAfterSettlement(0) };
+
+  async function startListening(): Promise<void> {
+    const initialization = await server.localHarnessInitialization;
+    if (stopRequested) return;
+    if (initialization.status !== "ready" || !Array.isArray(initialization.retainedTurnIds) || initialization.retainedTurnIds.length !== 0)
+      throw new Error("Local startup resources remain unsettled");
+    server.listen(0, "127.0.0.1", () => {
+      if (stopRequested) return;
+      clearInterval(startupKeepAlive);
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        postFatal();
+        exitAfterSettlement(1);
+        return;
+      }
+      try {
+        parentPort.postMessage({
+          type: "ready",
+          baseUrl: `http://127.0.0.1:${address.port}`,
+        });
+      } catch { void exitAfterSettlement(1); }
+    });
+  }
 
   function postFatal(reason?: "runtime-shutdown-failed"): void {
     try { parentPort.postMessage({ type: "fatal", ...(reason ? { reason } : {}) }); }
