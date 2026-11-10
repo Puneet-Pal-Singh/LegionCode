@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AppServerClient } from "@legioncode/sdk";
+import {
+  loadCompletePickerInventory,
+  assertProviderModelDiscoveryAvailable,
+  ProviderClientOperationError,
+  loadManageProviderModelInventory,
+  shouldLoadCompletePickerInventory,
+  includeManagedPickerModels,
+  type AppServerClient,
+} from "@legioncode/sdk";
 import type { LocalWorkspaceGrant } from "@repo/platform-protocol";
 import {
   ProviderIdSchema,
@@ -17,10 +25,22 @@ import type { DesktopCredentialStatus } from "../../shared/desktop-api";
 type Scope = {
   client: AppServerClient;
   grant: Pick<LocalWorkspaceGrant, "workspaceId" | "grantedAt"> | null;
+  credentialGeneration: Map<string, number>;
+  inventoryGeneration: Map<string, number>;
+  modelReads: Map<string, Promise<ProviderSettingsModel[]>>;
 };
 type Selection = Awaited<ReturnType<AppServerClient["getProviderSelection"]>>;
 const unsupportedValidation =
   "Protected credentials can be replaced or disconnected here; saved keys are never read into this UI.";
+
+async function currentPreferenceScope(scope: Scope, assertCurrent: (scope: Scope) => void) {
+  if (!scope.grant) throw new Error("A granted workspace is required for model visibility.");
+  const grant = await scope.client.getWorkspaceGrant();
+  assertCurrent(scope);
+  if (!grant || grant.readiness !== "ready" || grant.workspaceId !== scope.grant.workspaceId || grant.grantedAt !== scope.grant.grantedAt)
+    throw new Error("Workspace access changed. Restore it before saving model visibility.");
+  return { workspaceId: grant.workspaceId, grantedAt: grant.grantedAt };
+}
 
 /** Metadata projection and commands only; saved credential values stay in main. */
 export function useDesktopProviderSettings(
@@ -37,9 +57,12 @@ export function useDesktopProviderSettings(
   const [models, setModels] = useState<Record<string, ProviderSettingsModel[]>>(
     {},
   );
+  const [manageModels, setManageModels] = useState<Record<string, ProviderSettingsModel[]>>({});
+  const [manageLoading, setManageLoading] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [status, setStatus] = useState<ProviderSettingsPort["status"]>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [modelError, setModelError] = useState<string | null>(null);
   const [visibilityBusy, setVisibilityBusy] = useState(false);
   const [visibilityError, setVisibilityError] = useState<string | undefined>();
 
@@ -49,7 +72,11 @@ export function useDesktopProviderSettings(
     setSelection(null);
     setPreferences(null);
     setModels({});
+    setManageModels({});
+    setLoading({});
+    setManageLoading({});
     setError(null);
+    setModelError(null);
     setVisibilityBusy(false);
     setVisibilityError(undefined);
     if (!client || !enabled) {
@@ -57,7 +84,7 @@ export function useDesktopProviderSettings(
       setStatus("idle");
       return;
     }
-    const scope: Scope = { client, grant: null };
+    const scope: Scope = { client, grant: null, credentialGeneration: new Map(), inventoryGeneration: new Map(), modelReads: new Map() };
     active.current = scope;
     setStatus("loading");
     void (async () => {
@@ -99,10 +126,10 @@ export function useDesktopProviderSettings(
         );
       if (scope.grant) {
         try {
-          const value = await client.readProviderPreferences(
-            undefined,
-            scope.grant,
-          );
+          const grant = await currentPreferenceScope(scope, (expected) => {
+            if (active.current !== expected) throw new Error("Provider settings scope changed.");
+          });
+          const value = await client.readProviderPreferences(undefined, grant);
           if (active.current !== scope) return;
           setPreferences(value);
         } catch {
@@ -140,28 +167,58 @@ export function useDesktopProviderSettings(
       throw new Error("Provider settings scope changed.");
   }, []);
 
-  const loadModels = useCallback(
-    async (providerId: string): Promise<ProviderSettingsModel[]> => {
+  const loadInventory = useCallback(
+    (providerId: string, surface: "picker" | "manage", limit = 150): Promise<ProviderSettingsModel[]> => {
       const scope = requireScope();
-      setLoading((current) => ({ ...current, [providerId]: true }));
-      try {
-        const response = await scope.client.getProviderModels(
-          ProviderIdSchema.parse(providerId),
-        );
+      providerId = ProviderIdSchema.parse(providerId);
+      const generation = scope.credentialGeneration.get(providerId) ?? 0;
+      const inventoryGeneration = scope.inventoryGeneration.get(providerId) ?? 0;
+      const key = `${providerId}:${generation}:${inventoryGeneration}:${surface}:${limit}`;
+      const pending = scope.modelReads.get(key);
+      if (pending) return pending;
+      const setBusy = surface === "manage" ? setManageLoading : setLoading;
+      setBusy((current) => ({ ...current, [providerId]: true }));
+      const isReadCurrent = () => active.current === scope &&
+        (scope.credentialGeneration.get(providerId) ?? 0) === generation &&
+        (scope.inventoryGeneration.get(providerId) ?? 0) === inventoryGeneration;
+      const assertReadCurrent = () => {
         assertCurrent(scope);
-        setModels((current) => ({ ...current, [providerId]: response.models }));
+        if (!isReadCurrent()) throw new Error("Provider credential changed during model discovery.");
+      };
+      const loadPage = async (query: Parameters<AppServerClient["getProviderModels"]>[2]) => {
+        assertReadCurrent();
+        const page = await scope.client.getProviderModels(providerId, undefined, query);
+        assertReadCurrent();
+        assertProviderModelDiscoveryAvailable(page);
+        return page;
+      };
+      const request = (async () => {
+        const response = surface === "manage"
+          ? await loadManageProviderModelInventory({ providerId, limit, loadPage })
+          : shouldLoadCompletePickerInventory({ providerId, view: "all", surface, append: false })
+            ? await loadCompletePickerInventory({ providerId, loadPage })
+            : await loadPage({ view: "popular", surface: "picker", limit: 50 });
+        assertReadCurrent();
+        if (surface === "manage") setManageModels((current) => ({ ...current, [providerId]: response.models }));
+        else setModels((current) => ({ ...current, [providerId]: response.models }));
+        setModelError(null);
         return response.models;
-      } catch {
-        if (active.current === scope)
-          setError("Provider models could not be loaded.");
-        throw new Error("Provider models could not be loaded.");
-      } finally {
-        if (active.current === scope)
-          setLoading((current) => ({ ...current, [providerId]: false }));
-      }
+      })().catch((error: unknown) => {
+        if (isReadCurrent()) setModelError(error instanceof ProviderClientOperationError
+          ? error.message : "Provider models could not be loaded. Retry model discovery.");
+        throw error;
+      }).finally(() => {
+        if (scope.modelReads.get(key) === request) scope.modelReads.delete(key);
+        if (isReadCurrent())
+          setBusy((current) => ({ ...current, [providerId]: false }));
+      });
+      scope.modelReads.set(key, request);
+      return request;
     },
     [requireScope, assertCurrent],
   );
+  const loadModels = useCallback(async (providerId: string) => loadInventory(providerId, "picker"), [loadInventory]);
+  const loadManageModels = useCallback(async (providerId: string, limit = 150) => loadInventory(providerId, "manage", limit), [loadInventory]);
 
   const connectCredential = useCallback(
     async (request: {
@@ -174,7 +231,16 @@ export function useDesktopProviderSettings(
       const providerId = ProviderIdSchema.parse(request.providerId);
       if (!catalog.some((entry) => entry.providerId === providerId))
         throw new Error("This provider is not available.");
+      const generation = (scope.credentialGeneration.get(providerId) ?? 0) + 1;
+      scope.credentialGeneration.set(providerId, generation);
+      setLoading((current) => ({ ...current, [providerId]: false }));
+      setManageLoading((current) => ({ ...current, [providerId]: false }));
+      const assertCredentialCurrent = () => {
+        assertCurrent(scope);
+        if (scope.credentialGeneration.get(providerId) !== generation) throw new Error("Provider credential changed.");
+      };
       let saved = false;
+      let confirmedStatus: DesktopCredentialStatus | null = null;
       try {
         await window.desktop.credential({
           operation: "save",
@@ -185,12 +251,12 @@ export function useDesktopProviderSettings(
           },
         });
         saved = true;
-        assertCurrent(scope);
+        assertCredentialCurrent();
         const receipt = await window.desktop.credential({
           operation: "status",
           providerId,
         });
-        assertCurrent(scope);
+        assertCredentialCurrent();
         if (
           Array.isArray(receipt) ||
           !("status" in receipt) ||
@@ -199,12 +265,26 @@ export function useDesktopProviderSettings(
           throw new Error(
             "Protected credential storage did not confirm the save.",
           );
+        confirmedStatus = receipt;
+        await scope.client.refreshProviderModels(providerId);
+        assertCredentialCurrent();
+        // Invalidate in-flight catalog deliveries from before this refresh;
+        // the protected credential generation remains unchanged.
+        scope.inventoryGeneration.set(providerId, (scope.inventoryGeneration.get(providerId) ?? 0) + 1);
+        setModels((current) => {
+          const next = { ...current }; delete next[providerId]; return next;
+        });
+        setManageModels((current) => {
+          const next = { ...current }; delete next[providerId]; return next;
+        });
+        setLoading((current) => ({ ...current, [providerId]: false }));
+        setManageLoading((current) => ({ ...current, [providerId]: false }));
         setCredentials((current) => [
           ...current.filter((item) => item.providerId !== providerId),
           { providerId, status: receipt.status },
         ]);
         const discovered = await loadModels(providerId);
-        assertCurrent(scope);
+        assertCredentialCurrent();
         const first = discovered.find(
           (model) => model.availability !== "unsupported_transport",
         );
@@ -213,11 +293,18 @@ export function useDesktopProviderSettings(
             providerId,
             first.id,
           );
-          assertCurrent(scope);
+          assertCredentialCurrent();
           setSelection(selected);
         }
         setError(null);
       } catch {
+        if (confirmedStatus && active.current === scope && scope.credentialGeneration.get(providerId) === generation) {
+          const actualStatus = confirmedStatus.status;
+          setCredentials((current) => [
+            ...current.filter((item) => item.providerId !== providerId),
+            { providerId, status: actualStatus },
+          ]);
+        }
         throw new Error(
           saved
             ? "Credential saved in protected storage, but model selection could not be completed. Retry model selection."
@@ -232,9 +319,17 @@ export function useDesktopProviderSettings(
     async (credential: ProviderSettingsCredential) => {
       const scope = requireScope();
       const providerId = ProviderIdSchema.parse(credential.providerId);
+      const generation = (scope.credentialGeneration.get(providerId) ?? 0) + 1;
+      scope.credentialGeneration.set(providerId, generation);
+      setLoading((current) => ({ ...current, [providerId]: false }));
+      setManageLoading((current) => ({ ...current, [providerId]: false }));
+      const assertCredentialCurrent = () => {
+        assertCurrent(scope);
+        if (scope.credentialGeneration.get(providerId) !== generation) throw new Error("Provider credential changed.");
+      };
       try {
         await window.desktop.credential({ operation: "delete", providerId });
-        assertCurrent(scope);
+        assertCredentialCurrent();
         setCredentials((current) =>
           current.filter((item) => item.providerId !== providerId),
         );
@@ -243,14 +338,19 @@ export function useDesktopProviderSettings(
           delete next[providerId];
           return next;
         });
+        setManageModels((current) => {
+          const next = { ...current }; delete next[providerId]; return next;
+        });
+        setLoading((current) => ({ ...current, [providerId]: false }));
+        setManageLoading((current) => ({ ...current, [providerId]: false }));
         if (selection?.providerId === providerId) {
           await scope.client.clearProviderSelection();
-          assertCurrent(scope);
+          assertCredentialCurrent();
           setSelection(null);
         }
         setError(null);
       } catch {
-        if (active.current === scope)
+        if (active.current === scope && scope.credentialGeneration.get(providerId) === generation)
           setError("Provider credential could not be disconnected.");
         throw new Error("Provider credential could not be disconnected.");
       }
@@ -284,17 +384,19 @@ export function useDesktopProviderSettings(
         ...preferences.visibleModelIds,
         [providerId]: modelIds,
       };
-      void scope.client
-        .updateProviderPreferences(undefined, { visibleModelIds }, scope.grant)
+      void currentPreferenceScope(scope, assertCurrent)
+        .then((grant) => {
+          assertCurrent(scope);
+          return scope.client.updateProviderPreferences(undefined, { visibleModelIds }, grant);
+        })
         .then((value) => {
           assertCurrent(scope);
           setPreferences(value);
+          setVisibilityError(undefined);
         })
         .catch(() => {
           if (active.current === scope)
-            setError(
-              "Model visibility could not be saved. Restore workspace access and retry.",
-            );
+            setError("Model visibility could not be saved. Restore workspace access and retry.");
         })
         .finally(() => {
           if (active.current === scope) setVisibilityBusy(false);
@@ -306,6 +408,7 @@ export function useDesktopProviderSettings(
     (providerId: string, modelId: string) => {
       const current = new Set(
         preferences?.visibleModelIds[providerId] ??
+          manageModels[providerId]?.map((model) => model.id) ??
           models[providerId]?.map((model) => model.id) ??
           [],
       );
@@ -313,7 +416,7 @@ export function useDesktopProviderSettings(
       else current.add(modelId);
       saveVisibility(providerId, [...current]);
     },
-    [preferences, models, saveVisibility],
+    [preferences, manageModels, models, saveVisibility],
   );
   const visibleModelIds = useMemo(
     () =>
@@ -325,17 +428,25 @@ export function useDesktopProviderSettings(
     [preferences],
   );
 
+  const pickerModels = useMemo(() => Object.fromEntries(
+    [...new Set([...Object.keys(models), ...Object.keys(manageModels)])].map((providerId) => [
+      providerId,
+      includeManagedPickerModels(models[providerId] ?? [], manageModels[providerId] ?? [], visibleModelIds[providerId],
+        selection?.providerId === providerId ? selection.modelId : undefined),
+    ]),
+  ), [models, manageModels, visibleModelIds, selection]);
+
   return {
-    status: error ? "error" : status,
-    error,
+    status: error || modelError ? "error" : status,
+    error: modelError ?? error,
     catalog,
     credentials,
-    providerModels: models,
-    manageProviderModels: models,
+    providerModels: pickerModels,
+    manageProviderModels: manageModels,
     visibleModelIds,
     loadingModelsForProviderId:
       Object.keys(loading).find((providerId) => loading[providerId]) ?? null,
-    loadingManageModelsForProviderIds: loading,
+    loadingManageModelsForProviderIds: manageLoading,
     preferences,
     selectedProviderId: selection?.providerId ?? null,
     selectedCredentialId: null,
@@ -344,7 +455,7 @@ export function useDesktopProviderSettings(
     disconnectCredential,
     applySessionSelection,
     loadProviderModels: loadModels,
-    loadManageProviderModels: loadModels,
+    loadManageProviderModels: loadManageModels,
     validateCredential: async () => {
       throw new Error(unsupportedValidation);
     },

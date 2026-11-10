@@ -3,12 +3,21 @@ import {
   type ModelPickerModel,
 } from "@legioncode/client-ui";
 import type { LocalWorkspaceGrant, WorkspaceId } from "@repo/platform-protocol";
-import type { AppServerClient } from "@legioncode/sdk";
+import {
+  PROVIDER_MODEL_CACHE_MAX_AGE_MS,
+  assertProviderModelDiscoveryAvailable,
+  ProviderClientOperationError,
+  loadCompletePickerInventory,
+  loadManageProviderModelInventory,
+  shouldLoadCompletePickerInventory,
+  includeManagedPickerModels,
+  type AppServerClient,
+} from "@legioncode/sdk";
 import {
   createProviderProductPolicy,
   type ProviderRegistryEntry,
 } from "@repo/shared-types";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 export type DesktopModelPickerClient = Pick<
   AppServerClient,
@@ -16,6 +25,7 @@ export type DesktopModelPickerClient = Pick<
   | "readProviderPreferences"
   | "getProviderCatalog"
   | "getProviderModels"
+  | "refreshProviderModels"
   | "getProviderSelection"
   | "selectProvider"
 >;
@@ -26,6 +36,7 @@ type Scope = {
   workspaceId: WorkspaceId | null;
   grantedAt: string | null;
   enabled: boolean;
+  modelReadGenerations: Map<string, number>;
 };
 type PreferenceScope = Pick<LocalWorkspaceGrant, "workspaceId" | "grantedAt">;
 type PickerRead = {
@@ -33,6 +44,7 @@ type PickerRead = {
   catalog: ProviderRegistryEntry[];
   credentials: Array<{ providerId: string }>;
   models: Record<string, ModelPickerModel[]>;
+  pages: Record<string, Awaited<ReturnType<AppServerClient["getProviderModels"]>>>;
   selection: Selection;
   visibleModelIds: Record<string, Set<string>>;
   error: string | null;
@@ -40,6 +52,33 @@ type PickerRead = {
 
 // The local provider service exposes supported API-key routes, without Axis fallback.
 const DESKTOP_PROVIDER_POLICY = createProviderProductPolicy("production");
+
+async function loadDesktopPickerInventory(
+  client: DesktopModelPickerClient,
+  providerId: string,
+  visibleIds: ReadonlySet<string>,
+  selectedModelId: string | undefined,
+  assertCurrent: () => void,
+) {
+  const loadPage = async (query: Parameters<AppServerClient["getProviderModels"]>[2]) => {
+    assertCurrent();
+    const page = await client.getProviderModels(providerId, undefined, query);
+    assertCurrent();
+    assertProviderModelDiscoveryAvailable(page);
+    return page;
+  };
+  const complete = shouldLoadCompletePickerInventory({
+    providerId, view: "all", surface: "picker", append: false,
+  });
+  const page = complete
+    ? await loadCompletePickerInventory({ providerId, loadPage })
+    : await loadPage({ view: "popular", surface: "picker", limit: 50 });
+  const missingMetadata = [...visibleIds, ...(selectedModelId ? [selectedModelId] : [])]
+    .some((id) => !page.models.some((model) => model.id === id));
+  const managed = missingMetadata
+    ? await loadManageProviderModelInventory({ providerId, loadPage }) : null;
+  return { ...page, models: includeManagedPickerModels(page.models, managed?.models ?? [], visibleIds, selectedModelId) };
+}
 
 /** Local SDK routing plus protected credential-status metadata; no provider secrets or hosted state. */
 export function useDesktopModelPicker(
@@ -55,6 +94,7 @@ export function useDesktopModelPicker(
       workspaceId: workspace?.workspaceId ?? null,
       grantedAt: workspace?.grantedAt ?? null,
       enabled,
+      modelReadGenerations: new Map<string, number>(),
     }),
     [client, revision, workspace?.workspaceId, workspace?.grantedAt, enabled],
   );
@@ -112,10 +152,15 @@ export function useDesktopModelPicker(
               ),
           )
           .map(({ providerId }) => ({ providerId }));
+        const assertReadCurrent = () => {
+          if (!active || activeScope.current !== scope) throw new Error("Provider scope changed");
+        };
         const pages = await Promise.all(
           credentials.map(async ({ providerId }) => {
-            const page = await currentClient.getProviderModels(providerId);
-            return [providerId, page.models] as const;
+            const visibleIds = new Set(preferences?.visibleModelIds[providerId] ?? []);
+            const selectedModelId = selection?.providerId === providerId ? selection.modelId : undefined;
+            const page = await loadDesktopPickerInventory(currentClient, providerId, visibleIds, selectedModelId, assertReadCurrent);
+            return [providerId, page] as const;
           }),
         );
         if (active && activeScope.current === scope) {
@@ -123,7 +168,8 @@ export function useDesktopModelPicker(
             scope,
             catalog,
             credentials,
-            models: Object.fromEntries(pages),
+            models: Object.fromEntries(pages.map(([id, page]) => [id, page.models])),
+            pages: Object.fromEntries(pages),
             selection,
             visibleModelIds: Object.fromEntries(
               Object.entries(preferences?.visibleModelIds ?? {}).map(
@@ -134,17 +180,19 @@ export function useDesktopModelPicker(
           });
         }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (active && activeScope.current === scope)
           setRead({
             scope,
             catalog: [],
             credentials: [],
             models: {},
+            pages: {},
             selection: null,
             visibleModelIds: {},
-            error:
-              "Provider models could not be loaded. Open provider setup to retry.",
+            error: error instanceof ProviderClientOperationError
+              ? error.message
+              : "Provider models could not be loaded. Open provider setup to retry.",
           });
       });
     return () => {
@@ -182,6 +230,75 @@ export function useDesktopModelPicker(
       if (activeScope.current === scope) setSaving(false);
     }
   };
+  const modelReads = useRef(new Map<string, Promise<ModelPickerModel[]>>());
+  const latestRead = useRef<PickerRead | null>(null);
+  latestRead.current = current;
+  const [readingModels, setReadingModels] = useState<Record<string, boolean>>({});
+  const readProviderModels = useCallback(async (providerId: string, refresh = false): Promise<ModelPickerModel[]> => {
+    const reading = latestRead.current;
+    const currentClient = scope.client;
+    if (!reading || reading.scope !== scope || !currentClient || activeScope.current !== scope || !scope.enabled)
+      throw new Error("Provider model discovery is not available yet.");
+    if (!reading.credentials.some((item) => item.providerId === providerId))
+      throw new Error("Connect this provider before discovering models.");
+    const key = `${providerId}:${refresh ? "refresh" : "next"}`;
+    const pending = modelReads.current.get(key);
+    if (pending) return pending;
+    const generation = (scope.modelReadGenerations.get(providerId) ?? 0) + 1;
+    scope.modelReadGenerations.set(providerId, generation);
+    setReadingModels((value) => ({ ...value, [providerId]: true }));
+    const isReadCurrent = () => activeScope.current === scope && scope.modelReadGenerations.get(providerId) === generation;
+    const assertReadCurrent = () => {
+      if (!isReadCurrent()) throw new Error("Provider scope changed");
+    };
+    const request = (async () => {
+      const previous = reading.pages[providerId];
+      if (refresh) {
+        await currentClient.refreshProviderModels(providerId);
+        assertReadCurrent();
+      } else if (!previous?.page.hasMore || !previous.page.nextCursor) return reading.models[providerId] ?? [];
+      const page = refresh
+        ? await loadDesktopPickerInventory(currentClient, providerId, reading.visibleModelIds[providerId] ?? new Set(),
+            reading.selection?.providerId === providerId ? reading.selection.modelId : undefined, assertReadCurrent)
+        : await currentClient.getProviderModels(providerId, undefined, {
+            view: previous?.view ?? "popular", surface: "picker", limit: previous?.page.limit ?? 50,
+            cursor: previous?.page.nextCursor,
+          });
+      assertReadCurrent();
+      assertProviderModelDiscoveryAvailable(page);
+      const models = refresh ? page.models : includeManagedPickerModels(
+        reading.models[providerId] ?? [], page.models, new Set(page.models.map((model) => model.id)),
+      );
+      setRead((value) => value?.scope === scope ? {
+        ...value, error: null,
+        models: { ...value.models, [providerId]: models },
+        pages: { ...value.pages, [providerId]: page },
+      } : value);
+      setSelectionError(null);
+      return models;
+    })().catch((error: unknown) => {
+      if (isReadCurrent()) setSelectionError(error instanceof ProviderClientOperationError
+        ? error.message : "Provider models could not be loaded. Retry discovery or open provider setup.");
+      throw error;
+    }).finally(() => {
+      if (modelReads.current.get(key) === request) modelReads.current.delete(key);
+      if (isReadCurrent()) setReadingModels((value) => ({ ...value, [providerId]: false }));
+    });
+    modelReads.current.set(key, request);
+    return request;
+  }, [scope]);
+  const refreshModels = useCallback((providerId: string) =>
+    readProviderModels(providerId, true).then(() => undefined), [readProviderModels]);
+  const ensureModels = useCallback(async (providerId: string) => {
+    const reading = latestRead.current;
+    if (reading?.scope !== scope) return;
+    const metadata = reading.pages[providerId]?.metadata;
+    const fetchedAt = Date.parse(metadata?.fetchedAt ?? "");
+    if (!metadata || metadata.stale || !Number.isFinite(fetchedAt) || Date.now() - fetchedAt >= PROVIDER_MODEL_CACHE_MAX_AGE_MS)
+      await readProviderModels(providerId, true);
+  }, [scope, readProviderModels]);
+  // In-flight delivery identities belong to one client/grant/credential revision.
+  useEffect(() => { modelReads.current.clear(); setReadingModels({}); }, [scope]);
   const unavailableReason = !scope.client || !scope.enabled
     ? "Desktop's provider connection is not ready. Reconnect to select a model."
     : !current
@@ -206,6 +323,10 @@ export function useDesktopModelPicker(
     error: selectionError ?? current?.error ?? null,
     loading: Boolean(scope.client && scope.enabled && !current),
     saving,
+    readingModels,
+    loadMore: readProviderModels,
+    refreshModels,
+    ensureModels,
   };
 }
 
@@ -241,6 +362,12 @@ export function DesktopModelPicker({
         await controls.selectModel(providerId, modelId);
         if (changed) onModelSwitchWarning?.();
       }}
+      selectedProviderMetadata={selection ? current?.pages[selection.providerId]?.metadata ?? null : null}
+      isLoadingMoreSelectedProviderModels={selection ? controls.readingModels[selection.providerId] ?? false : false}
+      hasMoreSelectedProviderModels={selection ? current?.pages[selection.providerId]?.page.hasMore ?? false : false}
+      onLoadMoreSelectedProviderModels={controls.loadMore}
+      onEnsureSelectedProviderModels={controls.ensureModels}
+      onRefreshSelectedProviderModels={controls.refreshModels}
       onConnectProvider={onConnectProvider}
       onManageModels={onManageModels}
       isLoading={controls.loading}
