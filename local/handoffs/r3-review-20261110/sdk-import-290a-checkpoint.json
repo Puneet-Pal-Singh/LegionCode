@@ -1,0 +1,32 @@
+{
+  "head": "290a539e4c09246d5658fc331d561c571f173c0d",
+  "parent": "514d23fa69de118e7e00b36283f38aaf071992fa",
+  "branch": "codex/fix-r3-sdk-unused-turn-id-20261111",
+  "changed_paths": [
+    "packages/sdk/src/platform/lifecycle-types.ts"
+  ],
+  "change": "Remove only unused TurnIdSchema import; one deletion.",
+  "checks": [
+    {
+      "command": "corepack pnpm --filter @legioncode/web build",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/web-build-fixed.log",
+      "sha256": "28a79f75b451bbc0c68bc69ef7075ecbea6dba5de8fd1cd300f07160ff316a7d"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/web check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/web-types-fixed.log",
+      "sha256": "132064507b2bc60602582bb945bcba4dc79cc1ded21232fdee9f788e8af78a19"
+    },
+    {
+      "command": "corepack pnpm --filter @legioncode/sdk check-types",
+      "exit_code": 0,
+      "log": "/workspace/work/R3-LOCAL-514D-20261111/sdk-types-fixed.log",
+      "sha256": "15b304253815d565358448a20d3d938b94a3ad8a70c8e4c6aa780389815d73f2"
+    }
+  ],
+  "status": "clean; published",
+  "schema_request_behavior_changes": false,
+  "no_pr_merge_or_deployment": true
+}
