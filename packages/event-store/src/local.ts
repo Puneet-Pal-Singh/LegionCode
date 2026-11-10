@@ -32,6 +32,7 @@ import {
 import { z } from "zod";
 import { EventStoreError, LocalPersistenceError } from "./errors.js";
 import { createStableEventFingerprint } from "./fingerprint.js";
+import { LifecycleReplayPage } from "./lifecycle-replay-page.js";
 import { createLocalTurnArtifactStore, validateLocalTurnArtifacts } from "./local-turn-artifacts.js";
 import type {
   AppendEventInput,
@@ -587,17 +588,15 @@ export class LocalPersistence {
       throw new EventStoreError("cursor_not_found", "Invalid lifecycle replay sequence");
     }
     const after = input.afterSequence ?? 0;
+    const page = new LifecycleReplayPage(input);
     const rows = this.database.prepare(`
       SELECT event_json FROM events WHERE family = 'lifecycle' AND stream_type = 'turn' AND stream_id = ? AND sequence > ?
       ORDER BY sequence LIMIT ?
-    `).all(input.turnId, after, input.limit) as { event_json: string }[];
-    const events = rows.map(({ event_json }) => parseStoredLifecycleEvent(event_json));
-    for (const [index, event] of events.entries()) {
-      if (event.sequence !== after + index + 1) {
-        throw new EventStoreError("corrupt_event_stream", "Lifecycle replay contains a sequence gap");
-      }
+    `).iterate(input.turnId, after, input.limit) as Iterable<{ event_json: string }>;
+    for (const { event_json } of rows) {
+      if (!page.append(parseStoredLifecycleEvent(event_json))) break;
     }
-    return { events, nextSequence: events.at(-1)?.sequence ?? null };
+    return page.result();
   }
 
   private listAllPlatform(): readonly PlatformEvent[] {

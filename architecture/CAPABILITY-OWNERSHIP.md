@@ -2177,3 +2177,63 @@ mapper; canonical resolution/attestation remains with the injected authority.
 Both files are inventoried as permission typed-protocol projectors, without
 changing their implementations, permissions, launch availability or physical
 release requirements. All other architecture dependency rules are unchanged.
+## Issue 810 — Versioned hosted workspace configuration
+
+The existing `WorkspaceRepository` owns saved configuration for one primary
+repository per user/workspace. Authenticated App Server
+`workspace/configuration/read` and `workspace/configuration/update`, exposed by
+SDK `readHostedWorkspaceConfiguration` / `updateHostedWorkspaceConfiguration`,
+read and edit only the existing name and selected branch. Repository identity
+comes from the exact owned active workspace; updates recheck its GitHub access
+and resolve an explicitly changed branch through the authenticated client.
+
+The existing Postgres workspace row holds the configuration version. Updates
+lock the canonical repository before the owned active workspace, compare the
+privately captured verified repository identity and expected version, then
+atomically change the saved branch and any matching current selection. Stale writes fail, including
+stale no-ops; current no-ops retain their version. Existing selection preserves
+configured names and increments the same version when branch, default branch
+or active state changes. Editing an unselected workspace never selects it.
+`MemoryWorkspaceRepository` implements the same contract for existing consumers.
+
+The existing repository UPSERT cannot rebind a namespace to another provider
+repository identity, including transitions to or from legacy unknown identity.
+Ingress and returned Memory records are detached from caller mutation. Identity
+conflicts are typed nonretryable errors; recovery requires an explicitly reviewed
+identity operation, not automatic reselection or a parallel repository registry.
+
+Workspace list/select renders saved names; session workspace context and
+`AuthorizedWorkspaceRepositoryContext` consume the saved branch for future
+work. Explicit admitted run branches and resume identity keep their existing
+owners and are not rewritten. Configuration reads perform no GitHub or execution
+probe. These records are saved settings, not prepared machines: this slice adds
+no allocation, scripts, network policy, setup secrets, preparation principal,
+Ready binding, runtime identity or alternate environment registry.
+
+## Plan 057 — Lifecycle replay cursor continuation
+
+The SDK's existing lifecycle ordering owner validates replay page progress against
+the last accepted contiguous canonical event. Saved conversation replay and live
+continuation share this check before projecting or yielding the page; page counts
+and omitted request limits no longer imply exhaustion. Empty pages with a
+continuation cursor and cursors beyond accepted events fail explicitly. A final
+nonempty/null page or accepted terminal event remains valid, while empty/null
+means caught up rather than terminal for live polling. Runtime event production,
+canonical terminal state, reducers and transport limits remain unchanged.
+
+## Plan 057 — Optional exact lifecycle replay byte paging
+
+The existing lifecycle event store optionally bounds the exact UTF-8 JSON result
+`{ events, nextSequence }`, with one shared budget and continuity helper for SQLite
+and memory replay. SQLite reads ordered rows incrementally and returns only the
+largest full-event prefix fitting both count and byte limits. The first excluded
+event remains canonical unread history; the cursor is the last returned sequence,
+and only an actual empty suffix returns null. Omitted byte budgets preserve the
+existing internal count-only replay contract.
+
+A first event that cannot fit raises a typed identity/sequence/encoded-size
+descriptor without copying its body, skipping it or claiming EOF. No append or
+lifecycle authority changes. Public HTTP byte paging remains inactive until the
+separately owned lossless event hydration and cursor-aware consumers are wired;
+this foundation alone does not make oversized public replay deliverable. Chunk
+bytes and their real wire digest remain read/transport responsibilities.

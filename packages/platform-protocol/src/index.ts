@@ -618,6 +618,12 @@ export {
 } from "./hosted-sessions.js";
 
 export {
+  HostedWorkspaceConfigurationReadRequestSchema,
+  HostedWorkspaceConfigurationUpdateRequestSchema,
+  HostedWorkspaceConfigurationSchema,
+  type HostedWorkspaceConfigurationReadRequest,
+  type HostedWorkspaceConfigurationUpdateRequest,
+  type HostedWorkspaceConfiguration,
   HostedWorkspaceSelectRequestSchema,
   HostedWorkspaceListResponseSchema,
   HostedWorkspaceSelectResponseSchema,

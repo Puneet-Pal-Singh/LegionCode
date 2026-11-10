@@ -1,3 +1,4 @@
+export { workspaceConfigurationVersionMigration } from "./migrations/0041-workspace-configuration-version.js";
 export type { SqlClient, SqlQueryResult, SqlRow, SqlValue } from "./sql.js";
 export {
   PgSqlClient,
@@ -236,6 +237,9 @@ export {
 export type {
   RepositoryRecord,
   SelectWorkspaceInput,
+  WorkspaceConfigurationRecord,
+  UpdateWorkspaceConfigurationInput,
+  WorkspaceConfigurationUpdateResult,
   WorkspaceBootstrapRecord,
   WorkspaceListItem,
   WorkspaceRecord,
@@ -243,6 +247,7 @@ export type {
   WorkspaceSelectionRecord,
   WorkspaceStatus,
 } from "./workspaces/types.js";
+export { RepositoryIdentityConflictError } from "./workspaces/types.js";
 export { WORKSPACE_STATUSES } from "./workspaces/types.js";
 export type {
   AppendExistingTranscriptMessageInput,

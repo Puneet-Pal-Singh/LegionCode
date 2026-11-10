@@ -383,6 +383,9 @@ export type {
 } from "@repo/platform-protocol";
 
 export type {
+  HostedWorkspaceConfiguration,
+  HostedWorkspaceConfigurationReadRequest,
+  HostedWorkspaceConfigurationUpdateRequest,
   HostedWorkspaceSelectRequest,
   HostedWorkspaceRepository,
   HostedWorkspaceRecord,

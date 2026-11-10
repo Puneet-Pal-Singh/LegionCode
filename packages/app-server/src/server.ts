@@ -12,6 +12,7 @@ import type { BYOKPreference, BYOKPreferencesUpdateRequest, BYOKResolution, BYOK
 import type { DiffContent, GitBranchMutationResult, GitPullRequestMutationResult, GitPushMutationResult, GitStatusResponse } from "@repo/shared-types";
 import type { BYOKCredential, BYOKCredentialConnectRequest, BYOKCredentialUpdateRequest, BYOKCredentialValidateRequest, BYOKCredentialValidateResponse } from "@repo/shared-types";
 import type { BYOKDiscoveredProviderModelsQuery, BYOKDiscoveredProviderModelsResponse, BYOKDiscoveredProviderModelsRefreshResponse, NormalizedProviderError, ProviderRegistryEntry } from "@repo/shared-types";
+import type { HostedWorkspaceConfiguration, HostedWorkspaceConfigurationReadRequest, HostedWorkspaceConfigurationUpdateRequest } from "@repo/platform-protocol";
 import type { HostedWorkspaceListResponse, HostedWorkspaceSelection, HostedWorkspaceSelectRequest } from "@repo/platform-protocol";
 import type {
   RepositoryBranchesRequest,
@@ -80,6 +81,8 @@ export type AppServerComposition = {
     readImage(params: LocalChatImageReadParams): Promise<LocalChatImageReadResult>;
   };
   hostedWorkspaceService?: {
+    readConfiguration(params: HostedWorkspaceConfigurationReadRequest): Promise<HostedWorkspaceConfiguration>;
+    updateConfiguration(params: HostedWorkspaceConfigurationUpdateRequest): Promise<HostedWorkspaceConfiguration>;
     list(): Promise<HostedWorkspaceListResponse>;
     select(params: HostedWorkspaceSelectRequest): Promise<{ selection: HostedWorkspaceSelection }>;
   };
@@ -657,6 +660,14 @@ async function dispatch(
       );
       if (result.statusCode !== 200) throw new Error("initialize failed");
       return result.payload;
+    }
+    case "workspace/configuration/read": {
+      if (!composition.hostedWorkspaceService) throw new Error("unsupported");
+      return composition.hostedWorkspaceService.readConfiguration(request.params);
+    }
+    case "workspace/configuration/update": {
+      if (!composition.hostedWorkspaceService) throw new Error("unsupported");
+      return composition.hostedWorkspaceService.updateConfiguration(request.params);
     }
     case "workspace/list": {
       if (!composition.hostedWorkspaceService) throw new Error("unsupported");

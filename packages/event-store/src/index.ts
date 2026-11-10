@@ -1,6 +1,7 @@
 export {
   EVENT_STORE_ERROR_CODES,
   EventStoreError,
+  LifecycleReplayEventTooLargeError,
   LocalPersistenceError,
   type EventStoreErrorCode,
 } from "./errors.js";

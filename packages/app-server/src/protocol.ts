@@ -2,6 +2,7 @@ import { HarnessSetupRequestSchema, HarnessSetupResponseSchema, HarnessStatusReq
 import { BYOKPreferenceSchema, BYOKPreferencesUpdateRequestSchema, BYOKResolutionSchema, BYOKResolveRequestSchema } from "@repo/shared-types";
 import { BYOKCredentialSchema, BYOKCredentialConnectRequestSchema, BYOKCredentialUpdateRequestSchema, BYOKCredentialValidateRequestSchema, BYOKCredentialValidateResponseSchema } from "@repo/shared-types";
 import {
+  HostedWorkspaceConfigurationReadRequestSchema, HostedWorkspaceConfigurationUpdateRequestSchema, HostedWorkspaceConfigurationSchema,
   HostedWorkspaceSelectRequestSchema, HostedWorkspaceListResponseSchema, HostedWorkspaceSelectResponseSchema,
   HostedSessionParamsSchema, HostedSessionCreateRequestSchema, HostedSessionRenameRequestSchema,
   HostedSessionWorkspaceContextRequestSchema, HostedSessionWorkspaceContextSchema,
@@ -500,6 +501,8 @@ export const AppServerMethodSchema = z.enum([
   "git/pullRequest",
   "artifact/codeContent",
 
+  "workspace/configuration/read",
+  "workspace/configuration/update",
   "workspace/list",
   "workspace/select",
   "repository/list",
@@ -549,6 +552,9 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("harness/models"), params: HarnessModelsRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("harness/selection/read"), params: HarnessSelectionReadRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("harness/selection/select"), params: HarnessSelectRequestSchema }).strict(),
+
+  z.object({ ...AppServerRequestShape, method: z.literal("workspace/configuration/read"), params: HostedWorkspaceConfigurationReadRequestSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("workspace/configuration/update"), params: HostedWorkspaceConfigurationUpdateRequestSchema }).strict(),
 
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/list"), params: EmptyParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/select"), params: HostedWorkspaceSelectRequestSchema }).strict(),
@@ -645,6 +651,9 @@ export const AppServerResultSchemas = {
   "harness/selection/read": HarnessSelectionResponseSchema,
   "harness/selection/select": HarnessSelectionResponseSchema,
 
+  "workspace/configuration/read": HostedWorkspaceConfigurationSchema,
+  "workspace/configuration/update": HostedWorkspaceConfigurationSchema,
+
   "workspace/list": HostedWorkspaceListResponseSchema,
   "workspace/select": HostedWorkspaceSelectResponseSchema,
   "repository/list": RepositoryListResponseSchema,
@@ -739,6 +748,9 @@ export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
   success("harness/models", AppServerResultSchemas["harness/models"]),
   success("harness/selection/read", AppServerResultSchemas["harness/selection/read"]),
   success("harness/selection/select", AppServerResultSchemas["harness/selection/select"]),
+
+  success("workspace/configuration/read", AppServerResultSchemas["workspace/configuration/read"]),
+  success("workspace/configuration/update", AppServerResultSchemas["workspace/configuration/update"]),
 
   success("workspace/list", AppServerResultSchemas["workspace/list"]),
   success("workspace/select", AppServerResultSchemas["workspace/select"]),
