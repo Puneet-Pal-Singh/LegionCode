@@ -319,6 +319,7 @@ export function createLocalNativeRuntime(
         },
         interrupt: executor.interrupt.bind(executor),
         acceptThreadInputAttempt: executor.acceptThreadInputAttempt.bind(executor),
+        supportsImageInput: modelSnapshot.capabilities?.supportsVision === true,
         resolveApproval: executor.resolveApproval,
         async awaitResourceRelease(turnId) {
           if (!(await proveRelease(turnId))) return false;
@@ -492,11 +493,13 @@ async function readConversation(
       if (events.some((event) => event.threadId !== admission.run.threadId || event.turnId !== admission.turn.id ||
           event.runAttemptId !== admission.runAttemptId || event.producer.id !== admission.run.workerId))
         throw new Error("Native history lifecycle crosses canonical admission scope");
-      const inputs = await persistence.threadInputs?.listAcceptedForTurn({ sessionId: admission.run.threadId,
+      const nativeInputOwner = !("harnessSelection" in admission.run && admission.run.harnessSelection !== undefined) &&
+        admission.userMessage.content.harnessSelection === undefined;
+      const inputs = nativeInputOwner ? await persistence.threadInputs?.listAcceptedForTurn({ sessionId: admission.run.threadId,
         threadId: admission.run.threadId, workspaceId: admission.run.workspaceId, userId: admission.run.userId,
-        turnId: admission.turn.id, runAttemptId: admission.runAttemptId });
+        turnId: admission.turn.id, runAttemptId: admission.runAttemptId }) : undefined;
       for (const event of events) {
-        if (event.type === "turn.input.applied") {
+        if (nativeInputOwner && event.type === "turn.input.applied") {
           const input = inputs?.find((item) => item.itemId === event.payload.inputId && item.receipt?.status === "applied" &&
             item.receipt.acceptedSequence === event.payload.acceptedSequence && item.receipt.appliedSequence === event.sequence);
           if (!input) throw new Error("Applied Native input has no canonical durable inbox owner");

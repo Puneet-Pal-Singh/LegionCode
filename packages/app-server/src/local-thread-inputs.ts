@@ -6,7 +6,6 @@ import type { LocalPersistence } from "@repo/event-store/local";
 import { ThreadInputConflictError, type StoredThreadInput, type ThreadInputScope } from "@repo/event-store";
 import { RuntimeKernelError } from "@repo/runtime-kernel";
 import type { LocalThreadService } from "./local-threads.js";
-import type { LocalProviderService } from "./local-providers.js";
 import type { LocalTurnService } from "./local-turns.js";
 import { LocalQueuedInputMediaOwnershipSchema, type LocalQueuedInputMediaPort, type LocalQueuedInputMediaScope } from "./local-queued-input-media.js";
 import { AppServerMethodOutcome, AppServerOperationError } from "./server.js";
@@ -20,8 +19,7 @@ import type { PreparedThreadInputMedia } from "./thread-inputs/ports.js";
 export function createLocalThreadInputOperations(options: {
   persistence: Pick<LocalPersistence, "threadInputs" | "lifecycleEvents">;
   threads: LocalThreadService;
-  turns: Pick<LocalTurnService, "getTurn" | "acceptQueuedSteer">;
-  providers: Pick<LocalProviderService, "getModel">;
+  turns: Pick<LocalTurnService, "getTurn" | "acceptQueuedSteer" | "assertSteerImageInput">;
   media: LocalQueuedInputMediaPort;
   startQueuedTurn: LocalTurnService["startQueuedTurn"];
 }) {
@@ -64,11 +62,7 @@ export function createLocalThreadInputOperations(options: {
       if (!sameTarget(scope, admission, target.expectedRunAttemptId) ||
           (await repository.list(scope)).activeRunId !== admission.run.id)
         return { status: "conflict", code: "target_superseded", message: "The selected turn is no longer active." };
-      if (hasImages) {
-        if (!admission.run.providerId || !admission.run.modelId ||
-            (await options.providers.getModel(admission.run.providerId, admission.run.modelId))?.capabilities?.supportsVision !== true)
-          throw new AppServerOperationError(409, "conflict", "The selected model does not support image input", "local_image_model_unsupported", false);
-      }
+      if (hasImages) await options.turns.assertSteerImageInput(admission.turn.id, admission.runAttemptId);
     },
     deliverSteer: async (scope, item) => {
       const parts = item.mediaRefs.length ? await options.media.resolveQueuedForProvider(mediaRead(item)) : [];
