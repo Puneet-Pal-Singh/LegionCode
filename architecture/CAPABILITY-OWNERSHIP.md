@@ -2463,3 +2463,19 @@ check. Native and delegated admission producers consume the same current Thread
 parents; stale prepared candidates conflict rather than being reparented. No
 terminal mirror, projection table, second reducer or recovery authority is added.
 Native process-loss recovery retains its separate opaque delegated exclusion.
+
+## Plan 057 — Workspace-only observational Git contexts
+
+Canonical status, diff, line-count and untracked-file queries may omit Run
+correlation through explicit read contexts. Supplied Run IDs remain validated.
+Mutation, snapshot, captured publication and named Native HEAD contexts retain
+required Run identity; no synthetic Run or Turn is generated for workspace reads.
+
+The existing local read-only Git factory exposes those canonical queries through
+the same held-root lender, no-fork guardian and positive closure boundary. Local
+diff commands disable external diff and text conversion, reject private indexes,
+and propagate failed contained reads rather than reporting empty review. The
+real no-index difference exit remains valid. Hosted command behavior is unchanged.
+This is the backend read foundation only; local HTTP/SDK workspace scope and its
+actual grant-bound consumer remain separate integration work. Immutable saved
+Turn review and selected-artifact commit retain their existing owners.
