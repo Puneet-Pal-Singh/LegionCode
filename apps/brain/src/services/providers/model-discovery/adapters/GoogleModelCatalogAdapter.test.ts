@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GoogleModelCatalogAdapter } from "./GoogleModelCatalogAdapter";
+import { GoogleModelCatalogAdapter } from "@repo/provider-core/discovery";
 
 describe("GoogleModelCatalogAdapter", () => {
   afterEach(() => {

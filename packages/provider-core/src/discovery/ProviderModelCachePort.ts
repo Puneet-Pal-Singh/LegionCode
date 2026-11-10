@@ -2,7 +2,7 @@ import type {
   ProviderModelCacheEntry,
   ProviderModelCacheGetInput,
   ProviderModelCacheSetInput,
-} from "./types";
+} from "./types.js";
 
 export interface ProviderModelCachePort {
   get(input: ProviderModelCacheGetInput): Promise<ProviderModelCacheEntry | null>;

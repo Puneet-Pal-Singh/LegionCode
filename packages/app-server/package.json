@@ -13,6 +13,7 @@
     "./local-process": "./src/local-process.ts",
     "./local-workspace-files": "./src/local-workspace-files.ts",
     "./local-mac-git-execution": "./src/local-mac-git-execution.ts",
+    "./local-provider-model-discovery": "./src/local-provider-model-discovery.ts",
     "./local-readonly-git": "./src/local-readonly-git.ts"
   },
   "scripts": {
@@ -28,6 +29,7 @@
     "@repo/persistence": "workspace:*",
     "@repo/platform-protocol": "workspace:*",
     "@repo/provider-core": "workspace:*",
+    "@repo/runtime-kernel": "workspace:*",
     "@repo/shared-types": "workspace:*",
     "zod": "^3.25.0"
   },

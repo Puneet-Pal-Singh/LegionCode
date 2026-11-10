@@ -25,6 +25,6 @@ export type { ProviderQuotaStore } from "./ProviderQuotaStore";
 export type {
   ProviderModelCacheStore,
   ProviderModelCacheRecord,
-} from "./ProviderModelCacheStore";
+} from "@repo/provider-core/discovery";
 export { createPostgresProviderConfigService } from "./PostgresStoreFactory";
 export { getProviderEncryptionConfig } from "./ProviderEncryptionConfig";
