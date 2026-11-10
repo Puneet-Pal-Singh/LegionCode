@@ -1,6 +1,7 @@
 import {
   ChangeItem,
   PickerModal,
+  useModalFocus,
   GitCommitDialogView,
   GitCommitSelectionControl,
   type CommitNextStep,
@@ -12,7 +13,7 @@ import {
   type CommitTurnArtifactResponse,
   type TurnDiffPayload,
 } from "@repo/platform-protocol";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
   DesktopSavedReviewScope,
   DesktopSavedReviewTurn,
@@ -137,7 +138,6 @@ function SelectedSavedCommit({
   const uncertain = evidence?.status === "unconfirmed";
   const confirmedReceipt =
     evidence?.status === "confirmed" ? evidence.receipt : null;
-  const dialogRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [nextStep, setNextStep] = useState<CommitNextStep>("commit");
   const command = useRef(false);
@@ -162,35 +162,6 @@ function SelectedSavedCommit({
       mounted.current = false;
     };
   }, []);
-  useEffect(() => {
-    if (!isOpen) return;
-    dialogRef.current
-      ?.querySelector<HTMLButtonElement>('button[title="Close commit dialog"]')
-      ?.focus();
-    const close = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onClose();
-        return;
-      }
-      if (event.key !== "Tab") return;
-      const elements = Array.from(
-        dialogRef.current?.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-        ) ?? [],
-      );
-      const first = elements[0];
-      const last = elements.at(-1);
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last?.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first?.focus();
-      }
-    };
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [isOpen, onClose]);
   const request = CommitTurnArtifactRequestSchema.safeParse({
     turnId: selection.turnId,
     selection: includeAll
@@ -288,13 +259,7 @@ function SelectedSavedCommit({
   if (!isOpen) return null;
   return (
     <PickerModal layer="dialog" backdrop={false}>
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Commit saved changes"
-        className="contents"
-      >
+      <SavedCommitFocusFrame onClose={onClose}>
         <GitCommitDialogView
           onClose={onClose}
           controlsDisabled={locked}
@@ -391,7 +356,19 @@ function SelectedSavedCommit({
           }
           submittingFlow={busy}
         />
-      </div>
+      </SavedCommitFocusFrame>
     </PickerModal>
+  );
+}
+
+/** Focus lives below the portal owner so background inertness clears before restore. */
+function SavedCommitFocusFrame({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus({ isOpen: true, modalRef: dialogRef, onClose });
+  return (
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Commit saved changes"
+      tabIndex={-1} className="contents">
+      {children}
+    </div>
   );
 }

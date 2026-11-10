@@ -2862,3 +2862,28 @@ Kernel strategy guard is merged atomically. Missing capture never selects Native
 or reconstructs external ownership. Final constructor/driver wiring remains
 separate. Current Native admission/lineage, immutable artifacts, lifecycle byte
 paging and provider custody retain their existing source and exports.
+
+## Hosted workspace configuration presentation
+
+The shared `HostedWorkspaceConfigurationEditor` reads and updates the existing
+saved project name and starting branch through the injected authenticated SDK.
+The host supplies its exact account/session/environment generation and workspace
+ID and retains modal mounting, project navigation and sign-in ownership. The
+controller keeps only an unsaved form draft; it owns no project registry or auth
+state. Scope/client changes hide prior data immediately and fence late reads,
+branch listings, save results and notifications. Writes retain the acknowledged
+configuration version; conflicts or uncertain responses require an explicit
+reload before another save, without automatically rebinding repository identity.
+
+`WorkspaceDialogFrame` and `WorkspaceBranchField` are extracted from the existing
+Web authorized repository picker, which now consumes those shared presentations.
+The frame consumes the existing `useModalFocus` owner for keyboard, visible-target
+focus and guarded restoration. `PickerModal` retains only portal/background-inert
+ownership; neither the overlay nor the editor adds another focus-restoration or
+late-load autofocus effect.
+The Desktop saved-commit dialog also consumes that helper below `PickerModal`,
+retaining its mutation/receipt owner while removing its separate keyboard effect.
+GitHub inventory, branch authorization and account state remain with the existing
+Web/SDK/server owners. The new configuration leaf remains awaiting the host-owned
+Web/Desktop mount and installed acceptance; it exposes no scripts, secrets,
+allocation or machine-readiness controls. Saving settings is not preparation.

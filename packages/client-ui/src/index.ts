@@ -97,6 +97,7 @@ export {
 } from "./files/FileExplorer.js";
 
 export { useOutsideDismiss } from "./hooks/useOutsideDismiss.js";
+export { useModalFocus } from "./hooks/modal-focus.js";
 export { useViewportPopoverPosition } from "./hooks/useViewportPopoverPosition.js";
 export { FileChangesIcon } from "./workspace/FileChangesIcon.js";
 export { FilesToggleButton } from "./workspace/FilesToggleButton.js";
@@ -158,3 +159,10 @@ export { usePendingTitleProjectionRefresh, type PendingTitleProjection, type Pen
 export { shouldRetainCurrentTitleProjection, type TitleProjectionVersion } from "./titles/titleProjectionVersion.js";
 
 export { LocalExecutionDetails } from "./environment/LocalExecutionDetails.js";
+
+export { WorkspaceDialogFrame } from "./workspace/WorkspaceDialogFrame.js";
+export { WorkspaceBranchField } from "./workspace/WorkspaceBranchField.js";
+export {
+  HostedWorkspaceConfigurationEditor,
+  type HostedWorkspaceConfigurationEditorProps,
+} from "./workspace/HostedWorkspaceConfigurationEditor.js";

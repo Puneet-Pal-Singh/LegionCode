@@ -1,16 +1,14 @@
 import { useEffect, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-/** The existing Web repository-picker overlay, shared unchanged across clients. */
+/** Shared repository-picker overlay. Dialog children own their focus lifetime. */
 export function PickerModal({ children, layer = "default", backdrop = true }: { children: ReactNode; layer?: "default" | "dialog"; backdrop?: boolean }) {
   useEffect(() => {
-    const previousFocus = document.activeElement;
     const root = document.getElementById("root");
     const wasInert = root?.inert;
     if (root) root.inert = true;
     return () => {
       if (root) root.inert = wasInert ?? false;
-      if (previousFocus instanceof HTMLElement) previousFocus.focus();
     };
   }, []);
   return createPortal(

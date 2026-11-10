@@ -3,14 +3,12 @@ import {
   AlertCircle,
   Check,
   ExternalLink,
-  GitBranch,
   Github,
   LoaderCircle,
   Lock,
-  RefreshCw,
   Search,
-  X,
 } from "lucide-react";
+import { WorkspaceBranchField, WorkspaceDialogFrame } from "@legioncode/client-ui";
 import type { Branch, Repository } from "../../services/GitHubService";
 import * as GitHubService from "../../services/GitHubService";
 import { sortBranchesForRepoPicker } from "./sortBranchesForRepoPicker";
@@ -31,13 +29,10 @@ export function AuthorizedRepositoryPicker({
   const repositoryRequestRef = useRef(0);
   const branchRequestRef = useRef(0);
   const { user } = useAuth();
-  const dialogRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    const previousFocus = document.activeElement;
     return () => {
       branchRequestRef.current += 1;
-      if (previousFocus instanceof HTMLElement) previousFocus.focus();
     };
   }, []);
   const [repos, setRepos] = useState<Repository[]>([]);
@@ -183,42 +178,12 @@ export function AuthorizedRepositoryPicker({
     }).format(new Date(value));
 
   return (
-    <main
-      ref={dialogRef}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="repository-picker-title"
-      onKeyDown={(event) => {
-        if (event.key === "Escape" && !isOpening) onClose?.();
-        if (event.key !== "Tab") return;
-        const controls = Array.from(
-          dialogRef.current?.querySelectorAll<HTMLElement>(
-            "button:not([disabled]), input:not([disabled]), select:not([disabled])",
-          ) ?? [],
-        );
-        const first = controls[0];
-        const last = controls.at(-1);
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last?.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first?.focus();
-        }
-      }}
-      className="relative flex max-h-[calc(100dvh-3rem)] min-h-0 w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-[#111113] text-zinc-100 shadow-2xl"
+    <WorkspaceDialogFrame
+      labelledBy="repository-picker-title"
+      onClose={onClose}
+      closeDisabled={isOpening}
+      closeLabel="Close repository picker"
     >
-      {onClose ? (
-        <button
-          type="button"
-          onClick={onClose}
-          disabled={isOpening}
-          aria-label="Close repository picker"
-          className="absolute right-4 top-4 z-10 rounded-md p-2 text-zinc-400 hover:bg-zinc-800 hover:text-white focus-visible:ring-2 focus-visible:ring-zinc-400 disabled:opacity-40"
-        >
-          <X size={17} />
-        </button>
-      ) : null}
       <section className="flex min-h-0 flex-col px-5 py-6 sm:px-7">
         <div className="shrink-0 pr-10">
           <h1
@@ -330,52 +295,16 @@ export function AuthorizedRepositoryPicker({
         <div className="shrink-0 pt-5">
           {visibleSelectedRepo ? (
             <div className="mb-4 flex flex-col gap-3 border-l border-[#65b8ff] pl-4 sm:flex-row sm:items-end sm:justify-between">
-              <div className="min-w-0 flex-1">
-                <label
-                  htmlFor="repository-branch"
-                  className="mb-1.5 block font-mono text-[10px] uppercase tracking-[0.12em] text-[#969daa]"
-                >
-                  Starting branch
-                </label>
-                {branchState === "loading" ? (
-                  <div className="flex h-10 items-center gap-2 text-xs text-[#969daa]">
-                    <LoaderCircle className="animate-spin" size={14} /> Loading
-                    branches…
-                  </div>
-                ) : branchState === "error" ? (
-                  <button
-                    type="button"
-                    onClick={() => void selectRepository(visibleSelectedRepo)}
-                    className="flex h-10 items-center gap-2 text-xs text-[#e3a95c]"
-                  >
-                    <RefreshCw size={13} /> Retry branch access
-                  </button>
-                ) : (
-                  <div className="relative">
-                    <GitBranch
-                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#969daa]"
-                      size={14}
-                    />
-                    <select
-                      id="repository-branch"
-                      value={selectedBranch}
-                      onChange={(event) =>
-                        setSelectedBranch(event.target.value)
-                      }
-                      className="h-10 w-full appearance-none rounded-md border border-[#343943] bg-[#111318] pl-9 pr-8 font-mono text-xs text-white focus:border-[#65b8ff] focus:outline-none sm:max-w-sm"
-                    >
-                      {branches.map((branch) => (
-                        <option key={branch.name} value={branch.name}>
-                          {branch.name}
-                          {branch.name === visibleSelectedRepo.default_branch
-                            ? " · default"
-                            : ""}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </div>
+              <WorkspaceBranchField
+                id="repository-branch"
+                state={branchState}
+                value={selectedBranch}
+                branches={branches}
+                defaultBranch={visibleSelectedRepo.default_branch}
+                disabled={isOpening}
+                onChange={setSelectedBranch}
+                onRetry={() => void selectRepository(visibleSelectedRepo)}
+              />
               <button
                 type="button"
                 onClick={() => void openWorkspace()}
@@ -421,7 +350,7 @@ export function AuthorizedRepositoryPicker({
           </div>
         </div>
       </section>
-    </main>
+    </WorkspaceDialogFrame>
   );
 }
 
