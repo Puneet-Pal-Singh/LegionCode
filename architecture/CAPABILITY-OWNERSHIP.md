@@ -1647,3 +1647,10 @@ factory quiescence proof: kernel ports never returned, no NativeFS tool could
 start, and every requested Git operation returned positive closure. The Engine
 still requires exact durable terminal evidence. Worker absence is not proof;
 unknown Git closure and the captured preparation proof path remain unchanged.
+
+Captured execution receives one immutable per-attempt registry authorization
+instance from the Native factory. The Engine forwards that same object to the
+captured worker factory and requires the identical object in its kernel ports;
+validated permission policy resolution is cached once for that admitted profile.
+File auto-authorization depends on the separately reviewed worker consumer. This
+port does not itself enable permission modes, tools or broader host authority.

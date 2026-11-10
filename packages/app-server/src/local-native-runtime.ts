@@ -160,6 +160,16 @@ export function createLocalNativeRuntime(
       const selectedProfileId = profileFor(configuration);
       const capability: LocalTurnExecutionCapability<LocalWorkspaceExecutionBinding> =
         configuration.mode === "build" ? availableCapability : { artifactCapture: "omitted_read_only" };
+      let permissionPolicy: Promise<PermissionPolicy> | undefined;
+      const resolvePolicy = () => permissionPolicy ??= Promise.resolve()
+        .then(() => options.resolvePermissionPolicy(configuration.productMode))
+        .then((policy) => PermissionPolicySchema.parse(policy));
+      const toolAuthorization = new RegistryToolAuthorization({
+        async resolve(profileId) {
+          if (profileId !== selectedProfileId) throw new Error("Unknown native permission profile");
+          return resolvePolicy();
+        },
+      });
       const filesystem = new NativeFilesystemBridge({
         helperPath,
         rootDirectory: binding.rootDirectory,
@@ -169,6 +179,7 @@ export function createLocalNativeRuntime(
       let attempt: LocalTurnAttemptIdentity | undefined;
       const executor = new LocalTurnExecutor<LocalWorkspaceExecutionBinding>({
         capability,
+        toolAuthorization,
         producerId: workerId,
         lifecycleEvents: options.persistence.lifecycleEvents,
         ...(capability.artifactCapture === "omitted_read_only" ? {
@@ -220,9 +231,7 @@ export function createLocalNativeRuntime(
         },
         async createKernelPorts(admission, bound, signal, execution) {
           signal.throwIfAborted();
-          const permissionPolicy = PermissionPolicySchema.parse(
-            await options.resolvePermissionPolicy(configuration.productMode),
-          );
+          await resolvePolicy();
           signal.throwIfAborted();
           const manifests = new MemoryWorkspaceManifestRepository();
           try {
@@ -259,13 +268,7 @@ export function createLocalNativeRuntime(
           const kernelPorts = {
             ...provider,
             workspaceManifests: manifests,
-            toolAuthorization: new RegistryToolAuthorization({
-              async resolve(profileId) {
-                if (profileId !== selectedProfileId)
-                  throw new Error("Unknown native permission profile");
-                return permissionPolicy;
-              },
-            }),
+            toolAuthorization,
             approvals,
           };
           kernelPortsReturned = true;
