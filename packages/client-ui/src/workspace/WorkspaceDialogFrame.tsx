@@ -1,5 +1,6 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
+import { useModalFocus } from "../hooks/modal-focus.js";
 
 /** Existing project-picker frame; hosts retain portal and background-inert ownership. */
 export function WorkspaceDialogFrame({
@@ -16,14 +17,11 @@ export function WorkspaceDialogFrame({
   children: ReactNode;
 }) {
   const dialogRef = useRef<HTMLElement>(null);
-  useEffect(() => {
-    const previousFocus = document.activeElement;
-    dialogRef.current?.focus({ preventScroll: true });
-    return () => {
-      if (previousFocus instanceof HTMLElement && previousFocus.isConnected)
-        previousFocus.focus();
-    };
-  }, []);
+  useModalFocus({
+    isOpen: true,
+    modalRef: dialogRef,
+    onClose: () => { if (!closeDisabled) onClose?.(); },
+  });
 
   return (
     <main
@@ -32,25 +30,6 @@ export function WorkspaceDialogFrame({
       aria-modal="true"
       aria-labelledby={labelledBy}
       tabIndex={-1}
-      onKeyDown={(event) => {
-        if (event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229) return;
-        if (event.key === "Escape" && !closeDisabled) onClose?.();
-        if (event.key !== "Tab") return;
-        const controls = Array.from(
-          dialogRef.current?.querySelectorAll<HTMLElement>(
-            "button:not([disabled]), input:not([disabled]), select:not([disabled])",
-          ) ?? [],
-        );
-        const first = controls[0];
-        const last = controls.at(-1);
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last?.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first?.focus();
-        }
-      }}
       className="relative flex max-h-[calc(100dvh-3rem)] min-h-0 w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-[#111113] text-zinc-100 shadow-2xl"
     >
       {onClose ? (

@@ -97,6 +97,7 @@ export {
 } from "./files/FileExplorer.js";
 
 export { useOutsideDismiss } from "./hooks/useOutsideDismiss.js";
+export { useModalFocus } from "./hooks/modal-focus.js";
 export { useViewportPopoverPosition } from "./hooks/useViewportPopoverPosition.js";
 export { FileChangesIcon } from "./workspace/FileChangesIcon.js";
 export { FilesToggleButton } from "./workspace/FilesToggleButton.js";

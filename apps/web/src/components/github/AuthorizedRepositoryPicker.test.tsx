@@ -1,8 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { HostedWorkspaceConfigurationEditor } from "@legioncode/client-ui";
+import { HostedWorkspaceConfigurationEditor, PickerModal } from "@legioncode/client-ui";
 import { createAppServerClient, type AppServerTransport, type HostedWorkspaceConfiguration } from "@legioncode/sdk";
+import { ThreadIdSchema, TurnDiffPayloadSchema, WorkspaceIdSchema } from "@repo/platform-protocol";
+import { DesktopSavedCommitDialog } from "../../../../desktop/src/renderer/src/DesktopSavedCommitDialog";
 import { AuthorizedRepositoryPicker } from "./AuthorizedRepositoryPicker";
+import { RepositoryPickerModal } from "./RepositoryPickerModal";
 import * as GitHubService from "../../services/GitHubService";
 
 vi.mock("../../services/GitHubService", () => ({
@@ -49,7 +52,21 @@ describe("AuthorizedRepositoryPicker", () => {
 
   it("selects an authorized repository and branch before opening a workspace", async () => {
     const onRepoSelect = vi.fn(async () => undefined);
-    const picker = render(<AuthorizedRepositoryPicker onRepoSelect={onRepoSelect} />);
+    const onPickerClose = vi.fn();
+    const applicationRoot = document.createElement("div");
+    applicationRoot.id = "root";
+    // Reflect inert as a browser does, so helper visibility checks exercise
+    // the actual portal parent's cleanup order in this jsdom fixture.
+    Object.defineProperty(applicationRoot, "inert", {
+      get: () => applicationRoot.hasAttribute("inert"),
+      set: (value: boolean) => applicationRoot.toggleAttribute("inert", value),
+    });
+    const opener = document.createElement("button");
+    applicationRoot.append(opener);
+    document.body.append(applicationRoot);
+    opener.focus();
+    const picker = render(<RepositoryPickerModal onRepoSelect={onRepoSelect} onClose={onPickerClose} />);
+    expect(applicationRoot).toHaveAttribute("inert");
 
     const repoButton = await screen.findByRole("button", {
       name: /legioncode\/legioncode/i,
@@ -68,7 +85,14 @@ describe("AuthorizedRepositoryPicker", () => {
         "feature/onboarding",
       ),
     );
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onPickerClose).not.toHaveBeenCalled();
+    screen.getByRole("dialog").focus();
+    expect(opener).not.toHaveFocus();
     picker.unmount();
+    expect(applicationRoot).not.toHaveAttribute("inert");
+    expect(opener).toHaveFocus();
+    applicationRoot.remove();
 
     // The extracted presentation also consumes actual SDK configuration methods.
     // Keep the server's acknowledged revision separate from the unsaved draft.
@@ -134,19 +158,50 @@ describe("AuthorizedRepositoryPicker", () => {
       },
     });
     const onSaved = vi.fn(async () => undefined);
-    const editor = render(<HostedWorkspaceConfigurationEditor client={client} workspaceId="workspace-a"
-      scopeKey="authenticated-session-a" onClose={vi.fn()} onSaved={onSaved} />);
-    expect(screen.getByRole("dialog", { name: "Project settings" })).toHaveFocus();
+    const onClose = vi.fn();
+    const editorOpener = document.createElement("button");
+    document.body.append(editorOpener);
+    editorOpener.focus();
+    const editorView = (workspaceId: string, scopeKey: string) => (
+      <PickerModal>
+        <HostedWorkspaceConfigurationEditor client={client} workspaceId={workspaceId}
+          scopeKey={scopeKey} onClose={onClose} onSaved={onSaved} />
+      </PickerModal>
+    );
+    const editor = render(editorView("workspace-a", "authenticated-session-a"));
+    const dialog = screen.getByRole("dialog", { name: "Project settings" });
+    dialog.focus();
+    const initialShiftTab = new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true });
+    window.dispatchEvent(initialShiftTab);
+    expect(initialShiftTab.defaultPrevented).toBe(true);
+    expect(screen.getByRole("button", { name: "Close project settings" })).toHaveFocus();
+    const preventedEscape = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    preventedEscape.preventDefault();
+    window.dispatchEvent(preventedEscape);
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
     expect(await screen.findByDisplayValue("Saved project")).toBeVisible();
     const startingBranch = await screen.findByLabelText("Starting branch");
     fireEvent.change(screen.getByLabelText("Project name"), { target: { value: "Configured project" } });
     fireEvent.change(startingBranch, { target: { value: "feature/onboarding" } });
+    screen.getByRole("button", { name: "Save changes" }).focus();
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
     expect(sent.find((request) => request.method === "workspace/configuration/update")?.params).toEqual({
       workspaceId: "workspace-a", expectedVersion: 1,
       patch: { name: "Configured project", selectedBranch: "feature/onboarding" },
     });
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+    // A browser may leave focus on a control as it becomes disabled.
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(screen.getByRole("button", { name: "Close project settings" })).toHaveFocus();
+    document.body.tabIndex = -1;
+    document.body.focus();
+    expect(document.activeElement).toBe(document.body);
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(screen.getByRole("button", { name: "Close project settings" })).toHaveFocus();
+    document.body.removeAttribute("tabindex");
 
     conflictNextSave = true;
     fireEvent.change(screen.getByLabelText("Project name"), { target: { value: "My unsaved edit" } });
@@ -170,24 +225,102 @@ describe("AuthorizedRepositoryPicker", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(finishSave).toBeDefined());
     const notifications = onSaved.mock.calls.length;
-    editor.rerender(<HostedWorkspaceConfigurationEditor client={client} workspaceId="workspace-b"
-      scopeKey="authenticated-session-b" onClose={vi.fn()} onSaved={onSaved} />);
+    editor.rerender(editorView("workspace-b", "authenticated-session-b"));
     expect(await screen.findByDisplayValue("Other project")).toBeVisible();
     await act(async () => { finishSave?.(); });
     expect(screen.getByLabelText("Project name")).toHaveValue("Other project");
     expect(onSaved).toHaveBeenCalledTimes(notifications);
 
     holdNextRead = true;
-    editor.rerender(<HostedWorkspaceConfigurationEditor client={client} workspaceId="workspace-a"
-      scopeKey="authenticated-session-c" onClose={vi.fn()} onSaved={onSaved} />);
+    editor.rerender(editorView("workspace-a", "authenticated-session-c"));
     expect(screen.queryByDisplayValue("Other project")).not.toBeInTheDocument();
     await waitFor(() => expect(finishRead).toBeDefined());
-    editor.rerender(<HostedWorkspaceConfigurationEditor client={client} workspaceId="workspace-b"
-      scopeKey="authenticated-session-d" onClose={vi.fn()} onSaved={onSaved} />);
+    editor.rerender(editorView("workspace-b", "authenticated-session-d"));
     expect(await screen.findByDisplayValue("Other project")).toBeVisible();
     await act(async () => { finishRead?.(); });
     expect(screen.getByLabelText("Project name")).toHaveValue("Other project");
+
+    holdNextRead = true;
+    finishRead = undefined;
+    editor.rerender(editorView("workspace-b", "authenticated-session-e"));
+    await waitFor(() => expect(finishRead).toBeDefined());
+    const newerDialog = document.createElement("div");
+    newerDialog.setAttribute("role", "dialog");
+    const newerButton = document.createElement("button");
+    newerDialog.append(newerButton);
+    document.body.append(newerDialog);
+    newerButton.focus();
+    await act(async () => {
+      finishRead?.();
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    });
+    expect(screen.getByLabelText("Project name")).toHaveValue("Other project");
+    expect(newerButton).toHaveFocus();
+    fireEvent.keyDown(newerButton, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
     editor.unmount();
+    expect(newerButton).toHaveFocus();
+    newerDialog.remove();
+    editorOpener.remove();
+
+    const hiddenOpener = document.createElement("button");
+    document.body.append(hiddenOpener);
+    hiddenOpener.focus();
+    const hidden = render(editorView("workspace-b", "authenticated-session-f"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Close project settings" })).toHaveFocus());
+    hiddenOpener.hidden = true;
+    hidden.unmount();
+    expect(hiddenOpener).not.toHaveFocus();
+    hiddenOpener.remove();
+
+    // The other production overlay consumer must retain its own focus lifetime.
+    const snapshot = {
+      turnId: "trn_savedfocus001", snapshotKey: "saved-focus-start", treeId: "a".repeat(40),
+      headSha: "b".repeat(40), phase: "start", capturedAt: "2026-06-08T15:00:00.000Z",
+    };
+    const savedDiff = TurnDiffPayloadSchema.parse({
+      turnId: snapshot.turnId, startSnapshot: snapshot,
+      terminalSnapshot: { ...snapshot, snapshotKey: "saved-focus-terminal", phase: "terminal" },
+      files: [], patch: "",
+    });
+    const workspaceId = WorkspaceIdSchema.parse("wrk_savedfocus001");
+    const threadId = ThreadIdSchema.parse("thr_savedfocus001");
+    const onCommitClose = vi.fn();
+    const commitClient = { commitTurnArtifact: vi.fn(async () => { throw new Error("No commit expected"); }) };
+    const savedView = () => (
+      <DesktopSavedCommitDialog isOpen onClose={onCommitClose} client={commitClient}
+        selection={{ workspaceId, threadId, turnId: savedDiff.turnId, terminalState: "completed" }}
+        diff={savedDiff} scope={{ workspaceId, threadId, grantedAt: snapshot.capturedAt, readiness: "ready" }}
+        availability={{ available: true }} />
+    );
+    document.body.append(applicationRoot);
+    opener.focus();
+    const saved = render(savedView());
+    const savedDialog = screen.getByRole("dialog", { name: "Commit saved changes" });
+    await waitFor(() => expect(savedDialog.contains(document.activeElement)).toBe(true));
+    expect(applicationRoot).toHaveAttribute("inert");
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onCommitClose).toHaveBeenCalledTimes(1);
+    saved.unmount();
+    expect(applicationRoot).not.toHaveAttribute("inert");
+    expect(opener).toHaveFocus();
+
+    const newerSaved = render(savedView());
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Commit saved changes" }).contains(document.activeElement)).toBe(true));
+    document.body.append(newerDialog);
+    newerButton.focus();
+    newerSaved.unmount();
+    expect(newerButton).toHaveFocus();
+    newerDialog.remove();
+
+    opener.focus();
+    const hiddenSaved = render(savedView());
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Commit saved changes" }).contains(document.activeElement)).toBe(true));
+    opener.hidden = true;
+    hiddenSaved.unmount();
+    expect(opener).not.toHaveFocus();
+    expect(commitClient.commitTurnArtifact).not.toHaveBeenCalled();
+    applicationRoot.remove();
   });
 
   it("offers one repair action when no repositories are granted", async () => {

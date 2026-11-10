@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from "react";
+import { useId } from "react";
 import { LoaderCircle } from "lucide-react";
 import type { HostedWorkspaceConfiguration } from "@legioncode/sdk";
 import { WorkspaceBranchField } from "./WorkspaceBranchField.js";
@@ -19,12 +19,8 @@ export function HostedWorkspaceConfigurationEditor(props: HostedWorkspaceConfigu
   const editor = useHostedWorkspaceConfiguration(props);
   const titleId = useId();
   const nameId = useId();
-  const nameRef = useRef<HTMLInputElement>(null);
   const visible = editor.configuration !== null;
   const locked = editor.status !== "ready";
-  useEffect(() => {
-    if (editor.status === "ready") nameRef.current?.focus();
-  }, [editor.scope, editor.status]);
 
   return (
     <WorkspaceDialogFrame labelledBy={titleId} onClose={props.onClose} closeLabel="Close project settings">
@@ -43,7 +39,7 @@ export function HostedWorkspaceConfigurationEditor(props: HostedWorkspaceConfigu
             <p className="truncate text-sm text-[#969daa]">{editor.configuration?.repository.fullName}</p>
             <div>
               <label htmlFor={nameId} className="mb-1.5 block font-mono text-[10px] uppercase tracking-[0.12em] text-[#969daa]">Project name</label>
-              <input id={nameId} ref={nameRef} value={editor.name} onChange={(event) => editor.changeName(event.target.value)}
+              <input id={nameId} value={editor.name} onChange={(event) => editor.changeName(event.target.value)}
                 required maxLength={200} disabled={locked}
                 className="h-10 w-full rounded-md border border-[#343943] bg-[#111318] px-3 text-sm text-white focus:border-[#65b8ff] focus:outline-none disabled:opacity-40" />
             </div>
