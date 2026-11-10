@@ -108,36 +108,49 @@ static inline int lc_writer_lock(int fd) {
     return (errno == EWOULDBLOCK || errno == EAGAIN || errno == EACCES) ? 75 : 70;
   }
 }
+static inline bool lc_probe_rejected(const char *reason) {
+  /* Fixed ABI stage names only: never emit process identities or workspace data. */
+  (void)write(STDERR_FILENO, reason, strlen(reason));
+  return false;
+}
 static inline bool lc_intent_probe(void) {
-  struct lc_proc_bsd_unique self;
-  if (!lc_supported() || !lc_identity(getpid(), &self)) return false;
+  struct lc_proc_bsd_unique self; unsigned char boot[40];
+  if (proc_signal_with_audittoken == NULL) return lc_probe_rejected("LC_INTENT_PROBE_SIGNAL_API\n");
+  if (!lc_boot(boot)) return lc_probe_rejected("LC_INTENT_PROBE_BOOT\n");
+  if (!lc_identity(getpid(), &self)) return lc_probe_rejected("LC_INTENT_PROBE_IDENTITY\n");
   audit_token_t token; memset(&token, 0, sizeof(token));
   token.val[5] = (uint32_t)getpid(); token.val[7] = (uint32_t)self.unique.idversion;
-  if (proc_signal_with_audittoken(&token, SIGCONT) != 0) return false;
+  if (proc_signal_with_audittoken(&token, SIGCONT) != 0) return lc_probe_rejected("LC_INTENT_PROBE_SIGNAL\n");
   /* A private, immediately removed probe inode exercises the actual lock ABI
    * without opening a workspace/root/fence or creating a target process. */
   char path[] = "/tmp/legioncode-writer-probe.XXXXXX";
   int first = mkstemp(path), second = -1; bool okay = false;
-  if (first < 0) return false;
+  const char *failure = "LC_INTENT_PROBE_SCRATCH_IDENTITY\n";
+  if (first < 0) return lc_probe_rejected("LC_INTENT_PROBE_SCRATCH_CREATE\n");
   second = open(path, O_RDWR | O_NOFOLLOW | O_CLOEXEC);
   struct stat a, b;
   if (second < 0 || fstat(first, &a) || fstat(second, &b) || a.st_dev != b.st_dev || a.st_ino != b.st_ino ||
       !S_ISREG(a.st_mode) || a.st_uid != geteuid() || (a.st_mode & 0777) != 0600) goto out;
+  failure = "LC_INTENT_PROBE_SCRATCH_UNLINK\n";
   if (unlink(path)) goto out;
   path[0] = '\0';
+  failure = "LC_INTENT_PROBE_WRITER_OFD\n";
   if (lc_writer_lock(first) != 0) goto out;
   /* An old whole-file flock on a distinct description must see the OFD fence. */
   errno = 0;
+  failure = "LC_INTENT_PROBE_LEGACY_CONFLICT\n";
   if (flock(second, LOCK_EX | LOCK_NB) == 0 || (errno != EWOULDBLOCK && errno != EAGAIN)) goto out;
   struct flock append; memset(&append, 0, sizeof(append));
   append.l_type = F_WRLCK; append.l_whence = SEEK_SET; append.l_start = 1; append.l_len = 1;
+  failure = "LC_INTENT_PROBE_APPEND_LOCK\n";
   if (fcntl(first, F_SETLK, &append)) goto out;
+  failure = "LC_INTENT_PROBE_SCRATCH_CLOSE\n";
   okay = true;
 out:
   if (path[0] && unlink(path)) okay = false;
   if (second >= 0 && close(second)) okay = false;
   if (close(first)) okay = false;
-  return okay;
+  return okay ? true : lc_probe_rejected(failure);
 }
 static inline bool lc_journal_lock(int fd, uint64_t deadline, bool unlock) {
   struct flock lock; memset(&lock, 0, sizeof(lock));

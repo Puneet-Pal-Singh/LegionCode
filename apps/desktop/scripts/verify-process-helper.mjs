@@ -7,6 +7,10 @@ import { inspectNativeFileHelper } from "./build-file-helper.mjs";
 
 const supportedIntentFrame = '{"v":2,"event":"intent_probe","state":"supported","intentVersion":1}\n';
 const acquiredFrame = '{"v":2,"event":"lease","state":"acquired","intentVersion":1}\n';
+const probeFailureReasons = new Set([
+  "SIGNAL_API", "BOOT", "IDENTITY", "SIGNAL", "SCRATCH_CREATE", "SCRATCH_IDENTITY",
+  "SCRATCH_UNLINK", "WRITER_OFD", "LEGACY_CONFLICT", "APPEND_LOCK", "SCRATCH_CLOSE",
+].map((reason) => `LC_INTENT_PROBE_${reason}\n`));
 
 export async function verifyBundledProcessHelper(
   executablePath,
@@ -14,7 +18,7 @@ export async function verifyBundledProcessHelper(
   architecture,
 ) {
   const diagnostics = await inspectNativeFileHelper(executablePath, platform, architecture);
-  const probe = await readHelperReceipt(executablePath, ["--probe-writer-intent"]);
+  const probe = await readHelperReceipt(executablePath, ["--probe-writer-intent"], [], "intent-probe");
   if (!probe.equals(Buffer.from(supportedIntentFrame))) throw unavailable();
 
   const directory = await mkdtemp(join(tmpdir(), "legioncode-package-fence-"));
@@ -29,7 +33,7 @@ export async function verifyBundledProcessHelper(
     lease = await open(join(namespacePath, "fence"), "wx", 0o600);
     const receipt = await readHelperReceipt(executablePath, [
       "--acquire-lease-fd", "6", "--root-fd", "5", "--namespace-fd", "7", "--initialize-empty", "1",
-    ], [root.fd, lease.fd, namespace.fd]);
+    ], [root.fd, lease.fd, namespace.fd], "fresh-inode-acquisition");
     if (!receipt.equals(Buffer.from(acquiredFrame))) throw unavailable();
     return { ...diagnostics, protocol: "guardian-fd6-v2", intentProbe: JSON.parse(probe.toString("utf8")) };
   } finally {
@@ -43,7 +47,7 @@ export async function verifyBundledProcessHelper(
 
 /** Artifact validation only: bounded status/diagnostic bytes and the original
  * trusted helper close event. A deadline requests stop; it never settles close. */
-function readHelperReceipt(executablePath, args, descriptors = []) {
+function readHelperReceipt(executablePath, args, descriptors = [], stage) {
   return new Promise((resolve, reject) => {
     let child;
     try {
@@ -55,7 +59,7 @@ function readHelperReceipt(executablePath, args, descriptors = []) {
       reject(unavailable());
       return;
     }
-    const chunks = [];
+    const chunks = [], diagnosticChunks = [];
     let failed = false, stopping = false;
     const stop = () => {
       failed = true;
@@ -69,7 +73,14 @@ function readHelperReceipt(executablePath, args, descriptors = []) {
     child.on("error", stop);
     child.once("close", (code, signal) => {
       clearTimeout(timer);
-      if (failed || code !== 0 || signal !== null) reject(unavailable());
+      if (failed || code !== 0 || signal !== null) {
+        const diagnostic = Buffer.concat(diagnosticChunks).toString("ascii");
+        console.error(JSON.stringify({
+          helper: "legioncode-process-helper", stage, code, signal,
+          ...(probeFailureReasons.has(diagnostic) ? { diagnostic: diagnostic.trim() } : {}),
+        }));
+        reject(unavailable());
+      }
       else resolve(Buffer.concat(chunks));
     });
     for (const [stream, limit, save] of [
@@ -82,6 +93,7 @@ function readHelperReceipt(executablePath, args, descriptors = []) {
         size += chunk.length;
         if (size > limit) stop();
         else if (save) chunks.push(chunk);
+        else if (stream === child.stderr) diagnosticChunks.push(chunk);
       });
     }
   });
