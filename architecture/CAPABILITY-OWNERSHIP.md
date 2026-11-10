@@ -1667,7 +1667,10 @@ to activate that startup barrier or recover captured Build resources.
 
 The same SQLite admission owner streams validated admission references and scoped
 lifecycle records to derive Thread runtime facts without writing projection state
-or platform terminal events. The latest indexed admission supplies its user leaf
+or platform terminal events. An immutable harnessSelection tag on the Run or user
+message denotes delegated ownership and is skipped without parsing driver data;
+Native lifecycle facts must come from the admitted worker's canonical producer.
+Without indexed Native admissions this read leaves the base projection unchanged. The latest indexed admission supplies its user leaf
 until settled; a settled Turn may supply its completed final assistant item.
 The Thread service applies that leaf only when the admission Run matches its
 existing latest platform Run pointer, preserving newer external runtime leaves.

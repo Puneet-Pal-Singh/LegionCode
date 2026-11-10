@@ -52,6 +52,11 @@ export function readLocalThreadRuntimeSummary(
   for (const admission of admissions) {
     if (admission.run.threadId !== scope.threadId || admission.run.userId !== scope.userId ||
       admission.run.workspaceId !== scope.workspaceId) throw corrupt();
+    if (admission.userMessage.type !== "user_message") throw corrupt();
+    // Delegated selection is immutable ownership evidence. Its adapter keeps its
+    // own producer identity; this Native reader never interprets driver details.
+    if (("harnessSelection" in admission.run && admission.run.harnessSelection !== undefined) ||
+      admission.userMessage.content.harnessSelection !== undefined) continue;
     let sequence = 0;
     let settled = false;
     let assistantLeaf: ItemId | undefined;
