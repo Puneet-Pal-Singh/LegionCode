@@ -80,6 +80,9 @@ export class ProviderConfigService {
           ? preferences.defaultCredentialId
           : undefined;
       },
+      async (input) => {
+        await options.credentialStore.reconnectCredential(input, options.preferenceStore);
+      },
     );
     this.credentialService = new ProviderCredentialService(
       options.env,

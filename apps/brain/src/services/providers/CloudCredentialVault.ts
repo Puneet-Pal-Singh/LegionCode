@@ -12,7 +12,10 @@ import type {
   ProviderId,
   CredentialAcquisition,
 } from "@repo/shared-types";
-import type { CredentialStore } from "./stores/CredentialStore";
+import type {
+  CredentialStore,
+  SetCredentialInput,
+} from "./stores/CredentialStore";
 
 export class CloudCredentialVault implements CredentialVault {
   readonly surface = "cloud" as const;
@@ -23,6 +26,9 @@ export class CloudCredentialVault implements CredentialVault {
     private readonly selectedConnection?: (
       providerId: ProviderId,
     ) => Promise<string | undefined>,
+    private readonly reconnectCredential?: (
+      input: SetCredentialInput,
+    ) => Promise<void>,
   ) {}
 
   async setCredential(
@@ -33,47 +39,25 @@ export class CloudCredentialVault implements CredentialVault {
     connectionConfig = connectionConfig
       ? ProviderConnectionConfigSchema.parse(connectionConfig)
       : undefined;
-    const selected = await this.selectedConnection?.(providerId);
-    let expected: CredentialAcquisition | undefined;
-    if (selected !== undefined) {
-      const record = await this.credentialStore.getConnection(selected);
-      if (
-        !record ||
-        record.credentialId !== selected ||
-        record.userId !== this.userId ||
-        record.providerId !== providerId ||
-        !record.isDefault ||
-        record.deletedAt !== null ||
-        record.credentialKind !== "api_key"
-      )
-        throw new Error(
-          "Selected credential cannot be reconnected through the default route",
-        );
-      expected = {
-        connectionId: record.credentialId,
-        userId: this.userId,
-        providerId,
-        ownerGeneration: record.authOwnerGeneration,
-        tokenMaterialVersion: record.tokenMaterialVersion,
-      };
+    const input: SetCredentialInput = {
+      userId: this.userId,
+      providerId,
+      label: "default",
+      apiKey,
+      connectionConfig,
+    };
+    if (this.reconnectCredential) {
+      await this.reconnectCredential(input);
+      return;
     }
-    if ((await this.selectedConnection?.(providerId)) !== selected)
-      throw new Error("Credential selection changed during reconnect");
+    // Standalone legacy vaults have no selected workspace preference. Selected
+    // Connect must have the canonical atomic owner; never substitute a default.
+    if (this.selectedConnection)
+      throw new Error("Atomic selected credential reconnect is unavailable");
     await this.credentialStore.setCredential(
-      {
-        credentialId: expected?.connectionId ?? crypto.randomUUID(),
-        userId: this.userId,
-        providerId,
-        label: "default",
-        apiKey,
-        connectionConfig,
-      },
-      expected,
+      { ...input, credentialId: crypto.randomUUID() },
+      undefined,
     );
-    // The captured target may have been updated; a picker change does not undo
-    // that mutation and must not report a different selection connected.
-    if ((await this.selectedConnection?.(providerId)) !== selected)
-      throw new Error("Credential selection changed during reconnect");
   }
 
   async getApiKey(providerId: ProviderId): Promise<string | null> {

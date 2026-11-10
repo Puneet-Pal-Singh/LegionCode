@@ -111,7 +111,19 @@ export interface CredentialConnectionStore {
   ): Promise<ProviderCredentialRecord | null>;
 }
 
+/** Private optimistic snapshot of the existing workspace preference row. */
+export interface CredentialSelectionSnapshot {
+  readonly providerId?: ProviderId;
+  readonly credentialId?: string;
+  readonly version: string | null;
+}
+
 export interface CredentialStore extends CredentialConnectionStore {
+  /** Explicit Connect replaces a captured credential and its preference atomically. */
+  reconnectCredential(
+    input: SetCredentialInput,
+    preferences: PreferenceStore,
+  ): Promise<ProviderCredentialRecord>;
   getCredential(
     providerId: ProviderId,
   ): Promise<ProviderCredentialRecord | null>;

@@ -1,3 +1,4 @@
+import { PostgresPreferenceStore } from "./PostgresPreferenceStore.js";
 import { PostgresCredentialDefaultFence } from "./PostgresCredentialDefaultFence.js";
 import {
   CredentialAcquisitionSchema,
@@ -16,9 +17,13 @@ import {
   matches,
   sameOAuthAccount,
   ConnectionSecretCodec,
+  snapshotReconnectInput,
+  assertReconnectOwner,
+  CredentialReconnectConflict,
 } from "./connection-custody.js";
 import type {
   CredentialStore,
+  PreferenceStore,
   CredentialConnectionStore,
   CreateCredentialConnectionInput,
   ProviderCredentialRecord,
@@ -45,6 +50,121 @@ export class PostgresCredentialStore
       previousMasterKey,
     );
   }
+  async reconnectCredential(
+    input: SetCredentialInput,
+    preferences: PreferenceStore,
+  ): Promise<ProviderCredentialRecord> {
+    input = snapshotReconnectInput(input);
+    this.authorize(input.userId);
+    if (
+      !(preferences instanceof PostgresPreferenceStore) ||
+      !preferences.ownsCredentialScope(
+        this.client,
+        this.userId,
+        this.workspaceId,
+      )
+    )
+      throw new Error(
+        "Credential reconnect requires canonical preference ownership",
+      );
+    if (!this.encryption.isValidKeyFormat(input.apiKey))
+      throw new Error("Invalid API key format");
+    const selection = await preferences.captureCredentialSelection();
+    const bindSelection = selection.providerId === input.providerId;
+    const selectedId = bindSelection ? selection.credentialId : undefined;
+    const before =
+      selectedId !== undefined
+        ? await this.getConnection(selectedId)
+        : await this.getCredential(input.providerId);
+    if (selectedId !== undefined && !before)
+      throw new CredentialReconnectConflict();
+    if (
+      before &&
+      (before.userId !== this.userId ||
+        before.providerId !== input.providerId ||
+        before.credentialKind !== "api_key" ||
+        before.refreshClaimId !== null ||
+        (before.deletedAt !== null && before.status !== "revoked"))
+    )
+      throw new CredentialReconnectConflict();
+    const owner = before ? structuredClone(before) : null;
+    const isDefault = !bindSelection;
+    const epoch = isDefault
+      ? await new PostgresCredentialDefaultFence(this.client).capture({
+          userId: this.userId,
+          providerId: input.providerId,
+        })
+      : undefined;
+    // New identity/AAD; never revive the selected tombstone or replace an
+    // unrelated default. All encryption completes BEFORE the SQL transaction.
+    const prepared = this.newRecord(input, crypto.randomUUID(), isDefault);
+    prepared.encryptedSecretJson = await this.codec.encode(
+      { type: "api_key", apiKey: input.apiKey },
+      prepared,
+    );
+    prepared.keyFingerprint = await this.encryption.generateFingerprint(
+      input.apiKey,
+    );
+    try {
+      return await preferences.withCredentialSelection(
+        selection,
+        async (client) => {
+          const store = this.withClient(client);
+          const committed = await new PostgresCredentialDefaultFence(
+            client,
+          ).advanceInTransaction(
+            { userId: this.userId, providerId: prepared.providerId },
+            async () => {
+              if (epoch !== undefined) {
+                const currentEpoch = await client.query<{
+                  generation: string | number;
+                }>(
+                  "SELECT generation FROM provider_credential_default_epochs WHERE user_id=$1 AND provider_id=$2",
+                  [this.userId, prepared.providerId],
+                );
+                if (Number(currentEpoch.rows[0]?.generation) !== epoch + 1)
+                  throw new CredentialReconnectConflict();
+              }
+              const current = owner
+                ? await store.getConnection(owner.credentialId)
+                : await store.getCredential(prepared.providerId);
+              assertReconnectOwner(
+                current,
+                owner,
+                this.userId,
+                prepared.providerId,
+              );
+              if (owner && owner.deletedAt === null) {
+                if (
+                  !(await store.revokeConnectionInTransaction(
+                    acquisition(owner),
+                  ))
+                )
+                  throw new CredentialReconnectConflict();
+              }
+              const inserted = await store.insert(prepared);
+              if (bindSelection)
+                await new PostgresPreferenceStore(
+                  client,
+                  this.userId,
+                  this.workspaceId,
+                ).bindCredentialSelection(selection, inserted.credentialId);
+              return inserted;
+            },
+          );
+          return committed.value;
+        },
+      );
+    } catch (error) {
+      if (error instanceof CredentialReconnectConflict) throw error;
+      // A transport error can occur AFTER COMMIT. Never retry with a fresh UUID
+      // or claim rollback; the next explicit action must reconcile durable state.
+      throw new Error(
+        "Credential connection outcome is unknown; reconcile before retrying",
+      );
+    }
+  }
+
   async getCredential(
     providerId: ProviderId,
   ): Promise<ProviderCredentialRecord | null> {

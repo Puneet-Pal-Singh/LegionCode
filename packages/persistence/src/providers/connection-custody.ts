@@ -1,9 +1,11 @@
 import {
   CredentialSecretSchema,
+  ProviderConnectionConfigSchema,
+  ProviderIdSchema,
   type CredentialAcquisition,
   type CredentialSecret,
 } from "@repo/shared-types";
-import type { ProviderCredentialRecord } from "./types.js";
+import type { ProviderCredentialRecord, SetCredentialInput } from "./types.js";
 import {
   CredentialEncryptionService,
   EncryptedSecretSchema,
@@ -105,5 +107,55 @@ export class ConnectionSecretCodec {
     if (result.type !== record.credentialKind)
       throw new Error("Credential kind mismatch");
     return result;
+  }
+}
+
+/** Capture the complete explicit Connect intent before preference/crypto awaits. */
+export function snapshotReconnectInput(
+  input: SetCredentialInput,
+): SetCredentialInput {
+  const secret = CredentialSecretSchema.options[0].parse({
+    type: "api_key",
+    apiKey: input.apiKey,
+  });
+  return {
+    ...input,
+    providerId: ProviderIdSchema.parse(input.providerId),
+    apiKey: secret.apiKey,
+    connectionConfig: input.connectionConfig
+      ? ProviderConnectionConfigSchema.parse(input.connectionConfig)
+      : undefined,
+  };
+}
+export function assertReconnectOwner(
+  current: ProviderCredentialRecord | null,
+  expected: ProviderCredentialRecord | null,
+  userId: string,
+  providerId: string,
+): void {
+  if (!expected) {
+    if (current) throw new CredentialReconnectConflict();
+    return;
+  }
+  if (
+    !current ||
+    current.credentialId !== expected.credentialId ||
+    current.userId !== userId ||
+    current.providerId !== providerId ||
+    current.authOwnerGeneration !== expected.authOwnerGeneration ||
+    current.tokenMaterialVersion !== expected.tokenMaterialVersion ||
+    current.credentialKind !== "api_key" ||
+    current.isDefault !== expected.isDefault ||
+    current.status !== expected.status ||
+    current.deletedAt !== expected.deletedAt ||
+    current.refreshClaimId !== expected.refreshClaimId
+  )
+    throw new CredentialReconnectConflict();
+}
+
+export class CredentialReconnectConflict extends Error {
+  constructor() {
+    super("Credential selection or ownership changed during connect");
+    this.name = "CredentialReconnectConflict";
   }
 }

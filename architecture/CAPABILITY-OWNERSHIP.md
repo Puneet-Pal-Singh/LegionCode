@@ -2068,3 +2068,11 @@ and paired configuration. Disconnect revokes the captured selected connection;
 selection changes conflict instead of reporting a different connection disconnected.
 These metadata/custody checks establish no provider identity, entitlement or host
 confinement claim.
+
+Explicit Connect stages encryption before the existing credential/preference
+transaction. The PostgreSQL preference snapshot uses private row `xmin`; Memory
+keeps its version in the canonical preference-map entry. The guarded commit
+retires only the captured credential, preserves revoked history, inserts a fresh
+credential identity and binds the new selection atomically. No credential is
+revived and no failed Connect clears a sticky selection to permit payer fallback.
+Unknown commit outcomes are reported without automatic creation retries.

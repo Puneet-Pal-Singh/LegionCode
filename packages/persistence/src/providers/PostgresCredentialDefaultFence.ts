@@ -48,16 +48,29 @@ export class PostgresCredentialDefaultFence {
     revoke: (tx: SqlClient) => Promise<T>,
   ): Promise<{ generation: number; value: T }> {
     validate(scope);
-    return this.client.transaction(async (tx) => {
-      const result = await tx.query<{ generation: string | number }>(
-        `INSERT INTO provider_credential_default_epochs(user_id,provider_id,generation)
+    return this.client.transaction((tx) =>
+      new PostgresCredentialDefaultFence(tx).advanceInTransaction(
+        scope,
+        revoke,
+      ),
+    );
+  }
+  /** Internal composition already owns one SQL transaction and the preference
+   * guard. Acquire epoch before credential rows; never starts another transaction. */
+  async advanceInTransaction<T>(
+    scope: CredentialDefaultScope,
+    revoke: (tx: SqlClient) => Promise<T>,
+  ): Promise<{ generation: number; value: T }> {
+    validate(scope);
+    const tx = this.client;
+    const result = await tx.query<{ generation: string | number }>(
+      `INSERT INTO provider_credential_default_epochs(user_id,provider_id,generation)
         VALUES ($1,$2,2) ON CONFLICT (user_id,provider_id) DO UPDATE
         SET generation=provider_credential_default_epochs.generation+1,updated_at=now() RETURNING generation`,
-        [scope.userId, scope.providerId],
-      );
-      const next = generation(result.rows[0]?.generation);
-      return { generation: next, value: await revoke(tx) };
-    });
+      [scope.userId, scope.providerId],
+    );
+    const next = generation(result.rows[0]?.generation);
+    return { generation: next, value: await revoke(tx) };
   }
 }
 function validate(scope: CredentialDefaultScope): void {

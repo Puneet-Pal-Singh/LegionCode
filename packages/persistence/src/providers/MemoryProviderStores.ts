@@ -12,6 +12,9 @@ import {
   acquisition,
   matches,
   sameOAuthAccount,
+  snapshotReconnectInput,
+  assertReconnectOwner,
+  CredentialReconnectConflict,
 } from "./connection-custody.js";
 import type {
   BYOKPreferences,
@@ -21,6 +24,7 @@ import type {
 import { CredentialEncryptionService } from "./credential-encryption.js";
 import type {
   CredentialConnectionStore,
+  CredentialSelectionSnapshot,
   CreateCredentialConnectionInput,
   CredentialStore,
   PreferenceStore,
@@ -54,6 +58,104 @@ export class MemoryCredentialStore
       previousMasterKey,
     );
   }
+  async reconnectCredential(
+    input: SetCredentialInput,
+    preferences: PreferenceStore,
+  ): Promise<ProviderCredentialRecord> {
+    input = snapshotReconnectInput(input);
+    this.authorize(input.userId);
+    if (
+      !(preferences instanceof MemoryPreferenceStore) ||
+      !preferences.ownsCredentialScope(this.userId, this.workspaceId)
+    )
+      throw new Error(
+        "Credential reconnect requires canonical preference ownership",
+      );
+    if (!this.encryption.isValidKeyFormat(input.apiKey))
+      throw new Error("Invalid API key format");
+    const selection = await preferences.captureCredentialSelection();
+    const bindSelection = selection.providerId === input.providerId;
+    const selectedId = bindSelection ? selection.credentialId : undefined;
+    const before =
+      selectedId !== undefined
+        ? await this.getConnection(selectedId)
+        : await this.getCredential(input.providerId);
+    if (selectedId !== undefined && !before)
+      throw new CredentialReconnectConflict();
+    if (
+      before &&
+      (before.userId !== this.userId ||
+        before.providerId !== input.providerId ||
+        before.credentialKind !== "api_key" ||
+        before.refreshClaimId !== null ||
+        (before.deletedAt !== null && before.status !== "revoked"))
+    )
+      throw new CredentialReconnectConflict();
+    const owner = before ? structuredClone(before) : null;
+    const epoch = this.epochs.get(input.providerId) ?? 0;
+    const prepared = this.newRecord(input, crypto.randomUUID(), !bindSelection);
+    prepared.encryptedSecretJson = await this.codec.encode(
+      { type: "api_key", apiKey: input.apiKey },
+      prepared,
+    );
+    prepared.keyFingerprint = await this.encryption.generateFingerprint(
+      input.apiKey,
+    );
+    try {
+      return preferences.commitCredentialSelection(
+        selection,
+        bindSelection ? prepared.credentialId : undefined,
+        () => {
+          // All validation/allocation precedes the synchronous final mutation.
+          // No await can expose a new credential without its preference binding.
+          if (
+            prepared.isDefault &&
+            (this.epochs.get(input.providerId) ?? 0) !== epoch
+          )
+            throw new CredentialReconnectConflict();
+          const current = owner
+            ? (this.records.get(owner.credentialId) ?? null)
+            : this.findDefault(input.providerId);
+          assertReconnectOwner(current, owner, this.userId, input.providerId);
+          if (this.records.has(prepared.credentialId))
+            throw new CredentialReconnectConflict();
+          const nextEpoch = (this.epochs.get(input.providerId) ?? 0) + 1;
+          if (
+            !Number.isSafeInteger(nextEpoch) ||
+            (owner &&
+              owner.deletedAt === null &&
+              !Number.isSafeInteger(owner.authOwnerGeneration + 1))
+          )
+            throw new CredentialReconnectConflict();
+          const now = new Date().toISOString();
+          const retired =
+            owner && owner.deletedAt === null
+              ? {
+                  ...owner,
+                  authOwnerGeneration: owner.authOwnerGeneration + 1,
+                  status: "revoked" as const,
+                  deletedAt: now,
+                  updatedAt: now,
+                  encryptedSecretJson: "{}",
+                  refreshClaimId: null,
+                  isDefault: false,
+                }
+              : null;
+          const result = structuredClone(prepared);
+          if (retired) this.records.set(retired.credentialId, retired);
+          this.records.set(prepared.credentialId, prepared);
+          this.epochs.set(input.providerId, nextEpoch);
+          return result;
+        },
+      );
+    } catch (error) {
+      if (error instanceof CredentialReconnectConflict) throw error;
+      throw new Error(
+        "Credential connection outcome is unknown; reconcile before retrying",
+      );
+    }
+  }
+
   async getCredential(
     providerId: ProviderId,
   ): Promise<ProviderCredentialRecord | null> {
@@ -393,25 +495,69 @@ export class MemoryCredentialStore
   }
 }
 
+interface MemoryPreferenceState {
+  readonly value: BYOKPreferences;
+  readonly version: number;
+}
 export class MemoryPreferenceStore implements PreferenceStore {
-  private readonly preferences = new Map<string, BYOKPreferences>();
-
   constructor(
     private readonly userId: string,
     private readonly workspaceId: string,
+    private readonly preferences = new Map<string, MemoryPreferenceState>(),
   ) {}
 
-  async getPreferences(): Promise<BYOKPreferences> {
-    return this.clonePreferences(
-      this.preferences.get(this.key()) ?? this.defaultPreferences(),
-    );
+  ownsCredentialScope(userId: string, workspaceId: string): boolean {
+    return userId === this.userId && workspaceId === this.workspaceId;
   }
-
+  async captureCredentialSelection(): Promise<CredentialSelectionSnapshot> {
+    const state = this.preferences.get(this.key());
+    return {
+      providerId: state?.value.defaultProviderId,
+      credentialId: state?.value.defaultCredentialId,
+      version: state ? String(state.version) : null,
+    };
+  }
+  /** Shared map entry is the version authority, including across wrappers.
+   * Final credential and preference map changes execute without an await. */
+  commitCredentialSelection<T>(
+    expected: CredentialSelectionSnapshot,
+    credentialId: string | undefined,
+    commit: () => T,
+  ): T {
+    expected = { ...expected };
+    const state = this.preferences.get(this.key());
+    if (
+      (state ? String(state.version) : null) !== expected.version ||
+      state?.value.defaultProviderId !== expected.providerId ||
+      state?.value.defaultCredentialId !== expected.credentialId
+    )
+      throw new CredentialReconnectConflict();
+    const next =
+      credentialId !== undefined
+        ? this.clonePreferences({
+            ...(state?.value ?? this.defaultPreferences()),
+            defaultCredentialId:
+              CredentialAcquisitionSchema.shape.connectionId.parse(
+                credentialId,
+              ),
+            updatedAt: new Date().toISOString(),
+          })
+        : null;
+    const version = (state?.version ?? 0) + 1;
+    if (next && (!expected.providerId || !Number.isSafeInteger(version)))
+      throw new CredentialReconnectConflict();
+    const result = commit();
+    if (next) this.preferences.set(this.key(), { value: next, version });
+    return result;
+  }
+  async getPreferences(): Promise<BYOKPreferences> {
+    return this.currentPreferences();
+  }
   async updatePreferences(
     patch: BYOKPreferencesPatch,
   ): Promise<BYOKPreferences> {
     patch = structuredClone(patch);
-    const current = await this.getPreferences();
+    const current = this.currentPreferences();
     const next = this.clonePreferences({
       defaultProviderId: patch.defaultProviderId ?? current.defaultProviderId,
       defaultCredentialId:
@@ -425,34 +571,41 @@ export class MemoryPreferenceStore implements PreferenceStore {
       credentialLabels: current.credentialLabels,
       updatedAt: new Date().toISOString(),
     });
-
-    this.preferences.set(this.key(), next);
+    this.publish(next);
     return this.clonePreferences(next);
   }
-
   async setCredentialLabel(credentialId: string, label: string): Promise<void> {
-    const current = await this.getPreferences();
-    this.preferences.set(this.key(), {
+    const current = this.currentPreferences();
+    this.publish({
       ...current,
-      credentialLabels: {
-        ...current.credentialLabels,
-        [credentialId]: label,
-      },
+      credentialLabels: { ...current.credentialLabels, [credentialId]: label },
       updatedAt: new Date().toISOString(),
     });
   }
-
   async deleteCredentialLabel(credentialId: string): Promise<void> {
-    const current = await this.getPreferences();
+    const current = this.currentPreferences();
     const credentialLabels = { ...current.credentialLabels };
     delete credentialLabels[credentialId];
-    this.preferences.set(this.key(), {
+    this.publish({
       ...current,
       credentialLabels,
       updatedAt: new Date().toISOString(),
     });
   }
-
+  private publish(value: BYOKPreferences): void {
+    const version = (this.preferences.get(this.key())?.version ?? 0) + 1;
+    if (!Number.isSafeInteger(version))
+      throw new Error("Preference version unavailable");
+    this.preferences.set(this.key(), {
+      value: this.clonePreferences(value),
+      version,
+    });
+  }
+  private currentPreferences(): BYOKPreferences {
+    return this.clonePreferences(
+      this.preferences.get(this.key())?.value ?? this.defaultPreferences(),
+    );
+  }
   private defaultPreferences(): BYOKPreferences {
     return {
       defaultProviderId: undefined,
@@ -462,7 +615,6 @@ export class MemoryPreferenceStore implements PreferenceStore {
       updatedAt: new Date().toISOString(),
     };
   }
-
   private clonePreferences(preferences: BYOKPreferences): BYOKPreferences {
     return {
       ...preferences,
@@ -470,21 +622,9 @@ export class MemoryPreferenceStore implements PreferenceStore {
       credentialLabels: { ...preferences.credentialLabels },
     };
   }
-
   private key(): string {
     return `${this.userId}:${this.workspaceId}`;
   }
-}
-
-function cloneVisibleModelIds(
-  visibleModelIds: Record<string, string[]>,
-): Record<string, string[]> {
-  return Object.fromEntries(
-    Object.entries(visibleModelIds).map(([providerId, modelIds]) => [
-      providerId,
-      [...modelIds],
-    ]),
-  );
 }
 
 export class MemoryProviderAuditLog implements ProviderAuditLog {
