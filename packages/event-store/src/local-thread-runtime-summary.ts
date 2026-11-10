@@ -59,7 +59,8 @@ export function readLocalThreadRuntimeSummary(
     for (const row of lifecycle.iterate(admission.turn.id) as Iterable<StoredEvent>) {
       const event = parseLifecycle(row.event_json);
       if (event.threadId !== scope.threadId || event.turnId !== admission.turn.id ||
-        event.runAttemptId !== admission.runAttemptId || row.thread_id !== scope.threadId ||
+        event.runAttemptId !== admission.runAttemptId || event.producer.id !== admission.run.workerId ||
+        row.thread_id !== scope.threadId ||
         row.turn_id !== admission.turn.id || row.stream_type !== "turn" ||
         row.stream_id !== admission.turn.id || event.sequence !== ++sequence ||
         row.sequence !== event.sequence || settled) throw corrupt();
@@ -70,7 +71,8 @@ export function readLocalThreadRuntimeSummary(
         const start = parseLifecycle(startRow.event_json);
         if (start.type !== "item.started" || start.itemId !== event.itemId ||
           start.threadId !== scope.threadId || start.turnId !== admission.turn.id ||
-          start.runAttemptId !== admission.runAttemptId || start.sequence !== startRow.sequence ||
+          start.runAttemptId !== admission.runAttemptId || start.producer.id !== admission.run.workerId ||
+          start.sequence !== startRow.sequence ||
           startRow.thread_id !== scope.threadId || startRow.turn_id !== admission.turn.id ||
           startRow.stream_type !== "turn" || startRow.stream_id !== admission.turn.id) throw corrupt();
         if (start.payload.kind === "assistant_message") assistantLeaf = event.itemId;
