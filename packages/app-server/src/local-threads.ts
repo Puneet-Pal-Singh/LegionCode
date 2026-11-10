@@ -16,7 +16,7 @@ import {
   type WorkspaceId,
 } from "@repo/platform-protocol";
 
-const LOCAL_USER_ID = UserIdSchema.parse("usr_localdesktop");
+export const LOCAL_USER_ID = UserIdSchema.parse("usr_localdesktop");
 export type LocalThreadServiceOptions = {
   events: LocalPersistence["events"];
   getWorkspace: () => Promise<LocalWorkspaceGrant | null>;

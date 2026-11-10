@@ -1,3 +1,5 @@
+import type { LocalProviderPreferenceScope } from "./protocol.js";
+import { APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES, appServerJsonByteLength } from "@repo/platform-protocol";
 import type { LocalWorkspaceListFilesParams, LocalWorkspaceListFilesResult, LocalWorkspaceReadFileParams } from "./protocol.js";
 import type { LocalWorkspaceFileMentionsParams, LocalWorkspaceFileMentionsResult } from "./protocol.js";
 import type { LocalTurnStartParams, LocalTurnInterruptParams, LocalThreadHistoryParams, LocalThreadHistoryResult, CheckoutListFilesResult, CheckoutReadFileResult } from "./protocol.js";
@@ -93,6 +95,10 @@ export type AppServerComposition = {
     update(runId: string | undefined, credentialId: string, request: BYOKCredentialUpdateRequest): Promise<BYOKCredential>;
     disconnect(runId: string | undefined, credentialId: string): Promise<void>;
     validate(runId: string | undefined, credentialId: string, request: BYOKCredentialValidateRequest): Promise<BYOKCredentialValidateResponse>;
+  };
+  localProviderPreferenceService?: {
+    read(runId: string | undefined, scope?: LocalProviderPreferenceScope): Promise<BYOKPreference>;
+    update(runId: string | undefined, request: BYOKPreferencesUpdateRequest, scope?: LocalProviderPreferenceScope): Promise<BYOKPreference>;
   };
   hostedProviderPreferenceService?: {
     read(runId: string | undefined): Promise<BYOKPreference>;
@@ -271,6 +277,9 @@ export async function handleAppServerHttpRequest(
       ok: true,
       result,
     });
+    if (request.method === "thread/history" && appServerJsonByteLength(response) > APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES) {
+      throw new AppServerOperationError(503, "server_unavailable", "History page exceeds the supported response size", "history_page_too_large", false);
+    }
     return { statusCode, headers: JSON_HEADERS, payload: response };
   } catch (error) {
     if (error instanceof AppServerProviderOperationError) {
@@ -664,14 +673,23 @@ async function dispatch(
       return composition.hostedProviderCredentialService.validate(request.params.runId, request.params.credentialId, request.params.request);
     }
     case "provider/preferences/read": {
+      if (composition.environment === "local") {
+        if (!composition.localProviderPreferenceService) throw new Error("unsupported");
+        return composition.localProviderPreferenceService.read(request.params.runId, request.params.localScope);
+      }
       if (!composition.hostedProviderPreferenceService) throw new Error("unsupported");
       return composition.hostedProviderPreferenceService.read(request.params.runId);
     }
     case "provider/preferences/update": {
+      if (composition.environment === "local") {
+        if (!composition.localProviderPreferenceService) throw new Error("unsupported");
+        return composition.localProviderPreferenceService.update(request.params.runId, request.params.request, request.params.localScope);
+      }
       if (!composition.hostedProviderPreferenceService) throw new Error("unsupported");
       return composition.hostedProviderPreferenceService.update(request.params.runId, request.params.request);
     }
     case "provider/resolve": {
+      if (composition.environment === "local") throw new Error("unsupported");
       if (!composition.hostedProviderPreferenceService) throw new Error("unsupported");
       return composition.hostedProviderPreferenceService.resolve(request.params.runId, request.params.request);
     }

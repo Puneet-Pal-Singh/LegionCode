@@ -44,9 +44,6 @@ importers:
       '@ai-sdk/openai':
         specifier: ^1.1.0
         version: 1.1.0(zod@3.25.1)
-      '@cf-wasm/photon':
-        specifier: 0.4.0
-        version: 0.4.0
       '@legioncode/app-server':
         specifier: workspace:*
         version: link:../../packages/app-server
@@ -62,6 +59,9 @@ importers:
       '@legioncode/orchestrator-core':
         specifier: workspace:*
         version: link:../../packages/orchestrator-core
+      '@repo/chat-media':
+        specifier: workspace:*
+        version: link:../../packages/chat-media
       '@repo/event-store':
         specifier: workspace:*
         version: link:../../packages/event-store
@@ -86,9 +86,6 @@ importers:
       ai:
         specifier: 4.1.0
         version: 4.1.0(react@19.2.4)(zod@3.25.1)
-      image-size:
-        specifier: 2.0.2
-        version: 2.0.2
       zod:
         specifier: ^3.22.4
         version: 3.25.1
@@ -96,6 +93,9 @@ importers:
         specifier: 3.25.1
         version: 3.25.1(zod@3.25.1)
     devDependencies:
+      '@cf-wasm/photon':
+        specifier: 0.4.0
+        version: 0.4.0
       '@cloudflare/workers-types':
         specifier: ^4.20240208.0
         version: 4.20260128.0
@@ -114,6 +114,9 @@ importers:
       eslint:
         specifier: ^9.39.1
         version: 9.39.2(jiti@2.6.1)
+      image-size:
+        specifier: 2.0.2
+        version: 2.0.2
       typescript:
         specifier: ^5.0.0
         version: 5.9.3
@@ -497,6 +500,9 @@ importers:
       '@legioncode/execution-engine':
         specifier: workspace:*
         version: link:../execution-engine
+      '@repo/chat-media':
+        specifier: workspace:*
+        version: link:../chat-media
       '@repo/event-store':
         specifier: workspace:*
         version: link:../event-store
@@ -556,6 +562,34 @@ importers:
       vitest:
         specifier: ^1.0.0
         version: 1.6.1(@types/node@20.19.30)(jsdom@23.2.0)(lightningcss@1.30.2)
+
+  packages/chat-media:
+    dependencies:
+      '@cf-wasm/photon':
+        specifier: 0.4.0
+        version: 0.4.0
+      '@repo/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
+      image-size:
+        specifier: 2.0.2
+        version: 2.0.2
+      zod:
+        specifier: ^3.22.4
+        version: 3.25.1
+    devDependencies:
+      '@repo/eslint-config':
+        specifier: workspace:*
+        version: link:../eslint-config
+      '@repo/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      eslint:
+        specifier: ^9.39.1
+        version: 9.39.1(jiti@2.6.1)
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
 
   packages/client-ui:
     dependencies:
