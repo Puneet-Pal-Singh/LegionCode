@@ -1,0 +1,243 @@
+{
+  "head": "661530257785245cf36a7f770898215ae46b3e74",
+  "base": "1f941d13795094c9b7fd77e6a1459529c3d52b18",
+  "commits": [
+    "00179a28dda3a676cebf83113e053643ca9662d1",
+    "c53c9d65efeb939d87a81b8ccebc95fbd1675e08",
+    "661530257785245cf36a7f770898215ae46b3e74"
+  ],
+  "branch": "codex/fix-r3-delegated-text-input-20261111",
+  "paths": [
+    "apps/brain/src/integration/app-server/HostedThreadInputOperations.ts",
+    "apps/brain/src/runtime/DelegatedRunExecution.ts",
+    "apps/brain/src/runtime/RunEngineRequestHandler.ts",
+    "architecture/CAPABILITY-OWNERSHIP.md",
+    "packages/persistence/src/thread-inputs/PostgresThreadInputRepository.ts",
+    "packages/persistence/src/thread-inputs/types.ts"
+  ],
+  "source_hashes": {
+    "apps/brain/src/integration/app-server/HostedThreadInputOperations.ts": "b3d1404ac5362d09429379aa34eff57fa477e7716728252e7342bf95bc1d7f03",
+    "apps/brain/src/runtime/DelegatedRunExecution.ts": "312928f44a4a101cdc15dae416817e62258c0eff51ffa957f9e5062c26836fcd",
+    "apps/brain/src/runtime/RunEngineRequestHandler.ts": "7dcf8c38dd1849ecc7e7e195bb925c3a4f797b0c2beeb8e049cfabfb1525d233",
+    "architecture/CAPABILITY-OWNERSHIP.md": "de86b50ed210ca8e7318c9fe680faafabe6e0a17000b57150171a727538d1023",
+    "packages/persistence/src/thread-inputs/PostgresThreadInputRepository.ts": "7eef26c7ed1cb5dd95cd559853c650e651094e2fc83a89ce580c72f3ee424150",
+    "packages/persistence/src/thread-inputs/types.ts": "a1a00523d4c74457f03cb4f8c6ec89599e5a96b44dbe0cd41538ee4debcc4b54"
+  },
+  "clean": true,
+  "handoff_verified": {
+    "revision": "876e496690feb6284087bfdf95110b184c9cc0f9",
+    "manifest_sha256": "c5b25ae00a3a503b3000984239cf8d3355124ff8652d4730be0c5603fe031ad8",
+    "gitobjects": "19/19 hashes and bytes; no source merge"
+  },
+  "checks": [
+    {
+      "cwd": "packages/persistence",
+      "command": "node ../../node_modules/typescript/bin/tsc",
+      "result": "PASS; production build",
+      "exit_code": 0
+    },
+    {
+      "cwd": "packages/persistence",
+      "command": "node ../../node_modules/typescript/bin/tsc --noEmit",
+      "result": "PASS",
+      "exit_code": 0
+    },
+    {
+      "cwd": "apps/brain",
+      "command": "node ../../node_modules/typescript/bin/tsc --noEmit",
+      "result": "PASS",
+      "exit_code": 0
+    },
+    {
+      "command": "node /tmp/r3-delegated-input/build-probes.cjs",
+      "result": "actual protocol/media-validation/repository source bundled for offline controls",
+      "exit_code": 0
+    },
+    {
+      "command": "node /tmp/r3-delegated-input/flows.cjs",
+      "result": "PASS8ingress+30Hosted actual-source controls, including mutation unknown ACK and canonical409 preservation",
+      "exit_code": 0
+    },
+    {
+      "command": "node /tmp/r3-delegated-input/handler.cjs",
+      "result": "PASS5actualHandler controls; configured admission/registry/media spies",
+      "exit_code": 0
+    },
+    {
+      "command": "node /tmp/r3-delegated-input/pg.cjs",
+      "result": "PASS actual repository/PGlite PostgreSQL-WASM all-state readonly/owner/snapshot/two transaction ordering schedules",
+      "exit_code": 0
+    },
+    {
+      "command": "node scripts/gates/check-architecture-boundaries.mjs",
+      "exit_code": 0,
+      "source_tree_matches": "661530257785245cf36a7f770898215ae46b3e74"
+    },
+    {
+      "command": "REBUILD_CHANGED_FILES=<exact six paths from 1f941..HEAD> node scripts/gates/check-rebuild-governance.mjs",
+      "exit_code": 0,
+      "source_tree_matches": "661530257785245cf36a7f770898215ae46b3e74"
+    },
+    {
+      "command": "GITHUB_ACTIONS=true GITHUB_EVENT_PATH=/tmp/r3-delegated-input/gate-event.json node packages/eslint-config/lint-no-new-tests.mjs",
+      "exit_code": 0,
+      "source_revision_at_run": "c53c9d65efeb939d87a81b8ccebc95fbd1675e08",
+      "base": "1f941d13795094c9b7fd77e6a1459529c3d52b18"
+    },
+    {
+      "command": "node --test scripts/gates/check-architecture-boundaries.test.mjs scripts/gates/check-rebuild-governance.test.mjs",
+      "exit_code": 0,
+      "passed": 39,
+      "source_revision_at_run": "c53c9d65efeb939d87a81b8ccebc95fbd1675e08",
+      "note": "Gate source unchanged in final661 commit."
+    }
+  ],
+  "artifacts": {
+    "persistence-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "persistence-build.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "flows.log": {
+      "sha256": "3bb900342aff944b8c4d06dc224d9cfa090ebb0b943154baab21c2048cf12a32",
+      "bytes": 54
+    },
+    "pg.log": {
+      "sha256": "57b8065872fe1a30361aef528a2c865431261c5202499029592b4c296edbe81e",
+      "bytes": 82
+    },
+    "handler.log": {
+      "sha256": "b10d5a89c4d4e9871bbe43b1fad3a2b181401d32c17ed947905df734692a5f16",
+      "bytes": 75
+    },
+    "brain-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "pg-result.json": {
+      "sha256": "446612dcdf7c5472f32f3cc40c3a81f2aafae54577123ddcd0d74bf946d97a18",
+      "bytes": 423
+    },
+    "handler-result.json": {
+      "sha256": "33ab98fbc969a96b9aaab73be381d52e5016a67a83bb15835d42cacf8c7253da",
+      "bytes": 637
+    },
+    "flows-result.json": {
+      "sha256": "b22a4d0da16864cfac4d58074931c0185035086ccb9ca1c3aafe9112b71f06b9",
+      "bytes": 7599
+    },
+    "no-new-tests.log": {
+      "sha256": "0370be5ff9e107f0957c944462ce83b6bec2817b311cbf2605c97e9706210038",
+      "bytes": 28
+    },
+    "governance.log": {
+      "sha256": "9a5c7cafae7b03c771af4ee23d69de18f537c9ba47d3b6bfc73080addf7513b1",
+      "bytes": 40
+    },
+    "publication-push.log": {
+      "sha256": "d16e88fbf2c8084899bbb3b8a3d204813b87289c3179b5b15af868e7fa8e21ca",
+      "bytes": 499
+    },
+    "publication-fetch.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "architecture.log": {
+      "sha256": "91500b0d9dfbc3ce9fab62ce2f083e0c6d82c41531528f48c54ecaa9dfd763a0",
+      "bytes": 65
+    },
+    "gate-regressions.log": {
+      "sha256": "a8d13481861fbb2eeedd2f4943e5fe5ff075af8d9372bd02169e253a9ea29ca2",
+      "bytes": 2757
+    }
+  },
+  "embedded_probe_sources": {
+    "build-probes.cjs": {
+      "sha256": "2f36c60cdf13adc31ef275e543e32492a402a33c2e11ebc362ed3ceb0b03559e",
+      "source": "const path=require('node:path');\nconst root='/workspace/LegionCode-R3-DELEGATED-INPUT-20261111';\nconst esbuild=require(root+'/node_modules/.pnpm/esbuild@0.25.12/node_modules/esbuild/lib/main.js');\nfor(const [entry,name] of [['packages/chat-media/src/validation.ts','media-validation'],['packages/platform-protocol/src/index.ts','protocol'],['packages/persistence/src/thread-inputs/PostgresThreadInputRepository.ts','repository']])\n esbuild.buildSync({absWorkingDir:root,entryPoints:[entry],bundle:true,platform:'node',format:'cjs',outfile:'/tmp/r3-delegated-input/'+name+'.cjs',logLevel:'silent'});\nconsole.log('actual protocol and repository source bundled for offline probes');\n"
+    },
+    "flows.cjs": {
+      "sha256": "b26c0e674c6c217da04a9b8e7d695a23033369f328e05f5a9f3d0d608d9993ac",
+      "source": "const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),crypto=require('node:crypto');\nconst root='/workspace/LegionCode-R3-DELEGATED-INPUT-20261111',dir='/tmp/r3-delegated-input';\nconst ts=require(root+'/node_modules/typescript/lib/typescript.js'),P=require(dir+'/protocol.cjs'),Repo=require(dir+'/repository.cjs'),Media=require(dir+'/media-validation.cjs');\nfunction load(source,mocks){const module={exports:{}};vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module,exports:module.exports,require(n){if(n in mocks)return mocks[n];throw Error('unmocked '+n);},crypto:crypto.webcrypto,TextEncoder,Response,Request,URL,console});return module.exports;}\nconst domain=load(fs.readFileSync(root+'/apps/brain/src/domain/errors.ts','utf8'),{});\nconst delegated=load(fs.readFileSync(root+'/apps/brain/src/runtime/DelegatedRunExecution.ts','utf8'),{'@repo/runtime-kernel':{},'@repo/platform-protocol':P,'../domain/errors':domain});\nconst serverSource=fs.readFileSync(root+'/packages/app-server/src/server.ts','utf8');\nconst server=load(serverSource.slice(serverSource.indexOf('export class AppServerOperationError'),serverSource.indexOf('/** Preserves the existing provider error contract')),{});\nconst id={userId:'11111111-1111-4111-8111-111111111111',workspaceId:'22222222-2222-4222-8222-222222222222',sessionId:'33333333-3333-4333-8333-333333333333',threadId:'thr_'+ 'a'.repeat(24),turnId:'trn_'+'b'.repeat(24),runAttemptId:'attempt_'+'c'.repeat(24),runId:'run_'+'d'.repeat(24)};\nconst sha=x=>crypto.createHash('sha256').update(x).digest('hex');let cases=0;\n// Actual shared delegated registration callback, with canonical acceptance/control spies.\nconst source=fs.readFileSync(root+'/apps/brain/src/runtime/DelegatedRunExecution.ts','utf8');\nconst callback=source.slice(source.indexOf('  input.threadInputs.register(turnId,'),source.indexOf('  prepared.checkoutLifecycle.beginRuntimeExecution'));\nlet accept,accepted=0,last;const sentinel=new Error('storage/control unknown');\nconst context={input:{threadInputs:{register(t,fn){assert.equal(t,id.turnId);accept=fn;}}},turnId:id.turnId,kernel:{acceptThreadInput(x){accepted++;last=x;return Promise.resolve(7);}},...delegated};\nvm.runInNewContext(ts.transpileModule(callback,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,context);\nconst base={turnId:id.turnId,inputId:'44444444-4444-4444-8444-444444444444',clientInputId:'client1',transcriptMessageId:'transcript1'};\n(async()=>{\nfor(const content of ['  alpha\\n beta  ',[{type:'text',text:'  alpha\\n'},{type:'text',text:' beta  '}]]){const n=accepted;assert.equal(await accept({...base,message:{role:'user',content}}),7);assert.equal(accepted,n+1);assert.equal(last.accepted.message.content,'  alpha\\n beta  ');assert.equal(last.accepted.inputId,base.inputId);assert.equal(last.clientInputId,base.clientInputId);assert.equal(last.transcriptMessageId,base.transcriptMessageId);cases++;}\nfor(const content of ['',[],[{type:'text',text:' \\n'}],[{type:'image',image:'data:image/png;base64,AAAA'}],[{type:'text',text:'yes'},{type:'image',image:'data:image/png;base64,AAAA'}]]){const n=accepted;assert.throws(()=>accept({...base,message:{role:'user',content}}),delegated.DelegatedThreadInputPreacceptError);assert.equal(accepted,n);cases++;}\ncontext.kernel.acceptThreadInput=()=>Promise.reject(sentinel);await assert.rejects(accept({...base,message:{role:'user',content:'valid'}}),e=>e===sentinel);cases++;\nasync function hosted(mode){const counts={lookup:0,enqueue:0,claim:0,models:0,media:0,rpc:0,receipt:0};\nconst image={dataUrl:'data:image/png;base64,AAAA',name:'image.png',mediaType:'image/png'};\nif(mode.includes('controlname'))image.name='im\\u0000age.png';\nconst queued=mode.startsWith('queued');const invalid=mode.includes('image')||mode.includes('invalid');\nconst command=queued?{operation:'thread.input.steer',threadId:id.threadId,workspaceId:id.workspaceId,itemId:base.inputId,expectedVersion:1,expectedTurnId:id.turnId,expectedRunAttemptId:id.runAttemptId}:{operation:'turn.steer',threadId:id.threadId,workspaceId:id.workspaceId,clientInputId:'client1',expectedTurnId:id.turnId,expectedRunAttemptId:id.runAttemptId,content:{text:mode.includes('blank')?'  ':'text',images:invalid?[image]:[]}};\nlet item={itemId:base.inputId,clientInputId:'client1',order:0,version:1,state:mode.includes('consuming')?'consuming':'pending',delivery:queued&&!mode.includes('consuming')?'queue':'steer',targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId,text:mode.includes('blank')?'  ':'text',mediaRefs:(queued||mode.startsWith('prior'))&&invalid?[{type:'image_attachment',attachmentId:'in_'+sha('client1:0:'+image.dataUrl).slice(0,32),name:Media.normalizeAttachmentName(image.name),mediaType:'image/png',byteSize:3}]:[],configuration:{},receipt:null};\nitem.fingerprint=sha(JSON.stringify({operation:'turn.steer',text:item.text,mediaRefs:item.mediaRefs,targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId}));\nif(mode.includes('accepted'))item.receipt={status:'accepted',clientInputId:'client1',inputId:item.itemId,targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId,acceptedSequence:7};\nif(mode.includes('applied'))item.receipt={status:'applied',inputId:item.itemId,targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId,acceptedSequence:7,appliedSequence:8,modelStep:1,contextRevision:1};\nif(mode.includes('unconfirmed'))item.receipt={status:'unconfirmed',inputId:item.itemId,targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId,acceptedSequence:7,terminalSequence:8};\nif(mode.includes('altered'))command.content.text='changed';\nif(mode.includes('changedimage'))image.dataUrl='data:image/png;base64,BBBB';\nif(mode.includes('target'))command.expectedTurnId='trn_'+'e'.repeat(24);\nconst prior=mode.startsWith('prior')?item:null;\nconst repo={async getByClientInputId(){counts.lookup++;if(mode.includes('lookupfail'))throw sentinel;return prior;},async getById(){return item;},async enqueue(x){counts.enqueue++;if(mode.includes('enqueueunknown'))throw sentinel;if(mode.includes('enqueueconflict'))throw new Repo.ThreadInputConflictError('changed','client_input_conflict');return {item,duplicate:mode.includes('duplicate'),revision:1};},async claimForSteering(){counts.claim++;if(mode.includes('claimunknown'))throw sentinel;if(mode.includes('claimconflict'))throw new Repo.ThreadInputConflictError('changed','queue_item_changed');return {status:'changed',item:{...item,version:2},revision:1};},async recordReceipt(){counts.receipt++;return {status:'changed',item};}};\nconst mocks={'../../runtime/DelegatedRunExecution':delegated,'@repo/chat-media/validation':Media,'@repo/platform-protocol':P,'@repo/shared-types':P,'@repo/persistence':Repo,'@legioncode/app-server/server':server,'../../domain/errors':domain,\n '../../services/chat/ChatMediaStore':{ChatMediaStore:class{async putImage(){counts.media++;throw Error('media forbidden');}}},'../../services/chat/ChatImageSettings':{resolveChatImageSettings(){}},'../../services/chat/ChatImageModelPolicy':{assertChatImageModelSupport(){}},'../../services/chat/ChatModelMetadataResolution':{async resolveChatModelMetadata(){counts.models++;return {}; }},\n '../../services/runs/RunPersistenceFactory':{withRunRepository:async(e,fn)=>fn({getRun:async()=>({})})},'../../services/sessions/TranscriptPersistenceFactory':{withTranscriptRepository:async(e,fn)=>fn({listSessions:async()=>({sessions:[{id:id.sessionId,threadId:id.threadId,workspaceId:id.workspaceId}]})})},'../../services/thread-inputs/ThreadInputPersistenceFactory':{withThreadInputRepository:async(e,fn)=>fn(repo)},'../../services/thread-inputs/ThreadInputCommandService':{},'../../services/turn-admissions/TurnAdmissionPersistenceFactory':{withTurnAdmissionRepository:async(e,fn)=>fn({getByTurnId:async()=>({...id,state:'admitted',harnessSelection:mode.includes('native')?null:{selection:{harness:'codex'}}})})},'../../services/turn-admissions/ResumeTurnService':{ResumeTurnError:class extends Error{}},\n '../../controllers/chat-runtime-helpers':{resolveExecutionScope:async()=>id,fetchRunProviderModels:async()=>{counts.models++;throw Error('model forbidden');},fetchRunRuntimeRoute:async()=>{counts.rpc++;if(mode.includes('transport'))throw sentinel;if(mode.includes('runtime409'))return Response.json({code:'turn_not_active',error:'not active'},{status:409});if(mode.includes('runtime400'))return Response.json({code:delegated.DelegatedThreadInputPreacceptError.code},{status:400});return Response.json({acceptedSequence:7});}}\n};\nconst hosted=load(fs.readFileSync(root+'/apps/brain/src/integration/app-server/HostedThreadInputOperations.ts','utf8'),mocks);\ntry{const out=await hosted.composeHostedThreadInputOperations(new Request('http://fixture'),{},id.userId).execute(command);return {status:out.statusCode,counts};}catch(e){return {status:e.statusCode,code:e.code,counts};}}\nconst outcomes={};for(const mode of ['direct-image','queued-image','direct-blank','queued-blank','prior-blank','prior-accepted-blank','queued-consuming-image','prior-consuming','prior-accepted','prior-altered-accepted','prior-accepted-image','prior-accepted-image-controlname','prior-accepted-image-changedimage','prior-applied','prior-unconfirmed','prior-target-accepted','direct-lookupfail','direct-transport','queued-transport','direct-runtime400','queued-runtime400','direct-duplicate','direct-enqueueunknown','direct-enqueueconflict','queued-claimunknown','queued-claimconflict','direct-runtime409','queued-runtime409','native-runtime409','queued-native-runtime409'])outcomes[mode]=await hosted(mode);\nfor(const mode of ['direct-image','queued-image','direct-blank','queued-blank']){assert.equal(outcomes[mode].status,400,mode+JSON.stringify(outcomes[mode]));assert.equal(outcomes[mode].counts.enqueue+outcomes[mode].counts.claim+outcomes[mode].counts.models+outcomes[mode].counts.media+outcomes[mode].counts.rpc,0);}\nassert.equal(outcomes['prior-blank'].status,503);assert.equal(outcomes['prior-accepted-blank'].status,200);assert.equal(outcomes['queued-consuming-image'].status,503);assert.equal(outcomes['prior-consuming'].status,503);assert.equal(outcomes['prior-accepted'].status,200);assert.equal(outcomes['prior-altered-accepted'].status,409);\nassert.equal(outcomes['prior-accepted-image'].status,200);assert.equal(outcomes['prior-accepted-image-controlname'].status,200);assert.equal(outcomes['prior-accepted-image-changedimage'].status,409);assert.equal(outcomes['prior-applied'].status,200);assert.equal(outcomes['prior-unconfirmed'].status,200);assert.equal(outcomes['prior-target-accepted'].status,409);assert.equal(outcomes['direct-lookupfail'].status,503);\nfor(const mode of ['direct-transport','queued-transport','direct-runtime400','queued-runtime400','direct-duplicate']){assert.equal(outcomes[mode].status,503,mode+JSON.stringify(outcomes[mode]));assert.equal(outcomes[mode].counts.receipt,0);}\nfor(const mode of ['direct-runtime409','queued-runtime409','native-runtime409','queued-native-runtime409']){assert.equal(outcomes[mode].status,409);assert.equal(outcomes[mode].counts.receipt,1);}\nassert.equal(outcomes['direct-duplicate'].counts.rpc,0);for(const mode of ['direct-enqueueunknown','queued-claimunknown']){assert.equal(outcomes[mode].status,503);assert.equal(outcomes[mode].counts.rpc+outcomes[mode].counts.receipt,0);}for(const mode of ['direct-enqueueconflict','queued-claimconflict']){assert.equal(outcomes[mode].status,409);assert.equal(outcomes[mode].counts.rpc+outcomes[mode].counts.receipt,0);}\nfs.writeFileSync(dir+'/flows-result.json',JSON.stringify({ingressCases:cases,hostedCases:Object.keys(outcomes).length,outcomes,scope:'Actual modified TS ingress/caller source; actual public schemas and error classes; injected persistence/runtime spies, zero providers'},null,2)+'\\n');console.log('ingress '+cases+' and hosted '+Object.keys(outcomes).length+' actual-source controls passed');\n})().catch(e=>{console.error(e.stack);process.exitCode=1;});\n"
+    },
+    "handler.cjs": {
+      "sha256": "4bcc44cad59e535abecfc441c240825de61570a64ebfb23d17c3fc73a7813cfd",
+      "source": "const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');\nconst root='/workspace/LegionCode-R3-DELEGATED-INPUT-20261111',dir='/tmp/r3-delegated-input',ts=require(root+'/node_modules/typescript/lib/typescript.js');\nfunction compile(source,globals){const m={exports:{}};vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:m,exports:m.exports,Response,Request,...globals});return m.exports;}\nconst d=compile(fs.readFileSync(root+'/apps/brain/src/runtime/DelegatedRunExecution.ts','utf8'),{require(n){return {};}});\nconst src=fs.readFileSync(root+'/apps/brain/src/runtime/RunEngineRequestHandler.ts','utf8');const method=src.slice(src.indexOf('  async handleThreadInputSteerRequest('),src.indexOf('  async handleContextCompactionRequest('));\nconst id={userId:'u',workspaceId:'w',sessionId:'s',threadId:'t',turnId:'v',runAttemptId:'a',runId:'r',inputId:'i',clientInputId:'c',transcriptMessageId:'m'};\n(async()=>{const results=[];for(const mode of ['preaccept','unknown','duplicate','delegated-image','native-image']){\nlet media=0,accepts=0;const payload={...id,text:'text',mediaRefs:mode.endsWith('image')?[{}]:[]};\nconst env={EDIT_ARTIFACTS:{}};const registry={has:()=>true,accept:async x=>{accepts++;assert.equal(x.message.content[0].text,'text');if(mode==='preaccept')throw new d.DelegatedThreadInputPreacceptError();if(mode==='unknown')throw Error('commit/control ambiguous');return 7;}};\nconst globals={DelegatedThreadInputPreacceptError:d.DelegatedThreadInputPreacceptError,RuntimeThreadInputRequestSchema:{parse:x=>x},parseRequestBody:async()=>payload,\nwithTurnAdmissionRepository:async(e,fn)=>fn({getByTurnId:async()=>({...id,state:'admitted',harnessSelection:mode==='native-image'?null:{selection:{harness:'codex'}}})}),\nreadAllLifecycleEvents:async()=>mode==='duplicate'?[{type:'turn.input.accepted',payload:{inputId:id.inputId},sequence:7}]:[],\nrunEngineErrorResponse:(r,e,error,status,code)=>Response.json({error,code},{status}),runEngineJsonResponse:(r,e,x)=>Response.json(x),\nChatMediaStore:class{async getProviderImage(){media++;return {type:'image',image:'synthetic'};}},resolveChatImageSettings:()=>({})};\nconst {Probe}=compile('export class Probe { constructor(env,registry){this.env=env;this.threadInputRegistry=registry;}createLifecycleEventStore(){return {};}\\n'+method+'\\n}',globals);\nconst response=await new Probe(env,registry).handleThreadInputSteerRequest(new Request('http://fixture'));\nconst expect={preaccept:400,unknown:503,duplicate:200,'delegated-image':400,'native-image':200}[mode];assert.equal(response.status,expect);if(mode==='duplicate')assert.equal(accepts,0);if(mode==='delegated-image')assert.equal(media+accepts,0);if(mode==='native-image')assert.equal(media,1);\nresults.push({mode,status:response.status,media,accepts});}\nfs.writeFileSync(dir+'/handler-result.json',JSON.stringify({cases:results,scope:'Actual handler method with configured canonical admission/store/registry/media spies; no provider/network'},null,2)+'\\n');console.log('5 actual handler preaccept/unknown/duplicate/media mapping controls passed');})().catch(e=>{console.error(e.stack);process.exitCode=1;});\n"
+    },
+    "pg.cjs": {
+      "sha256": "aa1a1b5bb806a5c4c2580d22d1a0cabd886194985b97738826b4f95d3602a262",
+      "source": "const fs=require('node:fs'),assert=require('node:assert/strict');\nconst root='/workspace/LegionCode-R3-DELEGATED-INPUT-20261111',dir='/tmp/r3-delegated-input';\nconst {PGlite}=require(root+'/node_modules/.pnpm/@electric-sql+pglite@0.3.16/node_modules/@electric-sql/pglite/dist/index.cjs');\nconst {PostgresThreadInputRepository}=require(dir+'/repository.cjs');\nconst db=new PGlite();const statements=[];\nfunction client(handle){return {async query(sql,params){statements.push(sql);const r=await handle.query(sql,params);return {rows:r.rows,rowCount:r.affectedRows??r.rows.length};},transaction:fn=>handle.transaction?handle.transaction(t=>fn(client(t))):fn(client(handle))};}\nconst scope={sessionId:'33333333-3333-4333-8333-333333333333',userId:'11111111-1111-4111-8111-111111111111',workspaceId:'22222222-2222-4222-8222-222222222222',threadId:'thr_'+'a'.repeat(24)};\nconst repo=new PostgresThreadInputRepository(client(db));const content={...scope,delivery:'steer',targetTurnId:'trn_'+'b'.repeat(24),targetRunAttemptId:'attempt_'+'c'.repeat(24),text:'text',mediaRefs:[],configuration:{}};\n(async()=>{\nawait db.exec('CREATE TABLE sessions(id UUID PRIMARY KEY,user_id UUID,thread_id TEXT,workspace_id UUID)');\nawait db.query('INSERT INTO sessions VALUES($1,$2,$3,$4)',[scope.sessionId,scope.userId,scope.threadId,scope.workspaceId]);\nconst migration=fs.readFileSync(root+'/packages/persistence/src/migrations/0033-thread-inputs-and-continuations.ts','utf8');\nfor(const name of ['thread_input_state','thread_inputs']){const re=new RegExp('`(CREATE TABLE IF NOT EXISTS '+name+' \\\\([\\\\s\\\\S]*?\\\\))`');const m=migration.match(re);assert(m);await db.exec(m[1]);}\nconst miss=await repo.getByClientInputId({...scope,clientInputId:'new'});assert.equal(miss,null);assert.equal((await db.query('SELECT count(*) AS n FROM thread_input_state')).rows[0].n,0);\nconst inserted=await repo.enqueue({...content,clientInputId:'same',fingerprint:'fixed'});const id=inserted.item.itemId;\nconst before=JSON.stringify((await db.query('SELECT * FROM thread_input_state')).rows);const start=statements.length;\nfor(const state of ['pending','consuming','consumed','cancelled']){await db.query('UPDATE thread_inputs SET state=$2 WHERE id=$1',[id,state]);const got=await repo.getByClientInputId({...scope,clientInputId:'same'});assert.equal(got.state,state);assert.equal(got.fingerprint,'fixed');}\nassert.equal(JSON.stringify((await db.query('SELECT * FROM thread_input_state')).rows),before);assert(statements.slice(start).every(s=>s.trim().startsWith('SELECT')));\nawait assert.rejects(repo.getByClientInputId({...scope,userId:'99999999-9999-4999-8999-999999999999',clientInputId:'same'}));\nconst captured={...scope,clientInputId:'same'};const pending=repo.getByClientInputId(captured);captured.clientInputId='other';assert.equal((await pending).itemId,id);\n// Actual PostgreSQL-WASM transactions, two legal orderings. Null is only this\n// read's linearization point, not proof a later same-ID request never accepts.\nconst [old]=await Promise.all([repo.getByClientInputId({...scope,clientInputId:'read-first'}),repo.enqueue({...content,clientInputId:'read-first',fingerprint:'one'})]);assert.equal(old,null);assert(await repo.getByClientInputId({...scope,clientInputId:'read-first'}));\nconst [write,newer]=await Promise.all([repo.enqueue({...content,clientInputId:'write-first',fingerprint:'two'}),repo.getByClientInputId({...scope,clientInputId:'write-first'})]);assert.equal(newer.itemId,write.item.itemId);\nfs.writeFileSync(dir+'/pg-result.json',JSON.stringify({engine:'PGlite 0.3.16 actual PostgreSQL WASM',allStates:['pending','consuming','consumed','cancelled'],readOnlyLookup:true,noStateAllocationOnAbsence:true,scopeFailure:true,inputSnapshot:true,transactionOrderings:2,revisionOrderTimestampPreserved:true,scope:'actual repository source+existing table DDL; no external database/account/provider'},null,2)+'\\n');\nawait db.close();console.log('actual repository/PostgreSQL-WASM all-state readonly and ordering controls passed');\n})().catch(async e=>{console.error(e.stack);await db.close();process.exitCode=1;});\n"
+    }
+  },
+  "limits": [
+    "No repository test files or registrations added; no product test suites. Explicit existing architecture/governance gate regressions passed39/39.",
+    "No provider/account/model/payer/key fallback, deployment, packaging, PR or acceptance calls.",
+    "No Native rich-input path/queued harness-selection/pins/public enums changed.",
+    "PGlite probes use actual PostgreSQL WASM in process, not multi-process hosted PostgreSQL acceptance.",
+    "Ingress/Hosted/Handler controls inject spy authorities; independent reviewer owns actual RuntimeKernel duplicate/Stop controls.",
+    "Codex ACK is not Applied; OpenCode/Claude steering and all physical launch gates unchanged.",
+    "Executor Node24.22.1; no target runtime or OS confinement acceptance claim."
+  ],
+  "remote_sha": "661530257785245cf36a7f770898215ae46b3e74",
+  "published": true,
+  "independent_review": {
+    "status": "CLEAR",
+    "revision": "661530257785245cf36a7f770898215ae46b3e74",
+    "owner": "r3_codex_closure",
+    "checks": [
+      {
+        "command": "node /tmp/r3-steering-independent/mutation-errors-final.cjs 661530257785245cf36a7f770898215ae46b3e74",
+        "scope": "frozen actual Hosted mutation errors; synthetic commit-failure ports",
+        "exit_code": 0
+      },
+      {
+        "command": "node /tmp/r3-steering-independent/image-parity-c53.cjs",
+        "scope": "frozen c53 image normalization; unchanged in661",
+        "exit_code": 0
+      },
+      {
+        "command": "node /tmp/r3-steering-independent/kernel-controls.cjs",
+        "scope": "frozen c53 actual registration+Coordinator+Lifecycle; six duplicate/Stop/error schedules, no Applied; unchanged in661",
+        "exit_code": 0
+      }
+    ],
+    "receipts": {
+      "mutation-errors-final.log": {
+        "sha256": "033863ec1df684b337f86e408fd00a6ad0900e96f0c15a18c612b333a6eba911",
+        "bytes": 486
+      },
+      "mutation-errors-final.json": {
+        "sha256": "7d45e2c45e5936d39ab8b617c839675b2370f94044b05d8d3cfe6f2eddd13e69",
+        "bytes": 730
+      },
+      "image-parity-c53.log": {
+        "sha256": "0212fafea177ef54f65e73965aa22aadc0768239cfcb69880528370a27d7b99d",
+        "bytes": 340
+      },
+      "image-parity-c53.json": {
+        "sha256": "2a5c202dad7435dca2d68e58371d5961576b87b7b242968b3f210be850d1f889",
+        "bytes": 441
+      },
+      "kernel-c53.log": {
+        "sha256": "c919c7e844db26811822f3727f87297d6d7d8c4a5f411b1db55be891dce8a828",
+        "bytes": 666
+      },
+      "kernel-c53-result.json": {
+        "sha256": "91497386f4878db346614c4ab86cb69ec95ea84b3ea8ea0a50e8122642a30c45",
+        "bytes": 934
+      }
+    }
+  },
+  "publication": {
+    "fetch": "GIT_TERMINAL_PROMPT=0 git fetch origin",
+    "push": "GIT_TERMINAL_PROMPT=0 git push -u origin HEAD:codex/fix-r3-delegated-text-input-20261111",
+    "remote_verification": "git ls-remote --heads origin codex/fix-r3-delegated-text-input-20261111",
+    "remote_sha": "661530257785245cf36a7f770898215ae46b3e74",
+    "branch_only": true,
+    "pr_created": false,
+    "tracking_note": "Remote advertises exactSHA; configured restricted fetch refspec does not materialize a local remote-tracking alias. No config changes or extra branch updates."
+  }
+}
