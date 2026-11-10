@@ -929,6 +929,11 @@ function boundedDirectoryPage(
   }
 }
 
+/** Reuse the native reader's reserved namespace for other held-root reads. */
+export function isReservedNativeWorkspacePath(path: string): boolean {
+  return path.split("/").some(reservedComponent);
+}
+
 function reservedComponent(name: string): boolean {
   const lower = name.toLowerCase();
   return lower === ".git" || lower.startsWith(".legioncode-edit-");

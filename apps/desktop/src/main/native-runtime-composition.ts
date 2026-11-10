@@ -2,6 +2,7 @@ import { resolveTrustedMacGitExecutable } from "@legioncode/app-server/local-mac
 import { createLocalNativeRuntime } from "@legioncode/app-server/local-native-runtime";
 import { createLocalProviderModelDiscovery } from "@legioncode/app-server/local-provider-model-discovery";
 import { createLocalReadOnlyGitService } from "@legioncode/app-server/local-readonly-git";
+import { LocalWorkspaceGitReads } from "@legioncode/app-server/local-workspace-git-reads";
 import { LocalWorkspaceWriterLeaseOwner } from "@legioncode/app-server/local-workspace-writer-lease";
 import { createLocalCapturedExecutionCapability } from "@legioncode/app-server/local-captured-execution";
 import { createCaptureGitService } from "@legioncode/app-server/local-capture-git";
@@ -44,6 +45,36 @@ export async function createDesktopNativeComposition(
   }) : undefined;
   return {
     ...discovery,
+    createWorkspaceGitReadsService: (workspaces) => new LocalWorkspaceGitReads(async (workspaceId) => {
+      const binding = await workspaces.bindForExecution(workspaceId);
+      const authorizeResult = async () => {
+        const current = await workspaces.getAuthorizedCurrent();
+        if (!current || current.readiness !== "ready" ||
+            current.workspaceId !== binding.workspace.workspaceId ||
+            current.grantedAt !== binding.workspace.grantedAt) {
+          throw new Error("The workspace grant changed during Git review");
+        }
+      };
+      return {
+        filesystemRoot: binding.filesystemRoot,
+        signal: binding.signal,
+        assertCurrent: async () => {
+          binding.assertCurrent();
+          await authorizeResult();
+          binding.assertCurrent();
+        },
+        authorizeResult,
+        createGit: (signal) => createLocalReadOnlyGitService({
+          purpose: "repo_probe",
+          probeRoot: binding.filesystemRoot,
+          withRootAuthority: binding.withRootAuthority,
+          gitExecutable,
+          processHelperPath,
+          turnSignal: signal,
+        }),
+        close: binding.close,
+      };
+    }),
     createArtifactCommitService: leases ? (input) => createLocalArtifactCommitComposition({
       ...input,
       leases,

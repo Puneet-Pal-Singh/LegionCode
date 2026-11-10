@@ -48,9 +48,13 @@ export async function createLocalReadOnlyGitService(
       // Raw local review cannot invoke repository-configured diff helpers.
       // Insert fixed options before any caller-selected pathspec, including a
       // file whose literal name happens to match an option.
-      const args = isDiff
+      const commandArgs = isDiff
         ? ["diff", "--no-ext-diff", "--no-textconv", ...input.args.slice(1)]
         : input.args;
+      // Scope names are literal repository paths, never Git pathspec patterns.
+      // Classify the original canonical command before adding this global flag.
+      const args = isDiff || input.args[0] === "ls-files"
+        ? ["--literal-pathspecs", ...commandArgs] : commandArgs;
       const result = await canonical.execute({ ...input, args, readOnlyProbe: true });
       const expectedDifference = isDiff && commandOptions.includes("--no-index") &&
         result.exitCode === 1 && result.stderr.length === 0;

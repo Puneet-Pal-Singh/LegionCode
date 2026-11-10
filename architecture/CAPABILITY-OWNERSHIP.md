@@ -2068,8 +2068,7 @@ the same held-root lender, no-fork guardian and positive closure boundary. Local
 diff commands disable external diff and text conversion, reject private indexes,
 and propagate failed contained reads rather than reporting empty review. The
 real no-index difference exit remains valid. Hosted command behavior is unchanged.
-This is the backend read foundation only; local HTTP/SDK workspace scope and its
-actual grant-bound consumer remain separate integration work. Immutable saved
+The grant-bound HTTP/SDK consumer of this read foundation is described below. Immutable saved
 Turn review and selected-artifact commit retain their existing owners.
 
 ## Plan 057 — Shared raw-patch projection
@@ -2088,4 +2087,32 @@ the mapper while retaining its own internal-path exclusion, repository and commi
 identity reads, per-file line counts and Git execution policy. Filtering still
 changes displayed files only; staged/unstaged summary flags retain their previous
 all-entry semantics. No new Git parser, command, identity authority or dependency
-is introduced. Local workspace query wiring is a separate consumer integration.
+is introduced. The actual local workspace query consumer is described below.
+
+## Plan 057 — Grant-scoped live workspace Git review
+
+The existing `git/status` and `git/diff` protocol/SDK methods accept strict local
+workspace scope separately from hosted Run/Session scope. Local diff requires
+one canonical relative path. Dispatch rejects cross-environment scope rather
+than falling back to another owner; response contracts remain unchanged.
+
+`LocalWorkspaceGitReads` consumes the same current grant and held physical root,
+canonical read-only Git service and shared status/raw-patch projections. The
+trusted Desktop factory composes its actual port; initialize advertises
+`workspace-git-reads-v1` only when that port exists. Reads create no Run, Turn,
+executor, snapshot, credential lookup or lifecycle producer. Saved Turn review
+continues to read its immutable artifact, and mutation authority is unchanged.
+
+The service registers original operations before binding, limits concurrency to
+four and reauthorizes after awaited reads and again after original root cleanup.
+Native reserved namespaces use the existing reader predicate. Status inventory,
+patch bytes/lines and serialized results have explicit limits; unsupported or
+oversized reads fail without partial review. Git pathspecs are literal, external
+diff/text conversion is disabled, and failed native closure cannot become empty
+success. An untracked path that cannot produce its exact diff is unavailable.
+
+Its required shutdown port fences reads, requests cancellation and awaits the
+original operations through the existing combined server barrier. The read
+deadline requests abort only; unknown binding cleanup retains the exact binding,
+service and slot and prevents positive SQLite/process closure. No timeout, client
+disconnect, empty active map or forced exit releases those physical obligations.
