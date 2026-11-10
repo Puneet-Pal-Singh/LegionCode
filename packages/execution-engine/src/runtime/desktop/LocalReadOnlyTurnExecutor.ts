@@ -51,6 +51,7 @@ export class LocalTurnExecutor<
     LocalReadOnlyWorkspaceBinding,
 > {
   private readonly capability: LocalTurnExecutionCapability<TBinding>;
+  private readonly toolAuthorization: ToolAuthorizationPort | undefined;
   private readonly turns = new Map<
     string,
     {
@@ -100,6 +101,13 @@ export class LocalTurnExecutor<
     this.capability = options.capability
       ? Object.freeze({ ...options.capability })
       : { artifactCapture: "omitted_read_only" };
+    this.toolAuthorization = options.toolAuthorization;
+    if (this.capability.artifactCapture === "required" && !this.toolAuthorization?.authorize) {
+      throw new RuntimeKernelError(
+        "tool_policy_denied",
+        "Captured execution requires its canonical tool authorization owner",
+      );
+    }
   }
 
   createAdmission(input: LocalTurnAdmissionInput): TurnAdmission {
@@ -155,7 +163,7 @@ export class LocalTurnExecutor<
         const capability = this.capability;
         let capturedPorts: LocalCapturedExecutionPorts | undefined;
         if (capability.artifactCapture === "required") {
-          const toolAuthorization = this.options.toolAuthorization;
+          const toolAuthorization = this.toolAuthorization;
           if (!toolAuthorization?.authorize) throw new RuntimeKernelError(
             "tool_policy_denied", "Captured execution requires its canonical tool authorization owner",
           );
@@ -214,7 +222,7 @@ export class LocalTurnExecutor<
         );
         if (
           captured &&
-          (ports.toolAuthorization !== this.options.toolAuthorization ||
+          (ports.toolAuthorization !== this.toolAuthorization ||
             !ports.approvals?.waitForDecision)
         ) {
           throw new RuntimeKernelError(
