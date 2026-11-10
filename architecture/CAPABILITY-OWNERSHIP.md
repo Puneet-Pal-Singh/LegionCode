@@ -2215,6 +2215,16 @@ path without consuming the normal runtime release; retained settlement authority
 remains usable for its original cleanup owner. No terminal, absent opening or
 preparation label alone establishes physical release.
 
+Restart cleanup consumes the actual persisted full selection and preparation ID
+through a separate opaque recovery handle. It creates no new admission, random
+preparation identity, publisher or raw execution capability. Canonical admission,
+private selection, unbegun preparation identity and absence of learned ingress
+are checked before and after acquiring the same physical writer. Eligibility is
+not closure: the existing seal, reserved/cancelled-only P11 no-activity CAS and
+exact canonical terminal/resource proof still precede original FD/binding close.
+Missing/foreign/begun state remains with normal physical settlement or explicit
+recovery; the original recovery promises must drain before Ready/owner retirement.
+
 ## Issue 810 — Versioned hosted workspace configuration
 
 The existing `WorkspaceRepository` owns saved configuration for one primary

@@ -56,7 +56,18 @@ export interface LocalPhysicalAdmissionCandidate {
 export interface LocalPhysicalAdmissionCandidates {
   /** Synchronous reservation; deferred acquisition cannot start before return. */
   acquire(input: LocalPhysicalAdmissionCandidateInput): LocalPhysicalAdmissionCandidate;
+  /** Existing canonical identity only: no publisher or execution authority. */
+  recover(input: LocalPhysicalAdmissionRecoveryInput): LocalPhysicalAdmissionRecovery;
 }
+
+export interface LocalPhysicalAdmissionRecoveryInput {
+  readonly admission: TurnAdmission;
+  readonly selection: HarnessSelection;
+  readonly preparationId: string;
+  readonly signal: AbortSignal;
+}
+
+export type LocalPhysicalAdmissionRecovery = Pick<LocalPhysicalAdmissionCandidate, "ready" | "settleBeforeDispatch">;
 
 export interface LocalPhysicalAdmissionCandidateInput {
   readonly candidate: TurnAdmission;
@@ -74,7 +85,17 @@ export function createLocalPhysicalAdmissionCandidates(options: {
 }): LocalPhysicalAdmissionCandidates {
   return Object.freeze({
     acquire: (input: LocalPhysicalAdmissionCandidateInput) =>
-      new PhysicalAdmissionCandidate(options, input),
+      new PhysicalAdmissionCandidate(options, input, { kind: "new" }),
+    recover: (input: LocalPhysicalAdmissionRecoveryInput): LocalPhysicalAdmissionRecovery => {
+      const original = new PhysicalAdmissionCandidate(options, {
+        candidate: input.admission, selection: input.selection, signal: input.signal,
+      }, { kind: "recover", preparationId: input.preparationId });
+      // Actual facade, not merely a narrowed type: no publish/raw-capability path.
+      return Object.freeze({
+        ready: () => original.ready(),
+        settleBeforeDispatch: (settlement: LocalPhysicalAdmissionSettlement) => original.settleBeforeDispatch(settlement),
+      });
+    },
   });
 }
 
@@ -98,11 +119,14 @@ class PhysicalAdmissionCandidate implements LocalPhysicalAdmissionCandidate {
   private adopted = false;
   private knownAdmission = false;
 
-  constructor(private readonly options: Parameters<typeof createLocalPhysicalAdmissionCandidates>[0], input: LocalPhysicalAdmissionCandidateInput) {
+  constructor(private readonly options: Parameters<typeof createLocalPhysicalAdmissionCandidates>[0], input: LocalPhysicalAdmissionCandidateInput,
+    private readonly mode: { readonly kind: "new" } | { readonly kind: "recover"; readonly preparationId: string }) {
     this.admission = TurnAdmissionSchema.parse(input.candidate);
     this.selection = HarnessSelectionSchema.parse(input.selection);
     this.storedSelection = freezeCandidateSelection(this.admission, this.selection);
-    this.preparation = Object.freeze({ selection: this.storedSelection, preparationId: randomUUID() });
+    const preparationId = mode.kind === "new" ? randomUUID()
+      : StoredHarnessPreparationSchema.shape.preparationId.parse(mode.preparationId);
+    this.preparation = Object.freeze({ selection: this.storedSelection, preparationId });
     this.attempt = Object.freeze({
       workspaceId: this.admission.run.workspaceId, threadId: this.admission.run.threadId,
       runId: this.admission.run.id, turnId: this.admission.turn.id, runAttemptId: this.admission.runAttemptId,
@@ -128,7 +152,7 @@ class PhysicalAdmissionCandidate implements LocalPhysicalAdmissionCandidate {
   }
 
   publish(publishAdmission: PublishAdmission): Promise<LocalPhysicalAdmissionPublication> {
-    if (this.fenced || this.publication || this.adopted) return Promise.reject(unavailable());
+    if (this.mode.kind !== "new" || this.fenced || this.publication || this.adopted) return Promise.reject(unavailable());
     // Store this entire operation, including validation, before invoking the
     // publisher. Discard must drain this original, never a replacement lookup.
     this.publication = Promise.resolve().then<LocalPhysicalAdmissionPublication>(async () => {
@@ -217,6 +241,8 @@ class PhysicalAdmissionCandidate implements LocalPhysicalAdmissionCandidate {
 
   private async acquireOriginal(): Promise<void> {
     this.assertAccepting();
+    if (this.mode.kind === "recover") await this.verifyRecoveryBinding();
+    this.assertAccepting();
     this.bindingWasStarted = true;
     this.binding = await this.options.workspaces.bindForExecution(this.attempt.workspaceId);
     // A completed binding is ours, but no writer operation has been invoked yet.
@@ -232,6 +258,22 @@ class PhysicalAdmissionCandidate implements LocalPhysicalAdmissionCandidate {
       }
       throw error;
     }
+    if (this.mode.kind === "recover") await this.verifyRecoveryBinding();
+    this.assertAccepting();
+  }
+
+  private async verifyRecoveryBinding(): Promise<void> {
+    if (!(await this.readExactCandidate())) throw unavailable();
+    const binding = await this.options.persistence.harnessBindings.read({
+      userId: this.admission.run.userId, turnId: this.admission.turn.id, runAttemptId: this.admission.runAttemptId,
+    });
+    if (!binding || !isDeepStrictEqual(binding.selection, this.storedSelection) ||
+        binding.attachment !== null || binding.externalTurnId !== null || binding.lastObservationSequence !== 0) throw unavailable();
+    const preparation = await this.options.persistence.readHarnessPreparation({ selection: this.storedSelection });
+    if (!preparation || StoredHarnessPreparationSchema.parse(preparation).preparationId !== this.preparation.preparationId ||
+        preparation.phase === "begun") throw unavailable();
+    // This is eligibility, never closure proof. The same sealed physical entry
+    // still requires P11's full no-activity cancellation CAS and terminal proof.
     this.assertAccepting();
   }
 
