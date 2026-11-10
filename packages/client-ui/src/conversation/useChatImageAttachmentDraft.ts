@@ -273,4 +273,3 @@ export function useChatImageAttachmentDraft(
 }
 
 export type ChatImageAttachmentDraftBinding = ReturnType<typeof useChatImageAttachmentDraft>;
-

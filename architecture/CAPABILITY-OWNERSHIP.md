@@ -1979,3 +1979,18 @@ picker hydration for both clients. Web retains its hosted transport and cache;
 Desktop binds the same loaders to its App Server client, scoped preferences and
 protected credential command. Discovery refresh follows a confirmed credential
 save, and obsolete deliveries cannot repopulate the current inventory.
+
+Saved local selection and preference reads retain validated saved intent without
+requiring network discovery. Newly selected models, newly introduced preference
+references and Native admission still validate against the canonical discovered
+catalog. Grant, user, workspace, provider and preference-size checks remain with
+the same local services.
+
+The client-ui lifecycle delivery hook and continuation notice are shared by Web
+and Desktop. The SDK remains the lifecycle ordering, replay and terminal owner;
+Desktop history pagination and admission delivery failures cannot replace that
+truth. Each admitted delivery invalidates stale submit handlers synchronously.
+Desktop's workspace/grant/Thread-scoped UI owner retains text, configuration and
+the existing image draft across hero/docked layout changes and history refresh.
+Web keeps its default local image owner. Native File/Open Folder dispatches only
+trusted no-payload intent to the existing picker and explicit grant flow.
