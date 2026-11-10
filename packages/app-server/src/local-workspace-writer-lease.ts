@@ -1,7 +1,8 @@
 import { constants, type BigIntStats } from "node:fs";
 import { lstat, open, realpath, type FileHandle } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
-import type { WorkspaceId } from "@repo/platform-protocol";
+import type { TurnAdmission, WorkspaceId } from "@repo/platform-protocol";
+import type { LocalNativeFileIdentity, LocalNativeReleasedFence } from "@repo/event-store";
 import { acquireNativeWriterFence } from "@legioncode/execution-engine/runtime/desktop/NativeWriterFence";
 import type { SingleProcessMacExecution } from "@legioncode/execution-engine/runtime/desktop/SingleExecutableProcess";
 import type { NativeFilesystemExecution } from "@legioncode/execution-engine/runtime/desktop/NativeFilesystemBridge";
@@ -20,6 +21,8 @@ export interface LocalWorkspaceWriterAuthority extends LocalMutationLease {
   readonly filesystemRoot: string;
   /** Final capture/publication only; never substitutes for active tool authority. */
   readonly settlementSignal: AbortSignal;
+  /** Current identities of this exact held root, namespace and writer file. */
+  readPhysicalIdentity(): Promise<LocalWorkspaceWriterReleaseReceipt>;
   trackProcess(execution: SingleProcessMacExecution): void;
   trackFilesystem(execution: NativeFilesystemExecution): void;
   /** Required when construction may have spawned a child without returning its execution. */
@@ -40,6 +43,14 @@ export interface LocalWorkspaceWriterLease extends LocalWorkspaceWriterAuthority
   release(
     awaitResourceRelease: LocalTurnExecutor["awaitResourceRelease"],
   ): Promise<boolean>;
+  /** Caller must fence and await its original publication before this canonical
+   * read. Any admission, tracked physical resource or unknown result retains. */
+  releaseUnadmitted(readCanonicalAdmission: () => Promise<TurnAdmission | null>): Promise<boolean>;
+}
+
+export interface LocalWorkspaceWriterReleaseReceipt {
+  readonly root: LocalNativeFileIdentity;
+  readonly writerFence: LocalNativeReleasedFence;
 }
 
 type Resource = {
@@ -57,6 +68,7 @@ type Entry = {
   readonly resources: Set<Resource>;
   file?: FileHandle;
   fileIdentity?: BigIntStats;
+  namespaceIdentity?: BigIntStats;
   unknown: boolean;
   releasing: boolean;
   released: boolean;
@@ -114,6 +126,7 @@ export class LocalWorkspaceWriterLeaseOwner {
   async releaseAttempt(
     attempt: LocalTurnAttemptIdentity,
     proof: LocalTurnExecutor["awaitResourceRelease"],
+    onReleased?: (receipt: LocalWorkspaceWriterReleaseReceipt) => void,
   ): Promise<boolean> {
     for (const entry of this.entries.values()) {
       if (
@@ -123,7 +136,9 @@ export class LocalWorkspaceWriterLeaseOwner {
         entry.attempt.turnId === attempt.turnId &&
         entry.attempt.runAttemptId === attempt.runAttemptId
       ) {
-        return this.release(entry, proof);
+        const released = await this.release(entry, proof);
+        if (released && onReleased) onReleased(physicalIdentity(entry));
+        return released;
       }
     }
     // Absence is never proof. The factory's combined callback must prove the
@@ -170,6 +185,7 @@ export class LocalWorkspaceWriterLeaseOwner {
     let busy = false;
     try {
       await this.assertDirectory();
+      entry.namespaceIdentity = (await this.directory!).identity;
       binding.assertCurrent();
       entry.file = await open(
         this.filePath(entry),
@@ -244,6 +260,10 @@ export class LocalWorkspaceWriterLeaseOwner {
       filesystemRoot: entry.binding.filesystemRoot,
       signal: AbortSignal.any([entry.binding.signal, entry.active.signal]),
       settlementSignal: entry.retained.signal,
+      readPhysicalIdentity: async () => {
+        await this.assertEntry(entry, false);
+        return physicalIdentity(entry);
+      },
       assertCurrent: () => this.assertEntry(entry, false),
       assertSettlementCurrent: () => this.assertEntry(entry, true),
       trackProcess: (execution: SingleProcessMacExecution) =>
@@ -286,6 +306,10 @@ export class LocalWorkspaceWriterLeaseOwner {
       ) => borrow(true, operation),
       release: (proof: LocalTurnExecutor["awaitResourceRelease"]) =>
         this.release(entry, proof),
+      releaseUnadmitted: (readCanonicalAdmission: () => Promise<TurnAdmission | null>) => {
+        entry.release ??= this.releaseUnadmitted(entry, readCanonicalAdmission);
+        return entry.release;
+      },
     });
   }
 
@@ -332,6 +356,28 @@ export class LocalWorkspaceWriterLeaseOwner {
       await entry.file!.close();
       entry.released = true;
       entry.retained.abort("Writer settlement released");
+      this.entries.delete(entry.key);
+      return true;
+    } catch {
+      this.markUnknown(entry);
+      return false;
+    }
+  }
+
+  private async releaseUnadmitted(entry: Entry, readCanonicalAdmission: () => Promise<TurnAdmission | null>): Promise<boolean> {
+    try {
+      if (entry.unknown || entry.releasing || entry.released || this.entries.get(entry.key) !== entry) return false;
+      entry.releasing = true;
+      entry.active.abort("Unused writer acquisition is closing");
+      await Promise.allSettled([...entry.loans]);
+      if (entry.unknown || entry.loans.size || entry.resources.size || await readCanonicalAdmission() !== null) {
+        this.markUnknown(entry);
+        return false;
+      }
+      await this.assertEntry(entry, true);
+      await entry.file!.close();
+      entry.released = true;
+      entry.retained.abort("Unused writer acquisition released");
       this.entries.delete(entry.key);
       return true;
     } catch {
@@ -458,6 +504,16 @@ function knownBusyAcquisition(
 
 function sameIdentity(left: BigIntStats, right: BigIntStats): boolean {
   return left.dev === right.dev && left.ino === right.ino;
+}
+function physicalIdentity(entry: Entry): LocalWorkspaceWriterReleaseReceipt {
+  if (!entry.fileIdentity || !entry.namespaceIdentity) throw new Error("Writer physical identity is unavailable");
+  const identity = (value: BigIntStats): LocalNativeFileIdentity => Object.freeze({
+    device: value.dev.toString(16), inode: value.ino.toString(16),
+  });
+  return Object.freeze({
+    root: identity(entry.rootIdentity),
+    writerFence: Object.freeze({ namespace: identity(entry.namespaceIdentity), lease: identity(entry.fileIdentity) }),
+  });
 }
 function privateDirectory(value: BigIntStats): boolean {
   return (
