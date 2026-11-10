@@ -2116,3 +2116,29 @@ original operations through the existing combined server barrier. The read
 deadline requests abort only; unknown binding cleanup retains the exact binding,
 service and slot and prevents positive SQLite/process closure. No timeout, client
 disconnect, empty active map or forced exit releases those physical obligations.
+
+## Issue 810 — Versioned hosted workspace configuration
+
+The existing `WorkspaceRepository` owns saved configuration for one primary
+repository per user/workspace. Authenticated App Server
+`workspace/configuration/read` and `workspace/configuration/update`, exposed by
+SDK `readHostedWorkspaceConfiguration` / `updateHostedWorkspaceConfiguration`,
+read and edit only the existing name and selected branch. Repository identity
+comes from the exact owned active workspace; updates recheck its GitHub access
+and resolve an explicitly changed branch through the authenticated client.
+
+The existing Postgres workspace row holds the configuration version. Updates
+compare the expected version under its row lock, then atomically change the
+saved branch and any matching current selection. Stale writes fail, including
+stale no-ops; current no-ops retain their version. Existing selection preserves
+configured names and increments the same version when branch, default branch
+or active state changes. Editing an unselected workspace never selects it.
+`MemoryWorkspaceRepository` implements the same contract for existing consumers.
+
+Workspace list/select renders saved names; session workspace context and
+`AuthorizedWorkspaceRepositoryContext` consume the saved branch for future
+work. Explicit admitted run branches and resume identity keep their existing
+owners and are not rewritten. Configuration reads perform no GitHub or execution
+probe. These records are saved settings, not prepared machines: this slice adds
+no allocation, scripts, network policy, setup secrets, preparation principal,
+Ready binding, runtime identity or alternate environment registry.
