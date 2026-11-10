@@ -56,6 +56,7 @@ export type LocalAppServerCompositionOptions = {
   createMetadataInspector?: LocalWorkspaceServiceOptions["createMetadataInspector"];
   createProbeExecution?: (authority: Pick<VerifiedMacGitOptions, "probeRoot" | "withRootAuthority">) => Promise<VerifiedMacGitExecution>;
   createWorkspaceFilesService?(workspaces: LocalWorkspaceService): NonNullable<AppServerComposition["localWorkspaceFilesService"]>;
+  createWorkspaceGitReadsService?(workspaces: LocalWorkspaceService): NonNullable<AppServerComposition["localWorkspaceGitReadsService"]> & LocalShutdownOwner;
   createTurnRuntime?(persistence: Pick<LocalPersistence, "turnAdmissions" | "lifecycleEvents" | "turnArtifacts">, media?: LocalTurnMediaPort): LocalTurnRuntime;
   createArtifactCommitService?(input: {
     persistence: Pick<LocalPersistence, "turnAdmissions" | "lifecycleEvents" | "turnArtifacts" | "workspaceGrants">;
@@ -67,6 +68,9 @@ export type LocalAppServerCompositionOptions = {
 export async function createLocalAppServer(config: LocalAppServerStartConfig, options?: LocalAppServerCompositionOptions) {
   if (options?.createWorkspaceFilesService && !config.protectedHostRoots?.length) {
     throw new Error("Workspace file queries require trusted protected host roots");
+  }
+  if (options?.createWorkspaceGitReadsService && !config.protectedHostRoots?.length) {
+    throw new Error("Workspace Git queries require trusted protected host roots");
   }
   const persistence = new LocalPersistence({ storageDirectory: config.storageDirectory });
   try {
@@ -100,6 +104,7 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
       providers: providerService,
     });
     const workspaceFilesService = options?.createWorkspaceFilesService?.(workspaceService);
+    const workspaceGitReads = options?.createWorkspaceGitReadsService?.(workspaceService);
     const media = new LocalChatMediaStore({
       storageDirectory: config.storageDirectory,
       lookupAdmission: (scope) => persistence.turnAdmissions.getByTurn(scope.turnId),
@@ -123,10 +128,10 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
       persistence, workspaces: workspaceService, reads: artifactReads,
     }) : undefined;
     const server = createServer((request, response) => {
-      void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, turnService, providerPreferences, artifactReads, imageReads, artifactCommits);
+      void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, workspaceGitReads, turnService, providerPreferences, artifactReads, imageReads, artifactCommits);
     });
     return attachLocalServerShutdown(
-      server, persistence, combineLocalShutdownOwners(turnService, artifactCommits),
+      server, persistence, combineLocalShutdownOwners(turnService, artifactCommits, workspaceGitReads),
       () => workspaceService.hasUnsettledResources,
     );
   } catch (error) {
@@ -200,6 +205,7 @@ async function handleRequest(
   providerService: LocalProviderService,
   persistence: LocalPersistence,
   workspaceFilesService?: AppServerComposition["localWorkspaceFilesService"],
+  workspaceGitReads?: AppServerComposition["localWorkspaceGitReadsService"],
   turnService?: LocalTurnService,
   providerPreferences?: LocalProviderPreferences,
   artifactReads?: LocalTurnArtifactReads,
@@ -221,6 +227,7 @@ async function handleRequest(
     credential: config.credential,
     workspaceService,
     localWorkspaceFilesService: workspaceFilesService,
+    localWorkspaceGitReadsService: workspaceGitReads,
     localTurnService: turnService,
     localProviderPreferenceService: providerPreferences,
     localTurnArtifactReadsService: artifactReads,
