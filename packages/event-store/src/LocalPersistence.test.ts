@@ -203,7 +203,8 @@ describe("LocalPersistence", () => {
     await expect(reopened.turnAdmissions.admit({ ...retry, clientRequestId: "new-request" }))
       .rejects.toMatchObject({ code: "idempotency_conflict" });
     const terminal = LifecycleEventSchema.parse({ ...lifecycle(1, "turn.completed"),
-      threadId: candidate.run.threadId, turnId: candidate.turn.id, runAttemptId: candidate.runAttemptId });
+      threadId: candidate.run.threadId, turnId: candidate.turn.id, runAttemptId: candidate.runAttemptId,
+      producer: { kind: "runtime_kernel", id: candidate.run.workerId } });
     await expect(reopened.lifecycleEvents.append({ ...terminal, runAttemptId: retry.runAttemptId }))
       .rejects.toMatchObject({ code: "corrupt_event_stream" });
     await reopened.lifecycleEvents.append(terminal);
@@ -219,15 +220,18 @@ describe("LocalPersistence", () => {
     // A matching retry is a read of its original receipt, even after archival.
     await expect(reopened.turnAdmissions.admit(retry)).resolves.toEqual({ admission: candidate, newlyAdmitted: false });
     await reopened.events.append(admissionThreadStatus(threadCreated.payload.thread, "active", 3));
-    await expect(reopened.turnAdmissions.admit({ ...retry, clientRequestId: "new-request", userMessage: { ...retry.userMessage, id: candidate.userMessage.id } }))
+    const nextRequest = TurnAdmissionSchema.parse({ ...retry, clientRequestId: "new-request",
+      turn: { ...retry.turn, parentTurnId: candidate.turn.id },
+      userMessage: { ...retry.userMessage, parentItemId: candidate.userMessage.id } });
+    await expect(reopened.turnAdmissions.admit({ ...nextRequest, userMessage: { ...nextRequest.userMessage, id: candidate.userMessage.id } }))
       .rejects.toMatchObject({ code: "event_id_conflict" });
-    await expect(reopened.turnAdmissions.admit({ ...retry, clientRequestId: "new-request" }))
+    await expect(reopened.turnAdmissions.admit(nextRequest))
       .resolves.toMatchObject({ newlyAdmitted: true });
     const firstPage = await reopened.turnAdmissions.listByThread({ threadId: candidate.run.threadId, afterCursor: null, limit: 1 });
     expect(firstPage.admissions).toEqual([candidate]);
     expect(firstPage.nextCursor).toEqual(savedEvents[1]?.cursor);
     const secondPage = await reopened.turnAdmissions.listByThread({ threadId: candidate.run.threadId, afterCursor: firstPage.nextCursor, limit: 1 });
-    expect(secondPage.admissions).toEqual([{ ...retry, clientRequestId: "new-request" }]);
+    expect(secondPage.admissions).toEqual([nextRequest]);
     await expect(reopened.turnAdmissions.listByThread({ threadId: candidate.run.threadId, afterCursor: secondPage.nextCursor, limit: 1 }))
       .resolves.toEqual({ admissions: [], nextCursor: null });
     await expect(reopened.turnAdmissions.listByThread({ threadId: "thr_foreignthread", afterCursor: firstPage.nextCursor, limit: 1 }))

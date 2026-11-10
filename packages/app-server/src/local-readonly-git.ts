@@ -10,7 +10,7 @@ import { createNodeGitExecutor } from "./local-node-git-executor.js";
 /** Read-only Git algorithms through the existing held-root lender and guardian. */
 export async function createLocalReadOnlyGitService(
   options: VerifiedMacGitOptions & { turnSignal?: AbortSignal },
-): Promise<Pick<DefaultGitService, "probeRepository" | "getStatus">> {
+): Promise<Pick<DefaultGitService, "probeRepository" | "getStatus" | "readRepositoryHead">> {
   const turnSignal = options.turnSignal;
   const macExecution = await createVerifiedMacGitExecution({
     ...options,
@@ -46,5 +46,6 @@ export async function createLocalReadOnlyGitService(
   return {
     probeRepository: (input) => git.probeRepository(input),
     getStatus: (input) => git.getStatus(input),
+    readRepositoryHead: (input) => git.readRepositoryHead(input),
   };
 }
