@@ -1437,9 +1437,15 @@ resize bounds; Desktop supplies that width to the frame and mounts the same
 Resizer, avoiding the narrow generic-frame default for the Web review toolbar.
 
 Local thread, grant, provider route, lifecycle replay/live continuation and immutable
-review identity remain their existing SDK/App Server owners. Empty workspace setup
-selects an existing active thread or creates a real local thread before showing
-the shared composer. Local capability availability still gates execution and saved
+review identity remain their existing SDK/App Server owners. Desktop bootstrap owns
+only guarded initialize/grant reads and explicit retry presentation. The shared
+composer and New task action remain visible before workspace access is ready;
+their unsent text/configuration is volatile renderer state. A one-shot draft
+handoff adopts only the exact Thread returned by canonical SDK creation, preserves
+late typing, and never submits automatically or creates synthetic IDs. Explicit
+navigation suppresses automatic selection. Unavailable task reads render an error
+with known project metadata rather than an empty task list. Local capability
+availability still gates execution and saved
 review; this presentation migration does not activate an unwired backend or prove
 installed execution, immutable capture or safe commits.
 

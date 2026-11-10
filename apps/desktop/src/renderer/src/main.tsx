@@ -2,7 +2,6 @@ import {
   ClientErrorBoundary,
   ClientShell,
   ClientShellLoading,
-  ConversationHero,
   getInitialRightSidebarWidth,
   clampRightSidebarWidth,
   EnvironmentSummaryMenu,
@@ -11,7 +10,7 @@ import {
   WorkspaceFrame,
   WorkspaceTopBar,
 } from "@legioncode/client-ui";
-import { AppServerClientError, createAppServerClient, type LocalTurnConfigurationOptions } from "@legioncode/sdk";
+import { AppServerClientError, createAppServerClient } from "@legioncode/sdk";
 import { StrictMode, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { AppServerEnvironmentSnapshot } from "@repo/platform-protocol";
@@ -27,9 +26,12 @@ import { DesktopSettingsDialog } from "./DesktopSettingsDialog";
 import { DesktopRightPanel } from "./DesktopRightPanel";
 import { DesktopWorkspaceFilesMount } from "./DesktopWorkspaceFilesMount";
 import { DesktopConversation } from "./DesktopConversation";
+import { DesktopComposer } from "./DesktopComposer";
+import { useDesktopComposerDraft } from "./useDesktopComposerDraft";
 import { DesktopReview } from "./DesktopReview";
 import { DesktopSavedCommitDialog } from "./DesktopSavedCommitDialog";
 import { useDesktopSavedReviewSelection } from "./useDesktopSavedReviewSelection";
+import { DesktopWorkspaceBootstrapHero, useDesktopWorkspaceBootstrap } from "./DesktopWorkspaceBootstrap";
 import "./styles.css";
 
 type ThreadLoadState = "loading" | "ready" | "error";
@@ -41,9 +43,6 @@ function DesktopApp(): React.JSX.Element {
   const [build, setBuild] = useState<DesktopBuildInfo | null>(null);
   const [environment, setEnvironment] =
     useState<AppServerEnvironmentSnapshot | null>(null);
-  const [sdkReady, setSdkReady] = useState(false);
-  const [turnConfigurationOptions, setTurnConfigurationOptions] = useState<LocalTurnConfigurationOptions | null>(null);
-  const [workspace, setWorkspace] = useState<LocalWorkspaceGrant | null>(null);
   const [selection, setSelection] = useState<WorkspaceSelection | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [threads, setThreads] = useState<Thread[]>([]);
@@ -67,6 +66,10 @@ function DesktopApp(): React.JSX.Element {
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const workspaceCommand = useRef(false);
   const emptyDraftRequest = useRef<string | null>(null);
+  const creatingThread = useRef(false);
+  const [pendingThreadSelections, setPendingThreadSelections] = useState(0);
+  const [newDraftRequested, setNewDraftRequested] = useState(false);
+  const drafts = useDesktopComposerDraft();
   const [threadError, setThreadError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(
     () => !window.matchMedia("(max-width: 1023px)").matches,
@@ -84,6 +87,45 @@ function DesktopApp(): React.JSX.Element {
         : null,
     [build?.version],
   );
+
+  const {
+    sdkReady,
+    configurationOptions: turnConfigurationOptions,
+    workspace,
+    state: workspaceBootstrapState,
+    retry: retryWorkspaceRead,
+    acceptWorkspace: setWorkspace,
+  } = useDesktopWorkspaceBootstrap({
+    client: appServerClient,
+    environmentReady: environment?.status === "ready",
+    scope: threadScope,
+    commandActive: workspaceCommand,
+    pickerOpen: selection !== null,
+    onScopeReset: () => {
+      threadScope.current += 1;
+      selectionRequest.current += 1;
+      threadListRequest.current += 1;
+      setThreads([]);
+      setSelectedThread(null);
+      setThreadError(null);
+      setThreadLoadState("loading");
+    },
+    onReadStart: () => {
+      selectionRequest.current += 1;
+      threadListRequest.current += 1;
+      setThreadError(null);
+      setThreadLoadState("loading");
+    },
+    onWorkspaceReady: () => { void refreshThreads(); },
+    onWorkspaceUnavailable: () => {
+      selectionRequest.current += 1;
+      threadListRequest.current += 1;
+      setThreads([]);
+      setSelectedThread(null);
+      setThreadLoadState("ready");
+    },
+    onInitializeError: () => setThreadLoadState("error"),
+  });
 
   const reviewScope = useMemo(
     () =>
@@ -143,78 +185,24 @@ function DesktopApp(): React.JSX.Element {
   }, []);
 
   useEffect(() => {
-    setSdkReady(false);
-    setTurnConfigurationOptions(null);
-    threadScope.current += 1;
-    selectionRequest.current += 1;
-    threadListRequest.current += 1;
-    setSelectedThread(null);
-    if (!appServerClient || environment?.status !== "ready") return;
-    let active = true;
-    void appServerClient
-      .initialize()
-      .then((initialized) => {
-        if (active) {
-          setTurnConfigurationOptions(initialized.localTurnConfiguration ?? null);
-          setSdkReady(true);
-        }
-      })
-      .catch(() => {
-        if (active) setThreadLoadState("error");
-      });
-    return () => {
-      active = false;
-    };
-  }, [appServerClient, environment?.status]);
-
-  useEffect(() => {
-    if (!appServerClient || !sdkReady) {
-      return;
-    }
-    let active = true;
-    const scope = threadScope.current;
-    setThreadLoadState("loading");
-    void appServerClient
-      .getWorkspaceGrant()
-      .then(async (nextWorkspace) => {
-        if (!active || scope !== threadScope.current) return;
-        setWorkspace(nextWorkspace);
-        if (nextWorkspace?.readiness === "ready") {
-          await refreshThreads();
-        } else {
-          setThreads([]);
-          setSelectedThread(null);
-          setThreadLoadState("ready");
-        }
-      })
-      .catch(() => {
-        if (!active || scope !== threadScope.current) return;
-        setWorkspaceError("The local workspace grant could not be loaded.");
-        setThreadLoadState("ready");
-      });
-    return () => {
-      active = false;
-    };
-  }, [appServerClient, sdkReady]);
-
-  useEffect(() => {
     if (
       !sdkReady ||
       workspace?.readiness !== "ready" ||
       threadLoadState !== "ready" ||
       selectedThread ||
-      threadError
+      threadError ||
+      pendingThreadSelections > 0
     )
       return;
     const latest = threads.find((thread) => thread.status !== "archived");
-    if (latest) {
+    if (latest && !drafts.hasUnboundDraft && !newDraftRequested) {
       setSelectedThread(latest);
       return;
     }
     const intent = `${workspace.workspaceId}:${workspace.grantedAt}:${threads.map((thread) => thread.id).join(":")}`;
     if (emptyDraftRequest.current === intent) return;
     emptyDraftRequest.current = intent;
-    void createThread();
+    void createThread(undefined, true);
   }, [
     sdkReady,
     workspace?.workspaceId,
@@ -224,6 +212,9 @@ function DesktopApp(): React.JSX.Element {
     selectedThread,
     threadError,
     threads,
+    drafts.hasUnboundDraft,
+    newDraftRequested,
+    pendingThreadSelections,
   ]);
 
   async function refreshThreads(preferredSelectionId?: string): Promise<void> {
@@ -259,17 +250,23 @@ function DesktopApp(): React.JSX.Element {
     }
   }
 
-  async function createThread(title?: string): Promise<void> {
+  async function createThread(title?: string, fromUnboundDraft = false): Promise<void> {
+    if (!appServerClient || !sdkReady || workspace?.readiness !== "ready" || creatingThread.current) return;
+    creatingThread.current = true;
+    setPendingThreadSelections((count) => count + 1);
     const scope = threadScope.current;
     const request = ++selectionRequest.current;
+    const workspaceId = workspace.workspaceId;
+    const ticket = fromUnboundDraft ? drafts.captureHandoff() : null;
     setThreadError(null);
     try {
-      if (!appServerClient) return;
       const created = await appServerClient.createThread(
         title?.trim() || undefined,
       );
-      if (scope !== threadScope.current) return;
+      if (scope !== threadScope.current || created.workspaceId !== workspaceId) return;
       if (request === selectionRequest.current) {
+        if (ticket && !drafts.adoptCreatedThread(ticket, created)) return;
+        setNewDraftRequested(false);
         setSelectedThread(created);
         await refreshThreads(created.id);
       } else {
@@ -282,12 +279,32 @@ function DesktopApp(): React.JSX.Element {
       ) {
         setThreadError("The local thread could not be created.");
       }
+    } finally {
+      creatingThread.current = false;
+      setPendingThreadSelections((count) => count - 1);
     }
+  }
+
+  function startNewTask(): void {
+    closeCompactSidebar();
+    setThreadError(null);
+    emptyDraftRequest.current = null;
+    if (workspace?.readiness === "ready" && sdkReady) {
+      void createThread(undefined, !selectedThread);
+      return;
+    }
+    selectionRequest.current += 1;
+    drafts.cancelHandoff();
+    setSelectedThread(null);
+    setNewDraftRequested(true);
   }
 
   async function openThread(threadId: string): Promise<void> {
     const knownThread = threads.find((thread) => thread.id === threadId);
     if (!knownThread) return;
+    drafts.cancelHandoff();
+    setNewDraftRequested(false);
+    setPendingThreadSelections((count) => count + 1);
     const request = ++selectionRequest.current;
     setThreadError(null);
     try {
@@ -299,6 +316,8 @@ function DesktopApp(): React.JSX.Element {
       if (request === selectionRequest.current) {
         setThreadError("The local thread could not be opened.");
       }
+    } finally {
+      setPendingThreadSelections((count) => count - 1);
     }
   }
 
@@ -440,6 +459,7 @@ function DesktopApp(): React.JSX.Element {
     selectionRequest.current += 1;
     threadListRequest.current += 1;
     setSelectedThread(null);
+    setThreadError(null);
     setThreads([]);
     setWorkspace(granted);
     setSelection(null);
@@ -511,8 +531,8 @@ function DesktopApp(): React.JSX.Element {
               workspace={workspace}
               threads={threads}
               selectedThreadId={selectedThread?.id ?? null}
-              loadState={threadLoadState}
-              threadError={threadError ?? (!selection ? workspaceError : null)}
+              loadState={workspaceBootstrapState.status === "error" ? "error" : threadLoadState}
+              threadError={threadError ?? (!selection ? workspaceError ?? (workspaceBootstrapState.status === "error" ? workspaceBootstrapState.message : null) : null)}
               canManageWorkspace={(id) => sdkReady && !workspaceBusy && workspace?.workspaceId === id}
               onRemoveWorkspace={async (id) => { if (workspace?.workspaceId === id) await revokeWorkspace(); }}
               onOpenSettings={() => {
@@ -524,11 +544,7 @@ function DesktopApp(): React.JSX.Element {
                 closeCompactSidebar();
                 void openThread(threadId);
               }}
-              onCreate={
-                workspace?.readiness === "ready" && sdkReady
-                  ? () => void createThread()
-                  : undefined
-              }
+              onCreate={startNewTask}
               onAddWorkspace={
                 sdkReady ? () => void chooseWorkspace() : undefined
               }
@@ -659,6 +675,8 @@ function DesktopApp(): React.JSX.Element {
               key={`${workspace.workspaceId}:${workspace.grantedAt}:${workspace.readiness}`}
               client={appServerClient}
               thread={selectedThread}
+              draftHandoff={drafts.handoffFor(selectedThread)}
+              providerReady={sdkReady}
               workspaceGrantAt={workspace.grantedAt}
               fileAvailability={environment.status === "ready" && environment.capabilities.includes("workspace-files-v1") ? { available: true } : { available: false, reason: "Workspace file suggestions are unavailable in this environment." }}
               projectName={workspace.displayName}
@@ -683,15 +701,39 @@ function DesktopApp(): React.JSX.Element {
               }}
             />
           ) : (
-            <ConversationHero
-              projectName={workspace?.displayName}
-              onProjectClick={() => void chooseWorkspace()}
+            <DesktopWorkspaceBootstrapHero
+              workspace={workspace}
+              state={workspaceBootstrapState}
+              threadLoadState={threadLoadState}
+              threadError={threadError}
+              onRetryThreads={() => { if (sdkReady) void refreshThreads(); }}
+              onChoose={() => void chooseWorkspace()}
+              onRetry={retryWorkspaceRead}
+              canChoose={sdkReady && !workspaceBusy && !selection}
+              canRetry={environment.status === "ready" && !workspaceBusy && !selection}
             >
-              {workspace?.readiness === "ready" &&
-              threadLoadState === "loading" ? (
-                <ClientShellLoading label="Loading conversation" />
-              ) : null}
-            </ConversationHero>
+              <DesktopComposer
+                client={appServerClient}
+                workspaceId={workspace?.readiness === "ready" ? workspace.workspaceId : null}
+                grantedAt={workspace?.readiness === "ready" ? workspace.grantedAt : null}
+                threadId={null}
+                providerReady={sdkReady}
+                unboundDraft={drafts.unbound}
+                fileAvailability={{ available: false, reason: "Restore project access to browse files." }}
+                busy={false}
+                layout="hero"
+                submissionUnavailableReason={workspace?.readiness === "ready"
+                  ? "Open or create a task to send your message."
+                  : "Choose or restore a project to send your message."}
+                onConnectProvider={() => setSettingsTarget("connect-only")}
+                onManageModels={() => setSettingsTarget("manage-models-only")}
+                providerRevision={providerRevision}
+                configurationOptions={turnConfigurationOptions}
+                initialConfiguration={null}
+                pendingConfiguration={null}
+                pendingSelection={null}
+              />
+            </DesktopWorkspaceBootstrapHero>
           )}
         </WorkspaceFrame>
       </ClientShell>
