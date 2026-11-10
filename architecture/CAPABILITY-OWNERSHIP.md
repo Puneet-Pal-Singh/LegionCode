@@ -1192,6 +1192,21 @@ not a new Turn, lifecycle fragment, queue receipt, acknowledgement body fallback
 or runtime event owner. Exact tool-fragment interleaving remains outside this
 whole-Turn aggregate presentation.
 
+Bounded history hosts may supply one optional canonical bounds map to shared
+`buildChatEntries`, containing each Turn's actual logical root and last user
+message IDs from the validated snapshot/admission. Supplying the map disables
+visible-window root/last inference, including when no active-Turn messages are
+visible. An aggregate requires its actual last user marker in the window; when
+absent, real assistant records remain visible and active-workflow fallback is
+suppressed. Revision and continuation lookup keeps the supplied root identity.
+Only that logical root can use the existing prompt-edit action; known steering
+leaves are not editable in complete transcripts either. The shared renderer
+consumes an explicit edit-unavailable presentation flag rather than a fabricated
+edit target. Complete-history callers may omit bounds. This adds no history
+reader, cursor DTO, message cache, runtime acknowledgement body or lifecycle
+producer; the Desktop host mount awaits the canonical bidirectional body-window
+contract.
+
 ## Plan 058 — Portable lifecycle projection continuation
 
 SDK `platform/conversation-lifecycle` composes the existing canonical lifecycle
