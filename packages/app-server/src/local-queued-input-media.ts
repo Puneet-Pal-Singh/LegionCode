@@ -44,4 +44,7 @@ export interface LocalQueuedInputMediaPort {
   prepareQueued(images: Parameters<LocalTurnMediaPort["prepare"]>[0], signal?: AbortSignal): Promise<LocalQueuedInputPreparedMedia>;
   promoteQueued(input: LocalQueuedInputMediaRead): Promise<LocalTurnPreparedMedia>;
   resolveQueuedForProvider(input: LocalQueuedInputMediaRead): Promise<readonly LocalProviderImagePart[]>;
+  readQueuedOriginal(input: LocalQueuedInputMediaRead & { readonly reference: ChatImageAttachmentRef }): Promise<{
+    reference: ChatImageAttachmentRef; bytes: Uint8Array; sha256: string; fingerprint: string;
+  }>;
 }

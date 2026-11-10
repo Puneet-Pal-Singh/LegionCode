@@ -2443,3 +2443,10 @@ advertise queue or steering availability.
 - Native queue admission explicitly rejects delegated captures. Native accepted-user enrichment applies only inside the same opaque ownership boundary; shared delegated terminal/assistant summaries remain with their original reader and are not forced to manufacture Native inbox/platform records.
 
 - First Native inbox migration applies the same canonical opaque delegated-owner boundary before refusing orphan Native input events. Existing delegated history does not falsely require a Native inbox.
+The same media owner exposes a private original-image read for canonical queued
+scope and its full reference set. Exact queue ownership is rechecked around the
+bounded file read, with original digest and metadata validation; originals are
+never normalized or reencoded for review. The existing media/readImage owner
+must resolve the accepted/applied/unconfirmed input under the actual Turn and
+attempt and reauthorize after the read. This port adds no public endpoint or
+renderer-supplied host path and does not manufacture a Turn scope for steering.
