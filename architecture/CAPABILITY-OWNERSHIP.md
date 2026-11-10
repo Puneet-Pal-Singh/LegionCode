@@ -1585,3 +1585,14 @@ Trusted hosts import the existing captured-execution and canonical capture/
 artifact Git constructors through explicit private package exports. Their
 implementation and policy remain unchanged; the generic server does not infer
 that those ports are present from package availability.
+
+## Plan 057 — Local runtime before-ready reconciliation
+
+Local App Server startup awaits bounded canonical admission enumeration through
+the sole SQLite owner before constructing/listening on its HTTP server. Each
+saved admission is delegated to the injected runtime recovery port; only the
+canonical runtime decides whether its exact saved attempt is supported and
+emits settlement. Startup never replays a provider request, creates an executor,
+acquires a workspace binding, clears a fence or invents terminal state. Failure
+closes the persistence owner and refuses readiness. Unsupported mutation
+attempts retain their existing quarantine rather than receiving false closure.

@@ -11,6 +11,7 @@ import type { VerifiedMacGitExecution, VerifiedMacGitOptions } from "./local-mac
 import { LocalThreadNotFoundError, LocalThreadService } from "./local-threads.js";
 import { LocalProviderService, ProviderConfigurationSchema } from "./local-providers.js";
 import { LocalTurnService, type LocalTurnRuntime } from "./local-turns.js";
+import { reconcileLostLocalTurns } from "./local-turn-recovery.js";
 import { LocalProviderPreferences } from "./local-provider-preferences.js";
 import { LocalTurnArtifactReads } from "./local-turn-artifact-reads.js";
 import { LocalChatMediaStore } from "./local-chat-media-store.js";
@@ -48,7 +49,7 @@ export type LocalAppServerCompositionOptions = {
   }): NonNullable<AppServerComposition["localTurnArtifactCommitService"]>;
 };
 
-export function createLocalAppServer(config: LocalAppServerStartConfig, options?: LocalAppServerCompositionOptions) {
+export async function createLocalAppServer(config: LocalAppServerStartConfig, options?: LocalAppServerCompositionOptions) {
   if (options?.createWorkspaceFilesService && !config.protectedHostRoots?.length) {
     throw new Error("Workspace file queries require trusted protected host roots");
   }
@@ -87,6 +88,7 @@ export function createLocalAppServer(config: LocalAppServerStartConfig, options?
       lookupAdmission: (scope) => persistence.turnAdmissions.getByTurn(scope.turnId),
     });
     const runtime = options?.createTurnRuntime?.(persistence, media);
+    if (runtime) await reconcileLostLocalTurns(persistence, runtime);
     const turnService = runtime ? new LocalTurnService({
       persistence,
       workspaces: workspaceService,
@@ -115,14 +117,14 @@ export function createLocalAppServer(config: LocalAppServerStartConfig, options?
   }
 }
 
-export function runLocalAppServerProcess(
+export async function runLocalAppServerProcess(
   parentPort: LocalAppServerParentPort,
   config: LocalAppServerStartConfig,
   options?: LocalAppServerCompositionOptions,
-): void {
-  let server: ReturnType<typeof createLocalAppServer>;
+): Promise<void> {
+  let server: Awaited<ReturnType<typeof createLocalAppServer>>;
   try {
-    server = createLocalAppServer(config, options);
+    server = await createLocalAppServer(config, options);
   } catch {
     parentPort.postMessage({ type: "fatal" });
     process.exit(1);
