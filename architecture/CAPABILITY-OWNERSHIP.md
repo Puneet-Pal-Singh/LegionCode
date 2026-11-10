@@ -2172,10 +2172,13 @@ SHA-256 checksums; corrupt complete records fail closed. Only an incomplete fina
 record, which never passed its fsync/start barrier, may be trimmed under the held
 writer fence. The WAL has a finite four MiB limit and no speculative compaction.
 
-The new process-helper acquisition receipt is ABI v2/intentVersion 1. Its bounded
-probe must verify the actual boot/stable-identity/signaling/OFD support before
-captured Build is advertised; the host probe/availability wiring remains a separate
-required source join. Stable-identity structures follow the pinned Apple XNU ABI
+The new process-helper acquisition receipt is ABI v2/intentVersion 1. The actual
+Desktop composition awaits the original bounded helper probe before constructing
+its shared writer owner or enabling captured Build and artifact commit. The probe
+verifies boot/stable-identity/signaling and actual OFD/old-flock/append-lock support
+using one private immediately removed probe inode, with no workspace, real lease,
+provider or target process. Unsupported support leaves capture unavailable; unknown
+helper closure retains the existing startup failure owner. Stable-identity structures follow the pinned Apple XNU ABI
 and unsupported platforms remain unavailable. The same namespace/inode is retained,
 but old binaries do not produce intents: all active writer profiles must migrate
 to this ABI, and mixed-old-binary crash recovery is not advertised as supported.
