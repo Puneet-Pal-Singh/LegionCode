@@ -1,0 +1,203 @@
+{
+  "head": "1f941d13795094c9b7fd77e6a1459529c3d52b18",
+  "base": "acb94a831331ede53297fd7ddb440407537aabed",
+  "storage_commit": "925b63d5d7a4ada5dbdc5f0690a0bafbbfbd9633",
+  "consumer_commit": "1f941d13795094c9b7fd77e6a1459529c3d52b18",
+  "branch": "codex/feat-048-061-r3-durable-opening-20261110",
+  "published": true,
+  "worktree_clean": true,
+  "changed_paths": [
+    "apps/brain/src/runtime/CloudDelegatedRunPreparation.ts",
+    "apps/brain/src/runtime/CloudHarnessAdmissionPorts.ts",
+    "apps/brain/src/runtime/SecureHarnessExecutionPort.ts",
+    "apps/brain/src/services/harness/HostedHarnessAdmissionComposition.ts",
+    "apps/secure-agent-api/harness-host/bridge.ts",
+    "apps/secure-agent-api/harness-host/composition.ts",
+    "apps/secure-agent-api/src/harness/CloudHarnessBridgeClient.ts",
+    "apps/secure-agent-api/src/harness/CloudHarnessService.ts",
+    "packages/app-server/src/harness/LocalHarnessComposition.ts",
+    "packages/event-store/src/local.ts",
+    "packages/event-store/src/local/harness-bindings.ts",
+    "packages/harness-core/src/server/HarnessRegistry.ts",
+    "packages/harness-core/src/server/HarnessSessionManager.ts",
+    "packages/persistence/src/harness/PostgresHarnessAdmissionBindingPort.ts",
+    "packages/persistence/src/harness/PostgresHarnessBindingRepository.ts",
+    "packages/worker-protocol/src/harness.ts"
+  ],
+  "bundle": {
+    "path": "/tmp/r3-cancel-1f941d137.bundle",
+    "sha256": "33d17ba49e9d3c005854f198b3ba24fc670b6fb9a9c43240a0e38d2da6e18b6e",
+    "bytes": 5928,
+    "requires": "acb94a831331ede53297fd7ddb440407537aabed",
+    "verified": true
+  },
+  "checks": {
+    "shared": "worker-protocol/event-store/persistence/harness-core build and types passed by storage owner",
+    "consumer": [
+      {
+        "cwd": "packages/app-server",
+        "command": "node ../../node_modules/typescript/bin/tsc --noEmit",
+        "result": "held baseline four local-process constructor diagnostics; owned diagnostics zero"
+      },
+      {
+        "cwd": "apps/brain",
+        "command": "node ../../node_modules/typescript/bin/tsc --noEmit",
+        "result": "pass"
+      },
+      {
+        "cwd": "apps/secure-agent-api",
+        "command": "node ../../node_modules/typescript/bin/tsc --noEmit",
+        "result": "pass"
+      },
+      {
+        "cwd": "apps/secure-agent-api/harness-host",
+        "command": "node ../../../node_modules/typescript/bin/tsc --noEmit",
+        "result": "pass"
+      },
+      {
+        "cwd": "apps/secure-agent-api/harness-host",
+        "command": "node scripts/build.mjs",
+        "result": "pass; no assets packaged"
+      }
+    ]
+  },
+  "logs": {
+    "/tmp/r3-cancel-app-server-types.log": {
+      "sha256": "0d4c46e804745e970c7016e299df3e8efea4afc3931278f5039d4320e3516b3a",
+      "bytes": 720
+    },
+    "/tmp/r3-cancel-brain-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "/tmp/r3-cancel-core-build.log": {
+      "sha256": "54e12bac63af0fb57c130a9fcec452779b8dce50ff35fc538da3c956b87ea767",
+      "bytes": 113
+    },
+    "/tmp/r3-cancel-core-types.log": {
+      "sha256": "39b858c4e4181ac758ee7da68dce804addb722f4261fe4da58d4579c5ee6c482",
+      "bytes": 128
+    },
+    "/tmp/r3-cancel-nodehost-build.log": {
+      "sha256": "14fe40cadde394ee53b10da999af895c5ba2fcaacc06bc9e46697529a25ecd1a",
+      "bytes": 78
+    },
+    "/tmp/r3-cancel-nodehost-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "/tmp/r3-cancel-pg-build.log": {
+      "sha256": "20e04fabbb37a30f4a94cdae52eb1dddcb3ee95e0b710cc1187f4821ae698caa",
+      "bytes": 111
+    },
+    "/tmp/r3-cancel-pg-types.log": {
+      "sha256": "09d8a6cc9864a798c3399777654c5a1eaad468b50badbf053e210bb94eb4c578",
+      "bytes": 126
+    },
+    "/tmp/r3-cancel-publication-fetch.log": {
+      "sha256": "09e110eef6fa279fb68353a9b8791044e5319cf2ee5447e92fa9a81dac626b1c",
+      "bytes": 138
+    },
+    "/tmp/r3-cancel-publication-push.log": {
+      "sha256": "15501541539e823be4a9e48988e234aacedda5323656b47c22b9b4288cb04bc9",
+      "bytes": 134
+    },
+    "/tmp/r3-cancel-secure-api-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "/tmp/r3-cancel-store-build.log": {
+      "sha256": "159192ff848238259dd29227e424d733f68af5df886c7585189a30cc0b75d4cf",
+      "bytes": 111
+    },
+    "/tmp/r3-cancel-store-types.log": {
+      "sha256": "cad30b49ab5e7a252d27ff3006776f6619019319f5d36971d1089c4be979151f",
+      "bytes": 126
+    },
+    "/tmp/r3-cancel-worker-build.log": {
+      "sha256": "aa5f6f547db31cc139ff8cd6bcbac15bfa1d3e38e3de572c831ef98baa234ccc",
+      "bytes": 119
+    },
+    "/tmp/r3-cancel-worker-types.log": {
+      "sha256": "abf603dffdc3e017940b5defdc4e416cc0e94c2e2e67b2a2a211116b276109dd",
+      "bytes": 134
+    }
+  },
+  "handoff": {
+    "revision": "37d5a77548669d1661b2cf2db26314cc7213adb7",
+    "manifest_sha256": "feed0cce8426da047dc5683ec0d61cbdc605888f5cee3ab1caec72727e8d5326",
+    "verified": "19/19 hashes and lengths"
+  },
+  "limits": [
+    "Node24.22.1 compiler executor, no target runtime acceptance",
+    "No tests/provider/OS acceptance by consumer owner",
+    "Cancellation is not physical scope closure or retirement",
+    "Uncertain begin/ACK/crash retains ownership; launch gates false"
+  ],
+  "probes": {
+    "owner": "r3_codex_closure",
+    "reported": "three user-authorized /tmp SQLite/Core ordering schedules passed; not product/OS acceptance",
+    "script_path": "/tmp/r3-opening-cancel-probe.cjs",
+    "script_sha256": "d8bfb2cb3112fa92d0aa4f54942de3b505f87bba1027911601346679e92e9357",
+    "scope": "Actual-source SQLite/Core with synthetic admission/host; no OS/provider acceptance",
+    "receipts": [
+      {
+        "command": "node /tmp/r3-opening-cancel-probe.cjs cancel > /tmp/r3-opening-cancel-cancel.log 2>&1",
+        "files": {
+          "/tmp/r3-opening-cancel-cancel.log": {
+            "sha256": "6ac34f9837867401d5aaef3bebc72ffa0c956c0a238fa747e816f15724ff2a2b",
+            "bytes": 289
+          },
+          "/tmp/r3-opening-cancel-cancel-result.json": {
+            "sha256": "8a648a942c7874a602c55f9ef8bee947e5f23edb3510c46fd15381a9014381ab",
+            "bytes": 322
+          }
+        },
+        "owner": "r3_codex_closure; receipt verified without rerun"
+      },
+      {
+        "command": "node /tmp/r3-opening-cancel-probe.cjs dispatch > /tmp/r3-opening-cancel-dispatch.log 2>&1",
+        "files": {
+          "/tmp/r3-opening-cancel-dispatch.log": {
+            "sha256": "2ca2dbc83cb789cc89efe3ad08de63bcf30e3a66cdcf5bfc6ca1a49f3909ea1a",
+            "bytes": 277
+          },
+          "/tmp/r3-opening-cancel-dispatch-result.json": {
+            "sha256": "6c5f2bf98930ede10d7314786f2f0c60b1ff16d1f123010f56fc8d9c1d39b42d",
+            "bytes": 310
+          }
+        },
+        "owner": "r3_codex_closure; receipt verified without rerun"
+      },
+      {
+        "command": "node /tmp/r3-opening-cancel-probe.cjs core-stop > /tmp/r3-opening-cancel-core-stop.log 2>&1",
+        "files": {
+          "/tmp/r3-opening-cancel-core-stop.log": {
+            "sha256": "ddb846ba3ce11cd912c3dd54d9dcf4425c419096b279d6d9b9adf8d28d142e28",
+            "bytes": 292
+          },
+          "/tmp/r3-opening-cancel-core-stop-result.json": {
+            "sha256": "c597556b752bf3ee31b0edb6594faffac1ea277837c8f5d3f8171ca3b396bcb8",
+            "bytes": 325
+          }
+        },
+        "owner": "r3_codex_closure; receipt verified without rerun"
+      }
+    ]
+  },
+  "local_only_cut": {
+    "base": "e810c206478a8b93c6fefbc65f64191ec3ad615e",
+    "apply_check": "git apply --check passed; no source mutation",
+    "paths": [
+      "packages/worker-protocol/src/harness.ts",
+      "packages/harness-core/src/server/HarnessRegistry.ts",
+      "packages/harness-core/src/server/HarnessSessionManager.ts",
+      "packages/event-store/src/local.ts",
+      "packages/event-store/src/local/harness-bindings.ts",
+      "packages/app-server/src/harness/LocalHarnessComposition.ts"
+    ],
+    "patch_sha256": "8cf16a9c405c22606ee1d6366c806c48bb287079c510091c54b81e6245d79549",
+    "patch": "diff --git a/packages/app-server/src/harness/LocalHarnessComposition.ts b/packages/app-server/src/harness/LocalHarnessComposition.ts\nindex f82930ba7..10c2cad11 100644\n--- a/packages/app-server/src/harness/LocalHarnessComposition.ts\n+++ b/packages/app-server/src/harness/LocalHarnessComposition.ts\n@@ -251,6 +251,10 @@ export class LocalHarnessComposition {\n               await this.assertLocalExecution(command);\n               await this.persistence.harnessBindings.beginOpeningDispatch({ selection: stored, intent });\n             },\n+            cancelBeforeDispatch: async () => {\n+              const cancelled = await this.persistence.harnessBindings.cancelReservedOpening({selection: stored, intent});\n+              if (cancelled !== \"cancelled_before_dispatch\") throw new Error(\"Local opening dispatch is ambiguous; recovery required\");\n+            },\n             acknowledge: async (session) => {\n               await this.persistence.harnessBindings.acknowledgeOpening({ selection: stored, intent,\n                 origin: { instanceId: session.instanceId, externalSessionId: session.externalSessionId,\ndiff --git a/packages/event-store/src/local.ts b/packages/event-store/src/local.ts\nindex ac9ec62a0..f83c11fe3 100644\n--- a/packages/event-store/src/local.ts\n+++ b/packages/event-store/src/local.ts\n@@ -218,6 +218,7 @@ export class LocalPersistence {\n     this.harnessBindings = {\n       reserveOpening:(input)=>this.guardHarnessStorage(()=>harnessBindings.reserveOpening(input)),\n       beginOpeningDispatch:(input)=>this.guardHarnessStorage(()=>harnessBindings.beginOpeningDispatch(input)),\n+      cancelReservedOpening:(input)=>this.guardHarnessStorage(()=>harnessBindings.cancelReservedOpening(input)),\n       acknowledgeOpening:(input)=>this.guardHarnessStorage(()=>harnessBindings.acknowledgeOpening(input)),\n       readOpening:(scope)=>this.guardHarnessStorage(()=>harnessBindings.readOpening(scope)),\n       freezeAndClaim: (input) => this.guardHarnessStorage(() => harnessBindings.freezeAndClaim(input)),\ndiff --git a/packages/event-store/src/local/harness-bindings.ts b/packages/event-store/src/local/harness-bindings.ts\nindex ce4bc29fb..9091dd036 100644\n--- a/packages/event-store/src/local/harness-bindings.ts\n+++ b/packages/event-store/src/local/harness-bindings.ts\n@@ -63,7 +63,7 @@ export interface StoredHarnessBinding {\n }\n export const StoredHarnessOpeningSchema = z.object({\n   intent: HarnessOpeningIntentSchema,\n-  phase:z.enum([\"reserved\",\"dispatching\",\"acknowledged\",\"retired\"]),\n+  phase:z.enum([\"reserved\",\"dispatching\",\"acknowledged\",\"retired\",\"cancelled_before_dispatch\"]),\n }).strict();\n export type StoredHarnessOpening = z.infer<typeof StoredHarnessOpeningSchema>;\n export interface ReserveHarnessOpeningInput {\n@@ -103,6 +103,7 @@ export interface HarnessExecutionClaimResult {\n export interface HarnessBindingRepository {\n   reserveOpening(input:ReserveHarnessOpeningInput):Promise<HarnessOpeningReservation>;\n   beginOpeningDispatch(input:HarnessOpeningInput):Promise<void>;\n+  cancelReservedOpening(input:HarnessOpeningInput):Promise<\"cancelled_before_dispatch\"|\"not_reserved\">;\n   acknowledgeOpening(input:HarnessOpeningInput & {readonly origin:StoredHarnessAttachment}):Promise<void>;\n   readOpening(scope:Pick<StoredHarnessSelection,\"userId\"|\"turnId\"|\"runAttemptId\">):Promise<StoredHarnessOpening|null>;\n   freezeAndClaim(input: {\n@@ -426,7 +427,7 @@ export function validateLocalHarnessBindings(\n         const opening=StoredHarnessOpeningSchema.parse(JSON.parse(extra.opening_json));\n         assertHarnessOpeningSelection(selection,opening.intent);\n         if(!row.execution_claim_id ||\n-          ((opening.phase===\"reserved\" || opening.phase===\"dispatching\" || opening.phase===\"retired\") && row.attachment_json!==null) ||\n+          ((opening.phase===\"reserved\" || opening.phase===\"dispatching\" || opening.phase===\"cancelled_before_dispatch\" || opening.phase===\"retired\") && row.attachment_json!==null) ||\n           (opening.phase===\"acknowledged\" && row.attachment_json===null))\n           throw new LocalPersistenceError(\"corrupt\",\"Local opening phase conflicts with durable claim or origin\");\n         if(row.attachment_json!==null)assertHarnessOpeningOrigin(opening,StoredHarnessAttachmentSchema.parse(JSON.parse(row.attachment_json)));\n@@ -520,6 +521,22 @@ export class LocalHarnessBindingRepository implements HarnessBindingRepository {\n         .run(JSON.stringify({...opening,phase:\"dispatching\"}),input.selection.turnId);\n     }).immediate();\n   }\n+  async cancelReservedOpening(raw:HarnessOpeningInput):Promise<\"cancelled_before_dispatch\"|\"not_reserved\"> {\n+    const input={selection:StoredHarnessSelectionSchema.parse(raw.selection),\n+      intent:HarnessOpeningIntentSchema.parse(raw.intent)};\n+    return this.database.transaction(()=>{\n+      this.requireAdmission(input.selection);this.requireClaim(input.selection.turnId);this.required(input.selection);\n+      const opening=this.readOpeningWithin(input.selection);\n+      if(!opening)throw new HarnessPersistenceError(\"stale_origin\",\"Opening reservation is missing\");\n+      assertHarnessOpeningIntent(opening,input.intent);\n+      if(opening.phase===\"cancelled_before_dispatch\")return \"cancelled_before_dispatch\" as const;\n+      if(opening.phase!==\"reserved\")return \"not_reserved\" as const;\n+      // Same immediate writer as beginOpeningDispatch; no physical proof is inferred.\n+      this.database.prepare(\"UPDATE harness_bindings SET opening_json=? WHERE turn_id=?\")\n+        .run(JSON.stringify({...opening,phase:\"cancelled_before_dispatch\"}),input.selection.turnId);\n+      return \"cancelled_before_dispatch\" as const;\n+    }).immediate();\n+  }\n   async acknowledgeOpening(raw:HarnessOpeningInput & {readonly origin:StoredHarnessAttachment}):Promise<void> {\n     const input={selection:StoredHarnessSelectionSchema.parse(raw.selection),\n       intent:HarnessOpeningIntentSchema.parse(raw.intent),origin:StoredHarnessAttachmentSchema.parse(raw.origin)};\ndiff --git a/packages/harness-core/src/server/HarnessRegistry.ts b/packages/harness-core/src/server/HarnessRegistry.ts\nindex b145dcf3f..c3ea1253c 100644\n--- a/packages/harness-core/src/server/HarnessRegistry.ts\n+++ b/packages/harness-core/src/server/HarnessRegistry.ts\n@@ -25,6 +25,7 @@ export type HarnessInstanceScope = Pick<\n export interface HarnessOpeningAuthority {\n   reserve(input: { command: HarnessStartCommand; host: HarnessHost }): Promise<{\n     beginDispatch(): Promise<void>;\n+    cancelBeforeDispatch(): Promise<void>;\n     acknowledge(\n       session: import(\"@repo/worker-protocol\").HarnessSession,\n     ): Promise<void>;\ndiff --git a/packages/harness-core/src/server/HarnessSessionManager.ts b/packages/harness-core/src/server/HarnessSessionManager.ts\nindex dccbd8a8f..e87b77165 100644\n--- a/packages/harness-core/src/server/HarnessSessionManager.ts\n+++ b/packages/harness-core/src/server/HarnessSessionManager.ts\n@@ -18,7 +18,7 @@ import {\n import type { HarnessLiveSession } from \"./HarnessDriver.js\";\n import type { ProcessGroupSettlement } from \"./ProcessSupervisor.js\";\n import type { HarnessHost } from \"./HarnessHost.js\";\n-import { HarnessRegistry } from \"./HarnessRegistry.js\";\n+import { HarnessRegistry, type HarnessOpeningAuthority } from \"./HarnessRegistry.js\";\n import { ObservationDeliveryJournal } from \"./ObservationDeliveryJournal.js\";\n import { HarnessHostError } from \"./errors.js\";\n \n@@ -43,6 +43,8 @@ interface Attachment {\n     }\n   >;\n   opening?: Promise<HarnessSession>;\n+  openingAuthority?: Awaited<ReturnType<HarnessOpeningAuthority[\"reserve\"]>>;\n+  openingCancellation?: Promise<void>;\n   host?: HarnessHost;\n   live?: HarnessLiveSession;\n   session?: HarnessSession;\n@@ -136,7 +138,11 @@ export class HarnessSessionManager {\n           command,\n           host,\n         });\n-        if (attachment.stopping) throw new HarnessHostError(\"stale_session\");\n+        attachment.openingAuthority = opening;\n+        if (attachment.stopping) {\n+          await this.cancelOpeningBeforeDispatch(attachment);\n+          throw new HarnessHostError(\"stale_session\");\n+        }\n         await opening.beginDispatch();\n         if (attachment.stopping) throw new HarnessHostError(\"stale_session\");\n         const live = await instance.driver.open({\n@@ -624,8 +630,21 @@ export class HarnessSessionManager {\n     }\n   }\n \n+  private cancelOpeningBeforeDispatch(attachment: Attachment): Promise<void> | undefined {\n+    if (!attachment.openingAuthority || attachment.session) return undefined;\n+    if (!attachment.openingCancellation) {\n+      const cancel = attachment.openingAuthority.cancelBeforeDispatch.bind(attachment.openingAuthority);\n+      attachment.openingCancellation = Promise.resolve().then(cancel);\n+      // A lost commit or a dispatch winner remains unknown. This never releases\n+      // the host, journal, workspace lease or immutable settlement obligation.\n+      void attachment.openingCancellation.catch(() => undefined);\n+    }\n+    return attachment.openingCancellation;\n+  }\n+\n   private beginStop(attachment: Attachment): void {\n     this.fenceMutations(attachment);\n+    this.cancelOpeningBeforeDispatch(attachment);\n     if (attachment.stopTimer) clearTimeout(attachment.stopTimer);\n     attachment.stopTimer = undefined;\n     attachment.controller.abort();\ndiff --git a/packages/worker-protocol/src/harness.ts b/packages/worker-protocol/src/harness.ts\nindex dc1d43e5a..4e8175e04 100644\n--- a/packages/worker-protocol/src/harness.ts\n+++ b/packages/worker-protocol/src/harness.ts\n@@ -374,7 +374,7 @@ export const HarnessOpeningCommitSchema = z\n     openingRef: OpaqueId,\n     commandFingerprint: z.string().regex(/^[0-9a-f]{64}$/),\n     processGeneration: z.string().uuid(),\n-    phase: z.enum([\"reserved\", \"dispatching\", \"acknowledged\"]),\n+    phase: z.enum([\"reserved\", \"dispatching\", \"acknowledged\", \"cancelled_before_dispatch\"]),\n   })\n   .strict();\n export type HarnessOpeningCommit = z.infer<typeof HarnessOpeningCommitSchema>;\n@@ -382,7 +382,7 @@ export const HarnessOpeningClaimFrameSchema = z\n   .object({\n     type: z.literal(\"opening_claim\"),\n     deliveryId: id,\n-    operation: z.enum([\"reserve\", \"begin_dispatch\"]),\n+    operation: z.enum([\"reserve\", \"begin_dispatch\", \"cancel_before_dispatch\"]),\n     intent: HarnessOpeningIntentSchema,\n   })\n   .strict();\n",
+    "warning": "Selective actual LOCAL consumer; do not merge the hosted branch into local delivery wholesale. Cancellation never proves physical release."
+  }
+}
