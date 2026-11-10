@@ -795,6 +795,9 @@ importers:
       '@repo/platform-protocol':
         specifier: workspace:*
         version: link:../platform-protocol
+      '@repo/worker-protocol':
+        specifier: workspace:*
+        version: link:../worker-protocol
       better-sqlite3:
         specifier: 12.8.0
         version: 12.8.0
