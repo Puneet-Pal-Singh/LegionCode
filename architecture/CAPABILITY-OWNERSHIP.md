@@ -1526,3 +1526,7 @@ SQLite preferences records, current physical grant callback and provider
 registry. Secret-free metadata has one persistence owner; local preference
 reads and writes no longer require an uncomposed service. Credentials remain
 with the trusted host and provider route owners.
+
+Initialize derives local execution capability and mode/permission choices
+from the actual injected Turn service. Hosted and unconfigured local
+compositions receive no invented runtime configuration or execution capability.
