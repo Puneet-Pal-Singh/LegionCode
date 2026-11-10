@@ -143,6 +143,7 @@ export async function runLocalAppServerProcess(
     parentPort.postMessage({ type: "fatal" });
     server.close(exitAfterClose);
   });
+  process.once("SIGTERM", () => server.close(exitAfterClose));
   server.listen(0, "127.0.0.1", () => {
     const address = server.address();
     if (!address || typeof address === "string") {

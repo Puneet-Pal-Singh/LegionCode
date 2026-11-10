@@ -1706,3 +1706,8 @@ promise, retains persistence and reports runtime-shutdown-failed; the utility
 process exits only after positive closed resolution. The Turn service remains
 the owner of preparation/executor cleanup and canonical interruption. This
 barrier adds no terminal writer, fence release policy or background-work owner.
+
+The utility process routes its normal SIGTERM request through this same HTTP
+close/runtime shutdown/closed barrier. The existing supervisor can observe
+actual process exit after settlement; this handler does not synthesize exit
+evidence, force termination or clear an uncertain writer fence.
