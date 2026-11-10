@@ -1,7 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 import { LocalPersistence } from "@repo/event-store/local";
-import type { ReplayLifecycleEventsRequest } from "@repo/platform-protocol";
 import {
   AppServerRequestSchema,
   LOCAL_APP_SERVER_IMAGE_REQUEST_HEADER,
@@ -11,12 +10,12 @@ import {
   isLocalAppServerImageRequest,
 } from "./protocol.js";
 import type { AppServerComposition } from "./server.js";
-import { AppServerOperationError, handleAppServerHttpRequest, validateAppServerHttpBoundary } from "./server.js";
+import { handleAppServerHttpRequest, validateAppServerHttpBoundary } from "./server.js";
 import { LocalWorkspaceService, type LocalWorkspaceServiceOptions } from "./local-workspace.js";
 import { DefaultGitService } from "@repo/git-service";
 import { createNodeGitExecutor } from "./local-node-git-executor.js";
 import type { VerifiedMacGitExecution, VerifiedMacGitOptions } from "./local-mac-git-execution.js";
-import { LocalThreadNotFoundError, LocalThreadService } from "./local-threads.js";
+import { LocalThreadService } from "./local-threads.js";
 import { LocalProviderService, ProviderConfigurationSchema } from "./local-providers.js";
 import type { LocalProviderModelCatalog } from "./local-provider-model-catalog.js";
 import { LocalTurnService, type LocalTurnRuntime } from "./local-turns.js";
@@ -26,6 +25,7 @@ import { LocalProviderPreferences } from "./local-provider-preferences.js";
 import { LocalTurnArtifactReads } from "./local-turn-artifact-reads.js";
 import { LocalChatMediaStore } from "./local-chat-media-store.js";
 import { LocalChatMediaReads } from "./local-chat-media-reads.js";
+import { LocalLifecycleReplay } from "./local-lifecycle-replay.js";
 import type { LocalTurnMediaPort } from "./local-turn-media.js";
 
 export type LocalAppServerStartConfig = {
@@ -236,10 +236,7 @@ async function handleRequest(
     localChatMediaService: imageReads,
     localTurnArtifactCommitService: artifactCommits,
     threadService,
-    localLifecycleReplayService: {
-      replayLifecycleEvents: (params: ReplayLifecycleEventsRequest) =>
-        replayLocalLifecycle(persistence, threadService, params),
-    },
+    localLifecycleReplayService: new LocalLifecycleReplay(persistence, threadService),
   };
   const boundaryFailure = validateAppServerHttpBoundary(baseInput, composition);
   if (boundaryFailure) {
@@ -304,43 +301,6 @@ async function handleRequest(
     { ...composition, providerService, providerConfiguration },
   );
   writeJson(response, result.statusCode, result.payload, result.headers);
-}
-
-/** Admission authorizes replay even while runtime preflight has not emitted events. */
-async function replayLocalLifecycle(
-  persistence: LocalPersistence,
-  threadService: LocalThreadService,
-  params: ReplayLifecycleEventsRequest,
-) {
-  if (params.backend && params.backend !== "execution-engine-v1") {
-    throw new AppServerOperationError(400, "invalid_request", "Hosted execution backends are unavailable locally");
-  }
-  const admission = await persistence.turnAdmissions.getByTurn(params.turnId);
-  if (!admission) throw new AppServerOperationError(404, "not_found", "Local turn was not found");
-  const authorizeThread = async () => {
-    try {
-      const thread = await threadService.get(admission.run.threadId);
-      if (thread.workspaceId !== admission.run.workspaceId) throw new LocalThreadNotFoundError();
-    } catch (error) {
-      if (error instanceof LocalThreadNotFoundError) {
-        throw new AppServerOperationError(404, "not_found", "Local turn was not found in the granted workspace");
-      }
-      throw error;
-    }
-  };
-  await authorizeThread();
-  const page = await persistence.lifecycleEvents.replay({
-    turnId: params.turnId,
-    afterSequence: params.afterSequence ?? null,
-    limit: params.limit ?? 1_000,
-  });
-  if (page.events.some((event) => event.threadId !== admission.run.threadId ||
-      event.turnId !== admission.turn.id || event.runAttemptId !== admission.runAttemptId ||
-      event.producer.id !== admission.run.workerId)) {
-    throw new AppServerOperationError(503, "server_unavailable", "Local turn history does not match its admission");
-  }
-  await authorizeThread();
-  return page;
 }
 
 function readBody(
