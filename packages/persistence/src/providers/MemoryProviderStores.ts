@@ -300,11 +300,10 @@ export class MemoryCredentialStore
     id: string,
     isDefault: boolean,
   ): ProviderCredentialRecord {
-    if (
-      input.connectionConfig &&
-      ProviderConnectionConfigSchema.parse(input.connectionConfig)
-        .providerId !== input.providerId
-    )
+    const connectionConfig = input.connectionConfig
+      ? ProviderConnectionConfigSchema.parse(input.connectionConfig)
+      : undefined;
+    if (connectionConfig && connectionConfig.providerId !== input.providerId)
       throw new Error("Credential configuration scope mismatch");
     const now = new Date().toISOString();
     return {
@@ -320,7 +319,7 @@ export class MemoryCredentialStore
       isDefault,
       keyFingerprint: "unavailable",
       encryptedSecretJson: "{}",
-      connectionConfig: input.connectionConfig,
+      connectionConfig,
       keyVersion: this.keyVersion,
       status: "connected",
       lastValidatedAt: null,
