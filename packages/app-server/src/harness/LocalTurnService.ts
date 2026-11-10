@@ -186,11 +186,14 @@ export class LocalTurnService {
       await this.authorizeThread(thread.id, thread.workspaceId);
       if (this.stopping) throw new AppServerOperationError(503, "server_unavailable", "Local harness is shutting down");
       const execution: ActiveExecution = { admission, controller: new AbortController() };
-      if (this.active.has(admission.turn.id)) throw new LocalHarnessRecoveryError([admission.turn.id]);
-      // Install the Stop latch BEFORE admission can become durable. A thrown or
-      // unknown receipt retains this owner; absence of a receipt is not failure.
-      this.active.set(admission.turn.id, execution);
-      const stored = await this.options.leases.admit(admission);
+      const stored = await this.options.leases.admit(admission, () => {
+        // Lease preflight has finished. Check before insertion, then publish
+        // synchronously: no rejected preflight may leave a provisional owner.
+        if (this.stopping) throw new AppServerOperationError(503, "server_unavailable", "Local harness is shutting down");
+        if (this.active.has(admission.turn.id)) throw new LocalHarnessRecoveryError([admission.turn.id]);
+        this.active.set(admission.turn.id, execution);
+        return undefined;
+      });
       if (!stored.newlyAdmitted) {
         if (localAdmissionBackend(stored.admission, this.options.persistence.environmentId) !== "delegated" ||
             stored.admission.clientRequestId !== params.clientRequestId || stored.admission.run.threadId !== thread.id ||

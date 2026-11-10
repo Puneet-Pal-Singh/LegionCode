@@ -17,11 +17,18 @@ export class LocalWorkspaceLease {
     const key = `${admission.run.workspaceId}:${admission.runAttemptId}`;
     return LeaseIdSchema.parse(`lease_${createHash("sha256").update(key).digest("hex").slice(0, 32)}`);
   }
-  admit(candidate: TurnAdmission): ReturnType<LocalPersistence["turnAdmissions"]["admit"]> {
+  /** The callback is synchronous and runs only after lease preflight, directly
+   * before the canonical writer can publish. Exceptions after that boundary do
+   * not prove rollback; the caller retains its candidate until reconciled.
+   */
+  admit(candidate: TurnAdmission, beforePublish: () => undefined): ReturnType<LocalPersistence["turnAdmissions"]["admit"]> {
     const operation = this.queue.then(async () => {
       await this.workspace.requireExecutionGrant(candidate.run.workspaceId);
       const priorRequest = await this.persistence.turnAdmissions.findByRequest(candidate.run.threadId, candidate.clientRequestId);
-      if (priorRequest) return this.persistence.turnAdmissions.admit(candidate);
+      if (priorRequest) {
+        beforePublish();
+        return this.persistence.turnAdmissions.admit(candidate);
+      }
       const events = await this.persistence.events.listAll();
       const turns = events.filter((event) => event.type === "turn.started" && event.workspaceId === candidate.run.workspaceId);
       for (const event of turns) {
@@ -35,6 +42,7 @@ export class LocalWorkspaceLease {
           await this.assertSettled(prior);
         }
       }
+      beforePublish();
       return this.persistence.turnAdmissions.admit(candidate);
     });
     this.queue = operation.then(() => undefined, () => undefined);
