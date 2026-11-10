@@ -39,6 +39,17 @@ Trusted Mac Git discovery resolves the explicitly selected developer tools to
 their canonical executable without launching a shell or xcrun. Discovery does
 not prove process containment; the same guardian and readiness gate still do.
 
+The Desktop utility process awaits `createDesktopNativeComposition` inside its
+existing positive-shutdown startup owner. Main supplies the private, owner-only
+appData writer-fence namespace through HostConfig; it is never a renderer field.
+The composition reuses the current protected credential client and canonical
+provider discovery, held-root native Git/read ports, shared writer lease owner,
+captured execution and saved-artifact commit factory. The actual returned commit
+service retains its shutdown port for the existing combined resource drain.
+Absent trusted helpers/Git or a verified fence namespace does not fabricate a
+mutating capability. This source wiring does not establish packaged Mac native
+execution or golden-loop acceptance; those remain separate installed-app gates.
+
 `engine/KernelAgenticProvider` is the shared provider stepping/transcript/recovery
 owner used by both `RuntimeKernelNativeRunner` and `createLocalNativeProviderPorts`.
 The local factory reuses native context assembly/compaction and connects the same
