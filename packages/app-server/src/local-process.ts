@@ -23,7 +23,7 @@ import type { LocalProviderModelCatalog } from "./local-provider-model-catalog.j
 import { LocalHarnessComposition, type LocalHarnessBootstrap, type LocalHarnessInitializationResult } from "./harness/LocalHarnessComposition.js";
 import { LocalTurnService as NativeLocalTurnService, type LocalTurnRuntime } from "./local-turns.js";
 import { reconcileLostLocalTurns } from "./local-turn-recovery.js";
-import { attachLocalServerShutdown, combineLocalShutdownOwners, type LocalShutdownOwner } from "./local-server-shutdown.js";
+import { attachLocalServerShutdown, combineLocalShutdownOwners, createLocalHttpRequestDrain, type LocalShutdownOwner } from "./local-server-shutdown.js";
 import { LocalProviderPreferences } from "./local-provider-preferences.js";
 import { LocalTurnArtifactReads } from "./local-turn-artifact-reads.js";
 import { LocalChatMediaStore } from "./local-chat-media-store.js";
@@ -134,8 +134,9 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
     const artifactCommits = artifactReads ? options?.createArtifactCommitService?.({
       persistence, workspaces: workspaceService, reads: artifactReads,
     }) : undefined;
+    const requests = createLocalHttpRequestDrain();
     const server = createServer((request, response) => {
-      void handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, workspaceGitReads, turnService, providerPreferences, artifactReads, imageReads, artifactCommits, harness, nativeTurnService);
+      void requests.track(() => handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, workspaceGitReads, turnService, providerPreferences, artifactReads, imageReads, artifactCommits, harness, nativeTurnService, () => requests.stopping));
     });
     let nativeInitialization: Promise<void>;
     let delegatedInitialization: Promise<LocalHarnessInitializationResult>;
@@ -155,7 +156,7 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
               throw new Error("Delegated local resources remain unsettled");
           });
         },
-      }),
+      }, requests),
       () => workspaceService.hasUnsettledResources,
     );
     // Retain both original promises in the attached owner before either call
@@ -301,6 +302,7 @@ async function handleRequest(
   artifactCommits?: AppServerComposition["localTurnArtifactCommitService"],
   harness?: LocalHarnessComposition,
   nativeTurnService?: NativeLocalTurnService,
+  isShuttingDown: () => boolean = () => false,
 ): Promise<void> {
   const baseInput = {
     method: request.method ?? "",
@@ -360,6 +362,10 @@ async function handleRequest(
     writeJson(response, boundaryFailure.statusCode, boundaryFailure.payload, boundaryFailure.headers);
     return;
   }
+  if (isShuttingDown()) {
+    writeJson(response, 503, { code: "server_unavailable", message: "Local App Server is shutting down", operationCode: "server_shutting_down", retryable: false });
+    return;
+  }
   const imageOptIn = request.headers[LOCAL_APP_SERVER_IMAGE_REQUEST_HEADER];
   if (imageOptIn !== undefined && imageOptIn !== "1") {
     writeJson(response, 400, { code: "invalid_request", message: "Image upload request is invalid" });
@@ -375,6 +381,11 @@ async function handleRequest(
   }
   if (body.timedOut) {
     writeJson(response, 408, { code: "invalid_request", message: "App Server request timed out" });
+    return;
+  }
+  // A body may finish after shutdown fenced new work. Do not dispatch it then.
+  if (isShuttingDown()) {
+    writeJson(response, 503, { code: "server_unavailable", message: "Local App Server is shutting down", operationCode: "server_shutting_down", retryable: false });
     return;
   }
   if (imageOptIn === "1") {
