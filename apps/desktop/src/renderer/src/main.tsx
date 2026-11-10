@@ -283,6 +283,7 @@ function DesktopApp(): React.JSX.Element {
     try {
       const created = await appServerClient.createThread(
         title?.trim() || undefined,
+        { workspaceId: granted.workspaceId, grantedAt: granted.grantedAt },
       );
       if (scope !== threadScope.current || created.workspaceId !== workspaceId) return;
       if (request === selectionRequest.current) {
@@ -507,6 +508,7 @@ function DesktopApp(): React.JSX.Element {
     threadScope.current += 1;
     selectionRequest.current += 1;
     threadListRequest.current += 1;
+    const commandScope = threadScope.current;
     setSelectedThread(null);
     let granted: LocalWorkspaceGrant;
     try {
@@ -528,6 +530,7 @@ function DesktopApp(): React.JSX.Element {
       setWorkspaceBusy(false);
     }
 
+    if (threadScope.current !== commandScope) return;
     threadScope.current += 1;
     selectionRequest.current += 1;
     threadListRequest.current += 1;

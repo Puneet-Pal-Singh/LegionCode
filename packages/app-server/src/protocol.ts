@@ -160,7 +160,10 @@ const WorkspaceGrantSourceSchema = z.union([
 ]);
 
 export const ThreadCreateParamsSchema = z
-  .object({ title: z.string().trim().min(1).max(80).optional() })
+  .object({
+    title: z.string().trim().min(1).max(80).optional(),
+    expectedWorkspace: LocalWorkspaceGrantSchema.pick({ workspaceId: true, grantedAt: true }).strict().optional(),
+  })
   .strict();
 export const ThreadRenameParamsSchema = z
   .object({ threadId: ThreadIdSchema, title: z.string().trim().min(1).max(80) })

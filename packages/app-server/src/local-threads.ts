@@ -58,6 +58,10 @@ export class LocalThreadService {
   async create(input: unknown): Promise<Thread> {
     const workspace = await this.requireWorkspace();
     const request = ThreadCreateParamsSchema.parse(input ?? {});
+    if (request.expectedWorkspace && (
+      request.expectedWorkspace.workspaceId !== workspace.workspaceId ||
+      request.expectedWorkspace.grantedAt !== workspace.grantedAt
+    )) throw new Error("The local workspace grant changed before Thread creation");
     const now = new Date().toISOString();
     const thread = ThreadSchema.parse({
       id: createThreadId(),
@@ -77,6 +81,7 @@ export class LocalThreadService {
       updatedAt: now,
       lastEventSequence: 1,
     });
+    await this.assertWorkspaceCurrent(workspace);
     await this.eventStore.append({
       threadId: thread.id,
       workspaceId: thread.workspaceId,

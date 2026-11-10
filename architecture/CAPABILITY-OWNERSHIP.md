@@ -66,7 +66,10 @@ separate recovery contract and is not authorized by this navigation read.
 current-grant Thread reads remain separate. A volatile Desktop picker intent
 retains the expected project and Open/New-chat action. Cancellation or an
 identity mismatch preserves the unbound draft and blocks automatic task creation;
-only a matching canonical grant resumes the action. Unlinked historical groups
+only a matching canonical grant resumes the action. Every Desktop Thread-create
+request also carries that exact grant's Workspace ID and grant timestamp; the
+canonical Thread owner compares it and freshly revalidates physical scope before
+appending the creation event. Unlinked historical groups
 remain visible with the existing unknown-workspace/recovery presentation.
 
 `engine/KernelAgenticProvider` is the shared provider stepping/transcript/recovery

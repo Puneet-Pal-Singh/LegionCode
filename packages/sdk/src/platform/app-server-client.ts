@@ -258,7 +258,7 @@ export type AppServerClient = {
   grantWorkspace(source: WorkspaceGrantSource): Promise<LocalWorkspaceGrant>;
   revokeWorkspace(): Promise<void>;
   listThreads(): Promise<Thread[]>;
-  createThread(title?: string): Promise<Thread>;
+  createThread(title?: string, expectedWorkspace?: Pick<LocalWorkspaceGrant, "workspaceId" | "grantedAt">): Promise<Thread>;
   getThread(threadId: Thread["id"]): Promise<Thread>;
   renameThread(threadId: Thread["id"], title: string): Promise<Thread>;
   pinThread(threadId: Thread["id"]): Promise<Thread>;
@@ -546,10 +546,10 @@ export function createAppServerClient(
       const result = await request(options, { method: "thread/list", params: {} }, AppServerResultSchemas["thread/list"]);
       return result.threads;
     },
-    createThread: async (title) => {
+    createThread: async (title, expectedWorkspace) => {
       const result = await request(options, {
         method: "thread/create",
-        params: title === undefined ? {} : { title },
+        params: { ...(title === undefined ? {} : { title }), ...(expectedWorkspace ? { expectedWorkspace } : {}) },
       }, AppServerResultSchemas["thread/create"]);
       return result.thread;
     },
