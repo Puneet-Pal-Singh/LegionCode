@@ -2258,3 +2258,13 @@ and applied events remain Kernel-owned. This optional private port alone enables
 no queue, route or client dispatch; the same-writer durable input service must
 admit the exact input before calling it. The existing preparation-resource proof
 and positive physical shutdown responsibilities remain unchanged.
+
+## Plan 057 — Shared durable input repository contract
+
+Event-store owns the placement-independent thread-input repository contract and
+its conflict error. Persistence reexports that same contract for hosted callers;
+its existing Postgres writer remains authoritative. Private optional input identity
+and immutable media batch fields support the same local image owner without
+adding public queue fields or storing image bytes in queue rows. Native SQLite
+and shared command-service activation follow in the same integration slice; this
+contract move alone does not enable local queue or steering.

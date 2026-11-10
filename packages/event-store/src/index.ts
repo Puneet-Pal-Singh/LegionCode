@@ -21,3 +21,14 @@ export type {
   ReplayLifecycleEventsInput,
   ReplayLifecycleEventsResult,
 } from "./lifecycle-types.js";
+
+export { ThreadInputConflictError } from "./thread-inputs/errors.js";
+export type {
+  ThreadInputScope,
+  StoredThreadInput,
+  CreateThreadInput,
+  UpdateThreadInput,
+  ClaimQueuedInputForSteering,
+  ThreadInputMutation,
+  ThreadInputRepository,
+} from "./thread-inputs/types.js";
