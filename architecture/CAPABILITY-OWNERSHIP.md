@@ -2146,3 +2146,14 @@ new dispatch before and after body reads, preserves authentication checks and
 waits for those originals before SQLite closure and the private closed receipt.
 Existing HTTP fixtures await that positive shutdown contract rather than socket
 closure alone. No request lifecycle event, status store or forced cleanup is added.
+
+## Plan 057 — Lifecycle replay cursor continuation
+
+The SDK's existing lifecycle ordering owner validates replay page progress against
+the last accepted contiguous canonical event. Saved conversation replay and live
+continuation share this check before projecting or yielding the page; page counts
+and omitted request limits no longer imply exhaustion. Empty pages with a
+continuation cursor and cursors beyond accepted events fail explicitly. A final
+nonempty/null page or accepted terminal event remains valid, while empty/null
+means caught up rather than terminal for live polling. Runtime event production,
+canonical terminal state, reducers and transport limits remain unchanged.
