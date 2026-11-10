@@ -45,6 +45,7 @@ import type { LocalTurnRuntime } from "./local-turns.js";
 import type { LocalWorkspaceExecutionBinding } from "./local-workspace.js";
 import type { LocalTurnMediaPort } from "./local-turn-media.js";
 import { attachPreparedLocalImages, localUserProviderMessage } from "./local-turn-images.js";
+import { captureLocalTurnModel } from "./local-turn-model.js";
 
 type LifecycleStore = LocalPersistence["lifecycleEvents"];
 type NativeMessages = Parameters<
@@ -143,7 +144,11 @@ export function createLocalNativeRuntime(
       if (!options.media) throw new Error("Local image admission is unavailable");
       return attachPreparedLocalImages(admission, input.media.preparation, input.media.imageCount, options.media);
     },
-    createExecutor(binding, preparedAdmission) {
+    createExecutor(binding, preparedAdmission, model) {
+      const modelSnapshot = captureLocalTurnModel(model, {
+        providerId: preparedAdmission.run.providerId,
+        modelId: preparedAdmission.run.modelId,
+      });
       binding.assertCurrent();
       const configuration = readConfiguration(preparedAdmission);
       const selectedProfileId = profileFor(configuration);
@@ -218,6 +223,7 @@ export function createLocalNativeRuntime(
           const gateway = createProtectedProviderGateway({
             providerId: admission.run.providerId,
             modelId: admission.run.modelId,
+            model: modelSnapshot,
             resolveCredential: options.resolveRuntimeCredential,
           });
           const provider = createLocalNativeProviderPorts({
