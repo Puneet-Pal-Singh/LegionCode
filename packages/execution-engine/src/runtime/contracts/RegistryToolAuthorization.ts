@@ -6,6 +6,7 @@ import {
 } from "@repo/permission-policy";
 import {
   ApprovalIdSchema,
+  ApprovalExecutionPresentationSchema,
   ItemIdSchema,
   JsonRecordSchema,
   LifecycleToolDisplaySchema,
@@ -21,6 +22,7 @@ import type {
 } from "@repo/runtime-kernel";
 import {
   codingToolRegistry,
+  RUN_EXECUTABLE_TOOL_INPUT_SCHEMA,
   type ToolDefinition,
 } from "../tools/CodingToolRegistry.js";
 import type { RiskyActionCategory } from "@repo/shared-types";
@@ -213,6 +215,7 @@ function mapAskDecision(
 ): ToolAuthorizationResult {
   const { definition, toolCall } = resolved;
   const category = resolveApprovalCategory(definition);
+  const presentation = buildApprovalExecutionPresentation(definition, toolCall.input);
   return {
     status: "approval_required",
     toolCall,
@@ -248,6 +251,7 @@ function mapAskDecision(
         toolName: definition.id,
         action: definition.permissionMetadata.action ?? definition.id,
         ...(category ? { category } : {}),
+        ...(presentation ? { presentation } : {}),
         riskLevel: decision.riskLevel,
         permissionProfileId: input.run.permissionProfileId,
         grantMatcherKey: matcherKey,
@@ -260,6 +264,7 @@ function mapAskDecision(
 function resolveApprovalCategory(
   definition: ToolDefinition,
 ): RiskyActionCategory | undefined {
+  if (definition.id === "run_executable") return "outside_workspace";
   switch (definition.permissionMetadata.domain) {
     case "command":
       return "shell_command";
@@ -277,6 +282,21 @@ function resolveApprovalCategory(
     case "secret":
       return undefined;
   }
+}
+
+function buildApprovalExecutionPresentation(
+  definition: ToolDefinition,
+  input: Record<string, unknown>,
+) {
+  if (definition.id !== "run_executable") return null;
+  const parsed = RUN_EXECUTABLE_TOOL_INPUT_SCHEMA.parse(input);
+  return ApprovalExecutionPresentationSchema.parse({
+    kind: "executable",
+    title: definition.title,
+    executable: parsed.executable,
+    args: parsed.args,
+    cwd: parsed.cwd ?? ".",
+  });
 }
 
 export async function createGrantMatcherKey(
