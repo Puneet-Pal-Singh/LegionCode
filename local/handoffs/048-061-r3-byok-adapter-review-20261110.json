@@ -1,0 +1,36 @@
+{
+  "kind": "review_only_merge_resolution",
+  "source_review_base": "c33ca811b04117843563828489fae32b83fb5d90",
+  "source_applied": false,
+  "compile_checked": false,
+  "resolutions": [
+    {
+      "path": "apps/brain/src/services/providers/CloudCredentialVault.ts",
+      "preimage_ref": "2b193c7334676bef7782b74eaff4c09571112316",
+      "preimage_sha256": "1590aaf631b639c966b2f1bc5e62005e717016fbe8023d7ddf91cf7c15741824",
+      "patch": "048-061-r3-byok-adapter-review-20261110.patch",
+      "patch_sha256": "dfe78b671cbb632a961acb60e8b6824a48080ef98026395c81a72a85822caa22",
+      "patch_check": "git apply --check passed against exact Git preimage in disposable scratch; no source application",
+      "intent": "Project landed atomic resolveCredential interface through existing fenced selected-record resolveRuntimeCredential. No whole-vault restore or new store."
+    },
+    {
+      "path": "packages/provider-core/src/discovery/ProviderModelDiscoveryService.ts",
+      "resolution": "retain_exact_landed_file_no_algorithm_change",
+      "ref": "01585ca9ef520cd4aa153df5d70b680ecb3c0bed",
+      "git_blob": "97b85e4ff94e4d8014145132944261a81a32becd",
+      "sha256": "085f4a2b1ed767df3769a09db699ac1f5220d2fd4aa6de46f53f96c10310de8d",
+      "first_consumer": "Existing discovery resolveCredential call sites receive key and connectionConfig together. Do not restore deleted Brain discovery file."
+    }
+  ],
+  "approved_handoff": {
+    "ref": "37d5a77548669d1661b2cf2db26314cc7213adb7",
+    "manifest_sha256": "feed0cce8426da047dc5683ec0d61cbdc605888f5cee3ab1caec72727e8d5326",
+    "verified_documents": 19
+  },
+  "limitations": [
+    "Owner review required before source resolution/build",
+    "No native route identity or Ready claim",
+    "No tests/provider calls/PR changes/deployment",
+    "Only this agent new review Markdown is removed; history preserved"
+  ]
+}

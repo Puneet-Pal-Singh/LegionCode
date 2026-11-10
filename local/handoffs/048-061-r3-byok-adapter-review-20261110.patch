@@ -1,0 +1,23 @@
+--- a/apps/brain/src/services/providers/CloudCredentialVault.ts
++++ b/apps/brain/src/services/providers/CloudCredentialVault.ts
+@@ -91,8 +91,19 @@
+       tokenMaterialVersion: record.tokenMaterialVersion,
+     };
+   }
++  /** Discovery projects key and configuration from the existing fenced acquisition. */
++  async resolveCredential(providerId: ProviderId): Promise<{
++    apiKey: string;
++    connectionConfig?: ProviderConnectionConfig;
++  } | null> {
++    const credential = await this.resolveRuntimeCredential(providerId);
++    return credential ? {
++      apiKey: credential.apiKey,
++      ...(credential.connectionConfig ? { connectionConfig: credential.connectionConfig } : {}),
++    } : null;
++  }
+   async getApiKey(providerId: ProviderId): Promise<string | null> {
+-    return (await this.resolveRuntimeCredential(providerId))?.apiKey ?? null;
++    return (await this.resolveCredential(providerId))?.apiKey ?? null;
+   }
+   async getConnectionConfig(
+     providerId: ProviderId,
