@@ -5,10 +5,10 @@ import { shouldIgnoreGlobalKeyDown } from "../../hooks/global-keydown.js";
 import { useOutsideDismiss } from "../../hooks/useOutsideDismiss.js";
 import { getVisibleViewportBounds, useViewportPopoverPosition } from "../../hooks/useViewportPopoverPosition.js";
 
-export function QueueActionsMenu({ queuingEnabled, onEdit, onDisableQueuing, disabled = false }: {
+export function QueueActionsMenu({ queuingEnabled, onEdit, onQueuingChange, disabled = false }: {
   queuingEnabled: boolean;
   onEdit: () => void;
-  onDisableQueuing: () => void;
+  onQueuingChange: (enabled: boolean) => void;
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -96,11 +96,9 @@ export function QueueActionsMenu({ queuingEnabled, onEdit, onDisableQueuing, dis
           <button type="button" role="menuitem" className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-zinc-200 hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400" onClick={() => { close(); onEdit(); }}>
             <Pencil size={14} aria-hidden="true" className="text-zinc-400" />Edit message
           </button>
-          {queuingEnabled ? (
-            <button type="button" role="menuitem" className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-zinc-200 hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400" onClick={() => { close(); triggerRef.current?.focus(); onDisableQueuing(); }}>
-              <CornerDownRight size={14} aria-hidden="true" className="text-zinc-400" />Turn off queuing
-            </button>
-          ) : null}
+          <button type="button" role="menuitem" className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-zinc-200 hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400" onClick={() => { close(); triggerRef.current?.focus(); onQueuingChange(!queuingEnabled); }}>
+              <CornerDownRight size={14} aria-hidden="true" className="text-zinc-400" />{queuingEnabled ? "Turn off queuing" : "Turn on queuing"}
+          </button>
         </div>, document.body,
       ) : null}
     </>

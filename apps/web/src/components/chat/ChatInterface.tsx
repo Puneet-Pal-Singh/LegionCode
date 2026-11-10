@@ -531,11 +531,12 @@ export function ChatInterface({
       queuePanel={
         <ThreadInputQueuePanel
           queuingEnabled={composerPreferences.followUpBehavior === "queue"}
-          onDisableQueuing={() =>
-            updateComposerPreferences({ followUpBehavior: "steer" })
+          onQueuingChange={(enabled) =>
+            updateComposerPreferences({ followUpBehavior: enabled ? "queue" : "steer" })
           }
           snapshot={queue.snapshot}
           error={queue.error}
+          onRetry={queue.refresh}
           active={activeRunLoading}
           resolveImageSource={resolveQueueImageSource}
           onUpdate={queue.update}
