@@ -116,7 +116,8 @@ export class ProcessSupervisor {
       stdio: ["pipe", "pipe", "pipe"],
     });
     const processGeneration = spec.processGeneration;
-    let groupQuiesced = false;
+    let groupSettlement: ProcessGroupSettlement | undefined;
+    let exitReceipt: ProcessExit | undefined;
     let outputClosure: ProcessOutputClosure | undefined;
     let resolveOutputClosed!: (closure: ProcessOutputClosure) => void;
     const outputClosed = new Promise<ProcessOutputClosure>((resolve) => {
@@ -125,7 +126,14 @@ export class ProcessSupervisor {
     let stdoutEnded = false;
     let stderrEnded = false;
     const releaseClosedProcess = () => {
-      if (!groupQuiesced || outputClosure?.kind !== "natural_eof") return;
+      if (groupSettlement?.kind !== "process_group_quiesced") return;
+      const neverSpawned =
+        exitReceipt?.kind === "spawn_failed" &&
+        child.pid === undefined &&
+        groupSettlement.verification === "group_absent";
+      // A confirmed never-spawned child can release capacity without inventing
+      // natural EOF. Any possibly-live process still needs the output barrier.
+      if (!neverSpawned && outputClosure?.kind !== "natural_eof") return;
       this.processes.delete(supervised);
       stderr = Buffer.alloc(0);
       child.stdin.destroy();
@@ -182,9 +190,15 @@ export class ProcessSupervisor {
       stderr = Buffer.concat([stderr, chunk]).subarray(-maxStderrBytes);
     });
     const exited = new Promise<ProcessExit>((resolve) => {
-      child.once("error", () => resolve({ kind: "spawn_failed" }));
+      const settle = (receipt: ProcessExit) => {
+        if (exitReceipt) return;
+        exitReceipt = Object.freeze(receipt);
+        resolve(exitReceipt);
+        releaseClosedProcess();
+      };
+      child.once("error", () => settle({ kind: "spawn_failed" }));
       child.once("exit", (code, signal) =>
-        resolve({ kind: "exited", code, signal }),
+        settle({ kind: "exited", code, signal }),
       );
     });
     const ready = new Promise<void>((resolve, reject) => {
@@ -230,7 +244,7 @@ export class ProcessSupervisor {
           termination = terminateGroup(child, processGeneration, input).then(
             (result) => {
               if (result.kind === "process_group_quiesced") {
-                groupQuiesced = true;
+                groupSettlement = result;
                 // Never destroy readable pipes to manufacture EOF. Buffered frames
                 // and descendant-held descriptors must drain through their consumers.
                 releaseClosedProcess();
