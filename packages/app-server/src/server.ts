@@ -20,7 +20,7 @@ import type {
   RepositoryTreeResponse,
 } from "@repo/platform-protocol";
 import type { HostedSession, HostedSessionCreateRequest, HostedSessionPullRequestsResponse, HostedSessionReadReceipt, HostedSessionRenameRequest, HostedSessionWorkspaceContext, HostedSessionWorkspaceContextRequest, HostedSessionsResponse, TurnId, TurnScopeBootstrap } from "@repo/platform-protocol";
-import type { ConversationHistoryRequest, ConversationHistoryResponse, AppServerError } from "@repo/platform-protocol";
+import type { ConversationHistoryRequest, ConversationHistoryResponse, AppServerError, LocalTurnConfigurationOptions } from "@repo/platform-protocol";
 import type {
   TurnAdmission,
   ChatRequestBody,
@@ -81,6 +81,7 @@ export type AppServerComposition = {
   };
   threadService?: LocalThreadService;
   localTurnService?: {
+    getConfigurationOptions(): LocalTurnConfigurationOptions;
     startTurn(params: LocalTurnStartParams): Promise<TurnAdmission>;
     getTurn(turnId: TurnId): Promise<TurnAdmission>;
     readHistory(params: LocalThreadHistoryParams): Promise<LocalThreadHistoryResult>;
@@ -159,6 +160,9 @@ export type AppServerComposition = {
   hostedCheckoutReadsService?: {
     listFiles(params: Extract<AppServerRequest, { method: "checkout/listFiles" }>["params"]): Promise<CheckoutListFilesResult>;
     readFile(params: Extract<AppServerRequest, { method: "checkout/readFile" }>["params"]): Promise<CheckoutReadFileResult>;
+  };
+  localTurnArtifactReadsService?: {
+    getTurnDiff(params: GetTurnDiffRequest): Promise<GetTurnDiffResponse>;
   };
   localTurnArtifactCommitService?: {
     commitTurnArtifact(request: CommitTurnArtifactRequest): Promise<CommitTurnArtifactResponse>;
@@ -436,6 +440,12 @@ async function dispatch(
       return composition.hostedLifecycleOperationsService.replayLifecycleEvents(request.params);
     }
     case "turn/diff": {
+      if (composition.environment === "local") {
+        if (!composition.localTurnArtifactReadsService) {
+          throw new AppServerOperationError(503, "server_unavailable", "Saved turn review is unavailable", undefined, false);
+        }
+        return composition.localTurnArtifactReadsService.getTurnDiff(request.params);
+      }
       if (!composition.hostedLifecycleOperationsService) throw new Error("unsupported");
       return composition.hostedLifecycleOperationsService.getTurnDiff(request.params);
     }
@@ -553,6 +563,10 @@ async function dispatch(
           serverId: composition.serverId,
           serverVersion: composition.serverVersion,
           localWorkspaceFilesAvailable: Boolean(composition.localWorkspaceFilesService),
+          localTurnExecutionAvailable: Boolean(composition.localTurnService),
+          localTurnConfiguration: composition.localTurnService?.getConfigurationOptions(),
+          localSavedReviewAvailable: Boolean(composition.localTurnArtifactReadsService),
+          localSavedCommitAvailable: Boolean(composition.localTurnArtifactCommitService),
         },
       );
       if (result.statusCode !== 200) throw new Error("initialize failed");

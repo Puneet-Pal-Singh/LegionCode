@@ -39,6 +39,17 @@ Trusted Mac Git discovery resolves the explicitly selected developer tools to
 their canonical executable without launching a shell or xcrun. Discovery does
 not prove process containment; the same guardian and readiness gate still do.
 
+The Desktop utility process awaits `createDesktopNativeComposition` inside its
+existing positive-shutdown startup owner. Main supplies the private, owner-only
+appData writer-fence namespace through HostConfig; it is never a renderer field.
+The composition reuses the current protected credential client and canonical
+provider discovery, held-root native Git/read ports, shared writer lease owner,
+captured execution and saved-artifact commit factory. The actual returned commit
+service retains its shutdown port for the existing combined resource drain.
+Absent trusted helpers/Git or a verified fence namespace does not fabricate a
+mutating capability. This source wiring does not establish packaged Mac native
+execution or golden-loop acceptance; those remain separate installed-app gates.
+
 `engine/KernelAgenticProvider` is the shared provider stepping/transcript/recovery
 owner used by both `RuntimeKernelNativeRunner` and `createLocalNativeProviderPorts`.
 The local factory reuses native context assembly/compaction and connects the same
@@ -1470,6 +1481,23 @@ selection and canonical Git mutation. Handler injection, local composition,
 capability advertisement and UI activation are not implemented by this boundary.
 No live-Git selector, fallback commit path or second artifact owner is introduced.
 
+## Plan 057 — Saved artifact commit composition
+
+`createLocalArtifactCommitComposition` reauthorizes the immutable saved scope,
+borrows the existing workspace writer lease and constructs the canonical
+`LocalGitService` with that same binding and native Git factory. Release awaits
+the lease's actual resource proof. Unknown acquisition or cleanup retains the
+original binding, and cleanup uncertainty never discards a real commit receipt.
+This backend factory does not activate Electron services or advertise mutation
+capability; trusted host construction and installed acceptance remain separate.
+Its required private shutdown port synchronously fences new physical commit work
+and awaits the original operations through lease release and binding close. Git
+failure with positive cleanup remains a known closed outcome; a real commit
+receipt never substitutes for closure. Unknown bindings, leases and their actual
+composition owners remain strongly retained and reject shutdown. The generic
+host must await this port alongside Native Turn shutdown before closing SQLite;
+no HTTP/SDK shutdown method or alternate settlement authority is introduced.
+
 ## Desktop current-file mention suggestions
 
 SDK `listWorkspaceFileMentions` uses local `workspace/fileMentions` over the
@@ -1590,6 +1618,43 @@ validate actual composed ports or enable attachments, tools or mutations. The
 Turn service/runtime admission and handshake composition retain those obligations.
 Hosted request behavior and existing Git/provider contracts remain unchanged.
 
+## Plan 057 — Generic local runtime composition
+
+The Local App Server constructs one optional LocalTurnService over the same
+process-owned SQLite admission and lifecycle store and the existing workspace,
+Thread and provider owners. The trusted host injects its runtime through one
+structural factory; missing runtime leaves execution unconfigured. The Desktop
+workspace-file composition adopts the renamed composition type without changing
+its behavior. This wiring does not fabricate a native executor or capture port.
+
+The same composition injects LocalProviderPreferences using the existing
+SQLite preferences records, current physical grant callback and provider
+registry. Secret-free metadata has one persistence owner; local preference
+reads and writes no longer require an uncomposed service. Credentials remain
+with the trusted host and provider route owners.
+
+Initialize derives local execution capability and mode/permission choices
+from the actual injected Turn service. Hosted and unconfigured local
+compositions receive no invented runtime configuration or execution capability.
+
+The local turn/diff dispatch now delegates to LocalTurnArtifactReads over the
+actual authorized Turn service and same lifecycle/artifact stores. Missing
+published capture returns the reader's canonical absence rather than a live Git
+substitute. Initialize advertises saved review only with the actual reader port.
+
+One LocalChatMediaStore supplies admission preparation, runtime hydration
+and authorized original-image reads. Its recovery admission lookup uses the
+same process-owned SQLite store independently of the selected workspace. The
+Turn service and runtime share the same media port; no second media journal,
+admission writer or credential store is constructed.
+
+The trusted host may inject saved-artifact commit composition using the same
+persistence, grant authority and immutable reader. Runtime capture receives
+the existing artifact persistence port. Initialize exposes artifact-commit-v1
+only when the actual commit service was constructed; review availability grants
+no mutation authority. Native writer lease and resource proof remain their
+existing owners; generic composition adds no Git runner or lifecycle writer.
+
 ## Plan 057 — Canonical local admission configuration metadata
 
 The existing runtime `createLocalTurnAdmission` producer may retain validated
@@ -1634,6 +1699,26 @@ history, authorize Threads or introduce a new endpoint; the actual Turn service
 must delegate to the canonical bounded query and reauthorize before returning.
 That service-method integration remains with its current owner.
 
+Trusted hosts import the existing captured-execution and canonical capture/
+artifact Git constructors through explicit private package exports. Their
+implementation and policy remain unchanged; the generic server does not infer
+that those ports are present from package availability.
+
+## Plan 057 — Local runtime before-ready reconciliation
+
+Local App Server startup awaits bounded canonical admission enumeration through
+the sole SQLite owner before constructing/listening on its HTTP server. Each
+saved admission is delegated to the injected runtime recovery port; only the
+canonical runtime decides whether its exact saved attempt is supported and
+emits settlement. Startup never replays a provider request, creates an executor,
+acquires a workspace binding, clears a fence or invents terminal state. Failure
+closes the persistence owner and refuses readiness. Unsupported mutation
+attempts retain their existing quarantine rather than receiving false closure.
+
+Generic local lifecycle replay reauthorizes its canonical Thread after the
+awaited event-store read as well as before it, matching the Turn/history/media
+read boundary. A changed grant refuses the page before bytes are returned.
+
 ## Plan 057 — Private bounded startup admission enumeration
 
 LocalTurnAdmissions exposes a private cursor page over its existing canonical
@@ -1657,6 +1742,38 @@ and the complete SHA-256 before returning bytes, with abort checks before return
 Clients own transient display URLs. No blob store, admission/lifecycle producer,
 capability advertisement or Desktop activation is added by this boundary.
 
+## Plan 057 — Local server physical shutdown barrier
+
+The generic server exposes a closed promise distinct from HTTP socket closure.
+After connections drain it awaits the composed Native service shutdown before
+closing the sole SQLite writer. Unknown runtime/resource settlement rejects the
+promise, retains persistence and reports runtime-shutdown-failed; the utility
+process exits only after positive closed resolution. The Turn service remains
+the owner of preparation/executor cleanup and canonical interruption. This
+barrier adds no terminal writer, fence release policy or background-work owner.
+
+The utility process routes its normal SIGTERM request through this same HTTP
+close/runtime shutdown/closed barrier. The existing supervisor can observe
+actual process exit after settlement; this handler does not synthesize exit
+evidence, force termination or clear an uncertain writer fence.
+
+The shutdown barrier strongly retains its actual server, runtime, workspace
+resource check and persistence with a referenced keep-alive until positive
+closure. requestShutdown fences Native admission and signals owned work before
+HTTP drain, then awaits the same cleanup promise. Grant-only profiles also
+refuse SQLite closure while the canonical workspace owner retains unknown
+resources. The retention set stores physical owners, not product lifecycle state.
+
+The same process-owned Thread service now reads Native terminal/assistant
+lineage through the existing SQLite admission summary port. This wires the
+canonical read projection into list/get and subsequent Native admission; it
+adds no platform terminal event, status table or second Thread owner.
+
+The trusted host may inject the shared ProviderCatalogService modelCatalog
+port independently of Native Git availability. LocalProviderService and its
+Native consumer share that discovery authority; each admitted executor receives
+a validated frozen model snapshot without adding discovery data to durable
+request fingerprints or resolving credentials in the renderer.
 ## Plan 057 — Native Plan process-loss reconciliation
 
 The runtime lifecycle coordinator remains the only terminal writer. Its shared
@@ -1754,6 +1871,30 @@ No permission-mode string, profile suffix, synthesized approval, policy copy or
 second lifecycle authority bypasses these checks. Native mode advertisement and
 per-attempt policy construction remain separate composition work.
 
+The private utility-process startup returns a narrow requestShutdown control.
+It starts the same admission/Stop fence and HTTP/physical closure barrier;
+success exits only after positive closed resolution. Runtime shutdown failure
+uses an explicit private fatal reason and retains the process and owners. The
+Desktop supervisor owns validated IPC, child/transport retention and exit
+observation; neither the public SDK nor renderer receives this control. Pending
+fatal exit status remains sticky across repeated normal shutdown requests.
+
+A private closed receipt is sent only after the same positive physical and
+SQLite closure barrier, before process exit. Exit observation alone is not this
+receipt. A shutdown request also prevents a late listen callback from publishing
+readiness; the supervisor binds receipts to its actual child instance.
+
+The same shutdown barrier also owns the actual saved-commit composition. Its
+required private shutdown port fences new physical commits and awaits original
+commit operations and canonical lease/binding closure. A successful irreversible
+commit receipt with uncertain cleanup cannot authorize SQLite closure. The generic
+combiner calls every owner synchronously before HTTP drain, awaits all original
+shutdown results, and retains the actual compositions on any rejection. It adds
+no commit, terminal or resource-proof authority.
+
+Private notification-channel or shutdown-observer failure is not a physical
+closure signal. Unknown shutdown remains retained even if fatal delivery throws;
+failed ready delivery requests the same owned shutdown barrier.
 ## Plan 057 — Shared discovered local provider models
 
 LocalProviderService consumes the server-only provider catalog port for model
@@ -1882,6 +2023,38 @@ Concurrent exact image retries derive a validation-only submitted fingerprint
 when another request commits before their image preparation. They use the same
 codec as initial receipt retries without persisting media or resolving providers;
 current Thread authorization and immutable saved-intent checks still gate return.
+
+The actual Desktop utility and per-child supervisor consume that private
+shutdown control and closed receipt. Stop fences request/credential delivery;
+only the matching child's positive receipt clears the ownership obligation.
+Exit, error, timeout or notification loss retain that exact child and block
+restart. Late positive receipts remain valid across request-generation changes.
+The existing before-quit caller waits for this proof; no force-kill is substituted.
+Local lifecycle replay authorizes from the canonical saved Turn admission and
+its currently granted Thread, rather than requiring a first runtime event.
+An admitted Turn may return an actual empty event page while runtime preflight
+is pending. Unknown Turns remain not found; returned event Thread, Turn, attempt
+and admitted worker identity must agree. Authorization is checked again after
+the replay read. No status, event, terminal or retrying prompt is synthesized.
+
+## Plan 057 / 048 — Shared local canonical Thread lineage
+
+The existing SQLite admission summary reads canonical terminal and completed
+assistant facts for every local admitted runtime, using the admitted worker as
+the exact producer identity. Full scope, sequence, item-start and shared insertion
+order checks remain mandatory. Harness selection metadata is not a projection
+bypass or a producer receipt; the reader never parses driver IDs or trusts the
+first observed producer. Historical producer mismatches fail closed and no saved
+record is rewritten. The delegated host must enforce that admitted-worker rule
+for normal execution, preflight and restart before its integration is activated.
+
+The same atomic admission transaction checks parent Turn/item facts for all
+local candidates after receipt lookup and unsettled-Turn refusal. Captured
+selection metadata, including explicit Native selection, cannot bypass that
+check. Native and delegated admission producers consume the same current Thread
+parents; stale prepared candidates conflict rather than being reparented. No
+terminal mirror, projection table, second reducer or recovery authority is added.
+Native process-loss recovery retains its separate opaque delegated exclusion.
 
 ## Selected cloud credential custody
 

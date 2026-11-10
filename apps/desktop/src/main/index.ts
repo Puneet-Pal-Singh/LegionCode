@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, safeStorage } from "electron";
 import { randomBytes } from "node:crypto";
-import { realpathSync, statSync } from "node:fs";
+import { lstatSync, mkdirSync, realpathSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -216,7 +216,20 @@ handleNativeInvoke(BUILD_INFO_CHANNEL, () => ({
 
 void app.whenReady().then(() => {
   if (!isPrimaryInstance) return;
+  const appData = realpathSync(app.getPath("appData"));
+  let nativeWriterFenceDirectory: string | undefined;
+  if (process.platform === "darwin") {
+    try {
+      const directory = join(appData, "LegionCode", "native-workspace-writers-v1");
+      mkdirSync(directory, { recursive: true, mode: 0o700 });
+      const identity = lstatSync(directory);
+      if (identity.isDirectory() && !identity.isSymbolicLink() &&
+          (identity.mode & 0o777) === 0o700 && identity.uid === process.getuid?.() &&
+          realpathSync(directory) === directory) nativeWriterFenceDirectory = directory;
+    } catch { /* An unavailable host namespace leaves captured execution unconfigured. */ }
+  }
   const protectedHostRoots = [
+    appData,
     app.getPath("userData"), app.getAppPath(), process.resourcesPath,
     fileURLToPath(new URL(".", import.meta.url)),
   ].map((path) => realpathSync(path));
@@ -234,6 +247,7 @@ void app.whenReady().then(() => {
   const nativeProcessHelperPath = resolveHelper("legioncode-process-helper");
   void localAppServer.start(app.getVersion(), app.getPath("userData"), {
     protectedHostRoots: [...new Set(protectedHostRoots)],
+    nativeWriterFenceDirectory,
     nativeFilesystemHelperPath, nativeProcessHelperPath,
   });
   createWindow();

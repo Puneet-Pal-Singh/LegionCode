@@ -1,13 +1,13 @@
 import { createVerifiedMacGitExecution, resolveTrustedMacGitExecutable } from "@legioncode/app-server/local-mac-git-execution";
 import { NativeFilesystemBridge } from "@legioncode/execution-engine/runtime/desktop/NativeFilesystemBridge";
 import { LocalWorkspaceFilesService } from "@legioncode/app-server/local-workspace-files";
-import type { LocalWorkspaceFilesCompositionOptions } from "@legioncode/app-server/local-process";
+import type { LocalAppServerCompositionOptions } from "@legioncode/app-server/local-process";
 import type { LocalAppServerStartMessage } from "../shared/desktop-api";
 
 /** Trusted read-only host composition. No provider, Turn, transaction or process fallback. */
 export function createWorkspaceFileComposition(
   config: LocalAppServerStartMessage,
-): LocalWorkspaceFilesCompositionOptions | undefined {
+): LocalAppServerCompositionOptions | undefined {
   const filesystemHelperPath = config.nativeFilesystemHelperPath;
   const processHelperPath = config.nativeProcessHelperPath;
   if (process.platform !== "darwin" || !filesystemHelperPath || !processHelperPath) return undefined;

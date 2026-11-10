@@ -4,6 +4,7 @@ import {
   LOCAL_APP_SERVER_CAPABILITIES,
   LOCAL_APP_SERVER_UNAVAILABLE_CAPABILITIES,
   type AppServerInitializeResponse,
+  type LocalTurnConfigurationOptions,
 } from "@repo/platform-protocol";
 
 export type AppServerHandshakeEnvironment = "local" | "hosted";
@@ -22,6 +23,10 @@ export function initializeAppServer(
     serverId: string;
     serverVersion: string;
     localWorkspaceFilesAvailable?: boolean;
+    localTurnExecutionAvailable?: boolean;
+    localTurnConfiguration?: LocalTurnConfigurationOptions;
+    localSavedReviewAvailable?: boolean;
+    localSavedCommitAvailable?: boolean;
   },
 ): AppServerInitializeResult {
   const parsed = AppServerInitializeRequestSchema.safeParse(body);
@@ -50,13 +55,25 @@ export function initializeAppServer(
       protocolVersion: APP_SERVER_PROTOCOL_VERSION,
       server: { id: options.serverId, version: options.serverVersion },
       environment: options.environment,
+      ...(options.environment === "local" && options.localTurnConfiguration
+        ? { localTurnConfiguration: options.localTurnConfiguration }
+        : {}),
       capabilities:
         options.environment === "local"
-          ? [...LOCAL_APP_SERVER_CAPABILITIES, ...(options.localWorkspaceFilesAvailable ? ["workspace-files-v1"] : [])]
+          ? [
+              ...LOCAL_APP_SERVER_CAPABILITIES,
+              ...(options.localWorkspaceFilesAvailable ? ["workspace-files-v1"] : []),
+              ...(options.localTurnExecutionAvailable ? ["turn-execution-v1"] : []),
+              ...(options.localSavedReviewAvailable ? ["artifact-review-v1"] : []),
+              ...(options.localSavedCommitAvailable ? ["artifact-commit-v1"] : []),
+            ]
           : [],
       unavailableCapabilities:
         options.environment === "local"
-          ? LOCAL_APP_SERVER_UNAVAILABLE_CAPABILITIES.map((capability) => ({
+          ? LOCAL_APP_SERVER_UNAVAILABLE_CAPABILITIES.filter((capability) =>
+              (capability !== "turn-execution-v1" || !options.localTurnExecutionAvailable) &&
+              (capability !== "artifact-review-v1" || !options.localSavedReviewAvailable),
+            ).map((capability) => ({
               capability,
               reason: "This local capability is planned for a later slice",
             }))

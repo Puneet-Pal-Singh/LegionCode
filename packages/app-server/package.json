@@ -13,9 +13,14 @@
     "./local-process": "./src/local-process.ts",
     "./local-workspace-files": "./src/local-workspace-files.ts",
     "./local-mac-git-execution": "./src/local-mac-git-execution.ts",
+    "./local-workspace-writer-lease": "./src/local-workspace-writer-lease.ts",
+    "./local-captured-execution": "./src/local-captured-execution.ts",
+    "./local-capture-git": "./src/local-capture-git.ts",
+    "./local-artifact-git": "./src/local-artifact-git.ts",
     "./local-native-runtime": "./src/local-native-runtime.ts",
     "./local-provider-model-discovery": "./src/local-provider-model-discovery.ts",
-    "./local-readonly-git": "./src/local-readonly-git.ts"
+    "./local-readonly-git": "./src/local-readonly-git.ts",
+    "./local-artifact-commit-composition": "./src/local-artifact-commit-composition.ts"
   },
   "scripts": {
     "build": "tsc",

@@ -1,12 +1,11 @@
 import { RuntimeCredentialClient, type RuntimeCredentialRequest } from "./runtime-credentials";
-import { ProviderIdSchema } from "@repo/shared-types";
-import { createLocalProviderModelDiscovery } from "@legioncode/app-server/local-provider-model-discovery";
-import { createWorkspaceFileComposition } from "./workspace-file-composition";
+import { createDesktopNativeComposition } from "./native-runtime-composition";
 import {
   runLocalAppServerProcess,
   type LocalAppServerMessage,
+  type LocalAppServerProcessControl,
 } from "@legioncode/app-server/local-process";
-import type { LocalAppServerStartMessage } from "../shared/desktop-api";
+import type { LocalAppServerShutdownMessage, LocalAppServerStartMessage } from "../shared/desktop-api";
 
 const parentPort = (
   process as NodeJS.Process & {
@@ -20,6 +19,10 @@ const parentPort = (
   }
 ).parentPort;
 let started = false;
+let processControl: LocalAppServerProcessControl | undefined;
+let shutdownRequested = false;
+let shutdownStarted = false;
+let retainedKeepAlive: ReturnType<typeof setInterval> | undefined;
 
 if (!parentPort) {
   throw new Error("Local App Server requires an Electron utility process");
@@ -27,29 +30,77 @@ if (!parentPort) {
 
 const runtimeCredentials = new RuntimeCredentialClient((message) => parentPort.postMessage(message));
 process.once("exit", () => runtimeCredentials.close());
+// Queue termination during async startup. The backend installs its own persistent
+// SIGTERM handler before returning the actual resource-owning control.
+process.on("SIGTERM", requestShutdown);
 
-parentPort.on("message", ({ data }) => {
+parentPort.on("message", async ({ data }) => {
   if (runtimeCredentials.handleMessage(data)) return;
+  if (isShutdownMessage(data)) {
+    requestShutdown();
+    return;
+  }
   if (!isStartMessage(data)) {
-    parentPort?.postMessage({ type: "fatal" });
+    postFatal();
+    requestShutdown();
     return;
   }
   if (started) {
     return;
   }
   started = true;
-  runLocalAppServerProcess(parentPort, data, {
-    ...createWorkspaceFileComposition(data),
-    providerModelCatalog: createLocalProviderModelDiscovery({
-      resolveCredential: (providerId) => runtimeCredentials.resolveRuntimeCredential(ProviderIdSchema.parse(providerId)),
-    }),
-  });
+  try {
+    const composition = await createDesktopNativeComposition(data, runtimeCredentials);
+    processControl = await runLocalAppServerProcess(parentPort, data, composition);
+    if (!processControl) {
+      retainUnknownClosure();
+      return;
+    }
+    process.removeListener("SIGTERM", requestShutdown);
+    if (shutdownRequested) requestShutdown();
+  } catch {
+    retainUnknownClosure();
+    requestShutdown();
+  }
 });
 
-process.once("uncaughtException", () => {
-  parentPort?.postMessage({ type: "fatal" });
-  process.exit(1);
+process.on("uncaughtException", () => {
+  retainUnknownClosure();
+  requestShutdown();
 });
+
+function requestShutdown(): void {
+  shutdownRequested = true;
+  if (!processControl || shutdownStarted) return;
+  shutdownStarted = true;
+  try {
+    // This call fences the actual owners synchronously, before waiting on them.
+    const closed = processControl.requestShutdown();
+    runtimeCredentials.close();
+    void closed.catch(() => {
+      // The backend retains the original owners and reports shutdown failure.
+      // An observer or notification failure cannot authorize process exit.
+      retainUnknownClosure();
+    });
+  } catch {
+    retainUnknownClosure();
+  }
+}
+
+function retainUnknownClosure(): void {
+  retainedKeepAlive ??= setInterval(() => undefined, 1_000);
+  postFatal("runtime-shutdown-failed");
+}
+
+function postFatal(reason?: "runtime-shutdown-failed"): void {
+  try { parentPort?.postMessage({ type: "fatal", ...(reason ? { reason } : {}) }); }
+  catch { /* A lost parent notification never releases uncertain owners. */ }
+}
+
+function isShutdownMessage(message: unknown): message is LocalAppServerShutdownMessage {
+  return !!message && typeof message === "object" && Object.keys(message).length === 1 &&
+    (message as { type?: unknown }).type === "shutdown";
+}
 
 function isStartMessage(message: unknown): message is LocalAppServerStartMessage {
   if (!message || typeof message !== "object") {
@@ -68,7 +119,7 @@ function isStartMessage(message: unknown): message is LocalAppServerStartMessage
       Array.isArray(value.protectedHostRoots) && value.protectedHostRoots.length <= 32 &&
       value.protectedHostRoots.every((path: unknown) => typeof path === "string" && path.startsWith("/") && !path.includes("\0"))
     )) &&
-    [value.nativeFilesystemHelperPath, value.nativeProcessHelperPath].every((path) =>
+    [value.nativeFilesystemHelperPath, value.nativeProcessHelperPath, value.nativeWriterFenceDirectory].every((path) =>
       path === undefined || (typeof path === "string" && path.startsWith("/") && !path.includes("\0")),
     )
   );
