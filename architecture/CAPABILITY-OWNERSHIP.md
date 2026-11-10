@@ -1534,3 +1534,8 @@ establish terminal or physical truth.
 The configuration, Engine admission, bounded history, image-start contract and
 original-byte media ports are real dependencies. Their presence and this service
 source do not advertise availability or wire startup, handshake or HTTP dispatch.
+
+The required startup reconciliation port delegates lost Native Plan admissions to
+its Engine adapter with the same trusted worker, permission profile and lifecycle
+store. The sole App Server startup owner must invoke it before command readiness;
+this port does not run providers, reexecute tools or release captured resources.

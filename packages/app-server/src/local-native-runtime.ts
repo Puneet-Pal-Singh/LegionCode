@@ -30,6 +30,7 @@ import {
   parseWorkspaceManifest,
 } from "@repo/workspace-core";
 import { RegistryToolAuthorization } from "@legioncode/execution-engine/runtime/contracts/RegistryToolAuthorization";
+import { reconcileLocalNativePlanTurn } from "@legioncode/execution-engine/runtime/desktop/LocalNativePlanRecovery";
 import { createLocalTurnAdmission } from "@legioncode/execution-engine/runtime/desktop/LocalTurnAdmission";
 import { LocalTurnExecutor } from "@legioncode/execution-engine/runtime/desktop/LocalReadOnlyTurnExecutor";
 import type { LocalTurnAttemptIdentity } from "@legioncode/execution-engine/runtime/desktop/LocalReadOnlyTurnExecutor";
@@ -105,6 +106,16 @@ export function createLocalNativeRuntime(
     );
   }
   return {
+    reconcileLostTurn(admission) {
+      return reconcileLocalNativePlanTurn({
+        admission,
+        lifecycleEvents: options.persistence.lifecycleEvents,
+        workerId,
+        permissionProfileId,
+        producerId: workerId,
+        clock: { now: () => new Date().toISOString() },
+      });
+    },
     configurationOptions: {
       modes: availableCapability.artifactCapture === "required" ? ["plan", "build"] : ["plan"],
       productModes: Object.values(PRODUCT_MODES),

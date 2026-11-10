@@ -58,6 +58,8 @@ export type LocalTurnServiceOptions = {
   media?: LocalTurnMediaPort;
   runtime?: {
     readonly configurationOptions: LocalTurnConfigurationOptions;
+    /** Startup-only reconciliation before new commands can acquire ownership. */
+    reconcileLostTurn(admission: TurnAdmission): Promise<"settled" | "already_terminal" | "unsupported">;
     createAdmission(input: {
       workspace: LocalWorkspaceGrant;
       thread: Thread;
