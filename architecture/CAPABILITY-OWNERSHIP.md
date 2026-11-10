@@ -2065,3 +2065,11 @@ changes, binary flags and hunk line semantics. This moves the existing algorithm
 it does not read Git or change lifecycle/artifact ownership. The hosted plugin's
 legacy optional-path diff parser remains unchanged until its separate response
 contract is migrated; it is not used by this shared raw-patch projection.
+
+`shared-types/src/git-status-projection` owns the existing canonical Git status
+response mapping through a narrow structural input. Hosted `GitPlugin` delegates
+the mapper while retaining its own internal-path exclusion, repository and commit
+identity reads, per-file line counts and Git execution policy. Filtering still
+changes displayed files only; staged/unstaged summary flags retain their previous
+all-entry semantics. No new Git parser, command, identity authority or dependency
+is introduced. Local workspace query wiring is a separate consumer integration.
