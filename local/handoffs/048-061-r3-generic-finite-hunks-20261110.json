@@ -1,0 +1,65 @@
+{
+  "kind": "finite_granted_source_hunks_review",
+  "preimage_ref": "2b193c7334676bef7782b74eaff4c09571112316",
+  "patch_sha256": "fe41a0b70705bc2d0c520ea5f5b363f1e475db557027c5d5a0d7acde786d338b",
+  "files": [
+    {
+      "path": "packages/app-server/src/local-process.ts",
+      "preimage_sha256": "b0e87083914dae9fbaf7ad48dd126e8ee6b29556da8c97e5115e37e30cb99964",
+      "proposed_sha256": "fdc2f1c5863603c869dd8c3d1f43d6f8b76b3a48f8b4dba4b3d657e3202a6e22"
+    },
+    {
+      "path": "packages/app-server/src/server.ts",
+      "preimage_sha256": "b010de22e50f4fa27603176cc310706204c12f9f9594d01b56862be7de76af6b",
+      "proposed_sha256": "e25848fb9983b412f71e96ad66612dbaa2f5957139772d30a47d226adbb695f9"
+    }
+  ],
+  "patch_check": "git apply --check passed on exact Git preimages in scratch; no build claim",
+  "scope": [
+    "Required one LocalPersistence/workspace/thread/provider graph; no duplicate constructors",
+    "Private saved-owner dispatch helper uses immutable admission, no picker routing",
+    "Existing local turn/userInput -> actual local canonical response consumer"
+  ],
+  "unchanged": [
+    "runLocalAppServerProcess body",
+    "private shutdown/closed/fatal control",
+    "handshake/Desktop/three canonical Thread readers",
+    "replay helper and existing body/auth/grant logic"
+  ],
+  "canonical_counterparts": {
+    "Native_service": "62f616c9333f4bc714d5ad7edaa3df8e313a7c0c:packages/app-server/src/local-turns.ts",
+    "generic_context": "9e3a6c06cb4a5db97dddebf69a1e2dd962e70833",
+    "provider_model_source": "c33ca811b04117843563828489fae32b83fb5d90",
+    "parent_reader": "1a0220094c40835ba975334660e655e5eb363cf1"
+  },
+  "remaining_owner_hunks": [
+    {
+      "owner": "057 Native/service lane",
+      "need": "Join approved Native service/model/resource source via owner798->671; do not copy unmerged counterpart files into this patch."
+    },
+    {
+      "owner": "057 generic construction",
+      "need": "Mount actual Native LocalTurnService/LocalTurnRuntime on these SAME graph instances using createTurnRuntime; pass the actual Native service to saved-owner router. Preserve existing media/preferences/artifact reads+commit ports and protected model catalog. Native is explicitly unavailable until provided; no replacement implementation is introduced."
+    },
+    {
+      "owner": "057 private lifecycle/control",
+      "need": "Aggregate Native recovery plus checked delegated initialize result before Ready. Existing closePersistence shortcut uses only delegated active map; owner must consume combined physical/durable shutdown proof before SQLite close, including recovery_required and unknown commit. This patch does not edit those held bodies."
+    },
+    {
+      "owner": "057 generic submit translation",
+      "need": "Route captured omission/null to Native and nonnull to delegated before admission, validate Native null revision, preserve supported Native media/mode/provider assertions using actual Native API. Delegated supported translation remains text-only and explicit captured nonnull selection; no silent intent dropping."
+    },
+    {
+      "owner": "existing constructor fixture owner",
+      "need": "Adapt local-process.integration.test.ts constructor call at former76 to required same service graph; no new cases/registrations."
+    }
+  ],
+  "required_fix_before_integration": "757796f42a4f87fde58f553dd082400e8804a48e",
+  "implementation_pr_changed": false,
+  "tests_or_providers_run": false,
+  "limitations": [
+    "Finite integration still uncommitted with BYOK/fixture conflict review pending",
+    "No production compile of this isolated review artifact or product-ready claim",
+    "No private controls or other owner source adopted to make checks green"
+  ]
+}

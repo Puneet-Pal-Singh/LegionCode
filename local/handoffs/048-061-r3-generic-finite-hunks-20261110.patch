@@ -1,0 +1,109 @@
+--- a/packages/app-server/src/local-process.ts
++++ b/packages/app-server/src/local-process.ts
+@@ -2,10 +2,11 @@
+ 
+ import { LocalPersistence } from "@repo/event-store/local";
+ import { AppServerOperationError, handleAppServerHttpRequest, validateAppServerHttpBoundary, type AppServerComposition } from "./server.js";
+-import { ProviderConfigurationSchema } from "./local-providers.js";
++import { LocalProviderService, ProviderConfigurationSchema } from "./local-providers.js";
++import { LocalThreadService } from "./local-threads.js";
+ import { LocalHarnessComposition, type LocalHarnessBootstrap } from "./harness/LocalHarnessComposition.js";
+ export type { LocalHarnessBootstrap } from "./harness/LocalHarnessComposition.js";
+-import type { LocalWorkspaceService, LocalWorkspaceServiceOptions } from "./local-workspace.js";
++import { LocalWorkspaceService, type LocalWorkspaceServiceOptions } from "./local-workspace.js";
+ import { DefaultGitService } from "@repo/git-service";
+ import { createNodeGitExecutor } from "./local-node-git-executor.js";
+ import type { VerifiedMacGitExecution, VerifiedMacGitOptions } from "./local-mac-git-execution.js";
+@@ -47,7 +48,8 @@
+   const persistence = new LocalPersistence({ storageDirectory: config.storageDirectory });
+   try {
+     const createProbeExecution = options?.createProbeExecution;
+-    const local = new LocalHarnessComposition(persistence, config.storageDirectory, {
++    const workspaceService = new LocalWorkspaceService({
++      workspaceGrants: persistence.workspaceGrants,
+       createMetadataInspector: options?.createMetadataInspector,
+       createProbeService: createProbeExecution ? async (authority) => {
+         const macExecution = await createProbeExecution(authority);
+@@ -60,6 +62,16 @@
+         ...(config.nativeProcessHelperPath ? [config.nativeProcessHelperPath] : []),
+       ],
+     });
++    const threadService = new LocalThreadService({
++      events: persistence.events,
++      getWorkspace: () => workspaceService.getAuthorizedCurrent(),
++      readRuntimeSummary: persistence.turnAdmissions.readThreadSummary,
++    });
++    const providerService = new LocalProviderService({ selectionStore: persistence.providerSelection });
++    const local = new LocalHarnessComposition(persistence, {
++      workspaceService, threadService, providerService,
++    }, config.storageDirectory);
++    const localTurns = createLocalSavedOwnerRouting(local.turnService);
+     if (options?.harnessBootstrap) local.bootstrap(options.harnessBootstrap);
+     const workspaceFilesService = options?.createWorkspaceFilesService?.(local.workspaceService);
+     const ready = local.turnService.initialize();
+@@ -76,7 +88,7 @@
+       threadService: local.threadService,
+       providerService: local.providerService,
+       harnessOperations: local.harnessOperations,
+-      localTurnService: local.turnService,
++      localTurnService: localTurns,
+       // Existing dispatcher port, with an accountless local implementation and no hosted principal.
+       hostedChatSubmissionService: local.turnService,
+       hostedLifecycleOperationsService: {
+@@ -119,6 +131,34 @@
+     persistence.close();
+     throw error;
+   }
++}
++
++/** Private Node dispatch uses saved ownership, never the current harness picker.
++ * The canonical Native service is supplied by its trusted composition owner.
++ */
++function createLocalSavedOwnerRouting(
++  delegated: LocalHarnessComposition["turnService"],
++  native?: NonNullable<AppServerComposition["localTurnService"]>,
++): NonNullable<AppServerComposition["localTurnService"]> {
++  const requireNative = () => {
++    if (!native) throw new AppServerOperationError(503, "server_unavailable", "Native local execution is not configured", undefined, false);
++    return native;
++  };
++  const saved = async (turnId: Parameters<typeof delegated.savedTurnBackend>[0]) =>
++    (await delegated.savedTurnBackend(turnId)) === "delegated" ? delegated : requireNative();
++  return {
++    // turn/start has no delegated captured selection; omission belongs to Native.
++    startTurn: (params) => requireNative().startTurn(params),
++    getTurn: async (turnId) => (await saved(turnId)).getTurn(turnId),
++    readHistory: (params) => (native ?? delegated).readHistory(params),
++    interruptTurn: async (params) => (await saved(params.turnId)).interruptTurn(params),
++    submitLifecycleApproval: async (params) => (await saved(params.turnId)).submitLifecycleApproval(params),
++    submitUserInputResponse: async (params) => {
++      const owner = await saved(params.turnId);
++      if (!owner.submitUserInputResponse) throw new AppServerOperationError(503, "server_unavailable", "Local question responses are unavailable", undefined, false);
++      return owner.submitUserInputResponse(params);
++    },
++  };
+ }
+ 
+ export function runLocalAppServerProcess(
+--- a/packages/app-server/src/server.ts
++++ b/packages/app-server/src/server.ts
+@@ -85,6 +85,7 @@
+     readHistory(params: LocalThreadHistoryParams): Promise<LocalThreadHistoryResult>;
+     interruptTurn(params: LocalTurnInterruptParams): Promise<InterruptTurnResponse>;
+     submitLifecycleApproval(params: SubmitLifecycleApprovalRequest): Promise<LifecycleEvent>;
++    submitUserInputResponse?(params: SubmitUserInputResponseRequest): Promise<LifecycleEvent>;
+   };
+   providerService?: LocalProviderService;
+   hostedProviderDiscoveryService?: {
+@@ -479,6 +480,11 @@
+       return composition.hostedLifecycleOperationsService.submitLifecycleApproval(request.params);
+     }
+     case "turn/userInput": {
++      if (composition.environment === "local") {
++        const service = composition.localTurnService;
++        if (!service?.submitUserInputResponse) throw new AppServerOperationError(503, "server_unavailable", "Local question responses are unavailable", undefined, false);
++        return service.submitUserInputResponse(request.params);
++      }
+       const service = composition.hostedLifecycleOperationsService;
+       if (composition.environment !== "hosted" || !service?.submitUserInputResponse) throw new Error("unsupported");
+       return service.submitUserInputResponse(request.params);
