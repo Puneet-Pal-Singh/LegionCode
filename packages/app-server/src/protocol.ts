@@ -176,12 +176,18 @@ export const LOCAL_APP_SERVER_IMAGE_REQUEST_HEADER = "x-legioncode-image-request
 export const MAX_LOCAL_APP_SERVER_IMAGE_REQUEST_BYTES =
   4 * Math.ceil((10 * 1024 * 1024) / 3) + MAX_LOCAL_APP_SERVER_REQUEST_BYTES;
 
-/** Budget eligibility only. The canonical start schema and shared media codec
- * still validate/decode/normalize every image before storage or admission. */
+/** Budget eligibility only. Canonical start/queue/steer owners and the shared
+ * media codec still validate/decode/normalize every image before publication. */
 export function isLocalAppServerImageRequest(request: AppServerRequest): boolean {
-  return request.method === "turn/start" && "images" in request.params &&
-    Array.isArray(request.params.images) && request.params.images.length > 0 &&
-    request.params.images.length <= MAX_LOCAL_APP_SERVER_IMAGES;
+  let images: unknown;
+  switch (request.method) {
+    case "turn/start": images = request.params.images; break;
+    case "turn/steer":
+    case "thread/input/enqueue":
+    case "thread/input/update": images = request.params.content.images; break;
+    default: return false;
+  }
+  return Array.isArray(images) && images.length > 0 && images.length <= MAX_LOCAL_APP_SERVER_IMAGES;
 }
 export function localAppServerRequestByteLimit(request: AppServerRequest): number {
   return isLocalAppServerImageRequest(request)
