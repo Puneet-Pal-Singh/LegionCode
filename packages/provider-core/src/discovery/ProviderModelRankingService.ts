@@ -3,8 +3,8 @@ import type {
   ProviderModelRankingInput,
   ProviderModelRankingResult,
   ProviderModelRankingSignals,
-} from "./types";
-import type { ProviderModelRankingPort } from "./ProviderModelRankingPort";
+} from "./types.js";
+import type { ProviderModelRankingPort } from "./ProviderModelRankingPort.js";
 
 export class ProviderModelRankingService implements ProviderModelRankingPort {
   async computePopular(input: ProviderModelRankingInput): Promise<ProviderModelRankingResult> {
