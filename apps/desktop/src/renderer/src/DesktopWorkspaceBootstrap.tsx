@@ -199,7 +199,7 @@ export function DesktopWorkspaceBootstrapHero({
         <ChatErrorNotice
           message={threadError ?? "The local task list could not be loaded."}
           remediation={threadError ? "Select an existing task or use New task to try again." : "Try loading the project's tasks again."}
-          actionLabel={threadError ? undefined : "Retry"}
+          actionLabel="Retry"
           onOpen={!threadError && canRetry ? onRetryThreads : undefined}
         />
       ) : workspace?.readiness === "ready" && threadLoadState === "loading" ? (
