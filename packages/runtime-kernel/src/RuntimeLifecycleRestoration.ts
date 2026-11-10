@@ -743,7 +743,7 @@ export function compactionFailure(
 ): ProtocolError {
   return {
     code: "internal_error",
-    message: payload.error ?? "Context compaction failed",
+    message: payload.error?.trim() ? payload.error : "Context compaction failed",
     retryable: false,
     correlationId: null,
     details: { phase: "context_compaction" },
