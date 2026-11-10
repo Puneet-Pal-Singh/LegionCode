@@ -1790,3 +1790,10 @@ Stop and process loss clear delivery timers and prevent late secret delivery.
 No credential-read renderer IPC, Native runtime activation, mode advertisement
 or competing vault is added. The existing packaged credential case remains
 unchanged and exercises this actual first catalog consumer.
+
+Local lifecycle replay authorizes from the canonical saved Turn admission and
+its currently granted Thread, rather than requiring a first runtime event.
+An admitted Turn may return an actual empty event page while runtime preflight
+is pending. Unknown Turns remain not found; returned event Thread, Turn, attempt
+and admitted worker identity must agree. Authorization is checked again after
+the replay read. No status, event, terminal or retrying prompt is synthesized.
