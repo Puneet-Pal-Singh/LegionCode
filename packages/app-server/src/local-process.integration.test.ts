@@ -9,7 +9,7 @@ import { DefaultGitService } from "@repo/git-service";
 import { createNodeGitExecutor } from "./local-node-git-executor.js";
 
 import { APP_SERVER_PROTOCOL_VERSION } from "./protocol.js";
-import { createLocalAppServer } from "./local-process.js";
+import { createLocalAppServer, type LocalWorkspaceFilesCompositionOptions } from "./local-process.js";
 import { LocalHarnessComposition } from "./harness/LocalHarnessComposition.js";
 import { handleAppServerHttpRequest } from "./server.js";
 import { LocalThreadService } from "./local-threads.js";
@@ -480,7 +480,7 @@ async function start(storageDirectory: string) {
   return server;
 }
 
-function fixtureWorkspaceOptions() {
+function fixtureWorkspaceOptions(): LocalWorkspaceFilesCompositionOptions {
   return {
     createMetadataInspector: (rootDirectory) => ({
       async inspectGitMetadataLayout() {
