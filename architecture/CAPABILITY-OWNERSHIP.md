@@ -1479,6 +1479,13 @@ the lease's actual resource proof. Unknown acquisition or cleanup retains the
 original binding, and cleanup uncertainty never discards a real commit receipt.
 This backend factory does not activate Electron services or advertise mutation
 capability; trusted host construction and installed acceptance remain separate.
+Its required private shutdown port synchronously fences new physical commit work
+and awaits the original operations through lease release and binding close. Git
+failure with positive cleanup remains a known closed outcome; a real commit
+receipt never substitutes for closure. Unknown bindings, leases and their actual
+composition owners remain strongly retained and reject shutdown. The generic
+host must await this port alongside Native Turn shutdown before closing SQLite;
+no HTTP/SDK shutdown method or alternate settlement authority is introduced.
 
 ## Desktop current-file mention suggestions
 
