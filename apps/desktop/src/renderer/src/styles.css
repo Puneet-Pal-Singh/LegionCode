@@ -3,6 +3,9 @@
 @source "../../../../../packages/client-ui/src";
 
 .desktop-workspace-frame { flex: 1 1 auto; }
+@media (min-width: 1024px) {
+  .desktop-workspace-frame > .lc-workspace-sidebar { z-index: 40; }
+}
 .desktop-rail-footer { display: grid; gap: 0.65rem; font-size: 0.75rem; }
 .desktop-workspace-summary { display: grid; gap: 0.25rem; }
 .desktop-workspace-summary > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--lc-color-text-primary); font-size: 0.8rem; font-weight: 500; }
