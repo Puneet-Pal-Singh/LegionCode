@@ -1,12 +1,17 @@
 import {
   builtinProviderRegistry,
+  normalizeRuntimeModelId,
+  ProviderModelRouteResolver,
   resolveProviderRuntimeRoute,
 } from "@repo/provider-core";
+import { buildCloudflareAIRoute, buildCloudflareAIRouteHeaders } from "@repo/provider-core/discovery";
 import {
+  BYOKDiscoveredProviderModelSchema,
   ProviderIdSchema,
   ProviderConnectionConfigSchema,
   type ProviderConnectionConfig,
   type ProviderId,
+  type BYOKDiscoveredProviderModel,
 } from "@repo/shared-types";
 import {
   ProviderError,
@@ -26,6 +31,7 @@ export interface ProtectedProviderCredential {
 export interface ProtectedProviderInferenceOptions {
   readonly providerId: ProviderId;
   readonly modelId: string;
+  readonly model: BYOKDiscoveredProviderModel;
   readonly resolveCredential: (
     providerId: ProviderId,
     signal?: AbortSignal,
@@ -40,10 +46,8 @@ export function createProtectedProviderAdapter(
   const provider = providerId.success
     ? builtinProviderRegistry.getProvider(providerId.data)
     : undefined;
-  const model = providerId.success
-    ? builtinProviderRegistry.getModel(providerId.data, options.modelId)
-    : undefined;
-  const route = resolveProviderRuntimeRoute(
+  const parsedModel = BYOKDiscoveredProviderModelSchema.safeParse(options.model);
+  const fixedRoute = resolveProviderRuntimeRoute(
     options.providerId,
     options.modelId,
   );
@@ -52,8 +56,10 @@ export function createProtectedProviderAdapter(
     !provider ||
     provider.launchStage !== "supported" ||
     !provider.authModes.includes("api_key") ||
-    !model ||
-    !route
+    !parsedModel.success ||
+    parsedModel.data.providerId !== providerId.data ||
+    parsedModel.data.id !== options.modelId ||
+    (parsedModel.data.availability !== undefined && parsedModel.data.availability !== "available")
   ) {
     throw configurationFailure();
   }
@@ -61,8 +67,12 @@ export function createProtectedProviderAdapter(
   const selection = {
     providerId: providerId.data,
     modelId: options.modelId,
-    ...route,
+    discoveredRoute: fixedRoute
+      ? Object.freeze({ providerId: providerId.data, modelId: fixedRoute.runtimeModelId, transport: fixedRoute.providerTransport, endpoint: fixedRoute.providerEndpoint })
+      : parsedModel.data.runtimeRoute ? Object.freeze({ ...parsedModel.data.runtimeRoute }) : undefined,
   };
+  const runtimeModelId = normalizeRuntimeModelId(selection.providerId, selection.discoveredRoute?.modelId ?? selection.modelId);
+  const routeResolver = new ProviderModelRouteResolver(builtinProviderRegistry, () => configurationFailure());
   const resolveCredential = options.resolveCredential;
 
   const resolveAdapter = async (
@@ -72,7 +82,7 @@ export function createProtectedProviderAdapter(
     if (
       params.model &&
       params.model !== selection.modelId &&
-      params.model !== selection.runtimeModelId
+      params.model !== runtimeModelId
     ) {
       throw configurationFailure();
     }
@@ -99,11 +109,18 @@ export function createProtectedProviderAdapter(
       if (!config.success || config.data.providerId !== selection.providerId)
         throw credentialFailure();
     }
+    const route = routeResolver.resolve({ ...selection, connectionConfig: credential.connectionConfig });
+    const config = credential.connectionConfig;
+    const cloudflare = config && (config.providerId === "cloudflare-ai" || config.providerId === "cloudflare-workers-ai" || config.providerId === "cloudflare-ai-gateway") ? config : undefined;
+    if (cloudflare && buildCloudflareAIRoute({ config: cloudflare, modelId: selection.modelId, transport: route.transport }) !== route.endpoint) {
+      throw configurationFailure();
+    }
     return createProviderInferenceAdapter({
       providerId: selection.providerId,
-      transport: selection.providerTransport,
-      endpoint: selection.providerEndpoint,
-      defaultModel: selection.runtimeModelId,
+      transport: route.transport,
+      endpoint: route.endpoint,
+      defaultModel: route.runtimeModelId,
+      headers: cloudflare ? buildCloudflareAIRouteHeaders(cloudflare) : undefined,
       apiKey: credential.apiKey,
     });
   };
@@ -112,13 +129,13 @@ export function createProtectedProviderAdapter(
     provider: selection.providerId,
     supportedModels: [selection.modelId],
     supportsModel: (modelId) =>
-      modelId === selection.modelId || modelId === selection.runtimeModelId,
+      modelId === selection.modelId || modelId === runtimeModelId,
     async generate(params): Promise<GenerationResult> {
       const adapter = await resolveAdapter(params);
       try {
         const result = await adapter.generate({
           ...params,
-          model: selection.runtimeModelId,
+          model: runtimeModelId,
         });
         assertNotAborted(params.signal);
         return result;
@@ -133,7 +150,7 @@ export function createProtectedProviderAdapter(
       try {
         return yield* adapter.generateStream({
           ...params,
-          model: selection.runtimeModelId,
+          model: runtimeModelId,
         });
       } catch (error) {
         throw publicFailure(error, params.signal);

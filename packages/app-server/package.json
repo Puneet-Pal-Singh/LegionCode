@@ -13,6 +13,8 @@
     "./local-process": "./src/local-process.ts",
     "./local-workspace-files": "./src/local-workspace-files.ts",
     "./local-mac-git-execution": "./src/local-mac-git-execution.ts",
+    "./local-native-runtime": "./src/local-native-runtime.ts",
+    "./local-provider-model-discovery": "./src/local-provider-model-discovery.ts",
     "./local-readonly-git": "./src/local-readonly-git.ts",
     "./local-artifact-commit-composition": "./src/local-artifact-commit-composition.ts"
   },
@@ -26,11 +28,13 @@
     "@repo/chat-media": "workspace:*",
     "@repo/event-store": "workspace:*",
     "@repo/git-service": "workspace:*",
+    "@repo/permission-policy": "workspace:*",
     "@repo/persistence": "workspace:*",
     "@repo/platform-protocol": "workspace:*",
     "@repo/provider-core": "workspace:*",
     "@repo/runtime-kernel": "workspace:*",
     "@repo/shared-types": "workspace:*",
+    "@repo/workspace-core": "workspace:*",
     "zod": "^3.25.0"
   },
   "devDependencies": {
