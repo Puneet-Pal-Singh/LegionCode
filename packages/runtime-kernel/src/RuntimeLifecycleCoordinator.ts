@@ -40,7 +40,11 @@ import {
   type TurnTerminalOutcome,
 } from "@repo/platform-protocol/lifecycle";
 import { RuntimeLifecycleSettlementError } from "./errors.js";
-import { restoreApprovalWaitLifecycle } from "./RuntimeLifecycleRestoration.js";
+import {
+  restoreRuntimeLifecycle,
+  compactionFailure,
+  type RestoredItemSettlement,
+} from "./RuntimeLifecycleRestoration.js";
 import type {
   RuntimeLifecycleEventStore,
   RuntimeKernelClock,
@@ -105,6 +109,9 @@ export class RuntimeLifecycleCoordinator {
   private readonly approvalStatuses: Record<string, ApprovalStatus> = {};
   private readonly approvalItems: Record<string, ItemId> = {};
   private readonly approvalParents: Record<string, ItemId> = {};
+  private readonly pendingItemSettlements: Record<string, RestoredItemSettlement> = {};
+  private readonly activeCompactions: Record<string, ContextCompactionPayload> = {};
+  private processLossRestored = false;
   private accepted = false;
   private completionReserved = false;
   private readonly acceptedInputSequences = new Map<string, number>();
@@ -132,10 +139,79 @@ export class RuntimeLifecycleCoordinator {
       ...options,
       initialSequence: 0,
     });
-    Object.assign(coordinator, restoreApprovalWaitLifecycle(options, events));
+    Object.assign(
+      coordinator,
+      restoreRuntimeLifecycle(options, events, "approval_wait"),
+    );
     return coordinator;
   }
 
+  /** Restore canonical Native read-only history only for terminal reconciliation.
+   * The startup adapter proves sole persistence ownership and never resumes work. */
+  static restoreForProcessLoss(
+    options: RuntimeLifecycleCoordinatorOptions,
+    history: readonly unknown[],
+  ): RuntimeLifecycleCoordinator {
+    const coordinator = new RuntimeLifecycleCoordinator({
+      ...options,
+      initialSequence: 0,
+    });
+    Object.assign(
+      coordinator,
+      restoreRuntimeLifecycle(
+        options,
+        history.map((event) => LifecycleEventSchema.parse(event)),
+        "process_loss",
+      ),
+    );
+    coordinator.processLossRestored = true;
+    return coordinator;
+  }
+
+  /** Finish already-durable receipts, then fail remaining work through this
+   * coordinator. The startup adapter stages all events into ONE durable batch. */
+  async failAfterProcessLoss(failure: ProtocolError): Promise<void> {
+    await this.enqueue(async () => {
+      if (!this.processLossRestored)
+        throw new Error(
+          "Process-loss settlement requires restored canonical history",
+        );
+      const blocking = this.blockingState;
+      if (
+        blocking.kind === "waiting_for_approval" &&
+        this.approvalStatuses[blocking.approvalId] !== "pending"
+      ) {
+        await this.changeBlocking({ kind: "none" });
+      }
+      for (const [itemId, settlement] of Object.entries(
+        this.pendingItemSettlements,
+      )) {
+        if (this.itemStatuses[itemId] === "active") {
+          await this.settleItem(
+            itemId as ItemId,
+            settlement.status,
+            settlement.payload,
+          );
+        }
+      }
+      for (const [itemId, payload] of Object.entries(this.activeCompactions)) {
+        if (
+          this.itemStatuses[itemId] !== "active" ||
+          this.pendingItemSettlements[itemId]
+        )
+          continue;
+        const failed: ContextCompactionPayload = { ...payload, phase: "failed", error: failure.message };
+        await this.emit({
+          type: "context_compaction.failed",
+          itemId: itemId as ItemId,
+          payload: failed,
+        });
+        await this.settleItem(itemId as ItemId, "failed", { failure: compactionFailure(failed) });
+      }
+      await this.failNow(failure);
+      this.processLossRestored = false;
+    });
+  }
 
   get terminalStatus(): "completed" | "interrupted" | "failed" | null {
     return this.status === "completed" || this.status === "interrupted" || this.status === "failed" ? this.status : null;
@@ -425,13 +501,7 @@ export class RuntimeLifecycleCoordinator {
         payload.itemId,
         terminal,
         terminal === "failed"
-          ? { failure: {
-              code: "internal_error",
-              message: payload.error ?? "Context compaction failed",
-              retryable: false,
-              correlationId: null,
-              details: { phase: "context_compaction" },
-            } }
+          ? { failure: compactionFailure(payload) }
           : {
               result: {
                 preservedContextReference: payload.preservedContextReference,
