@@ -2400,3 +2400,7 @@ preparation label or new receipt is substituted for surviving-child exclusion.
 
 - Thread read summaries use the actual same-Turn canonical accepted user item as the active user leaf, requiring its exact input/transcript identity, scope, parent chain and accepted lifecycle sequence. A settled assistant becomes the leaf only when completed after the latest accepted input.
 - Runtime resource-release notification requires the actual Native settlement issuer/receipt path, binding closure and original owner deletion; a custom executor without that capability cannot trigger queue advancement. No new tests or sequence/state writer.
+
+### Queue admission physical boundary
+
+- Shared advancement selects only logically eligible queue intent. Physical idle is not represented as a separate boolean predicate: the actual Native start adapter must verify predecessor settlement under its already-held successor lease before atomic queue/admission publication. Unknown physical authority must pause and reject, preserving intent.

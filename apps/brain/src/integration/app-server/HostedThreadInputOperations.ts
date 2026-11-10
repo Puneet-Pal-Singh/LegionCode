@@ -55,9 +55,6 @@ export function composeHostedThreadInputOperations(request: Request, env: Env, u
     }),
     assertSteeringTarget: (scope, target, hasImages) => assertSteeringTarget({ request, env, scope, target, hasImages, correlationId }),
     deliverSteer: (scope, item) => deliverSteer(env, scope, item),
-    // Hosted admission retains its existing repository/dispatch lease contract.
-    // SQLite/Native supplies a positive physical-resource proof in this port.
-    proveIdle: async (scope) => (await repository.list(scope)).activeRunId ? "active" : "idle",
     startQueued: ({ scope, command, explicitStart }) => admissions.startQueuedInput({ request,
       executionContext, userId, sessionId: scope.sessionId, command, correlationId, explicitStart }),
     resume: (scope, command) => admissions.resume({ request, executionContext, userId,
