@@ -209,6 +209,8 @@ export type {
   IdentitySessionRepository,
 } from "./identity/types.js";
 export type {
+  CredentialConnectionStore,
+  CreateCredentialConnectionInput,
   CredentialStore,
   ProviderAuditEvent,
   ProviderAuditLog,
@@ -383,3 +385,9 @@ export type {
   StoredHarnessBinding, HarnessObservationCommit, HarnessObservationAck,
   HarnessBindingRepository, HarnessExecutionClaimResult,
 } from "./harness/types.js";
+
+export { PostgresCredentialDefaultFence } from "./providers/PostgresCredentialDefaultFence.js";
+export type { CredentialDefaultScope, CredentialDefaultWriteResult } from "./providers/PostgresCredentialDefaultFence.js";
+export { providerCredentialDefaultEpochs } from "./schema/credential-default-epochs.js";
+export { providerConnectionCustodyMigration } from "./migrations/0037-provider-connection-custody.js";
+

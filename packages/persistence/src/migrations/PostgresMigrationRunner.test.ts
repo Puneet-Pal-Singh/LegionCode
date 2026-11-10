@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { providerConnectionCustodyMigration } from "./0037-provider-connection-custody.js";
 import { PostgresMigrationRunner } from "./PostgresMigrationRunner.js";
 import { projectlessSessionRepositoryMigration } from "./0034-projectless-session-repository.js";
 import { artifactProvenanceMigration } from "./0024-artifact-provenance.js";
@@ -26,7 +27,9 @@ class RecordingSqlClient implements SqlClient {
     return { rows: [], rowCount: 0 };
   }
 
-  async transaction<T>(callback: (client: SqlClient) => Promise<T>): Promise<T> {
+  async transaction<T>(
+    callback: (client: SqlClient) => Promise<T>,
+  ): Promise<T> {
     return callback(this);
   }
 }
@@ -38,7 +41,10 @@ class FakeLedger implements MigrationLedger {
 
   async ensureReady(): Promise<void> {}
 
-  async hasMigration(_client: SqlClient, migrationId: string): Promise<boolean> {
+  async hasMigration(
+    _client: SqlClient,
+    migrationId: string,
+  ): Promise<boolean> {
     return this.appliedIds.has(migrationId);
   }
 
@@ -77,6 +83,7 @@ describe("PostgresMigrationRunner", () => {
       { id: "0002_pending", description: "pending", statements: ["SELECT 2"] },
       legacyHistoryImportReceiptsMigration,
       projectlessSessionRepositoryMigration,
+      providerConnectionCustodyMigration,
     ]);
 
     expect(result).toEqual({
@@ -84,6 +91,7 @@ describe("PostgresMigrationRunner", () => {
         "0002_pending",
         "0034_legacy_history_import_receipts",
         "0034_projectless_session_repository",
+        "0037_provider_connection_custody",
       ],
       skipped: ["0001_done"],
     });
@@ -92,11 +100,13 @@ describe("PostgresMigrationRunner", () => {
       "SELECT 2",
       ...legacyHistoryImportReceiptsMigration.statements,
       ...projectlessSessionRepositoryMigration.statements,
+      ...providerConnectionCustodyMigration.statements,
     ]);
     expect(ledger.recorded).toEqual([
       "0002_pending",
       "0034_legacy_history_import_receipts",
       "0034_projectless_session_repository",
+      "0037_provider_connection_custody",
     ]);
     expect(legacyHistoryImportReceiptsMigration.statements[1]).toContain(
       "FOREIGN KEY (session_id, user_id) REFERENCES sessions (id, user_id) ON DELETE RESTRICT",
@@ -110,8 +120,22 @@ describe("PostgresMigrationRunner", () => {
     expect(projectlessSessionRepositoryMigration.statements[0]).toContain(
       "UPDATE sessions SET repository = NULL WHERE repository = 'New Project'",
     );
-    const alreadyApplied = new PostgresMigrationRunner(client, new FakeLedger(new Set(ledger.recorded)));
-    expect(await alreadyApplied.runPending([projectlessSessionRepositoryMigration])).toEqual({ applied: [], skipped: ["0034_projectless_session_repository"] });
+    const alreadyApplied = new PostgresMigrationRunner(
+      client,
+      new FakeLedger(new Set(ledger.recorded)),
+    );
+    expect(
+      await alreadyApplied.runPending([
+        projectlessSessionRepositoryMigration,
+        providerConnectionCustodyMigration,
+      ]),
+    ).toEqual({
+      applied: [],
+      skipped: [
+        "0034_projectless_session_repository",
+        "0037_provider_connection_custody",
+      ],
+    });
   });
 
   it("adds migration context to statement failures", async () => {
