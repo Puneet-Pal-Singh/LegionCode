@@ -113,6 +113,7 @@ export class RuntimeLifecycleCoordinator {
   private readonly approvalStatuses: Record<string, ApprovalStatus> = {};
   private readonly approvalItems: Record<string, ItemId> = {};
   private readonly userInputItems: Record<string, ItemId> = {};
+  private readonly userInputStatuses: Record<string, "pending" | "responded" | "cancelled"> = {};
   private readonly approvalParents: Record<string, ItemId> = {};
   private accepted = false;
   private completionReserved = false;
@@ -179,7 +180,7 @@ export class RuntimeLifecycleCoordinator {
     this.harnessFenced = source.harnessFenced;
     this.sequence = source.sequence;
     for (const key of ["itemStatuses", "itemKinds", "toolCallStatuses", "toolCallNames",
-      "toolCallBatches", "toolCallItems", "approvalStatuses", "approvalItems", "approvalParents", "userInputItems"] as const) {
+      "toolCallBatches", "toolCallItems", "approvalStatuses", "approvalItems", "approvalParents", "userInputItems", "userInputStatuses"] as const) {
       for (const existing of Object.keys(this[key])) delete this[key][existing];
       Object.assign(this[key], source[key]);
     }
@@ -379,13 +380,14 @@ export class RuntimeLifecycleCoordinator {
               "blocking approval does not match a pending approval request",
             );
           }
-          previousStatus = transitionTurnStatus(
-            previousStatus,
-            "awaiting_approval",
-          );
+          if (previousStatus !== "awaiting_approval")
+            previousStatus = transitionTurnStatus(previousStatus, "awaiting_approval");
         } else if (previousStatus === "awaiting_approval") {
           previousStatus = transitionTurnStatus(previousStatus, "in_progress");
         }
+        if ((blocking.kind !== "none" && !this.isPendingBlocking(blocking)) ||
+            (blocking.kind === "none" && this.selectPendingBlocking().kind !== "none"))
+          throw new LifecycleTransitionError("turn", previousStatus, blocking.kind, "Blocking focus does not match pending canonical requests");
         this.blockingState = blocking;
       } else if (event.type === "run_attempt.started") {
         if (!started) {
@@ -534,7 +536,15 @@ export class RuntimeLifecycleCoordinator {
           event.payload.status,
         );
       } else if (!requireIsolatedApproval && event.type === "user_input.requested") {
+        if (this.userInputItems[event.requestId] || this.itemStatuses[event.itemId] !== "active" || this.itemKinds[event.itemId] !== "user_input_request")
+          throw new LifecycleTransitionError("item", "inactive", "requested", "Recovered question has no fresh active request item");
         this.userInputItems[event.requestId] = event.itemId;
+        this.userInputStatuses[event.requestId] = "pending";
+      } else if (!requireIsolatedApproval && (event.type === "user_input.responded" ||
+          (event.type === "request.resolved" && this.userInputItems[event.requestId]))) {
+        if (this.userInputItems[event.requestId] !== event.itemId || this.userInputStatuses[event.requestId] !== "pending" || this.itemStatuses[event.itemId] !== "active")
+          throw new LifecycleTransitionError("item", "inactive", "resolved", "Recovered question resolution has no pending canonical request");
+        this.userInputStatuses[event.requestId] = event.type === "user_input.responded" ? "responded" : "cancelled";
       } else if (!requireIsolatedApproval && event.type === "turn.input.applied") {
         if (this.acceptedInputSequences.get(event.payload.inputId) !== event.payload.acceptedSequence) throw new Error("Recovered input application has no matching canonical acceptance");
         this.appliedInputs.set(event.payload.inputId, { ...event.payload, sequence: event.sequence });
@@ -1020,11 +1030,7 @@ export class RuntimeLifecycleCoordinator {
     });
     this.approvalStatuses[approvalId] = "pending";
     this.approvalItems[approvalId] = approvalItemId;
-    await this.changeBlocking({
-      kind: "waiting_for_approval",
-      itemId: approvalItemId,
-      approvalId,
-    });
+    await this.changeBlocking(this.selectPendingBlocking());
   }
 
   async decideApproval(
@@ -1051,7 +1057,7 @@ export class RuntimeLifecycleCoordinator {
       payload: { ...payload, status },
     });
     this.approvalStatuses[approvalId] = next;
-    await this.changeBlocking({ kind: "none" });
+    await this.changeBlocking(this.selectPendingBlocking());
     const itemId = this.requireApprovalItem(approvalId);
     await this.settleItem(
       itemId,
@@ -1062,13 +1068,14 @@ export class RuntimeLifecycleCoordinator {
 
   async requestUserInput(itemId: ItemId, requestId: string, payload: JsonRecord): Promise<void> {
     await this.enqueue(async () => {
-      if (this.userInputItems[requestId] || this.blockingState.kind !== "none") {
+      if (this.userInputItems[requestId]) {
         throw new LifecycleTransitionError("item", "active", "requested", "User input request conflicts with an active request");
       }
       await this.startItem(itemId, "user_input_request", {});
       await this.emit({ type: "user_input.requested", itemId, requestId, payload });
       this.userInputItems[requestId] = itemId;
-      await this.changeBlocking({ kind: "waiting_for_user_input", itemId, requestId });
+      this.userInputStatuses[requestId] = "pending";
+      await this.changeBlocking(this.selectPendingBlocking());
     });
   }
 
@@ -1088,16 +1095,15 @@ export class RuntimeLifecycleCoordinator {
           payload: { status: "cancelled", decidedBy: null, reason: "Native request withdrawn" } });
         this.approvalStatuses[approvalId] = "cancelled";
         await this.settleItem(input.itemId, "declined", { reason: "Native request withdrawn" });
-        if (this.blockingState.kind === "waiting_for_approval" && this.blockingState.approvalId === approvalId)
-          await this.changeBlocking({ kind: "none" });
+        await this.changeBlocking(this.selectPendingBlocking());
       } else {
-        if (this.userInputItems[input.requestId] !== input.itemId || this.itemStatuses[input.itemId] !== "active")
+        if (this.userInputItems[input.requestId] !== input.itemId || this.userInputStatuses[input.requestId] !== "pending" || this.itemStatuses[input.itemId] !== "active")
           throw new LifecycleTransitionError("item", "inactive", "cancelled", "Native withdrawal does not match a pending question");
         await this.emit({ type: "request.resolved", itemId: input.itemId, requestId: input.requestId,
           payload: { status: "cancelled", reason: input.reason } });
+        this.userInputStatuses[input.requestId] = "cancelled";
         await this.settleItem(input.itemId, "interrupted", { reason: "Native request withdrawn" });
-        if (this.blockingState.kind === "waiting_for_user_input" && this.blockingState.requestId === input.requestId)
-          await this.changeBlocking({ kind: "none" });
+        await this.changeBlocking(this.selectPendingBlocking());
       }
     });
   }
@@ -1105,12 +1111,13 @@ export class RuntimeLifecycleCoordinator {
   async respondUserInput(requestId: string, response: JsonRecord, respondedBy: import("@repo/platform-protocol").UserId | null): Promise<void> {
     await this.enqueue(async () => {
       const itemId = this.userInputItems[requestId];
-      if (!itemId || this.itemStatuses[itemId] !== "active" || this.blockingState.kind !== "waiting_for_user_input" || this.blockingState.requestId !== requestId) {
+      if (!itemId || this.itemStatuses[itemId] !== "active" || this.userInputStatuses[requestId] !== "pending") {
         throw new LifecycleTransitionError("item", "inactive", "responded", "User input request is no longer pending");
       }
       await this.emit({ type: "user_input.responded", itemId, requestId, payload: { response, respondedBy } });
+      this.userInputStatuses[requestId] = "responded";
       await this.settleItem(itemId, "completed", { result: {} });
-      await this.changeBlocking({ kind: "none" });
+      await this.changeBlocking(this.selectPendingBlocking());
     });
   }
 
@@ -1307,11 +1314,12 @@ export class RuntimeLifecycleCoordinator {
 
   private async cancelPendingUserInput(reason: string): Promise<void> {
     for (const [requestId, itemId] of Object.entries(this.userInputItems)) {
-      if (this.itemStatuses[itemId] === "active") {
+      if (this.userInputStatuses[requestId] === "pending" && this.itemStatuses[itemId] === "active") {
         await this.emit({ type: "request.resolved", itemId, requestId, payload: { status: "cancelled", reason } });
+        this.userInputStatuses[requestId] = "cancelled";
       }
     }
-    if (this.blockingState.kind === "waiting_for_user_input") await this.changeBlocking({ kind: "none" });
+    await this.changeBlocking(this.selectPendingBlocking());
   }
 
   private async cancelPendingApprovals(reason: string): Promise<void> {
@@ -1361,18 +1369,42 @@ export class RuntimeLifecycleCoordinator {
     this.status = nextTurn;
   }
 
-  private async changeBlocking(
-    blockingState: TurnBlockingState,
-  ): Promise<void> {
-    await this.emit({
-      type: "turn.blocking_changed",
-      payload: { blockingState },
-    });
-    if (blockingState.kind === "waiting_for_approval") {
-      this.status = transitionTurnStatus(this.status, "awaiting_approval");
-    } else if (this.status === "awaiting_approval") {
-      this.status = transitionTurnStatus(this.status, "in_progress");
+  /** Focus is a projection of canonical pending membership, never its owner. */
+  private isPendingBlocking(blocking: TurnBlockingState): boolean {
+    if (blocking.kind === "waiting_for_approval")
+      return this.approvalStatuses[blocking.approvalId] === "pending" &&
+        this.approvalItems[blocking.approvalId] === blocking.itemId && this.itemStatuses[blocking.itemId] === "active";
+    if (blocking.kind === "waiting_for_user_input")
+      return this.userInputStatuses[blocking.requestId] === "pending" &&
+        this.userInputItems[blocking.requestId] === blocking.itemId && this.itemStatuses[blocking.itemId] === "active";
+    return false;
+  }
+
+  private selectPendingBlocking(): TurnBlockingState {
+    if (this.isPendingBlocking(this.blockingState)) return this.blockingState;
+    for (const [approvalId, status] of Object.entries(this.approvalStatuses)) {
+      const itemId = this.approvalItems[approvalId];
+      if (status === "pending" && itemId && this.itemStatuses[itemId] === "active")
+        return { kind: "waiting_for_approval", approvalId: approvalId as ApprovalId, itemId };
     }
+    for (const [requestId, itemId] of Object.entries(this.userInputItems)) {
+      if (this.userInputStatuses[requestId] === "pending" && this.itemStatuses[itemId] === "active")
+        return { kind: "waiting_for_user_input", requestId, itemId };
+    }
+    return { kind: "none" };
+  }
+
+  private async changeBlocking(blockingState: TurnBlockingState): Promise<void> {
+    if (JSON.stringify(blockingState) === JSON.stringify(this.blockingState)) return;
+    // Validate before append; focus-only updates do not transition turn status.
+    const nextStatus = blockingState.kind === "waiting_for_approval"
+      ? (this.status === "awaiting_approval" ? this.status : transitionTurnStatus(this.status, "awaiting_approval"))
+      : (this.status === "awaiting_approval" ? transitionTurnStatus(this.status, "in_progress") : this.status);
+    if ((blockingState.kind !== "none" && !this.isPendingBlocking(blockingState)) ||
+        (blockingState.kind === "none" && this.selectPendingBlocking().kind !== "none"))
+      throw new LifecycleTransitionError("turn", this.status, blockingState.kind, "Blocking focus does not match pending canonical requests");
+    await this.emit({ type: "turn.blocking_changed", payload: { blockingState } });
+    this.status = nextStatus;
     this.blockingState = blockingState;
   }
 
