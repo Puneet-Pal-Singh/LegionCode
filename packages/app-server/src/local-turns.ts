@@ -53,6 +53,8 @@ import {
 /** Runtime objects and ports only; this host never produces lifecycle events. */
 export type LocalTurnExecutor = {
   execute(admission: TurnAdmission): Promise<unknown>;
+  /** Frozen admitted model capability; never rediscovered during Steer. */
+  readonly supportsImageInput?: boolean;
   /** True only after physical quiescence and canonical terminal/capture settlement. */
   awaitResourceRelease(turnId: TurnId): Promise<boolean>;
   /** Native receipt capability. Absence certifies no predecessor settlement. */
@@ -168,12 +170,22 @@ export class LocalTurnService {
     return this.resources.prepare((preparation) => this.startPreparedTurn(params, preparation, input));
   }
 
+  async assertSteerImageInput(turnId: TurnId, runAttemptId: TurnAdmission["runAttemptId"]): Promise<void> {
+    const admission = await this.getTurn(turnId);
+    if (admission.runAttemptId !== runAttemptId)
+      throw new AppServerOperationError(409, "conflict", "Steer target has changed");
+    if (this.requireExecutor(turnId).supportsImageInput !== true)
+      throw new AppServerOperationError(409, "conflict", "The admitted model does not support image input", "local_image_model_unsupported", false);
+  }
+
   async acceptQueuedSteer(input: { scope: ThreadInputScope; item: StoredThreadInput; message: LocalTurnAttemptInput["accepted"]["message"] }): Promise<number> {
     const admission = await this.getTurn(input.item.targetTurnId!);
     if (admission.run.userId !== input.scope.userId || admission.run.workspaceId !== input.scope.workspaceId ||
         admission.run.threadId !== input.scope.threadId || admission.runAttemptId !== input.item.targetRunAttemptId)
       throw new AppServerOperationError(409, "conflict", "Steer target has changed");
     const executor = this.requireExecutor(admission.turn.id);
+    if (input.item.mediaRefs.length && executor.supportsImageInput !== true)
+      throw new AppServerOperationError(409, "conflict", "The admitted model does not support image input", "local_image_model_unsupported", false);
     if (!executor.acceptThreadInputAttempt) throw new AppServerOperationError(503, "server_unavailable", "The Native runtime does not accept input");
     return executor.acceptThreadInputAttempt({ workspaceId: admission.run.workspaceId, threadId: admission.run.threadId,
       runId: admission.run.id, turnId: admission.turn.id, runAttemptId: admission.runAttemptId }, {

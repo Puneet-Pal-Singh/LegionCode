@@ -2478,3 +2478,8 @@ renderer-supplied host path and does not manufacture a Turn scope for steering.
 ### Queued successor admission race guard
 
 - The private queue/admission transaction requires the exact predecessor Turn ID returned by held-successor physical verification (null only for a fresh Thread). It rereads the latest canonical admission on the same immediate SQLite writer before admitWithin and rejects any intervening ordinary or queued admission. No public schema or physical-proof shortcut is added.
+
+### Frozen Native input model capability
+
+- Steer image eligibility comes from the actual executor's existing captured admitted model snapshot, checked before publication and again at exact-attempt delivery. Missing support fails closed; live discovery is not a second decision owner. Text and saved-receipt retries retain their paths.
+- Native applied-input history enrichment respects the same opaque delegated boundary as inbox projection and Thread lineage. Shared lifecycle scope/producer validation and historical assistant handling remain unchanged.
