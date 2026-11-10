@@ -236,7 +236,7 @@ export class DefaultGitService {
 
     const configResult = await this.executor.execute({
       cwd: workspaceRoot,
-      args: ["config", "--null", "--list"],
+      args: ["config", "--null", "--get-regexp", "^remote\\.origin\\.url$"],
       timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
       readOnlyProbe: true,
     });
