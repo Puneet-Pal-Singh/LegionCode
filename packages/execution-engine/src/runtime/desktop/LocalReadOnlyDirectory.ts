@@ -8,6 +8,17 @@ import {
   LOCAL_DIRECTORY_ENTRY_LIMIT,
 } from "./LocalDirectoryOutput.js";
 
+// Node supports buffer-encoded directory names, but the installed Node typings
+// omit that overload. Describe only the runtime methods consumed here; the
+// Buffer check below still rejects any unexpected filename representation.
+const openBufferDirectory = opendir as unknown as (
+  path: string,
+  options: { readonly encoding: "buffer"; readonly bufferSize: number },
+) => Promise<{
+  read(): Promise<{ readonly name: Buffer } | null>;
+  close(): Promise<void>;
+}>;
+
 /** Incremental enumeration of an already-authorized held directory, never its pathname. */
 export async function readLocalDirectory(input: {
   readonly path: string;
@@ -20,7 +31,7 @@ export async function readLocalDirectory(input: {
   const before = await input.handle.stat({ bigint: true });
   if (!before.isDirectory())
     throw new Error("Listing requires a workspace directory");
-  const directory = await opendir(input.descriptorPath, {
+  const directory = await openBufferDirectory(input.descriptorPath, {
     encoding: "buffer",
     bufferSize: 16,
   });

@@ -3,7 +3,7 @@ import type { LLMTextRequest, LLMTextResponse } from "../llm/types.js";
 import type { LocalReadOnlyWorkspaceBinding } from "../desktop/LocalReadOnlyWorkspaceBinding.js";
 import { LocalReadOnlyTurnExecutor } from "../desktop/LocalReadOnlyTurnExecutor.js";
 import { RegistryToolAuthorization } from "../contracts/RegistryToolAuthorization.js";
-import { ThreadSchema, ItemIdSchema, ToolCallIdSchema, WorkerIdSchema, PermissionProfileIdSchema, RunIdSchema, TurnIdSchema, ThreadIdSchema, type LifecycleEvent } from "@repo/platform-protocol";
+import { ThreadSchema, WorkerIdSchema, PermissionProfileIdSchema, RunIdSchema, TurnIdSchema, ThreadIdSchema, type LifecycleEvent } from "@repo/platform-protocol";
 import type { RuntimeKernelDependencies } from "@repo/runtime-kernel";
 import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
