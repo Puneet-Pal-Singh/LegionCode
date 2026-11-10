@@ -95,6 +95,7 @@ const config: Configuration = {
   },
   files: ["out/**/*", "package.json"],
   mac: {
+    icon: "../web/public/assets/legioncode-icon-512.png",
     minimumSystemVersion: minimumMacOSVersion,
     category: "public.app-category.developer-tools",
     target: ["dmg", "zip"],
