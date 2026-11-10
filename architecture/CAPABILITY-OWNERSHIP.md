@@ -2459,3 +2459,22 @@ advertise queue or steering availability.
 - Migration gate: the same lexical Desktop lease factory and actual local queue
   route must be joined before advertising queue execution. Source ports alone do
   not enable the product. No new lifecycle writer, state registry or tests.
+- Native queue admission explicitly rejects delegated captures. Native accepted-user enrichment applies only inside the same opaque ownership boundary; shared delegated terminal/assistant summaries remain with their original reader and are not forced to manufacture Native inbox/platform records.
+
+- First Native inbox migration applies the same canonical opaque delegated-owner boundary before refusing orphan Native input events. Existing delegated history does not falsely require a Native inbox.
+The same media owner exposes a private original-image read for canonical queued
+scope and its full reference set. Exact queue ownership is rechecked around the
+bounded file read, with original digest and metadata validation; originals are
+never normalized or reencoded for review. The existing media/readImage owner
+must resolve the accepted/applied/unconfirmed input under the actual Turn and
+attempt and reauthorize after the read. This port adds no public endpoint or
+renderer-supplied host path and does not manufacture a Turn scope for steering.
+
+### Accepted input original image reader
+
+- Existing media/readImage authorizes the actual Turn, resolves initial-prompt or accepted/applied/unconfirmed input attachment references through canonical owners, and reauthorizes after the bounded read. Accepted inputs use the same queued-media original-byte reader with full immutable scope/fingerprint/ref-set checks.
+- No synthetic Turn scope, normalized replacement bytes, renderer body fallback or new endpoint is introduced. Pending queue previews remain a separate strict-scope consumer; Native route activation still waits for held-successor admission. No new tests.
+
+### Queued successor admission race guard
+
+- The private queue/admission transaction requires the exact predecessor Turn ID returned by held-successor physical verification (null only for a fresh Thread). It rereads the latest canonical admission on the same immediate SQLite writer before admitWithin and rejects any intervening ordinary or queued admission. No public schema or physical-proof shortcut is added.

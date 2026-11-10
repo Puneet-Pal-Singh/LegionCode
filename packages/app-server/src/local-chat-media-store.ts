@@ -81,6 +81,20 @@ export class LocalChatMediaStore implements LocalTurnMediaPort, LocalQueuedInput
     });
   }
 
+  async readQueuedOriginal(input: LocalQueuedInputMediaRead & { readonly reference: ChatImageAttachmentRef }) {
+    return this.withIO(async () => {
+      const ownership = await this.queuedOwnership(input);
+      const reference = ChatImageAttachmentRefSchema.parse(input.reference);
+      if (!ownership.references.some((expected) => isDeepStrictEqual(expected, reference))) {
+        throw new LocalChatMediaError("unavailable", "Queued image reference is not canonically owned");
+      }
+      const saved = await this.readQueuedImage(ownership, reference, input.signal);
+      await this.resources.assertQueuedAccepted(ownership);
+      input.signal?.throwIfAborted();
+      return { reference, bytes: saved.bytes, sha256: saved.image.sha256, fingerprint: saved.record.fingerprint };
+    });
+  }
+
   private decodeImages(input: Parameters<LocalTurnMediaPort["prepare"]>[0], signal?: AbortSignal): LocalDecodedChatImage[] {
     signal?.throwIfAborted();
     let images: LocalDecodedChatImage[];
@@ -156,6 +170,18 @@ export class LocalChatMediaStore implements LocalTurnMediaPort, LocalQueuedInput
   private async readQueuedImages(input: LocalQueuedInputMediaRead): Promise<{
     images: LocalDecodedChatImage[]; ownership: LocalQueuedInputMediaOwnership;
   }> {
+    const ownership = await this.queuedOwnership(input);
+    const images: LocalDecodedChatImage[] = [];
+    for (const reference of ownership.references) {
+      const saved = await this.readQueuedImage(ownership, reference, input.signal);
+      images.push({ bytes: saved.bytes, mediaType: reference.mediaType, name: reference.name, sha256: saved.image.sha256 });
+    }
+    await this.resources.assertQueuedAccepted(ownership);
+    input.signal?.throwIfAborted();
+    return { images, ownership };
+  }
+
+  private async queuedOwnership(input: LocalQueuedInputMediaRead): Promise<LocalQueuedInputMediaOwnership> {
     this.requireQueuedMedia();
     input.signal?.throwIfAborted();
     const ownership = LocalQueuedInputMediaOwnershipSchema.parse({
@@ -166,20 +192,20 @@ export class LocalChatMediaStore implements LocalTurnMediaPort, LocalQueuedInput
       throw new LocalChatMediaError("invalid_image", "Image references exceed their supported limits");
     }
     await this.resources.assertQueuedAccepted(ownership);
-    const images: LocalDecodedChatImage[] = [];
-    for (const reference of ownership.references) {
-      input.signal?.throwIfAborted();
-      const saved = await this.files.read(ownership.scope, reference.attachmentId);
-      if (saved.record.version !== 2 || saved.record.fingerprint !== ownership.fingerprint ||
-          !isDeepStrictEqual(saved.record.images.map((image) => image.reference), ownership.references) ||
-          !isDeepStrictEqual(saved.image.reference, reference) || sniffImageMediaType(saved.bytes) !== reference.mediaType) {
-        throw new LocalChatMediaError("unavailable", "Stored queued image metadata could not be verified");
-      }
-      images.push({ bytes: saved.bytes, mediaType: reference.mediaType, name: reference.name, sha256: saved.image.sha256 });
-    }
-    await this.resources.assertQueuedAccepted(ownership);
     input.signal?.throwIfAborted();
-    return { images, ownership };
+    return ownership;
+  }
+
+  private async readQueuedImage(ownership: LocalQueuedInputMediaOwnership, reference: ChatImageAttachmentRef, signal?: AbortSignal) {
+    signal?.throwIfAborted();
+    const saved = await this.files.read(ownership.scope, reference.attachmentId);
+    signal?.throwIfAborted();
+    if (saved.record.version !== 2 || saved.record.fingerprint !== ownership.fingerprint ||
+        !isDeepStrictEqual(saved.record.images.map((image) => image.reference), ownership.references) ||
+        !isDeepStrictEqual(saved.image.reference, reference) || sniffImageMediaType(saved.bytes) !== reference.mediaType) {
+      throw new LocalChatMediaError("unavailable", "Stored queued image metadata could not be verified");
+    }
+    return saved;
   }
 
   private requireQueuedMedia(): void {

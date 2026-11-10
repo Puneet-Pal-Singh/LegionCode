@@ -5,8 +5,8 @@ import {
   APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES, appServerJsonByteLength,
   ChatImageAttachmentRefSchema, ItemIdSchema, LifecycleEventSchema,
   PlatformEventSchema, ThreadInputQueueItemSchema, ThreadInputQueueSnapshotSchema,
-  ThreadInputReceiptSchema, TurnAdmissionSchema,
-  type LifecycleEvent, type PlatformEvent, type TurnAdmission,
+  ThreadInputReceiptSchema, TurnAdmissionSchema, TurnIdSchema,
+  type LifecycleEvent, type PlatformEvent, type TurnAdmission, type TurnId,
 } from "@repo/platform-protocol";
 import { LocalPersistenceError } from "../errors.js";
 import { readLocalOwnedThread } from "../local-thread-ownership.js";
@@ -36,6 +36,7 @@ type State = { thread_id: string; user_id: string; workspace_id: string; revisio
 export type LocalQueuedInputStart = ThreadInputScope & {
   readonly itemId: string; readonly expectedVersion: number; readonly expectedRevision: number;
   readonly explicitStart: boolean; readonly candidate: TurnAdmission;
+  readonly expectedPredecessorTurnId: TurnId | null;
 };
 
 /** One adapter on LocalPersistence's existing connection. All command, receipt,
@@ -49,8 +50,14 @@ export class LocalThreadInputRepository implements ThreadInputRepository {
     const tables = this.database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('local_thread_inputs','local_thread_input_state')").all();
     if (marker ? marker.value !== "1" || tables.length !== 2 : tables.length !== 0) throw corrupt("Local input schema is incomplete");
     if (!marker) {
-      const history = this.database.prepare("SELECT 1 FROM events WHERE family='lifecycle' AND json_extract(event_json,'$.type') IN ('turn.input.accepted','turn.input.applied') LIMIT 1").get();
-      if (history) throw corrupt("Canonical local input history has no durable inbox");
+      const history = this.database.prepare("SELECT event_json FROM events WHERE family='lifecycle' AND json_extract(event_json,'$.type') IN ('turn.input.accepted','turn.input.applied')")
+        .iterate() as Iterable<{ event_json: string }>;
+      for (const row of history) {
+        const event = LifecycleEventSchema.parse(JSON.parse(row.event_json));
+        const admission = this.admissions.getByTurn(event.turnId);
+        if (!admission) throw corrupt("Input history has no canonical admission");
+        if (!isDelegated(admission)) throw corrupt("Canonical Native input history has no durable inbox");
+      }
       this.database.transaction(() => {
         this.database.exec(`CREATE TABLE local_thread_input_state (
           thread_id TEXT PRIMARY KEY NOT NULL,user_id TEXT NOT NULL,workspace_id TEXT NOT NULL,
@@ -202,10 +209,16 @@ export class LocalThreadInputRepository implements ThreadInputRepository {
       }
       if (state.revision !== input.expectedRevision) throw new ThreadInputConflictError("Queue revision changed", "queue_revision_conflict");
       if (item.state !== "pending" || item.delivery !== "queue" || item.version !== input.expectedVersion) throw new ThreadInputConflictError("Queue item changed", "queue_item_changed");
+      const expectedPredecessorTurnId = TurnIdSchema.nullable().parse(input.expectedPredecessorTurnId);
+      const latestCanonical = this.admissions.listByThread({ threadId: input.threadId, latest: true, limit: 1, afterCursor: null });
+      if ((latestCanonical.admissions.at(-1)?.turn.id ?? null) !== expectedPredecessorTurnId)
+        throw new ThreadInputConflictError("Thread predecessor changed before queued admission", "queue_revision_conflict");
       const latest = this.latest(input);
       if (latest && !latest.terminal) throw new ThreadInputConflictError("Thread is not idle", "thread_not_idle");
       if (!input.explicitStart && (state.paused || latest?.terminal?.type !== "turn.completed")) throw new ThreadInputConflictError("Queue is paused or has no completed predecessor", "queue_paused");
       const candidate = TurnAdmissionSchema.parse(input.candidate);
+      if (candidate.userMessage.type !== "user_message" || isDelegated(candidate))
+        throw new ThreadInputConflictError("Native queue cannot admit a delegated or non-user candidate", "thread_scope_conflict");
       const images = ChatImageAttachmentRefSchema.array().parse(candidate.userMessage.content.images ?? []);
       if (candidate.clientRequestId !== `thread-input:${item.itemId}` || candidate.run.userId !== input.userId ||
           candidate.run.workspaceId !== input.workspaceId || candidate.run.threadId !== input.threadId ||
@@ -434,5 +447,5 @@ function corrupt(message: string): LocalPersistenceError { return new LocalPersi
 
 function isDelegated(admission: TurnAdmission): boolean {
   return ("harnessSelection" in admission.run && admission.run.harnessSelection !== undefined) ||
-    admission.userMessage.content.harnessSelection !== undefined;
+    (admission.userMessage.type === "user_message" && admission.userMessage.content.harnessSelection !== undefined);
 }
