@@ -54,7 +54,25 @@ export class LocalThreadService {
           assertCurrent: () => this.assertWorkspaceCurrent(workspace),
         }),
       ),
+      serializeRecoveryMutation: (threadId, workspaceId, mutation) => this.enqueueMetadataMutation(
+        threadId, Promise.resolve(), () => mutation({
+          readThread: async () => {
+            const thread = await this.projectThread(threadId, workspaceId);
+            if (thread.userId !== LOCAL_USER_ID) throw new LocalThreadNotFoundError();
+            return thread;
+          },
+        }),
+      ),
     });
+  }
+
+  /** Explicit startup metadata recovery; no filesystem grant or inference is acquired. */
+  async recoverGeneratedTitleMetadata(readFirst: (threadId: ThreadId) => Promise<TurnAdmission | null>): Promise<void> {
+    const threads = await this.listProjectMetadata();
+    for (const thread of threads) {
+      if (thread.titleSource === "preview" && thread.titleStatus === "pending")
+        await this.generatedTitles.recover(thread, () => readFirst(thread.id));
+    }
   }
 
   async list(): Promise<Thread[]> {
@@ -261,13 +279,22 @@ export class LocalThreadService {
     threadId: ThreadId,
     mutation: (workspace: LocalWorkspaceGrant) => Promise<T>,
   ): Promise<T> {
-    const previous = this.metadataMutations.get(threadId) ?? Promise.resolve();
     // Capture at enqueue time: waiting actions must not adopt a replacement grant.
-    const result = Promise.allSettled([previous, this.requireWorkspace()] as const).then(async ([, grant]) => {
-      if (grant.status === "rejected") throw grant.reason;
-      const workspace = grant.value;
+    return this.enqueueMetadataMutation(threadId, this.requireWorkspace(), async (workspace) => {
       await this.assertWorkspaceCurrent(workspace);
       return mutation(workspace);
+    });
+  }
+
+  private enqueueMetadataMutation<T, TScope>(
+    threadId: ThreadId,
+    scope: Promise<TScope>,
+    mutation: (scope: TScope) => Promise<T>,
+  ): Promise<T> {
+    const previous = this.metadataMutations.get(threadId) ?? Promise.resolve();
+    const result = Promise.allSettled([previous, scope] as const).then(async ([, authorized]) => {
+      if (authorized.status === "rejected") throw authorized.reason;
+      return mutation(authorized.value);
     });
     // A failed action must not poison the next action or leave a rejected cleanup promise.
     const settled = result.then(() => undefined, () => undefined);

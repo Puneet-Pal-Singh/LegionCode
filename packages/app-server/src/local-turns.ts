@@ -38,6 +38,8 @@ import type { LocalTurnMediaPort, LocalTurnPreparedMedia } from "./local-turn-me
 import { localTurnImageReferences } from "./local-turn-images.js";
 import { captureLocalTurnModel } from "./local-turn-model.js";
 import { LocalTurnResources, type LocalTurnPreparation } from "./local-turn-resources.js";
+import { LocalThreadTitleGeneration } from "./local-thread-title-generation.js";
+import type { ThreadTitleGenerator } from "./thread-titles/index.js";
 import {
   LocalInterruptionService,
   LocalInterruptionAttemptNotActiveError,
@@ -74,6 +76,8 @@ export type LocalTurnServiceOptions = {
       media?: { preparation: LocalTurnPreparedMedia; imageCount: number };
     }): Promise<TurnAdmission>;
     createExecutor(binding: LocalWorkspaceExecutionBinding, admission: TurnAdmission, model: BYOKDiscoveredProviderModel): LocalTurnExecutor;
+    /** Private auxiliary inference; the canonical first admission fixes its model. */
+    createTitleGenerator?(admission: TurnAdmission, model: BYOKDiscoveredProviderModel): ThreadTitleGenerator;
   };
 };
 
@@ -83,6 +87,8 @@ export class LocalTurnService {
   private readonly resources: LocalTurnResources;
   private readonly approvals: LocalApprovalService;
   private readonly interruption: LocalInterruptionService;
+  private readonly titles: LocalThreadTitleGeneration;
+  private shutdownPromise?: Promise<void>;
 
   constructor(private readonly options: LocalTurnServiceOptions) {
     this.approvals = new LocalApprovalService({
@@ -116,11 +122,30 @@ export class LocalTurnService {
         });
       },
     });
+    this.titles = new LocalThreadTitleGeneration({
+      threads: options.threads,
+      admissions: options.persistence.turnAdmissions,
+      getWorkspace: options.workspaces.getAuthorizedCurrent.bind(options.workspaces),
+      createGenerator: options.runtime?.createTitleGenerator?.bind(options.runtime),
+    });
   }
 
-  get hasActiveExecutions(): boolean { return this.resources.hasActiveExecutions; }
+  get hasActiveExecutions(): boolean { return this.resources.hasActiveExecutions || this.titles.hasActiveWork; }
 
-  shutdown(): Promise<void> { return this.resources.shutdown(); }
+  initializeTitles(): Promise<void> { return this.titles.initialize(); }
+
+  shutdown(): Promise<void> {
+    if (this.shutdownPromise) return this.shutdownPromise;
+    this.titles.stop();
+    const runtimeShutdown = this.resources.shutdown();
+    this.shutdownPromise = Promise.allSettled([runtimeShutdown]).then(async ([runtime]) => {
+      // Preparation joins confirmAdmission, including pending claim and job registration.
+      // Only then is the set of title jobs closed to new admissions.
+      await this.titles.drain();
+      if (runtime?.status === "rejected") throw runtime.reason;
+    });
+    return this.shutdownPromise;
+  }
 
   getConfigurationOptions(): LocalTurnConfigurationOptions {
     return LocalTurnConfigurationOptionsSchema.parse(this.options.runtime?.configurationOptions);
@@ -166,6 +191,7 @@ export class LocalTurnService {
         "server_unavailable",
         "Local turn execution is not configured",
       );
+    await this.initializeTitles();
     const configuration = LocalTurnConfigurationSchema.parse({
       mode: params.mode,
       productMode: params.productMode,
@@ -237,7 +263,7 @@ export class LocalTurnService {
       const { admission, newlyAdmitted } =
         await this.options.persistence.turnAdmissions.admit(candidate);
       if (newlyAdmitted) this.resources.ownExecution(preparation, admission, executor);
-      return await this.confirmAdmission(admission);
+      return await this.confirmAdmission(admission, newlyAdmitted ? model : undefined);
     } catch (error) {
       // Another identical request can commit while this request prepares its
       // binding/provider or loses the repository's stricter fingerprint race.
@@ -314,7 +340,7 @@ export class LocalTurnService {
     return false;
   }
 
-  private async confirmAdmission(admission: TurnAdmission): Promise<TurnAdmission> {
+  private async confirmAdmission(admission: TurnAdmission, model?: BYOKDiscoveredProviderModel): Promise<TurnAdmission> {
     try {
       await this.options.threads.previewFirstAdmission(admission, async () => {
         const page = await this.options.persistence.turnAdmissions.listByThread({
@@ -322,6 +348,7 @@ export class LocalTurnService {
         });
         return page.admissions[0] ?? null;
       });
+      if (model) await this.titles.prepareFirstAdmission(admission, model);
     } catch {
       // Canonical admission/execution has already succeeded. Metadata failure
       // cannot turn that receipt into an unconfirmed prompt or run failure.
