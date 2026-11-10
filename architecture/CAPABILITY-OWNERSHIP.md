@@ -992,9 +992,13 @@ method contract remain the canonical Git owners and consumers.
 - `NativeProviderContextMessages.test.ts` verifies image-safe estimates and
   summaries, protocol bounds, retained instructions, and paired tool progress.
 - `ChatMediaStore.test.ts` covers scoped media identity and validation.
-- Brain `ChatImageSettings` and `ChatImageNormalizer` own full decoding and
-  provider normalization. They validate dimensions before decoding, serialize
-  upload decoding, free WASM allocations, and preserve original R2 bytes.
+- `packages/chat-media` owns shared data-URL/MIME/signature validation, image
+  settings, full decoding, and provider normalization using the same Photon
+  codec on Node and Workers. Brain adapters preserve domain errors and keep
+  authenticated R2 storage/reference issuance; they serialize upload decoding
+  and preserve original bytes. The core validates dimensions before decoding
+  and frees WASM allocations. Desktop persistence/rehydration remains a separate
+  adapter integration; this extraction does not claim that wiring is complete.
   PNG, JPEG, WebP, and GIF fixtures prove decoding; corrupt files, pixel bombs,
   resizing, and encoded-size limits have focused regression coverage.
 - Model discovery owns trusted image capability metadata. Chat admission and
@@ -1494,3 +1498,25 @@ its private 32 KiB literal so valid 24,000-code-unit text prompts fit their JSON
 envelope. Timeouts, response limits, prompt validation and uncertain-delivery
 semantics retain their existing owners. Image-specific opt-in capacity and local
 media composition are separate changes; this budget enables no execution mode.
+
+## Plan 057 — Local approval command adapter
+
+`LocalApprovalService` reauthorizes the recorded Thread through the current
+workspace grant and local actor, binds the approval to its recorded tool item and
+Run Attempt, and delegates to `RuntimeKernel.resolveApproval`. Canonical lifecycle
+replay supplies the winning decision and duplicate, conflict, restart and lost
+acknowledgement receipts. The adapter serializes commands only; it appends no
+approval events and owns no decision store. Actual LocalTurnService/App Server
+composition remains separate. The shared worker approval validator independently
+checks the approved tool input and canonical matcher before tool execution.
+
+## Plan 057 — Local Turn configuration contract foundation
+
+The canonical platform protocol reuses existing chat and product mode schemas for
+local Turn configuration, optional mode-specific permission choices and bounded
+attachment limits. The SDK exports these contracts; local start accepts optional
+mode/productMode fields and initialize may carry optional configuration options.
+This schema foundation does not select runtime behavior, project availability,
+validate actual composed ports or enable attachments, tools or mutations. The
+Turn service/runtime admission and handshake composition retain those obligations.
+Hosted request behavior and existing Git/provider contracts remain unchanged.
