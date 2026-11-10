@@ -43,7 +43,8 @@ export class LocalThreadGeneratedTitleMetadata {
     const captured = TurnAdmissionSchema.parse(admission);
     return this.options.serializeMetadataMutation(captured.turn.threadId, async (scope) => {
       const thread = await scope.readThread();
-      if (thread.status !== "active" || thread.titleSource !== "preview" ||
+      if (captured.run.workspaceId !== thread.workspaceId || captured.run.userId !== thread.userId ||
+          captured.run.threadId !== thread.id || thread.status !== "active" || thread.titleSource !== "preview" ||
           thread.titleStatus !== "ready" || thread.titleVersion !== 2) return null;
       const first = await this.readFirst(thread, readFirst);
       if (!first || first.turn.id !== captured.turn.id || first.run.id !== captured.run.id ||
