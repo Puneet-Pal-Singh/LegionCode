@@ -51,6 +51,11 @@ describe("AuthorizedRepositoryPicker", () => {
   });
 
   it("selects an authorized repository and branch before opening a workspace", async () => {
+    type Inventory = Awaited<ReturnType<typeof GitHubService.listRepositories>>;
+    let finishInventory: ((repos: Inventory) => void) | undefined;
+    vi.mocked(GitHubService.listRepositories).mockReturnValueOnce(
+      new Promise((resolve) => { finishInventory = resolve; }),
+    );
     const onRepoSelect = vi.fn(async () => undefined);
     const onPickerClose = vi.fn();
     const applicationRoot = document.createElement("div");
@@ -67,6 +72,14 @@ describe("AuthorizedRepositoryPicker", () => {
     opener.focus();
     const picker = render(<RepositoryPickerModal onRepoSelect={onRepoSelect} onClose={onPickerClose} />);
     expect(applicationRoot).toHaveAttribute("inert");
+    const pickerClose = screen.getByRole("button", { name: "Close repository picker" });
+    await waitFor(() => expect(pickerClose).toHaveFocus());
+    expect(screen.getByRole("textbox", { name: "Search repositories" })).toBeEnabled();
+    await act(async () => {
+      finishInventory?.([repository]);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    });
+    expect(pickerClose).toHaveFocus();
 
     const repoButton = await screen.findByRole("button", {
       name: /legioncode\/legioncode/i,
@@ -93,6 +106,29 @@ describe("AuthorizedRepositoryPicker", () => {
     expect(applicationRoot).not.toHaveAttribute("inert");
     expect(opener).toHaveFocus();
     applicationRoot.remove();
+
+    vi.mocked(GitHubService.listRepositories).mockRejectedValueOnce(new Error("Inventory unavailable"));
+    const retryPicker = render(<AuthorizedRepositoryPicker onRepoSelect={onRepoSelect} onClose={onPickerClose} />);
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    vi.mocked(GitHubService.listRepositories).mockReturnValueOnce(
+      new Promise((resolve) => { finishInventory = resolve; }),
+    );
+    fireEvent.click(retry);
+    const inventoryNewerDialog = document.createElement("div");
+    inventoryNewerDialog.setAttribute("role", "dialog");
+    const inventoryNewerButton = document.createElement("button");
+    inventoryNewerDialog.append(inventoryNewerButton);
+    document.body.append(inventoryNewerDialog);
+    inventoryNewerButton.focus();
+    await act(async () => {
+      finishInventory?.([repository]);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    });
+    expect(await screen.findByRole("button", { name: /legioncode\/legioncode/i })).toBeVisible();
+    expect(inventoryNewerButton).toHaveFocus();
+    retryPicker.unmount();
+    expect(inventoryNewerButton).toHaveFocus();
+    inventoryNewerDialog.remove();
 
     // The extracted presentation also consumes actual SDK configuration methods.
     // Keep the server's acknowledged revision separate from the unsaved draft.

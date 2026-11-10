@@ -2881,6 +2881,9 @@ The frame consumes the existing `useModalFocus` owner for keyboard, visible-targ
 focus and guarded restoration. `PickerModal` retains only portal/background-inert
 ownership; neither the overlay nor the editor adds another focus-restoration or
 late-load autofocus effect.
+The Web repository picker likewise leaves initial focus, trapping and restoration
+to the shared frame; successful inventory loads and retries update data without
+refocusing the search field or taking focus from a newer dialog.
 The Desktop saved-commit dialog also consumes that helper below `PickerModal`,
 retaining its mutation/receipt owner while removing its separate keyboard effect.
 GitHub inventory, branch authorization and account state remain with the existing
