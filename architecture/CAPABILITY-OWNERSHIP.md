@@ -2441,7 +2441,8 @@ Desktop hides passive submission-availability prose inside the shared composer
 while retaining canonical send guards, busy/Stop controls and actionable notices.
 
 The shared ComposerWorkspaceBar owns presentation and transient menu/focus state
-for project and execution-location controls above the composer. Desktop's actual
+for project and execution-location controls below the new-chat welcome composer;
+existing-chat composers do not mount this bar. Desktop's actual
 Main picker/token/grant flow remains its project selection owner; Web retains
 the existing authorized repository picker and AgentSetup ProjectChooser with
 draft handoff. The shared optional trigger wrapper preserves saved-project,
@@ -2456,6 +2457,16 @@ until the canonical authenticated configuration/preparation ports are wired.
 No environment catalogue, preparation receipt, ready binding, script or secret
 setting is synthesized by either client. Versioned preparation belongs to the
 existing workspace/bootstrap owners; active admission keeps its frozen binding.
+
+DesktopWorkspaceReview consumes the actual workspace-git-reads-v1 SDK status/diff
+queries under the ready physical grant, including when no Thread is selected.
+The shared review scope selector defaults to saved Turn changes; live Git changes
+are explicit observations, with staged and unstaged patches shown separately.
+Client, grant generation, readiness and path fence asynchronous deliveries. Reads
+run serially only while the live review is visible. Saved artifact actions select
+the exact immutable Turn scope, and saved commit controls are absent in live mode.
+The existing saved-review reader and selected-artifact commit remain their sole
+owners; a live query never fills a missing or failed immutable diff.
 
 The canonical executable tool publishes its existing absolute-path restriction
 as a provider-visible JSON Schema pattern and description. All Native provider
