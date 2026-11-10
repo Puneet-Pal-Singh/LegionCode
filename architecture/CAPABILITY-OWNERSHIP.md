@@ -2278,3 +2278,17 @@ This package has no active local constructor, driver registration or public-rout
 consumer yet. Its client facade exports protocol types only; Node SDK and process
 services stay behind the server export. Final driver/constructor wiring is the
 activation boundary, and no Native provider fallback is introduced.
+
+## Plans 048 / 061 — Private Codex RPC driver foundation
+
+The private harness-codex server adapter translates the pinned Codex app-server
+stdio protocol into worker observations and native request replies. The complete
+generated protocol, runtime manifest and generator remain one pinned unit; its
+SandboxPolicy union describes vendor request bytes and owns no canonical policy.
+RuntimeKernel retains lifecycle/approval truth, while harness-core owns journal
+ordering, scoped host processes and durable request-delivery boundaries.
+
+The package is not registered by an active product constructor here. Binary/schema
+pins are not OS confinement or installed-feature acceptance; both remain explicitly
+unaccepted in the runtime manifest. Whole-scope quiescence requires actual injected
+proof, and missing evidence stays unknown. Native provider execution is unchanged.
