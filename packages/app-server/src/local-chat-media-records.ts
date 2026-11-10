@@ -5,6 +5,7 @@ import {
   RunIdSchema, TurnIdSchema, RunAttemptIdSchema,
 } from "@repo/platform-protocol";
 import type { LocalTurnMediaScope } from "./local-turn-media.js";
+import { LocalQueuedInputMediaScopeSchema, type LocalQueuedInputMediaScope } from "./local-queued-input-media.js";
 import { CHAT_MEDIA_MAX_IMAGE_BYTES } from "@repo/chat-media/validation";
 
 export const LOCAL_CHAT_MEDIA_LIMITS = Object.freeze({
@@ -16,12 +17,18 @@ export const LocalChatMediaScopeSchema = z.object({
   runId: RunIdSchema, turnId: TurnIdSchema, runAttemptId: RunAttemptIdSchema,
 }).strict();
 const DigestSchema = z.string().regex(/^[a-f0-9]{64}$/u);
-export const LocalChatMediaRecordSchema = z.object({
+const LocalTurnChatMediaRecordSchema = z.object({
   version: z.literal(1),
   scope: LocalChatMediaScopeSchema,
   fingerprint: DigestSchema,
   images: z.array(z.object({ reference: ChatImageAttachmentRefSchema, sha256: DigestSchema }).strict()).min(1).max(LOCAL_CHAT_MEDIA_LIMITS.maxImages),
 }).strict();
+export const LocalChatMediaStoredScopeSchema = z.union([LocalChatMediaScopeSchema, LocalQueuedInputMediaScopeSchema]);
+export type LocalChatMediaStoredScope = LocalTurnMediaScope | LocalQueuedInputMediaScope;
+export const LocalChatMediaRecordSchema = z.discriminatedUnion("version", [
+  LocalTurnChatMediaRecordSchema,
+  LocalTurnChatMediaRecordSchema.extend({ version: z.literal(2), scope: LocalQueuedInputMediaScopeSchema }).strict(),
+]);
 export type LocalChatMediaRecord = z.infer<typeof LocalChatMediaRecordSchema>;
 export interface LocalDecodedChatImage {
   readonly bytes: Uint8Array;
@@ -37,19 +44,19 @@ export class LocalChatMediaError extends Error {
 }
 export const mediaDigest = (bytes: string | Uint8Array): string =>
   createHash("sha256").update(bytes).digest("hex");
-export const mediaScopeKey = (input: LocalTurnMediaScope): string =>
-  mediaDigest(JSON.stringify(LocalChatMediaScopeSchema.parse(input)));
+export const mediaScopeKey = (input: LocalChatMediaStoredScope): string =>
+  mediaDigest(JSON.stringify(LocalChatMediaStoredScopeSchema.parse(input)));
 
 export function mediaFingerprint(images: readonly LocalDecodedChatImage[]): string {
   return mediaDigest(JSON.stringify(images.map((image) => ({
     name: image.name, mediaType: image.mediaType, byteSize: image.bytes.byteLength, sha256: image.sha256,
   }))));
 }
-export function createMediaRecord(scope: LocalTurnMediaScope, images: readonly LocalDecodedChatImage[]): LocalChatMediaRecord {
-  const verifiedScope = LocalChatMediaScopeSchema.parse(scope);
+export function createMediaRecord(scope: LocalChatMediaStoredScope, images: readonly LocalDecodedChatImage[]): LocalChatMediaRecord {
+  const verifiedScope = LocalChatMediaStoredScopeSchema.parse(scope);
   const fingerprint = mediaFingerprint(images);
   return LocalChatMediaRecordSchema.parse({
-    version: 1, scope: verifiedScope, fingerprint,
+    version: "inputId" in verifiedScope ? 2 : 1, scope: verifiedScope, fingerprint,
     images: images.map((image, index) => ({
       reference: {
         type: "image_attachment",
@@ -60,9 +67,9 @@ export function createMediaRecord(scope: LocalTurnMediaScope, images: readonly L
     })),
   });
 }
-export function verifyMediaRecord(input: unknown, scope: LocalTurnMediaScope): LocalChatMediaRecord {
+export function verifyMediaRecord(input: unknown, scope: LocalChatMediaStoredScope): LocalChatMediaRecord {
   const record = LocalChatMediaRecordSchema.parse(input);
-  const expectedScope = LocalChatMediaScopeSchema.parse(scope);
+  const expectedScope = LocalChatMediaStoredScopeSchema.parse(scope);
   const fingerprint = mediaDigest(JSON.stringify(record.images.map(({ reference, sha256 }) => ({
     name: reference.name, mediaType: reference.mediaType, byteSize: reference.byteSize, sha256,
   }))));
@@ -73,6 +80,6 @@ export function verifyMediaRecord(input: unknown, scope: LocalTurnMediaScope): L
   }
   return record;
 }
-function attachmentId(scope: LocalTurnMediaScope, fingerprint: string, index: number): string {
+function attachmentId(scope: LocalChatMediaStoredScope, fingerprint: string, index: number): string {
   return createHash("sha256").update(JSON.stringify([scope, fingerprint, index])).digest("base64url");
 }
