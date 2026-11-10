@@ -2249,7 +2249,9 @@ execution or its preparation-failure fallback. Existing Native provider, guarded
 worker, restoration and artifact responsibilities remain on their current path.
 
 Delegated observation ingestion validates worker scope and commits through the
-existing lifecycle writer before its durable ACK. Recovery restores the same
+existing lifecycle writer before its durable ACK. That transition owner rejects
+reused item, tool-call and approval identities before append, including already
+settled identities, so acknowledged history remains restorable. Recovery restores the same
 attempt and committed start snapshot; uncertain physical quiescence retains
 workspace ownership and cannot certify an immutable resume artifact. Canonical
 question/deadline handling and secret-safe public errors share the existing
