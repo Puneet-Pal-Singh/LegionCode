@@ -1746,8 +1746,9 @@ approval and interruption to their existing adapters. A matching saved request
 returns its original admission without resolving a new provider or creating an
 executor. Runtime constructs records; the existing repository owns atomic admission
 and RuntimeKernel owns lifecycle events. Immutable admitted configuration selects
-Plan's read-only ports or Build's actually supplied captured ports; Build requires
-Supervised permissions. The same provider and registry remain execution owners.
+Plan's read-only ports or Build's actually supplied captured ports. Build exposes
+all four existing permission modes through the same validated per-attempt policy;
+the same provider and registry remain execution owners.
 The runtime image helper persists references through the original-byte media port
 before admission and hydrates verified originals only for provider delivery.
 History reads use the canonical bounded repository and reauthorize before return.
@@ -1801,8 +1802,11 @@ Captured execution receives one immutable per-attempt registry authorization
 instance from the Native factory. The Engine forwards that same object to the
 captured worker factory and requires the identical object in its kernel ports;
 validated permission policy resolution is cached once for that admitted profile.
-File auto-authorization depends on the separately reviewed worker consumer. This
-port does not itself enable permission modes, tools or broader host authority.
+The canonical guarded file worker validates write/edit authorization through that
+same instance, including before commit. Supervised file edits require approval;
+the other existing policies may authorize those edits directly. Run_executable
+continues to require explicit exact-command approval in every mode. The actual
+captured ports, writer fence, tool allowlist and no-fork constraints remain required.
 
 After exact saved-receipt reconciliation, atomic admission conflicts return typed
 non-retryable 409 `local_admission_conflict`. Stale parents or unsettled/changed
