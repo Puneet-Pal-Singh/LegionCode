@@ -35,7 +35,7 @@ export interface ThreadInputCommandPorts {
   assertSteeringTarget(scope: ThreadInputScope, target: ThreadInputTarget, hasImages: boolean): Promise<void | Extract<ThreadInputReceipt, { status: "conflict" }>>;
   /** Only an explicit known pre-acceptance conflict returns a conflict receipt.
    * A throw can follow durable acceptance and must remain unknown. */
-  deliverSteer(scope: ThreadInputScope, item: StoredThreadInput): Promise<
+  deliverSteer(scope: ThreadInputScope, item: StoredThreadInput, operation: "turn.steer" | "thread.input.steer"): Promise<
     { readonly acceptedSequence: number } | Extract<ThreadInputReceipt, { status: "conflict" }>
   >;
   /** Placement MUST positively settle predecessor resources under its held
