@@ -21,8 +21,6 @@ export interface LocalWorkspaceWriterAuthority extends LocalMutationLease {
   readonly filesystemRoot: string;
   /** Final capture/publication only; never substitutes for active tool authority. */
   readonly settlementSignal: AbortSignal;
-  /** Current identities of this exact held root, namespace and writer file. */
-  readPhysicalIdentity(): Promise<LocalWorkspaceWriterReleaseReceipt>;
   trackProcess(execution: SingleProcessMacExecution): void;
   trackFilesystem(execution: NativeFilesystemExecution): void;
   /** Required when construction may have spawned a child without returning its execution. */
@@ -52,6 +50,7 @@ export interface LocalWorkspaceWriterLease extends LocalWorkspaceWriterAuthority
 
 export interface LocalWorkspaceWriterReleaseReceipt {
   readonly root: LocalNativeFileIdentity;
+  readonly gitMetadataIdentity: string;
   readonly writerFence: LocalNativeReleasedFence;
 }
 
@@ -265,10 +264,6 @@ export class LocalWorkspaceWriterLeaseOwner {
       filesystemRoot: entry.binding.filesystemRoot,
       signal: AbortSignal.any([entry.binding.signal, entry.active.signal]),
       settlementSignal: entry.retained.signal,
-      readPhysicalIdentity: async () => {
-        await this.assertEntry(entry, false);
-        return physicalIdentity(entry);
-      },
       assertCurrent: () => this.assertEntry(entry, false),
       assertSettlementCurrent: () => this.assertEntry(entry, true),
       trackProcess: (execution: SingleProcessMacExecution) =>
@@ -530,6 +525,7 @@ function physicalIdentity(entry: Entry): LocalWorkspaceWriterReleaseReceipt {
   });
   return Object.freeze({
     root: identity(entry.rootIdentity),
+    gitMetadataIdentity: entry.binding.metadataIdentity,
     writerFence: Object.freeze({ namespace: identity(entry.namespaceIdentity), lease: identity(entry.fileIdentity) }),
   });
 }

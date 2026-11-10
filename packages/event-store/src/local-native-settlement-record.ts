@@ -31,7 +31,9 @@ export const LocalNativeResourceSettlementSchema = z.object({
   formatVersion: z.literal(1),
   scope: LocalTurnArtifactScopeSchema,
   admissionSha256: digest,
-  terminal: z.object({ eventId: EventIdSchema, sequence: EventSequenceSchema, sha256: digest }).strict(),
+  terminal: z.object({ eventId: EventIdSchema, sequence: EventSequenceSchema, sha256: digest,
+    status: z.enum(["completed", "failed", "interrupted"]),
+  }).strict(),
   artifactCapture: z.enum(["required", "omitted_read_only"]),
   artifacts: z.array(artifactReference).max(3)
     .refine((references) => new Set(references.map((reference) => reference.role)).size === references.length),

@@ -2,15 +2,17 @@ import type { LifecycleEventStore } from "@repo/event-store";
 import { LifecycleEventSchema, TurnDiffPayloadSchema, type LifecycleEvent, type TurnAdmission, type TurnDiffPayload } from "@repo/platform-protocol";
 import { AppServerOperationError } from "./server.js";
 
+type TerminalEvent = Extract<LifecycleEvent, { type: "turn.completed" | "turn.failed" | "turn.interrupted" }>;
+
 /** Canonical Native publication facts shared by saved review and resource receipts.
  * This read grants no execution, lease or resource-release authority. */
 export async function readLocalTurnArtifactPublication(
   lifecycleEvents: LifecycleEventStore,
   admission: TurnAdmission,
-): Promise<{ readonly terminal: LifecycleEvent | null; readonly diff: TurnDiffPayload | null }> {
+): Promise<{ readonly terminal: TerminalEvent | null; readonly diff: TurnDiffPayload | null }> {
   let afterSequence: number | null = null;
   let sequence = 0;
-  let terminal: LifecycleEvent | null = null;
+  let terminal: TerminalEvent | null = null;
   let diff: TurnDiffPayload | null = null;
   const starts = ["turn.queued", "turn.started", "run_attempt.started"];
   do {
