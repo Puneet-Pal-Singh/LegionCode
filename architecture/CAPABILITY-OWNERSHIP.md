@@ -44,6 +44,16 @@ Trusted Mac Git discovery resolves the explicitly selected developer tools to
 their canonical executable without launching a shell or xcrun. Discovery does
 not prove process containment; the same guardian and readiness gate still do.
 
+Local project retention belongs to `LocalPersistence.workspaceGrants`: versioned,
+path-free project metadata shares the existing SQLite metadata table and writer.
+Explicit, physically validated grants transactionally retain the private native
+Git metadata identity and descriptor while replacing only the singleton physical
+grant. Regrant uses that retained identity to preserve the logical Workspace ID
+across project switches. Restoring the current valid grant seeds its association
+only after the existing root/metadata verification. Historical canonical local
+Thread workspace IDs with no retained association remain `unlinked`; no folder,
+remote, name, or Thread history is used to guess their native association.
+
 `engine/KernelAgenticProvider` is the shared provider stepping/transcript/recovery
 owner used by both `RuntimeKernelNativeRunner` and `createLocalNativeProviderPorts`.
 The local factory reuses native context assembly/compaction and connects the same

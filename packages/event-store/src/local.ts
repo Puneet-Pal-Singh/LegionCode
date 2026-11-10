@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { LocalWorkspaceProjectRecords } from "./local-workspace-projects.js";
 import { LocalProviderPreferencesRecords } from "./local-provider-preferences.js";
 import { LocalTurnAdmissions } from "./local-turn-admissions.js";
 import type { TurnAdmission } from "@repo/platform-protocol/conversation";
@@ -16,6 +17,7 @@ import {
   type EventId,
   type PlatformEvent,
   type LocalWorkspaceGrant,
+  type LocalWorkspaceProject,
   type ProviderId,
   type WorkspaceId,
 } from "@repo/platform-protocol";
@@ -123,6 +125,10 @@ export class LocalPersistence {
     read(): Promise<StoredLocalWorkspaceGrant | null>;
     write(value: StoredLocalWorkspaceGrant): Promise<void>;
     clear(): Promise<void>;
+    listProjects(): Promise<LocalWorkspaceProject[]>;
+    findKnownWorkspaceId(gitMetadataIdentity: string): Promise<WorkspaceId | null>;
+    rememberValidatedCurrent(value: Extract<StoredLocalWorkspaceGrant, { version: 2 }>): Promise<void>;
+    rememberUnlinked(workspaceIds: readonly WorkspaceId[]): Promise<void>;
   };
   readonly providerSelection: {
     read(): Promise<{ readonly providerId: ProviderId; readonly modelId: string } | null>;
@@ -194,6 +200,12 @@ export class LocalPersistence {
       read: async () => this.readWorkspaceGrant(),
       write: async (value) => this.writeWorkspaceGrant(value),
       clear: async () => this.clearWorkspaceGrant(),
+      listProjects: async () => this.guardStorage(() => new LocalWorkspaceProjectRecords(this.database).list()),
+      findKnownWorkspaceId: async (identity) => this.guardStorage(() => new LocalWorkspaceProjectRecords(this.database).findWorkspaceId(identity)),
+      rememberValidatedCurrent: async (value) => this.rememberValidatedCurrentWorkspace(value),
+      rememberUnlinked: async (workspaceIds) => this.guardStorage(() => this.database.transaction(() => {
+        new LocalWorkspaceProjectRecords(this.database).rememberUnlinked(workspaceIds);
+      }).immediate()),
     };
     this.providerSelection = {
       read: async () => this.readProviderSelection(),
@@ -564,8 +576,23 @@ export class LocalPersistence {
     try { parsed = parseStoredGrant(value); }
     catch { throw corruptStore("Workspace grant is invalid"); }
     this.guardStorage(() => this.database.transaction(() => {
+      if (parsed.version === 2 && parsed.grant.readiness === "ready") {
+        new LocalWorkspaceProjectRecords(this.database).rememberValidated(parsed.grant, parsed.gitMetadataIdentity);
+      }
       this.database.prepare(`INSERT INTO workspace_grant(id, value_json) VALUES (1, ?)
         ON CONFLICT(id) DO UPDATE SET value_json = excluded.value_json`).run(JSON.stringify(parsed));
+    }).immediate());
+  }
+
+  private rememberValidatedCurrentWorkspace(value: Extract<StoredLocalWorkspaceGrant, { version: 2 }>): void {
+    this.guardStorage(() => this.database.transaction(() => {
+      const current = this.readWorkspaceGrant();
+      if (current?.version !== 2 || current.grant.readiness !== "ready" ||
+          current.path !== value.path || current.gitMetadataIdentity !== value.gitMetadataIdentity ||
+          current.grant.workspaceId !== value.grant.workspaceId || current.grant.grantedAt !== value.grant.grantedAt) {
+        throw new Error("Workspace grant changed before project association was retained");
+      }
+      new LocalWorkspaceProjectRecords(this.database).rememberValidated(value.grant, value.gitMetadataIdentity);
     }).immediate());
   }
 
@@ -668,6 +695,7 @@ export class LocalPersistence {
       }
     }
     this.readWorkspaceGrant();
+    new LocalWorkspaceProjectRecords(this.database).list();
   }
 
   private validateProviderSelectionMetadata(): void {
