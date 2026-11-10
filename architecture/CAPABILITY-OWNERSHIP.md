@@ -2823,3 +2823,12 @@ metadata only: the runtime tool registry, approval policy and process helper ret
 execution authority. Hosted Web callers omit it and retain their existing summary.
 A future harness selector must scope this descriptor to the selected backend;
 it does not describe Codex subscription execution or ordinary shell support.
+
+## Plan 057 — Explicit shared summary visibility
+
+The shared workspace summary provider owns one transient open state, initially
+closed. Only the user's summary toggle opens the card. Measured space chooses
+inline rail or popup presentation while preserving that explicit visibility;
+window width and resize never open a closed card. Web and Desktop use the same
+provider and menu. This replaces automatic wide-window expansion without changing
+environment data, Git review or runtime ownership.

@@ -55,8 +55,7 @@ export function WorkspaceSummaryProvider({ children }: { children: ReactNode }) 
   }, []);
   const [inlineEligible, setEligible] = useState(false);
   const eligibleRef = useRef(false);
-  const [inlineHidden, setInlineHidden] = useState(false);
-  const [popupOpen, setPopupOpen] = useState(false);
+  const [open, setOpen] = useState(false);
   const [hasSummary, setHasSummary] = useState(false);
   const [inlineTarget, setTarget] = useState<HTMLDivElement | null>(null);
   const inlineRef = useRef<HTMLDivElement | null>(null);
@@ -81,19 +80,15 @@ export function WorkspaceSummaryProvider({ children }: { children: ReactNode }) 
         overlayRef.current?.contains(document.activeElement)) triggerRef.current?.focus();
     eligibleRef.current = eligible;
     setEligible(eligible);
-    setPopupOpen(false);
   }, []);
-  const dismissPopup = useCallback(() => setPopupOpen(false), []);
-  const toggle = useCallback(() => {
-    if (eligibleRef.current) setInlineHidden((hidden) => !hidden);
-    else setPopupOpen((open) => !open);
-  }, []);
+  const dismissPopup = useCallback(() => setOpen(false), []);
+  const toggle = useCallback(() => setOpen((current) => !current), []);
   const value = useMemo(() => ({
     headerInset,
     registerHeaderInset,
     inlineEligible,
-    inlineVisible: hasSummary && inlineEligible && !inlineHidden,
-    popupOpen,
+    inlineVisible: hasSummary && inlineEligible && open,
+    popupOpen: !inlineEligible && open,
     inlineTarget,
     overlayTarget,
     setInlineTarget,
@@ -103,7 +98,7 @@ export function WorkspaceSummaryProvider({ children }: { children: ReactNode }) 
     registerTrigger,
     toggle,
     dismissPopup,
-  }), [headerInset, registerHeaderInset, inlineEligible, hasSummary, inlineHidden, popupOpen, inlineTarget, overlayTarget,
+  }), [headerInset, registerHeaderInset, inlineEligible, hasSummary, open, inlineTarget, overlayTarget,
     setInlineTarget, setOverlayTarget, setInlineEligible, registerTrigger, toggle, dismissPopup]);
   return <SummaryLayoutContext.Provider value={value}>{children}</SummaryLayoutContext.Provider>;
 }
