@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CloudflareAIModelCatalogAdapter } from "./CloudflareAIModelCatalogAdapter";
-import { ProviderModelDiscoveryApiError } from "../errors";
+import { CloudflareAIModelCatalogAdapter } from "@repo/provider-core/discovery";
+import { ProviderModelDiscoveryApiError } from "@repo/provider-core/discovery";
 
 describe("CloudflareAIModelCatalogAdapter", () => {
   afterEach(() => {

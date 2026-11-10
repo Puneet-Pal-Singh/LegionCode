@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ProviderModelRankingService } from "./ProviderModelRankingService";
+import { ProviderModelRankingService } from "@repo/provider-core/discovery";
 
 describe("ProviderModelRankingService", () => {
   it("returns deterministic order for equal inputs", async () => {

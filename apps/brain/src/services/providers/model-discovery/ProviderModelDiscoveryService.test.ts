@@ -2,15 +2,15 @@ import { describe, expect, it, vi } from "vitest";
 import type {
   ProviderModelCacheRecord,
   ProviderModelCacheStore,
-} from "../stores/ProviderModelCacheStore";
-import type { ProviderCredentialService } from "../ProviderCredentialService";
+} from "@repo/provider-core/discovery";
+import type { ProviderModelCredentialPort } from "@repo/provider-core/discovery";
 import type {
   OpenRouterModelCatalogPort,
   ProviderModelCatalogPort,
-} from "./ProviderModelCatalogPort";
-import { ProviderModelDiscoveryService } from "./ProviderModelDiscoveryService";
-import { ProviderModelDiscoveryAuthError } from "./errors";
-import { parseModelDevCatalog } from "./ModelDevCatalog";
+} from "@repo/provider-core/discovery";
+import { ProviderModelDiscoveryService } from "@repo/provider-core/discovery";
+import { ProviderModelDiscoveryAuthError } from "@repo/provider-core/discovery";
+import { parseModelDevCatalog } from "@repo/provider-core/discovery";
 
 function createStoreStub() {
   const cacheByProvider = new Map<string, ProviderModelCacheRecord>();
@@ -43,9 +43,8 @@ describe("ProviderModelDiscoveryService", () => {
   it("fetches and caches openrouter models", async () => {
     const store = createStoreStub();
     const credentialService = {
-      getApiKey: vi.fn(async () => "sk-or-test"),
-      getConnectionConfig: vi.fn(async () => undefined),
-    } as unknown as ProviderCredentialService;
+      resolveCredential: vi.fn(async () => ({ apiKey: "sk-or-test" })),
+    } as unknown as ProviderModelCredentialPort;
     const adapter: ProviderModelCatalogPort = {
       fetchAll: vi.fn(async () => [
         { id: "openrouter/auto", name: "Auto", providerId: "openrouter" },
@@ -90,9 +89,8 @@ describe("ProviderModelDiscoveryService", () => {
       providerId: "openrouter",
     }));
     const credentialService = {
-      getApiKey: vi.fn(async () => "sk-or-test"),
-      getConnectionConfig: vi.fn(async () => undefined),
-    } as unknown as ProviderCredentialService;
+      resolveCredential: vi.fn(async () => ({ apiKey: "sk-or-test" })),
+    } as unknown as ProviderModelCredentialPort;
     const adapter: OpenRouterModelCatalogPort = {
       fetchAll: vi.fn(async () => fullCatalog),
       fetchPage: vi.fn(),
@@ -126,9 +124,8 @@ describe("ProviderModelDiscoveryService", () => {
   it("keeps OpenRouter catalog/category models in management inventory even when not enabled by the user", async () => {
     const store = createStoreStub();
     const credentialService = {
-      getApiKey: vi.fn(async () => "sk-or-test"),
-      getConnectionConfig: vi.fn(async () => undefined),
-    } as unknown as ProviderCredentialService;
+      resolveCredential: vi.fn(async () => ({ apiKey: "sk-or-test" })),
+    } as unknown as ProviderModelCredentialPort;
     const adapter: OpenRouterModelCatalogPort = {
       fetchAll: vi.fn(async () => [
         {
@@ -175,12 +172,11 @@ describe("ProviderModelDiscoveryService", () => {
     const store = createStoreStub();
     let accountId = "account_a";
     const credentialService = {
-      getApiKey: vi.fn(async () => "cf-token"),
-      getConnectionConfig: vi.fn(async () => ({
+      resolveCredential: vi.fn(async () => ({ apiKey: "cf-token", connectionConfig: {
         providerId: "cloudflare-workers-ai" as const,
         accountId,
-      })),
-    } as unknown as ProviderCredentialService;
+      } })),
+    } as unknown as ProviderModelCredentialPort;
     const adapter: ProviderModelCatalogPort = {
       fetchAll: vi.fn(async () => [
         {
@@ -220,13 +216,12 @@ describe("ProviderModelDiscoveryService", () => {
   it("discovers Cloudflare AI Gateway models from models.dev and routes them with current config", async () => {
     const store = createStoreStub();
     const credentialService = {
-      getApiKey: vi.fn(async () => "cf-token"),
-      getConnectionConfig: vi.fn(async () => ({
+      resolveCredential: vi.fn(async () => ({ apiKey: "cf-token", connectionConfig: {
         providerId: "cloudflare-ai-gateway" as const,
         accountId: "account_gateway",
         gatewayId: "my-gateway",
-      })),
-    } as unknown as ProviderCredentialService;
+      } })),
+    } as unknown as ProviderModelCredentialPort;
     const service = new ProviderModelDiscoveryService(
       store as unknown as ProviderModelCacheStore,
       credentialService,
@@ -276,9 +271,8 @@ describe("ProviderModelDiscoveryService", () => {
       source: "provider_api",
     });
     const credentialService = {
-      getApiKey: vi.fn(async () => "sk-or-test"),
-      getConnectionConfig: vi.fn(async () => undefined),
-    } as unknown as ProviderCredentialService;
+      resolveCredential: vi.fn(async () => ({ apiKey: "sk-or-test" })),
+    } as unknown as ProviderModelCredentialPort;
     const adapter: ProviderModelCatalogPort = {
       fetchAll: vi.fn(async () => {
         throw new Error("provider down");
@@ -313,9 +307,8 @@ describe("ProviderModelDiscoveryService", () => {
       source: "provider_api",
     });
     const credentialService = {
-      getApiKey: vi.fn(async () => "sk-or-test"),
-      getConnectionConfig: vi.fn(async () => undefined),
-    } as unknown as ProviderCredentialService;
+      resolveCredential: vi.fn(async () => ({ apiKey: "sk-or-test" })),
+    } as unknown as ProviderModelCredentialPort;
     const adapter: ProviderModelCatalogPort = {
       fetchAll: vi.fn(async () => []),
       fetchPage: vi.fn(),
@@ -351,9 +344,8 @@ describe("ProviderModelDiscoveryService", () => {
       source: "provider_api",
     });
     const credentialService = {
-      getApiKey: vi.fn(async () => "sk-test"),
-      getConnectionConfig: vi.fn(async () => undefined),
-    } as unknown as ProviderCredentialService;
+      resolveCredential: vi.fn(async () => ({ apiKey: "sk-test" })),
+    } as unknown as ProviderModelCredentialPort;
     const adapter: ProviderModelCatalogPort = {
       fetchAll: vi.fn(),
       fetchPage: vi.fn(),
@@ -409,9 +401,8 @@ describe("ProviderModelDiscoveryService", () => {
   it("applies launch-safe OpenRouter curation for popular model discovery", async () => {
     const store = createStoreStub();
     const credentialService = {
-      getApiKey: vi.fn(async () => "sk-or-test"),
-      getConnectionConfig: vi.fn(async () => undefined),
-    } as unknown as ProviderCredentialService;
+      resolveCredential: vi.fn(async () => ({ apiKey: "sk-or-test" })),
+    } as unknown as ProviderModelCredentialPort;
     const adapter = {
       fetchAll: vi.fn(async () => [
         {
@@ -519,11 +510,10 @@ describe("ProviderModelDiscoveryService", () => {
   it("maps credential decryption failures to discovery auth errors", async () => {
     const store = createStoreStub();
     const credentialService = {
-      getApiKey: vi.fn(async () => {
+      resolveCredential: vi.fn(async () => {
         throw new Error("Decryption failed");
       }),
-      getConnectionConfig: vi.fn(async () => undefined),
-    } as unknown as ProviderCredentialService;
+    } as unknown as ProviderModelCredentialPort;
     const adapter: ProviderModelCatalogPort = {
       fetchAll: vi.fn(async () => [
         { id: "openrouter/auto", name: "Auto", providerId: "openrouter" },
@@ -546,9 +536,8 @@ describe("ProviderModelDiscoveryService", () => {
   it("filters unavailable models from picker surfaces", async () => {
     const store = createStoreStub();
     const credentialService = {
-      getApiKey: vi.fn(async () => "oc-test"),
-      getConnectionConfig: vi.fn(async () => undefined),
-    } as unknown as ProviderCredentialService;
+      resolveCredential: vi.fn(async () => ({ apiKey: "oc-test" })),
+    } as unknown as ProviderModelCredentialPort;
     const adapter: ProviderModelCatalogPort = {
       fetchAll: vi.fn(async () => [
         {
@@ -594,9 +583,8 @@ describe("ProviderModelDiscoveryService", () => {
   it("merges newer route-valid OpenCode Zen catalog models into live inventory", async () => {
     const store = createStoreStub();
     const credentialService = {
-      getApiKey: vi.fn(async () => "oc-test"),
-      getConnectionConfig: vi.fn(async () => undefined),
-    } as unknown as ProviderCredentialService;
+      resolveCredential: vi.fn(async () => ({ apiKey: "oc-test" })),
+    } as unknown as ProviderModelCredentialPort;
     const adapter: ProviderModelCatalogPort = {
       fetchAll: vi.fn(async () => [
         {
@@ -656,9 +644,8 @@ describe("ProviderModelDiscoveryService", () => {
   it("enriches provider-omitted card metadata from the models.dev catalog", async () => {
     const store = createStoreStub();
     const credentialService = {
-      getApiKey: vi.fn(async () => "sk-test"),
-      getConnectionConfig: vi.fn(async () => undefined),
-    } as unknown as ProviderCredentialService;
+      resolveCredential: vi.fn(async () => ({ apiKey: "sk-test" })),
+    } as unknown as ProviderModelCredentialPort;
     const adapter: ProviderModelCatalogPort = {
       fetchAll: vi.fn(async () => [
         { id: "gpt-5", name: "GPT-5", providerId: "openai" },
@@ -749,9 +736,8 @@ describe("ProviderModelDiscoveryService", () => {
   it("serves un-enriched models when the models.dev catalog is unavailable", async () => {
     const store = createStoreStub();
     const credentialService = {
-      getApiKey: vi.fn(async () => "sk-test"),
-      getConnectionConfig: vi.fn(async () => undefined),
-    } as unknown as ProviderCredentialService;
+      resolveCredential: vi.fn(async () => ({ apiKey: "sk-test" })),
+    } as unknown as ProviderModelCredentialPort;
     const adapter: ProviderModelCatalogPort = {
       fetchAll: vi.fn(async () => [
         { id: "gpt-4o", name: "GPT-4o", providerId: "openai" },

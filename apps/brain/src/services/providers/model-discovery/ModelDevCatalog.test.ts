@@ -5,7 +5,7 @@ import {
   enrichModelFromModelDev,
   listRunnableModelDevModels,
   parseModelDevCatalog,
-} from "./ModelDevCatalog";
+} from "@repo/provider-core/discovery";
 
 const MODEL_DEV_FIXTURE = {
   openai: {

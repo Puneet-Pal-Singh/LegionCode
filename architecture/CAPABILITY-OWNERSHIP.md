@@ -1720,6 +1720,21 @@ the same held-root executor and closure checks. No command runner, ref parser,
 GitService interface migration, lifecycle writer or Desktop host authority is
 added. The native runtime consumes the fact in its separately owned composition.
 
+## Plan 057 — Shared provider route and server discovery ownership
+
+`provider-core` owns pure discovered-model route selection and the server-only
+`./discovery` entry for canonical catalog adapters, ranking, cache contracts and
+model.dev enrichment. Brain migrates its active consumers to those exports and
+keeps only hosted composition. Its credential vault delivers the selected key
+and connection configuration from one canonical credential record; hosted Axis
+models are explicitly injected by Brain. Local hosts can supply their own narrow
+credential, registry and cache ports without importing Brain, duplicating routing
+policy, reading hosted credentials or exposing hosted managed-provider access.
+Browser callers retain the pure root entry; server discovery is not re-exported
+through that browser surface. Existing discovery checks migrate their imports
+and required credential-port fixtures without adding test registrations. Native
+App Server catalog injection remains a separately owned consumer integration.
+
 ## Plan 057 — Policy-authorized captured file tools
 
 The Native composition supplies one per-attempt canonical ToolAuthorizationPort
