@@ -1470,6 +1470,28 @@ selection and canonical Git mutation. Handler injection, local composition,
 capability advertisement and UI activation are not implemented by this boundary.
 No live-Git selector, fallback commit path or second artifact owner is introduced.
 
+## Plan 057 — Read-only local Git service construction
+
+`createLocalReadOnlyGitService` exposes only `probeRepository` and `getStatus`
+from `DefaultGitService` through the existing canonical Node Git executor and
+verified Mac transport. Every command uses read-only probe policy; private-index
+requests are rejected. The original host lender retains root lifetime and
+quarantine responsibility, with an optional turn signal combined inside its loan.
+This private builder/export creates no runner, pin, lease or mutation capability.
+Actual native runtime consumer composition remains separate integration work.
+
+## Plan 057 — Local interruption command adapter
+
+`LocalInterruptionService` validates the requested workspace, Thread, Run, Turn
+and Run Attempt against durable admission, then delegates active Stop to the
+existing executor. Canonical lifecycle replay alone supplies a terminal receipt;
+delivery acknowledgement without terminal evidence reports only
+`interrupt_requested`. Replay validates the exact scope through the final page
+and rejects events after a terminal. The caller retains current Thread/grant
+authorization. RuntimeKernel remains the only terminal producer; this adapter
+adds no polling, state store or resource-release proof. LocalTurnService and App
+Server composition remain separate integration work.
+
 ## Local original image bytes and resource disposition
 
 `LocalChatMediaStore` owns private original image bytes through the shared
@@ -1511,6 +1533,23 @@ Thread principal. Foreign stored user/workspace/credential identities are reject
 Profile isolation remains the existing Desktop user-data SQLite owner. Runtime
 factory composition owns injecting this service with the same grant authority and
 SQLite instance. These source changes do not claim installed persistence proof.
+
+## Plan 057 — Canonical local request byte budgets
+
+The existing local HTTP reader enforces the protocol-exported 256 KiB request
+budget after authentication and before schema validation/dispatch. This replaces
+its private 32 KiB literal so valid 24,000-code-unit text prompts fit their JSON
+envelope. Timeouts, response limits, prompt validation and uncertain-delivery
+semantics retain their existing owners. The same protocol owner gives image-bearing
+`turn/start` envelopes a bounded opt-in budget: four images and at most 10 MiB
+decoded in aggregate, with base64 expansion plus the text envelope budget. The SDK
+sets the private opt-in only for authenticated loopback transport; the local HTTP
+reader authenticates before accepting that capacity, then requires the canonical
+start schema and an image-bearing method before dispatch. Other methods keep the
+text budget. The start contract reuses canonical image/text-presence validation
+and may carry an expected provider/model assertion; actual media normalization,
+quota, immutable storage, provider-route checks and runtime admission remain with
+their composed owners. These request contracts enable no execution mode.
 
 ## Plan 057 — Local approval command adapter
 

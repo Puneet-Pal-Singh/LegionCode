@@ -15,7 +15,8 @@
     "./local-mac-git-execution": "./src/local-mac-git-execution.ts",
     "./local-captured-execution": "./src/local-captured-execution.ts",
     "./local-capture-git": "./src/local-capture-git.ts",
-    "./local-artifact-git": "./src/local-artifact-git.ts"
+    "./local-artifact-git": "./src/local-artifact-git.ts",
+    "./local-readonly-git": "./src/local-readonly-git.ts"
   },
   "scripts": {
     "build": "tsc",

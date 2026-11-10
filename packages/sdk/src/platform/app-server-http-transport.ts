@@ -4,6 +4,9 @@ import {
   AppServerErrorSchema,
   AppServerFailureResponseSchema,
   AppServerResponseSchema,
+  LOCAL_APP_SERVER_IMAGE_REQUEST_HEADER,
+  isLocalAppServerImageRequest,
+  assertLocalAppServerRequestBudget,
 } from "@legioncode/app-server/protocol";
 
 export type AppServerHttpTransportOptions = {
@@ -79,6 +82,14 @@ export function createAppServerHttpTransport(
         if (options.credential) headers.set("Authorization", `Bearer ${options.credential}`);
         const candidateBody = serializedEnvelope ?? JSON.stringify(envelope);
         const body = beforeSend ? beforeSend(candidateBody) : candidateBody;
+        // This private local opt-in is never added to hosted Web requests.
+        if (options.credential && ["127.0.0.1", "localhost", "[::1]"].includes(new URL(baseUrl).hostname)) {
+          assertLocalAppServerRequestBudget(envelope, body);
+          headers.delete(LOCAL_APP_SERVER_IMAGE_REQUEST_HEADER);
+          if (isLocalAppServerImageRequest(envelope)) {
+            headers.set(LOCAL_APP_SERVER_IMAGE_REQUEST_HEADER, "1");
+          }
+        }
         const response = await fetchImpl(`${baseUrl}/app-server/request`, {
           method: "POST",
           headers,
