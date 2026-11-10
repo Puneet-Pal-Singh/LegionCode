@@ -24,6 +24,9 @@ import {
   LocalWorkspaceGrantResponseSchema,
   LocalWorkspaceGrantSchema,
   ProviderIdSchema,
+  ModelIdSchema,
+  ThreadInputImageSchema,
+  ThreadInputContentSchema,
   ThreadIdSchema,
   WorkspaceIdSchema,
   EventCursorSchema,
@@ -162,6 +165,7 @@ export const ThreadRenameParamsSchema = z
 
 // A 24k UTF-16 prompt can require six JSON bytes per code unit, plus envelope metadata.
 export const MAX_LOCAL_APP_SERVER_REQUEST_BYTES = 256 * 1024;
+export const MAX_LOCAL_APP_SERVER_IMAGES = 4;
 export const LOCAL_APP_SERVER_IMAGE_REQUEST_HEADER = "x-legioncode-image-request";
 // Four images, at most 5 MiB each and 10 MiB decoded in total. Base64 is ASCII;
 // the normal request budget separately covers text and escaped image metadata.
@@ -173,7 +177,7 @@ export const MAX_LOCAL_APP_SERVER_IMAGE_REQUEST_BYTES =
 export function isLocalAppServerImageRequest(request: AppServerRequest): boolean {
   return request.method === "turn/start" && "images" in request.params &&
     Array.isArray(request.params.images) && request.params.images.length > 0 &&
-    request.params.images.length <= 4;
+    request.params.images.length <= MAX_LOCAL_APP_SERVER_IMAGES;
 }
 export function localAppServerRequestByteLimit(request: AppServerRequest): number {
   return isLocalAppServerImageRequest(request)
@@ -193,10 +197,20 @@ export const LocalTurnStartParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   threadId: ThreadIdSchema,
   clientRequestId: EventIdempotencyKeySchema,
-  prompt: z.string().min(1).max(24_000).refine((value) => value.trim().length > 0),
+  prompt: z.string().max(24_000),
+  images: z.array(ThreadInputImageSchema).max(MAX_LOCAL_APP_SERVER_IMAGES).optional(),
   mode: LocalTurnConfigurationSchema.shape.mode.optional(),
   productMode: LocalTurnConfigurationSchema.shape.productMode.optional(),
-}).strict();
+}).strict().superRefine((value, context) => {
+  // Local field bounds above stay stricter; the shared content owner decides
+  // whether text/image input is present, including image-only submissions.
+  const content = ThreadInputContentSchema.safeParse({ text: value.prompt, images: value.images ?? [] });
+  if (!content.success) {
+    for (const issue of content.error.issues) {
+      if (issue.path.length === 0) context.addIssue({ ...issue, path: ["prompt"] });
+    }
+  }
+});
 export type LocalTurnStartParams = z.infer<typeof LocalTurnStartParamsSchema>;
 export const LocalThreadHistoryParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
