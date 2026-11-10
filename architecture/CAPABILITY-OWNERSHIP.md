@@ -2268,3 +2268,13 @@ and immutable media batch fields support the same local image owner without
 adding public queue fields or storing image bytes in queue rows. Native SQLite
 and shared command-service activation follow in the same integration slice; this
 contract move alone does not enable local queue or steering.
+
+## Plan 057 / 061 — Atomic local admission composition
+
+LocalTurnAdmissions remains the canonical local admission writer. Its synchronous
+admitWithin port requires the original SQLite transaction; basic Native admission,
+queued-input consumption and private delegated preparation can compose their own
+CAS with the same canonical admission and event append, without nested asynchronous
+transactions or a second admission owner. Existing scope, fingerprint, parent and
+unsettled-turn checks are unchanged. Canonical Thread ownership reads are shared
+with the local queue adapter and retain one-record streaming memory.
