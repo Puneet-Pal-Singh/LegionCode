@@ -4,6 +4,7 @@ import {
 } from "@repo/platform-protocol/lifecycle";
 import { EventStoreError } from "./errors.js";
 import { createStableEventFingerprint } from "./fingerprint.js";
+import { LifecycleReplayPage } from "./lifecycle-replay-page.js";
 import type {
   LifecycleEventStore,
   ReplayLifecycleEventsInput,
@@ -44,15 +45,12 @@ export class MemoryLifecycleEventStore implements LifecycleEventStore {
     validateReplay(input);
     const events = this.eventsByTurn.get(input.turnId) ?? [];
     const after = input.afterSequence ?? 0;
-    const replay = events
-      .filter(({ event }) => event.sequence > after)
-      .slice(0, input.limit)
-      .map(({ event }) => event);
-    assertReplayContinuity(replay, after);
-    return {
-      events: structuredClone(replay),
-      nextSequence: replay.at(-1)?.sequence ?? null,
-    };
+    const page = new LifecycleReplayPage(input);
+    for (const { event } of events) {
+      if (event.sequence <= after) continue;
+      if (!page.append(event) || page.size === input.limit) break;
+    }
+    return structuredClone(page.result());
   }
 
   private appendOne(event: LifecycleEvent): LifecycleEvent {
@@ -137,17 +135,3 @@ function validateReplay(input: ReplayLifecycleEventsInput): void {
   }
 }
 
-function assertReplayContinuity(
-  events: readonly LifecycleEvent[],
-  afterSequence: number,
-): void {
-  for (const [index, event] of events.entries()) {
-    const expected = afterSequence + index + 1;
-    if (event.sequence !== expected) {
-      throw new EventStoreError(
-        "corrupt_event_stream",
-        `Lifecycle replay expected sequence ${expected}, received ${event.sequence}`,
-      );
-    }
-  }
-}

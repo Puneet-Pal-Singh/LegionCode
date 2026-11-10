@@ -2116,3 +2116,20 @@ original operations through the existing combined server barrier. The read
 deadline requests abort only; unknown binding cleanup retains the exact binding,
 service and slot and prevents positive SQLite/process closure. No timeout, client
 disconnect, empty active map or forced exit releases those physical obligations.
+
+## Plan 057 — Optional exact lifecycle replay byte paging
+
+The existing lifecycle event store optionally bounds the exact UTF-8 JSON result
+`{ events, nextSequence }`, with one shared budget and continuity helper for SQLite
+and memory replay. SQLite reads ordered rows incrementally and returns only the
+largest full-event prefix fitting both count and byte limits. The first excluded
+event remains canonical unread history; the cursor is the last returned sequence,
+and only an actual empty suffix returns null. Omitted byte budgets preserve the
+existing internal count-only replay contract.
+
+A first event that cannot fit raises a typed identity/sequence/encoded-size
+descriptor without copying its body, skipping it or claiming EOF. No append or
+lifecycle authority changes. Public HTTP byte paging remains inactive until the
+separately owned lossless event hydration and cursor-aware consumers are wired;
+this foundation alone does not make oversized public replay deliverable. Chunk
+bytes and their real wire digest remain read/transport responsibilities.
