@@ -2372,3 +2372,23 @@ This is an execution foundation, not driver or public-route activation. Chat and
 queued-input capture, real host/driver construction and initialization identity
 remain with the final consumer slice. No credential resolver, process launcher,
 second event writer or client-owned lifecycle is introduced here.
+
+## Plans 048 / 061 — Private Node harness host foundation
+
+The private harness-core server facade composes pinned driver lookup, scoped
+sessions, host process ownership and an immutable delivery journal. RuntimeKernel
+remains the canonical lifecycle and approval writer; host observations are
+journaled before delivery and acknowledged only after canonical commit. Reply
+claims remain single-use even when external delivery is ambiguous.
+
+Host creation requires an injected launch policy to prove the real filesystem,
+Git, shell and descendant boundary. Path resolution and process-group cleanup
+alone do not establish that proof. Unknown launch or cleanup keeps the host fenced;
+physical quiescence and observation integrity remain distinct receipts. Instance
+auth/config and journal directories are separate from review/snapshot roots, and
+selected credentials never enter public client metadata.
+
+This package has no active local constructor, driver registration or public-route
+consumer yet. Its client facade exports protocol types only; Node SDK and process
+services stay behind the server export. Final driver/constructor wiring is the
+activation boundary, and no Native provider fallback is introduced.
