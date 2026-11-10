@@ -2272,3 +2272,11 @@ Desktop already consume that shared helper. Queue claims, durable publication,
 Native safe points and the constructor lookup wiring remain the existing queue
 and runtime owners' integration responsibility; this media leaf alone does not
 advertise queue or steering availability.
+
+The same media owner exposes a private original-image read for canonical queued
+scope and its full reference set. Exact queue ownership is rechecked around the
+bounded file read, with original digest and metadata validation; originals are
+never normalized or reencoded for review. The existing media/readImage owner
+must resolve the accepted/applied/unconfirmed input under the actual Turn and
+attempt and reauthorize after the read. This port adds no public endpoint or
+renderer-supplied host path and does not manufacture a Turn scope for steering.
