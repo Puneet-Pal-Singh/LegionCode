@@ -1,6 +1,6 @@
 import { Check, ChevronDown, Cloud, Folder, Monitor, type LucideIcon } from "lucide-react";
 import { createPortal } from "react-dom";
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ButtonHTMLAttributes, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
 import { shouldIgnoreGlobalKeyDown } from "../hooks/global-keydown.js";
 import { useOutsideDismiss } from "../hooks/useOutsideDismiss.js";
 import { useViewportPopoverPosition } from "../hooks/useViewportPopoverPosition.js";
@@ -16,6 +16,8 @@ export interface ComposerWorkspaceBarProps {
   /** Current host-owned workspace/grant/Thread scope; not execution authority. */
   scopeKey: string;
   project: WorkspaceChip;
+  /** Hosts may retain an existing picker around the actual project trigger. */
+  renderProjectTrigger?: (trigger: ReactElement<ButtonHTMLAttributes<HTMLButtonElement>>) => ReactNode;
   placement: Placement;
   placementOptions: readonly { value: Placement; unavailableReason?: string }[];
   onPlacementChange?: (placement: Placement) => void | Promise<void>;
@@ -104,7 +106,7 @@ export function ComposerWorkspaceBar(props: ComposerWorkspaceBarProps): React.JS
     items[next]?.focus({ preventScroll: true });
   };
   const projectReason = disabledReason ?? project.unavailableReason ??
-    (!project.onOpen ? "Project selection is unavailable in this session." : undefined);
+    (!project.onOpen && !props.renderProjectTrigger ? "Project selection is unavailable in this session." : undefined);
   const cloudReason = disabledReason ?? cloudEnvironment?.unavailableReason ??
     (!cloudEnvironment?.onOpen ? "Cloud environment selection is unavailable in this session." : undefined);
   const placementReason = disabledReason ??
@@ -113,7 +115,9 @@ export function ComposerWorkspaceBar(props: ComposerWorkspaceBarProps): React.JS
 
   return (
     <div ref={rootRef} role="group" className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5" aria-label="Workspace and execution location">
-      <WorkspaceChipButton icon={Folder} label={project.label} actionLabel="Choose project" reason={projectReason} onClick={() => openChip("project")} />
+      <WorkspaceChipButton icon={Folder} label={project.label} actionLabel="Choose project" reason={projectReason}
+        renderTrigger={props.renderProjectTrigger}
+        onClick={props.renderProjectTrigger ? closeMenu : () => openChip("project")} />
       {placementReason ? <span id={placementReasonId} className="sr-only">{placementReason}</span> : null}
       <button
         ref={triggerRef}
@@ -171,23 +175,27 @@ export function ComposerWorkspaceBar(props: ComposerWorkspaceBarProps): React.JS
   );
 }
 
-function WorkspaceChipButton({ icon: Icon, label, actionLabel, reason, onClick }: {
+function WorkspaceChipButton({ icon: Icon, label, actionLabel, reason, onClick, renderTrigger }: {
   icon: LucideIcon;
   label: string;
   actionLabel: string;
   reason: string | undefined;
-  onClick: () => void;
+  onClick?: () => void;
+  renderTrigger?: ComposerWorkspaceBarProps["renderProjectTrigger"];
 }): React.JSX.Element {
   const reasonId = useId();
+  const trigger = (
+    <button type="button" className={CHIP_CLASS} disabled={Boolean(reason)} title={reason ?? label}
+      aria-label={`${actionLabel}: ${label}`} aria-describedby={reason ? reasonId : undefined} onClick={onClick}>
+      <Icon size={14} className="shrink-0 text-zinc-400" aria-hidden="true" />
+      <span className="min-w-0 max-w-64 truncate">{label}</span>
+      <ChevronDown size={13} className="shrink-0 text-zinc-500" aria-hidden="true" />
+    </button>
+  );
   return (
     <>
       {reason ? <span id={reasonId} className="sr-only">{reason}</span> : null}
-      <button type="button" className={CHIP_CLASS} disabled={Boolean(reason)} title={reason ?? label}
-        aria-label={`${actionLabel}: ${label}`} aria-describedby={reason ? reasonId : undefined} onClick={onClick}>
-        <Icon size={14} className="shrink-0 text-zinc-400" aria-hidden="true" />
-        <span className="min-w-0 max-w-64 truncate">{label}</span>
-        <ChevronDown size={13} className="shrink-0 text-zinc-500" aria-hidden="true" />
-      </button>
+      {renderTrigger ? renderTrigger(trigger) : trigger}
     </>
   );
 }
