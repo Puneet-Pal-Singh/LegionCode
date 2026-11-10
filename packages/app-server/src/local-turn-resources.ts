@@ -140,7 +140,7 @@ export class LocalTurnResources {
           this.executors.delete(admission.turn.id);
         // This callback is part of the original tracked cleanup operation. The
         // shutdown fence is synchronous and prevents a late callback admitting.
-        if (!this.stopping) await this.options.onResourcesReleased?.(admission).catch(() => {
+        if (recordSettlement && root && !this.stopping) await this.options.onResourcesReleased?.(admission).catch(() => {
           console.error("Local queued input remains pending after resource cleanup");
         });
       });

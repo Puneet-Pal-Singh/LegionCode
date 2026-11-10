@@ -2395,3 +2395,8 @@ process guardian retains the writer descriptor through normal exact-child reapin
 but its target closes that descriptor before execution. An unexpectedly lost
 guardian therefore cannot be excluded solely by acquiring the old fence. No
 preparation label or new receipt is substituted for surviving-child exclusion.
+
+### Accepted Native input lineage
+
+- Thread read summaries use the actual same-Turn canonical accepted user item as the active user leaf, requiring its exact input/transcript identity, scope, parent chain and accepted lifecycle sequence. A settled assistant becomes the leaf only when completed after the latest accepted input.
+- Runtime resource-release notification requires the actual Native settlement issuer/receipt path, binding closure and original owner deletion; a custom executor without that capability cannot trigger queue advancement. No new tests or sequence/state writer.
