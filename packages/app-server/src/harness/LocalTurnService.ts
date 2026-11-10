@@ -154,6 +154,8 @@ export class LocalTurnService {
       environmentId: this.options.persistence.environmentId, workspaceId: thread.workspaceId,
       threadId: thread.id, sessionId: thread.id,
     }, async (saved) => {
+      const retainedAdmissions = [...this.active.values()].filter((value) => !value.task).map((value) => value.admission.turn.id);
+      if (retainedAdmissions.length) throw new LocalHarnessRecoveryError(retainedAdmissions);
       if (captured.environmentId !== this.options.persistence.environmentId ||
           captured.selectionRevision !== saved.revision || JSON.stringify(captured.selection) !== JSON.stringify(saved.selection)) {
         throw new AppServerOperationError(409, "invalid_request", "Local harness selection changed before admission");
@@ -179,11 +181,29 @@ export class LocalTurnService {
       // Revalidate after protected metadata resolution; writer independently validates Thread ownership.
       await this.authorizeThread(thread.id, thread.workspaceId);
       if (this.stopping) throw new AppServerOperationError(503, "server_unavailable", "Local harness is shutting down");
+      const execution: ActiveExecution = { admission, controller: new AbortController() };
+      if (this.active.has(admission.turn.id)) throw new LocalHarnessRecoveryError([admission.turn.id]);
+      // Install the Stop latch BEFORE admission can become durable. A thrown or
+      // unknown receipt retains this owner; absence of a receipt is not failure.
+      this.active.set(admission.turn.id, execution);
       const stored = await this.options.leases.admit(admission);
-      if (!stored.newlyAdmitted) return stored.admission;
-      const execution: ActiveExecution = { admission: stored.admission, controller: new AbortController() };
+      if (!stored.newlyAdmitted) {
+        if (localAdmissionBackend(stored.admission, this.options.persistence.environmentId) !== "delegated" ||
+            stored.admission.clientRequestId !== params.clientRequestId || stored.admission.run.threadId !== thread.id ||
+            stored.admission.run.workspaceId !== thread.workspaceId || stored.admission.run.userId !== thread.userId ||
+            stored.admission.userMessage.type !== "user_message" || stored.admission.userMessage.content.text !== params.prompt ||
+            JSON.stringify(stored.admission.run.harnessSelection) !== JSON.stringify(captured)) {
+          throw new LocalHarnessRecoveryError([admission.turn.id, stored.admission.turn.id]);
+        }
+        // The store positively identified the existing request: do not attach
+        // this candidate/controller to another immutable attempt or restart it.
+        if (this.active.get(admission.turn.id) === execution) this.active.delete(admission.turn.id);
+        return stored.admission;
+      }
+      if (JSON.stringify(stored.admission) !== JSON.stringify(admission)) {
+        throw new LocalHarnessRecoveryError([admission.turn.id, stored.admission.turn.id]);
+      }
       if (this.stopping) execution.controller.abort();
-      this.active.set(admission.turn.id, execution); // Immediate Stop owns this before preparation yields.
       execution.task = this.run(execution, binding, selection, grant);
       void execution.task.catch(() => undefined); // Failures are canonical events/recovery, never raw secret-bearing logs.
       return stored.admission;
@@ -377,6 +397,7 @@ export class LocalTurnService {
     selection: HarnessSelection, grant: StoredLocalWorkspaceGrant): Promise<void> {
     let prepared: Awaited<ReturnType<LocalHarnessRuntimeBinding["prepare"]>> | undefined;
     try {
+      if (execution.controller.signal.aborted) throw new DOMException("Local turn stopped before execution claim", "AbortError");
       const frozen = await this.options.persistence.harnessBindings.freezeAndClaim({
         selection: { userId: selection.userId, sessionId: selection.threadId, runId: selection.runId,
           workspaceId: selection.workspaceId, threadId: selection.threadId, turnId: selection.turnId,
@@ -385,6 +406,7 @@ export class LocalTurnService {
       });
       if (frozen.status !== "claimed") throw new AppServerOperationError(409, "server_unavailable",
         "Local harness execution was already claimed or requires recovery", "LOCAL_RUNTIME_RECOVERY_REQUIRED", false);
+      if (execution.controller.signal.aborted) throw new DOMException("Local turn stopped before runtime preparation", "AbortError");
       const leaseId = this.options.leases.leaseId(execution.admission);
       prepared = await binding.prepare({ admission: execution.admission, selection, grant, leaseId, signal: execution.controller.signal });
       if (prepared.dependencies.producerId !== execution.admission.run.workerId) {
