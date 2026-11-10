@@ -206,6 +206,8 @@ export class LocalThreadInputRepository implements ThreadInputRepository {
       if (latest && !latest.terminal) throw new ThreadInputConflictError("Thread is not idle", "thread_not_idle");
       if (!input.explicitStart && (state.paused || latest?.terminal?.type !== "turn.completed")) throw new ThreadInputConflictError("Queue is paused or has no completed predecessor", "queue_paused");
       const candidate = TurnAdmissionSchema.parse(input.candidate);
+      if (candidate.userMessage.type !== "user_message" || isDelegated(candidate))
+        throw new ThreadInputConflictError("Native queue cannot admit a delegated or non-user candidate", "thread_scope_conflict");
       const images = ChatImageAttachmentRefSchema.array().parse(candidate.userMessage.content.images ?? []);
       if (candidate.clientRequestId !== `thread-input:${item.itemId}` || candidate.run.userId !== input.userId ||
           candidate.run.workspaceId !== input.workspaceId || candidate.run.threadId !== input.threadId ||
@@ -434,5 +436,5 @@ function corrupt(message: string): LocalPersistenceError { return new LocalPersi
 
 function isDelegated(admission: TurnAdmission): boolean {
   return ("harnessSelection" in admission.run && admission.run.harnessSelection !== undefined) ||
-    admission.userMessage.content.harnessSelection !== undefined;
+    (admission.userMessage.type === "user_message" && admission.userMessage.content.harnessSelection !== undefined);
 }

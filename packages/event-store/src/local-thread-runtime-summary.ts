@@ -57,6 +57,8 @@ export function readLocalThreadRuntimeSummary(
     // All local runtimes bind canonical lifecycle to the admitted worker. This
     // read projection does not interpret driver selection or infer producer
     // ownership from the first event. Historical mismatches remain corrupt.
+    const nativeInputOwner = !("harnessSelection" in admission.run && admission.run.harnessSelection !== undefined) &&
+      admission.userMessage.content.harnessSelection === undefined;
     let sequence = 0;
     let settled = false;
     let assistantLeaf: ItemId | undefined;
@@ -73,7 +75,7 @@ export function readLocalThreadRuntimeSummary(
         row.stream_id !== admission.turn.id || event.sequence !== ++sequence ||
         row.sequence !== event.sequence || settled) throw corrupt();
       activity = laterTimestamp(activity, event.createdAt);
-      if (event.type === "turn.input.accepted") {
+      if (nativeInputOwner && event.type === "turn.input.accepted") {
         const inputId = ThreadInputQueueItemSchema.shape.itemId.parse(event.payload.inputId);
         const savedRow = database.prepare(`SELECT * FROM events WHERE family='platform' AND stream_type='run'
           AND stream_id=? AND idempotency_key=?`).get(admission.run.id, `thread-input:${inputId}`) as StoredEvent | undefined;
