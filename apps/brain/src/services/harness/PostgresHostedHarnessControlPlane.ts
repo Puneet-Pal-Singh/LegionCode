@@ -307,10 +307,13 @@ export function createPostgresHostedHarnessControlPlane(
     authorizeEnvironment,
     connectionService,
     async setupInstance(context, params, connection) {
+      context = { ...context };
+      params = { ...params };
       // Setup is a separate authenticated operation, not an admitted turn. Keep
       // its exact custody snapshot across the durable instance write; neither
       // an unchanged owner generation nor catalog metadata attests native auth.
       const selected = { ...connection };
+      if (params.connectionId !== selected.connectionId) throw conflict();
       const service = connectionService(context);
       if (!(await service.assertSetupAuthority(context, selected)))
         throw conflict();
