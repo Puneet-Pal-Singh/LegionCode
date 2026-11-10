@@ -201,6 +201,10 @@ export const LocalTurnStartParamsSchema = z.object({
   images: z.array(ThreadInputImageSchema).max(MAX_LOCAL_APP_SERVER_IMAGES).optional(),
   mode: LocalTurnConfigurationSchema.shape.mode.optional(),
   productMode: LocalTurnConfigurationSchema.shape.productMode.optional(),
+  expectedSelection: z.object({
+    providerId: ProviderIdSchema,
+    modelId: ModelIdSchema,
+  }).strict().optional(),
 }).strict().superRefine((value, context) => {
   // Local field bounds above stay stricter; the shared content owner decides
   // whether text/image input is present, including image-only submissions.
