@@ -2433,6 +2433,14 @@ settlement retain their existing owners; title metadata cannot redispatch a
 receipt or prevent an admitted response. Generated-title provider work is not
 activated by this preview wiring.
 
+The local generated-title metadata adapter delegates claim and settlement to that
+same Thread mutation queue. Its one durable pending claim requires the exact
+first admission and canonical preview event identity/source/version; settlement
+checks the same first message, pending version and original grant generation
+again. Same-text manual renames retain user ownership and supersede a generated
+result. This private adapter adds no title table, inference activation or provider
+lifetime owner; those host ports must be joined before it is called.
+
 Shared client popovers measure the current VisualViewport, including pan,
 resize and keyboard-related offsets. Optional companion panels use the same
 bounds; the existing Settings and Workspace dialogs share focus lifetime and
