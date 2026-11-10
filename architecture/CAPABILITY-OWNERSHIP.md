@@ -1720,6 +1720,21 @@ the same held-root executor and closure checks. No command runner, ref parser,
 GitService interface migration, lifecycle writer or Desktop host authority is
 added. The native runtime consumes the fact in its separately owned composition.
 
+## Plan 057 — Shared provider route and server discovery ownership
+
+`provider-core` owns pure discovered-model route selection and the server-only
+`./discovery` entry for canonical catalog adapters, ranking, cache contracts and
+model.dev enrichment. Brain migrates its active consumers to those exports and
+keeps only hosted composition. Its credential vault delivers the selected key
+and connection configuration from one canonical credential record; hosted Axis
+models are explicitly injected by Brain. Local hosts can supply their own narrow
+credential, registry and cache ports without importing Brain, duplicating routing
+policy, reading hosted credentials or exposing hosted managed-provider access.
+Browser callers retain the pure root entry; server discovery is not re-exported
+through that browser surface. Existing discovery checks migrate their imports
+and required credential-port fixtures without adding test registrations. Native
+App Server catalog injection remains a separately owned consumer integration.
+
 ## Plan 057 — Policy-authorized captured file tools
 
 The Native composition supplies one per-attempt canonical ToolAuthorizationPort
@@ -1738,6 +1753,43 @@ Run_executable still requires explicit approval and the unchanged no-fork port.
 No permission-mode string, profile suffix, synthesized approval, policy copy or
 second lifecycle authority bypasses these checks. Native mode advertisement and
 per-attempt policy construction remain separate composition work.
+
+## Plan 057 — Shared discovered local provider models
+
+LocalProviderService consumes the server-only provider catalog port for model
+listing, refresh and exact-model selection; bounded paged inventory remains
+request-local and coalesces concurrent lookups. The existing shared discovery
+service owns catalog retrieval and caching. The local process accepts this one
+injected catalog; protected credential access remains in its existing host port.
+Saved selection and preference reads validate structure and supported-provider
+identity without catalog access. Preference updates validate only introduced
+model references through the same discovery service; unchanged or removed saved
+references remain recoverable during outages.
+The shared catalog's static refresh reuses the same declared-model helper as
+static reads and returns the existing refresh DTO without adapter discovery,
+credential resolution or provider API calls.
+
+ProtectedProviderInference requires the admitted discovered model identity and
+uses the canonical provider route resolver with the protected connection config.
+It retains provider/model/availability checks and validates Cloudflare routing
+against that same protected config before inference. No static model allowlist,
+second catalog, credential store or app-local routing algorithm replaces these
+owners. Shared provider discovery/routing is now merged, and the private utility
+consumer below supplies the catalog. Native runtime activation and installed
+acceptance remain separately sequenced integration requirements.
+
+### Local discovery's protected utility-process consumer
+
+The existing Desktop utility startup now injects that same shared discovery
+factory alongside workspace file composition. Main alone reads an atomic
+OS-protected key/config value and lends a delivery lease bound to the vault's
+mutation epoch. The supervisor rechecks the exact child, generation, provider
+and current lease immediately before private delivery. Lookup and delivery
+queues are bounded; timed-out work remains counted until its resolver settles.
+Stop and process loss clear delivery timers and prevent late secret delivery.
+No credential-read renderer IPC, Native runtime activation, mode advertisement
+or competing vault is added. The existing packaged credential case remains
+unchanged and exercises this actual first catalog consumer.
 
 ## Plan 057 — Native turn service composition
 

@@ -14,6 +14,7 @@
     "./local-workspace-files": "./src/local-workspace-files.ts",
     "./local-mac-git-execution": "./src/local-mac-git-execution.ts",
     "./local-native-runtime": "./src/local-native-runtime.ts",
+    "./local-provider-model-discovery": "./src/local-provider-model-discovery.ts",
     "./local-readonly-git": "./src/local-readonly-git.ts"
   },
   "scripts": {

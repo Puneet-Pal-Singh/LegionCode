@@ -15,3 +15,5 @@ export {
 export { LocalChatMediaStore } from "./local-chat-media-store.js";
 export { LocalChatMediaReads } from "./local-chat-media-reads.js";
 export { LocalChatMediaError } from "./local-chat-media-records.js";
+export type { LocalProviderServiceOptions } from "./local-providers.js";
+export type { LocalProviderModelCatalog } from "./local-provider-model-catalog.js";
