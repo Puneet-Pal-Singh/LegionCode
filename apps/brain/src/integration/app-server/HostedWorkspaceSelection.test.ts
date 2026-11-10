@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   encryptToken,
   GitHubAPIClient,
+  GitHubAPIError,
   type Repository,
 } from "@legioncode/github-bridge";
 import {
@@ -136,6 +137,37 @@ describe("authenticated hosted workspace selection", () => {
       },
     );
     expect(GitHubAPIClient.prototype.getRepository).not.toHaveBeenCalled();
+    for (const [failure, serverCode, statusCode, retryable] of [
+      [
+        new GitHubAPIError(404, "private-branch-body", false),
+        "not_found",
+        404,
+        false,
+      ],
+      [
+        new GitHubAPIError(403, "private-rate-body", true),
+        "server_unavailable",
+        429,
+        true,
+      ],
+    ] as const) {
+      vi.mocked(GitHubAPIClient.prototype.getBranchSha).mockRejectedValueOnce(
+        failure,
+      );
+      await expect(
+        client.updateHostedWorkspaceConfiguration({
+          ...params,
+          expectedVersion: 1,
+          patch: { selectedBranch: "unavailable" },
+        }),
+      ).rejects.toMatchObject({
+        serverCode,
+        serverError: { statusCode, retryable },
+      });
+      expect(
+        await client.readHostedWorkspaceConfiguration(params),
+      ).toMatchObject({ version: 1, selectedBranch: "feature/sdk" });
+    }
     const updated = await client.updateHostedWorkspaceConfiguration({
       ...params,
       expectedVersion: 1,
@@ -329,32 +361,63 @@ describe("authenticated hosted workspace selection", () => {
         now: new Date().toISOString(),
       },
     });
-    vi.mocked(GitHubAPIClient.prototype.getRepository).mockRejectedValue(
-      new Error("Repository inaccessible"),
-    );
     const configParams = {
       workspaceId: selected.workspace.id,
       expectedVersion: 1,
       patch: { name: "unauthorized change" },
     };
-    expect(
-      await command(env, "workspace/configuration/update", configParams),
-    ).toMatchObject({ ok: false, error: { code: "server_unavailable" } });
-    expect(
-      await workspaces.findWorkspaceConfiguration(USER, selected.workspace.id),
-    ).toMatchObject({ version: 1, workspace: { name: "acme/repo" } });
+    const persist = vi.spyOn(workspaces, "updateWorkspaceConfiguration");
+    for (const [status, rateLimited, code, responseStatus, retryable] of [
+      [401, false, "unauthorized", 401, false],
+      [403, false, "forbidden", 403, false],
+      [404, false, "not_found", 404, false],
+      [422, false, "invalid_request", 422, false],
+      [403, true, "server_unavailable", 429, true],
+      [429, false, "server_unavailable", 429, true],
+      [503, false, "server_unavailable", 503, true],
+    ] as const) {
+      vi.mocked(GitHubAPIClient.prototype.getRepository).mockRejectedValue(
+        new GitHubAPIError(status, "private-provider-body", rateLimited),
+      );
+      const denied = await command(
+        env,
+        "workspace/configuration/update",
+        configParams,
+      );
+      expect(denied).toMatchObject({
+        ok: false,
+        error: { code, statusCode: responseStatus, retryable },
+      });
+      expect(JSON.stringify(denied)).not.toContain("private-provider-body");
+      expect(persist).not.toHaveBeenCalled();
+      expect(
+        await workspaces.findWorkspaceConfiguration(
+          USER,
+          selected.workspace.id,
+        ),
+      ).toMatchObject({ version: 1, workspace: { name: "acme/repo" } });
+    }
     vi.mocked(GitHubAPIClient.prototype.getRepository).mockResolvedValue(
       repository,
     );
     vi.mocked(GitHubAPIClient.prototype.getBranchSha).mockRejectedValue(
-      new Error("Branch unavailable"),
+      new GitHubAPIError(404, "private-branch-body", false),
     );
-    expect(
-      await command(env, "workspace/configuration/update", {
-        ...configParams,
-        patch: { selectedBranch: "missing" },
-      }),
-    ).toMatchObject({ ok: false, error: { code: "server_unavailable" } });
+    const missingBranch = await command(env, "workspace/configuration/update", {
+      ...configParams,
+      patch: { selectedBranch: "missing" },
+    });
+    expect(missingBranch).toMatchObject({
+      ok: false,
+      error: {
+        code: "not_found",
+        statusCode: 404,
+        retryable: false,
+        operationCode: "GITHUB_RESOURCE_NOT_FOUND",
+      },
+    });
+    expect(JSON.stringify(missingBranch)).not.toContain("private-branch-body");
+    expect(persist).not.toHaveBeenCalled();
     expect(
       await workspaces.findWorkspaceConfiguration(USER, selected.workspace.id),
     ).toMatchObject({ version: 1, workspace: { lastSelectedBranch: "main" } });

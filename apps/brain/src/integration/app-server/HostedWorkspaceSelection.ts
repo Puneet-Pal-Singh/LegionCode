@@ -13,7 +13,10 @@ import {
   getGitHubClient,
   isSessionStoreUnavailableError,
 } from "../../services/AuthService";
-import type { GitHubAPIClient } from "@legioncode/github-bridge";
+import {
+  GitHubAPIError,
+  type GitHubAPIClient,
+} from "@legioncode/github-bridge";
 import type { Env } from "../../types/ai";
 import {
   WorkspaceSelectionService,
@@ -130,17 +133,23 @@ async function updateConfiguration(
     const auth = await getGitHubClient(request, env);
     if (!auth || auth.userId !== userId)
       throw new AppServerOperationError(401, "unauthorized", "Unauthorized");
-    // Repository identity comes only from the owned saved record.
-    await auth.client.getRepository(
-      current.repository.owner,
-      current.repository.name,
-    );
-    if (params.patch.selectedBranch !== undefined) {
-      await auth.client.getBranchSha(
+    // Repository identity comes only from the owned saved record. Classify
+    // remote validation separately; persistence errors retain their own owner.
+    try {
+      await auth.client.getRepository(
         current.repository.owner,
         current.repository.name,
-        params.patch.selectedBranch,
       );
+      if (params.patch.selectedBranch !== undefined) {
+        await auth.client.getBranchSha(
+          current.repository.owner,
+          current.repository.name,
+          params.patch.selectedBranch,
+        );
+      }
+    } catch (error) {
+      if (!(error instanceof GitHubAPIError)) throw error;
+      throw mapWorkspaceGitHubValidationError(error);
     }
     const result = await service.updateConfiguration({
       ...params,
@@ -165,5 +174,62 @@ function workspaceNotFound() {
     404,
     "not_found",
     "Workspace configuration not found",
+  );
+}
+
+function mapWorkspaceGitHubValidationError(
+  error: GitHubAPIError,
+): AppServerOperationError {
+  if (error.rateLimited || error.status === 429) {
+    return new AppServerOperationError(
+      429,
+      "server_unavailable",
+      "GitHub rate limit reached; retry later",
+      "GITHUB_RATE_LIMITED",
+      true,
+    );
+  }
+  if (error.status === 401) {
+    return new AppServerOperationError(
+      401,
+      "unauthorized",
+      "GitHub authentication is unavailable; reconnect GitHub",
+      "GITHUB_AUTHENTICATION_REQUIRED",
+      false,
+    );
+  }
+  if (error.status === 403) {
+    return new AppServerOperationError(
+      403,
+      "forbidden",
+      "GitHub repository access denied",
+      "GITHUB_ACCESS_DENIED",
+      false,
+    );
+  }
+  if (error.status === 404) {
+    return new AppServerOperationError(
+      404,
+      "not_found",
+      "GitHub repository or branch not found",
+      "GITHUB_RESOURCE_NOT_FOUND",
+      false,
+    );
+  }
+  if (error.status >= 400 && error.status < 500 && error.status !== 408) {
+    return new AppServerOperationError(
+      error.status,
+      "invalid_request",
+      "GitHub rejected repository or branch validation",
+      "GITHUB_VALIDATION_FAILED",
+      false,
+    );
+  }
+  return new AppServerOperationError(
+    503,
+    "server_unavailable",
+    "GitHub repository validation is temporarily unavailable",
+    "GITHUB_UNAVAILABLE",
+    true,
   );
 }
