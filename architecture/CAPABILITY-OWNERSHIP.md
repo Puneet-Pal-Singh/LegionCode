@@ -2278,3 +2278,17 @@ This package has no active local constructor, driver registration or public-rout
 consumer yet. Its client facade exports protocol types only; Node SDK and process
 services stay behind the server export. Final driver/constructor wiring is the
 activation boundary, and no Native provider fallback is introduced.
+
+## Plans 048 / 061 — Private Claude SDK driver foundation
+
+The private harness-claude server adapter translates the pinned Agent SDK, model
+SDK and MCP contracts into worker observations, scoped replies and measured usage.
+Its owned query/process resources must drain positively; request acceptance or
+SDK foreground completion cannot substitute for physical closure and ordered
+observation integrity. Instance authentication remains private frozen host material.
+
+The package is not registered by an active constructor in this foundation. It
+requires the existing enforced host launch boundary, rejects unsupported resume,
+and does not provide a Native fallback. RuntimeKernel remains the canonical
+lifecycle/approval writer; harness-core owns scoped sessions and delivery journals.
+The matched SDK dependency graph is not installed-feature or OS-policy acceptance.
