@@ -2439,3 +2439,23 @@ advertise queue or steering availability.
 - The private Native command adapter uses shared policy, exact current Thread authorization, admitted-model vision checks, immutable queued media and the existing executor safe point. It requires an explicitly supplied queued-start owner; no optimistic default is composed or advertised.
 - Local media journal reconciliation reads the exact same SQLite input row/media revision. The actual Native runtime receives those existing ports and reconstructs applied Steer user messages in canonical lifecycle order; accepted-but-unapplied history is never silently delivered as a fresh prompt. Missing required canonical rows/media fail closed.
 - Full Queue activation still requires held-successor physical preparation before admission, accepted-image authenticated reads and final route/capability composition. No new tests or registrations.
+
+### Native queued successor preparation
+
+- Product responsibility: admit a queued Native successor only while its actual
+  physical writer is held and its exact predecessor has durable positive closure.
+- Canonical owners: the existing LocalTurnResources retains the original opaque
+  preparation before I/O; the injected Native host writer verifies predecessor
+  settlement; the same SQLite queue/admission transaction compares the verified
+  predecessor identity before consuming the queue row.
+- Producer/consumer wiring: LocalTurnService queued admission requires the private
+  prepareQueuedExecution port, with no fallback to ordinary executor construction.
+  The common Native executor constructor consumes the exact held capability;
+  read-only queued execution also releases that original writer through actual
+  executor proof before binding-close and immutable settlement publication.
+- Unknown acquisition/publication/cleanup retains the original binding. An exact
+  canonical candidate reconciles lost acknowledgement into its original executor;
+  another winner never inherits the candidate's physical authority.
+- Migration gate: the same lexical Desktop lease factory and actual local queue
+  route must be joined before advertising queue execution. Source ports alone do
+  not enable the product. No new lifecycle writer, state registry or tests.

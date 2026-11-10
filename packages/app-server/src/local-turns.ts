@@ -1,8 +1,10 @@
+import { isDeepStrictEqual } from "node:util";
 import type { LocalTurnAttemptIdentity, LocalTurnAttemptInput } from "@legioncode/execution-engine/runtime/desktop/LocalReadOnlyTurnExecutor";
 import type { StoredThreadInput, ThreadInputScope } from "@repo/event-store";
 import type { InputCommand } from "./thread-inputs/ports.js";
 import type { BYOKDiscoveredProviderModel } from "@repo/shared-types";
 import {
+  TurnAdmissionSchema,
   ModelIdSchema,
   ContentDigestSchema,
   WorkspaceIdSchema,
@@ -85,6 +87,16 @@ export type LocalTurnServiceOptions = {
       media?: { preparation: LocalTurnPreparedMedia; imageCount: number };
     }): Promise<TurnAdmission>;
     createExecutor(binding: LocalWorkspaceExecutionBinding, admission: TurnAdmission, model: BYOKDiscoveredProviderModel): LocalTurnExecutor;
+    /** Opaque same-writer acquisition, synchronously retained before ready(). */
+    prepareQueuedExecution?(input: {
+      binding: LocalWorkspaceExecutionBinding;
+      admission: TurnAdmission;
+      model: BYOKDiscoveredProviderModel;
+      signal: AbortSignal;
+    }): {
+      ready(): Promise<{ executor: LocalTurnExecutor; predecessorTurnId: TurnId | null }>;
+      releaseUnadmitted(): Promise<boolean>;
+    };
   };
 };
 
@@ -216,6 +228,8 @@ export class LocalTurnService {
       throw new AppServerOperationError(503, "server_unavailable", "The selected local execution mode is unavailable");
     }
     let preparedMedia: LocalTurnPreparedMedia | undefined;
+    let candidate: TurnAdmission | undefined;
+    let preparedExecutor: LocalTurnExecutor | undefined;
     try {
       this.resources.assertAcceptingAdmission();
       const binding = await this.options.workspaces.bindForExecution(
@@ -244,7 +258,6 @@ export class LocalTurnService {
       preparedMedia = queued ? await queued.prepareMedia(mediaSignal) : await this.prepareImages(images, mediaSignal);
       binding.assertCurrent();
       this.resources.assertAcceptingAdmission();
-      let candidate: TurnAdmission;
       try {
         candidate = await runtime.createAdmission({
           workspace: binding.workspace,
@@ -263,7 +276,22 @@ export class LocalTurnService {
       }
       this.resources.assertAcceptingAdmission();
       // Construct ports before admission; providers execute only through execute().
-      const executor = runtime.createExecutor(binding, candidate, model);
+      let predecessorTurnId: TurnId | null = null;
+      let executor: LocalTurnExecutor;
+      if (queued) {
+        if (!runtime.prepareQueuedExecution) throw new AppServerOperationError(
+          503, "server_unavailable", "Native queued execution requires the physical successor owner",
+          "local_queue_writer_unavailable", false,
+        );
+        const held = runtime.prepareQueuedExecution({ binding, admission: candidate, model, signal: mediaSignal });
+        preparation.releaseUnadmitted = () => held.releaseUnadmitted();
+        const ready = await held.ready();
+        executor = ready.executor;
+        predecessorTurnId = ready.predecessorTurnId;
+      } else {
+        executor = runtime.createExecutor(binding, candidate, model);
+      }
+      preparedExecutor = executor;
       if (typeof executor.awaitResourceRelease !== "function") {
         throw new AppServerOperationError(
           503,
@@ -278,7 +306,7 @@ export class LocalTurnService {
       const { admission, newlyAdmitted } =
         await (queued ? this.options.queuedInputs!.reserveQueuedStart({ ...queued.scope, itemId: queued.item.itemId,
           expectedVersion: queued.command.expectedVersion, expectedRevision: queued.command.expectedThreadRevision,
-          explicitStart: queued.explicitStart, candidate }) : this.options.persistence.turnAdmissions.admit(candidate));
+          explicitStart: queued.explicitStart, expectedPredecessorTurnId: predecessorTurnId, candidate }) : this.options.persistence.turnAdmissions.admit(candidate));
       if (newlyAdmitted) this.resources.ownExecution(preparation, admission, executor);
       return admission;
     } catch (error) {
@@ -301,7 +329,14 @@ export class LocalTurnService {
             "Local thread was not found in the granted workspace",
           );
         }
-        return validateSavedAdmission(saved, params, currentThread, imageFingerprint);
+        const validated = validateSavedAdmission(saved, params, currentThread, imageFingerprint);
+        // A lost publication ACK can be reconciled only to this exact prepared
+        // candidate. Transfer its original executor/fence before returning it.
+        if (candidate && preparedExecutor && preparation.binding &&
+            isDeepStrictEqual(TurnAdmissionSchema.parse(saved), TurnAdmissionSchema.parse(candidate))) {
+          this.resources.ownExecution(preparation, saved, preparedExecutor);
+        }
+        return validated;
       }
       if (error instanceof EventStoreError && error.code === "idempotency_conflict") {
         throw new AppServerOperationError(409, "conflict", "Local Turn admission conflicts with its current thread state or request content", "local_admission_conflict", false);

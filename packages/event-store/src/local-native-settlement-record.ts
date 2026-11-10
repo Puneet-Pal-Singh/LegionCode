@@ -48,7 +48,7 @@ export const LocalNativeResourceSettlementSchema = z.object({
   ]),
 }).strict().refine((record) => record.artifactCapture === "required"
   ? record.writerFence.kind !== "read_only"
-  : record.writerFence.kind === "read_only", "Native capture and writer disposition must agree");
+  : record.writerFence.kind === "read_only" || record.writerFence.kind === "released", "Native capture and writer disposition must agree");
 export type LocalNativeResourceSettlement = z.infer<typeof LocalNativeResourceSettlementSchema>;
 
 type Guard = <T>(operation: () => T) => T;
