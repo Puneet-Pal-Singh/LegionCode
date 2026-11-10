@@ -20,6 +20,23 @@ export class CodexTransportError extends Error {
   }
 }
 
+/** Read-side framing evidence only. Driver observation/ACK drain and real process
+ * scope quiescence remain separate requirements before canonical settlement. */
+export type CodexOutputClosure =
+  | { readonly kind: "natural_eof"; readonly frameComplete: true }
+  | {
+      readonly kind: "unknown";
+      readonly reason:
+        | "timeout"
+        | "local_close"
+        | "io"
+        | "incomplete_frame"
+        | "output_closed_early"
+        | "unresolved_requests"
+        | "invalid_frame"
+        | "overflow";
+    };
+
 export interface CodexServerRequest {
   readonly id: RequestId;
   readonly method: string;
@@ -58,6 +75,10 @@ export class CodexStdioTransport {
   private frameBytes = 0;
   private nextId = 0;
   private closed = false;
+  private inputClosed = false;
+  private outputClosure: CodexOutputClosure | undefined;
+  private readonly outputClosed: Promise<CodexOutputClosure>;
+  private resolveOutputClosed!: (closure: CodexOutputClosure) => void;
 
   constructor(private readonly options: CodexTransportOptions) {
     this.maxFrameBytes = positiveLimit(
@@ -66,16 +87,19 @@ export class CodexStdioTransport {
     this.frameBuffer = Buffer.alloc(this.maxFrameBytes);
     this.maxPendingRequests = positiveLimit(options.maxPendingRequests ?? 64);
     this.requestTimeoutMs = positiveLimit(options.requestTimeoutMs ?? 30_000);
+    this.outputClosed = new Promise((resolve) => {
+      this.resolveOutputClosed = resolve;
+    });
     options.output.on("data", this.onData);
-    options.output.on("end", this.onEnd);
-    options.output.on("close", this.onEnd);
+    options.output.on("end", this.onOutputEnd);
+    options.output.on("close", this.onOutputClose);
     options.output.on("error", this.onError);
     options.input.on("error", this.onError);
-    options.input.on("close", this.onEnd);
+    options.input.on("close", this.onInputClose);
   }
 
   request(method: string, params: unknown): Promise<unknown> {
-    if (this.closed)
+    if (this.writingClosed)
       return Promise.reject(new CodexTransportError("closed", "rejected"));
     if (this.pending.size >= this.maxPendingRequests) {
       return Promise.reject(new CodexTransportError("overflow", "rejected"));
@@ -110,14 +134,52 @@ export class CodexStdioTransport {
     this.send(params === undefined ? { method } : { method, params });
   }
 
+  /** Wait without closing or resuming either stream. A timeout is not evidence
+   * of loss by itself and does not discard a later natural EOF receipt. */
+  async awaitOutputClosure(input: {
+    readonly timeoutMs: number;
+  }): Promise<CodexOutputClosure> {
+    if (
+      !Number.isSafeInteger(input.timeoutMs) ||
+      input.timeoutMs < 0 ||
+      input.timeoutMs > 60_000
+    )
+      throw new CodexTransportError("invalid_frame", "rejected");
+    if (this.outputClosure) return this.outputClosure;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        this.outputClosed,
+        new Promise<CodexOutputClosure>((resolve) => {
+          timer = setTimeout(
+            () => resolve({ kind: "unknown", reason: "timeout" }),
+            input.timeoutMs,
+          );
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   close(): void {
+    this.recordOutputClosure({ kind: "unknown", reason: "local_close" });
     this.fail(
       new CodexTransportError(this.frameBytes > 0 ? "invalid_frame" : "closed"),
     );
   }
 
+  private get writingClosed(): boolean {
+    return (
+      this.closed ||
+      this.inputClosed ||
+      this.options.input.destroyed ||
+      this.options.input.writableEnded
+    );
+  }
+
   private send(message: unknown): void {
-    if (this.closed) throw new CodexTransportError("closed", "rejected");
+    if (this.writingClosed) throw new CodexTransportError("closed", "rejected");
     this.write(this.serialize(message));
   }
 
@@ -144,7 +206,7 @@ export class CodexStdioTransport {
   }
 
   private write(bytes: Buffer): void {
-    if (this.closed) throw new CodexTransportError("closed", "rejected");
+    if (this.writingClosed) throw new CodexTransportError("closed", "rejected");
     if (this.options.input.writableLength + bytes.length > this.maxFrameBytes) {
       const error = new CodexTransportError("overflow");
       this.fail(error);
@@ -262,20 +324,60 @@ export class CodexStdioTransport {
     } else entry.resolve(value.result);
   }
 
-  private readonly onEnd = (): void =>
+  private readonly onInputClose = (): void => {
+    // stdin can close before already-buffered stdout responses/observations drain.
+    // Fence new writes, but retain the read-side parser until its own EOF.
+    this.inputClosed = true;
+  };
+
+  private readonly onOutputEnd = (): void => {
+    this.recordOutputClosure(
+      this.frameBytes > 0
+        ? { kind: "unknown", reason: "incomplete_frame" }
+        : this.pending.size > 0 || this.replies.size > 0
+          ? { kind: "unknown", reason: "unresolved_requests" }
+          : { kind: "natural_eof", frameComplete: true },
+    );
     this.fail(
       new CodexTransportError(this.frameBytes > 0 ? "invalid_frame" : "closed"),
     );
-  private readonly onError = (): void =>
+  };
+
+  private readonly onOutputClose = (): void => {
+    // close/destroy without end cannot certify complete framing, even on exit 0.
+    if (!this.options.output.readableEnded)
+      this.recordOutputClosure({
+        kind: "unknown",
+        reason: "output_closed_early",
+      });
+    this.fail(new CodexTransportError("closed"));
+  };
+
+  private readonly onError = (): void => {
+    this.recordOutputClosure({ kind: "unknown", reason: "io" });
     this.fail(new CodexTransportError("io"));
+  };
+
+  private recordOutputClosure(closure: CodexOutputClosure): void {
+    if (this.outputClosure) return;
+    this.outputClosure = Object.freeze(closure);
+    this.resolveOutputClosed(this.outputClosure);
+  }
 
   private fail(error: CodexTransportError): void {
     if (this.closed) return;
     this.closed = true;
+    this.recordOutputClosure({
+      kind: "unknown",
+      reason:
+        error.reason === "invalid_frame" || error.reason === "overflow"
+          ? error.reason
+          : "io",
+    });
     this.options.output.off("data", this.onData);
-    this.options.output.off("end", this.onEnd);
-    this.options.output.off("close", this.onEnd);
-    this.options.input.off("close", this.onEnd);
+    this.options.output.off("end", this.onOutputEnd);
+    this.options.output.off("close", this.onOutputClose);
+    this.options.input.off("close", this.onInputClose);
     // Keep error handlers until the host disposes streams; a late EPIPE must be handled.
     for (const entry of this.pending.values()) {
       clearTimeout(entry.timer);
