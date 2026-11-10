@@ -131,7 +131,11 @@ export class LocalWorkspaceLease {
             event.sequence !== history.length + 1) throw new Error("Local lease replay identity or admitted producer mismatch");
         history.push(event);
       }
-      if (replay.nextSequence === null || replay.nextSequence === afterSequence) return history;
+      if (replay.nextSequence === null) return history;
+      if (!replay.events.length || !Number.isSafeInteger(replay.nextSequence) ||
+          replay.nextSequence <= (afterSequence ?? 0) || replay.nextSequence !== history.at(-1)?.sequence) {
+        throw new Error("Local lease replay cursor did not advance over its exact canonical page");
+      }
       afterSequence = replay.nextSequence;
     }
     throw new Error("Local lease replay exceeds its explicit recovery bound");
