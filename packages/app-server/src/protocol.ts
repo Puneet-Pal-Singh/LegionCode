@@ -360,6 +360,26 @@ export type LocalWorkspaceListFilesResult = z.infer<typeof LocalWorkspaceListFil
 export type LocalWorkspaceListFilesParams = z.infer<typeof LocalWorkspaceListFilesParamsSchema>;
 export type LocalWorkspaceReadFileParams = z.infer<typeof LocalWorkspaceReadFileParamsSchema>;
 
+/** Current filename suggestions only; no content, Git object or saved-artifact identity. */
+export const LOCAL_WORKSPACE_MENTION_CATALOG_MAX_BYTES = 256 * 1024;
+export const LocalWorkspaceFileMentionsParamsSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  path: LocalWorkspaceRelativePathSchema,
+}).strict();
+export const LocalWorkspaceFileMentionsResultSchema = z.object({
+  path: LocalWorkspaceRelativePathSchema,
+  files: z.array(LocalWorkspaceRelativePathSchema.refine((path) => path !== ".")).max(4_000),
+  truncated: z.boolean(),
+  truncationReason: z.enum(["pages", "entries", "files", "bytes", "depth", "deadline"]).nullable(),
+}).strict().refine(
+  (result) => result.truncated === (result.truncationReason !== null) &&
+    new Set(result.files).size === result.files.length &&
+    result.files.every((path) => result.path === "." || path.startsWith(`${result.path}/`)) &&
+    new TextEncoder().encode(JSON.stringify(result)).byteLength <= LOCAL_WORKSPACE_MENTION_CATALOG_MAX_BYTES,
+  "Filename catalog must preserve its bounded relative scope and truncation receipt",
+);
+export type LocalWorkspaceFileMentionsParams = z.infer<typeof LocalWorkspaceFileMentionsParamsSchema>;
+export type LocalWorkspaceFileMentionsResult = z.infer<typeof LocalWorkspaceFileMentionsResultSchema>;
 /** Original image preview bytes are transferred in chunks beneath the existing
  * response-body cap; no filesystem path or durable data URL crosses this port. */
 export const LOCAL_CHAT_IMAGE_CHUNK_MAX_BYTES = 256 * 1024;
@@ -467,6 +487,7 @@ export const AppServerMethodSchema = z.enum([
   "repository/tree",
   "repository/contents",
   "workspace/listFiles",
+  "workspace/fileMentions",
   "media/readImage",
   "workspace/readFile",
   "workspace/current",
@@ -558,6 +579,7 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("session/history"), params: ConversationHistoryRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("initialize"), params: z.object({ client: ClientSchema, requestedCapabilities: z.array(z.string().min(1).max(120)).max(100) }).strict() }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/listFiles"), params: LocalWorkspaceListFilesParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("workspace/fileMentions"), params: LocalWorkspaceFileMentionsParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("media/readImage"), params: LocalChatImageReadParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/readFile"), params: LocalWorkspaceReadFileParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/current"), params: EmptyParamsSchema }).strict(),
@@ -645,6 +667,7 @@ export const AppServerResultSchemas = {
   "session/history": ConversationHistoryResponseSchema,
   initialize: AppServerInitializeResponseSchema,
   "workspace/listFiles": LocalWorkspaceListFilesResultSchema,
+  "workspace/fileMentions": LocalWorkspaceFileMentionsResultSchema,
   "media/readImage": LocalChatImageReadResultSchema,
   "workspace/readFile": LocalWorkspaceReadFileResultSchema,
   "workspace/current": LocalWorkspaceGrantResponseSchema,
@@ -732,6 +755,7 @@ export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
   success("session/history", AppServerResultSchemas["session/history"]),
   success("initialize", AppServerResultSchemas.initialize),
   success("workspace/listFiles", AppServerResultSchemas["workspace/listFiles"]),
+  success("workspace/fileMentions", AppServerResultSchemas["workspace/fileMentions"]),
   success("media/readImage", AppServerResultSchemas["media/readImage"]),
   success("workspace/readFile", AppServerResultSchemas["workspace/readFile"]),
   success("workspace/current", AppServerResultSchemas["workspace/current"]),

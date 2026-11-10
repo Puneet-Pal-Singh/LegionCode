@@ -1,6 +1,7 @@
 import type { LocalProviderPreferenceScope } from "./protocol.js";
 import { APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES, appServerJsonByteLength } from "@repo/platform-protocol";
 import type { LocalWorkspaceListFilesParams, LocalWorkspaceListFilesResult, LocalWorkspaceReadFileParams } from "./protocol.js";
+import type { LocalWorkspaceFileMentionsParams, LocalWorkspaceFileMentionsResult } from "./protocol.js";
 import type { LocalChatImageReadParams, LocalChatImageReadResult } from "./protocol.js";
 import type { LocalTurnStartParams, LocalTurnInterruptParams, LocalThreadHistoryParams, LocalThreadHistoryResult, CheckoutListFilesResult, CheckoutReadFileResult } from "./protocol.js";
 import type { BYOKPreference, BYOKPreferencesUpdateRequest, BYOKResolution, BYOKResolveRequest } from "@repo/shared-types";
@@ -61,6 +62,7 @@ export type AppServerComposition = {
   serverVersion: string;
   workspaceService?: LocalWorkspaceService;
   localWorkspaceFilesService?: {
+    fileMentions?(params: LocalWorkspaceFileMentionsParams): Promise<LocalWorkspaceFileMentionsResult>;
     listFiles(params: LocalWorkspaceListFilesParams): Promise<LocalWorkspaceListFilesResult>;
     readFile(params: LocalWorkspaceReadFileParams): Promise<CheckoutReadFileResult>;
   };
@@ -569,6 +571,12 @@ async function dispatch(
         throw new AppServerOperationError(503, "server_unavailable", "Grant-scoped workspace reads are unavailable");
       }
       return composition.localWorkspaceFilesService.listFiles(request.params);
+    }
+    case "workspace/fileMentions": {
+      if (composition.environment !== "local" || !composition.localWorkspaceFilesService?.fileMentions) {
+        throw new AppServerOperationError(503, "server_unavailable", "Workspace file suggestions are unavailable", undefined, false);
+      }
+      return composition.localWorkspaceFilesService.fileMentions(request.params);
     }
     case "media/readImage": {
       if (composition.environment !== "local" || !composition.localChatMediaService) {

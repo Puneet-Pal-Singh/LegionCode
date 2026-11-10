@@ -1470,6 +1470,23 @@ selection and canonical Git mutation. Handler injection, local composition,
 capability advertisement and UI activation are not implemented by this boundary.
 No live-Git selector, fallback commit path or second artifact owner is introduced.
 
+## Desktop current-file mention suggestions
+
+SDK `listWorkspaceFileMentions` uses local `workspace/fileMentions` over the
+existing `LocalWorkspaceFilesService` native read owner. One borrowed, revocable
+physical root covers the entire query and remains held through native cleanup.
+The catalog contains current regular-file names only, never Git objects, file
+contents or immutable review evidence. Symlinks, special and reserved entries are
+not traversed or offered. Candidate policy excludes `.git`, `.legioncode`,
+`node_modules`, `.pnpm-store`, `.yarn`, `.venv`, `__pycache__`, `.next`, `.nuxt`,
+`.turbo`, `.cache` and `coverage` directories at every level. It honors opaque
+native directory pages without retaining a server-side tree/index or cursor.
+Each query is bounded to 128 pages, 20,000 examined entries, 4,000 files, 256 KiB
+of serialized result, 24 nested directory levels and five seconds. A limit
+returns an explicit truncation reason; it never claims a complete empty tree.
+The Desktop-owned mention hook and composer binding remain separate consumer
+integration. This backend change introduces no renderer filesystem access,
+attachment contents or new persistent filename index.
 ## Plan 057 — Read-only local Git service construction
 
 `createLocalReadOnlyGitService` exposes only `probeRepository` and `getStatus`
