@@ -1580,3 +1580,8 @@ against the same existing one-MiB response budget. This adapter does not select
 history, authorize Threads or introduce a new endpoint; the actual Turn service
 must delegate to the canonical bounded query and reauthorize before returning.
 That service-method integration remains with its current owner.
+
+Trusted hosts import the existing captured-execution and canonical capture/
+artifact Git constructors through explicit private package exports. Their
+implementation and policy remain unchanged; the generic server does not infer
+that those ports are present from package availability.
