@@ -33,7 +33,7 @@ import { ConnectProviderChooser } from "../provider/ConnectProviderChooser.js";
 import { SettingsSwitch as Switch } from "./Switch.js";
 import { formatModelDisplayName } from "../provider/modelDisplayName.js";
 import type { ReactNode } from "react";
-import { shouldIgnoreGlobalKeyDown } from "../hooks/global-keydown.js";
+import { useModalFocus } from "../hooks/modal-focus.js";
 
 const DISCONNECT_TOAST_DURATION_MS = 4_000;
 
@@ -120,75 +120,7 @@ export function SharedSettingsDialog({
     setActionError(null);
   }, [initialSection, isOpen]);
 
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    const handleEscape = (event: KeyboardEvent): void => {
-      if (shouldIgnoreGlobalKeyDown(event)) return;
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose();
-      }
-    };
-
-    window.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
-  }, [isOpen, onClose]);
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    const handleTabKey = (event: KeyboardEvent): void => {
-      if (shouldIgnoreGlobalKeyDown(event)) return;
-      if (event.key !== "Tab") {
-        return;
-      }
-
-      const focusableElements = modalRef.current?.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      );
-
-      if (!focusableElements || focusableElements.length === 0) {
-        return;
-      }
-
-      const firstElement = focusableElements[0];
-      const lastElement = focusableElements[focusableElements.length - 1];
-      if (!firstElement || !lastElement) {
-        return;
-      }
-
-      if (event.shiftKey && document.activeElement === firstElement) {
-        event.preventDefault();
-        lastElement.focus();
-      } else if (!event.shiftKey && document.activeElement === lastElement) {
-        event.preventDefault();
-        firstElement.focus();
-      }
-    };
-
-    window.addEventListener("keydown", handleTabKey);
-    return () => window.removeEventListener("keydown", handleTabKey);
-  }, [isOpen]);
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    const frameId = window.requestAnimationFrame(() => {
-      const focusables = modalRef.current?.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      );
-      focusables?.[0]?.focus();
-    });
-
-    return () => window.cancelAnimationFrame(frameId);
-  }, [isOpen]);
+  useModalFocus({ isOpen, modalRef, onClose });
 
   const connectedProviders = useMemo(
     () => buildConnectedProviderRows(catalog, credentials),
@@ -324,6 +256,7 @@ export function SharedSettingsDialog({
       >
         <div
           ref={modalRef}
+          tabIndex={-1}
           role="dialog"
           aria-modal="true"
           aria-labelledby="settings-dialog-title"

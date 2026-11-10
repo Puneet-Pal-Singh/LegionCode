@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { PanelLeftOpen } from "lucide-react";
 import { shouldIgnoreGlobalKeyDown } from "../hooks/global-keydown.js";
+import { getVisibleFocusTargets } from "../hooks/modal-focus.js";
 
 const COMPACT_WORKSPACE_QUERY = "(max-width: 1023px)";
-const SIDEBAR_FOCUSABLE_SELECTOR =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export interface WorkspaceFrameProps {
   sidebar: ReactNode;
@@ -63,7 +62,8 @@ export function WorkspaceFrame({
 
     if (previous.isSidebarOpen === isSidebarOpen) return;
     if (!previous.isSidebarOpen && isSidebarOpen && isCompact) {
-      sidebarRef.current?.querySelector<HTMLElement>(SIDEBAR_FOCUSABLE_SELECTOR)?.focus();
+      const sidebarElement = sidebarRef.current;
+      if (sidebarElement) (getVisibleFocusTargets(sidebarElement)[0] ?? sidebarElement).focus();
     } else if (previous.isSidebarOpen && !isSidebarOpen && previous.isCompact) {
       menuButtonRef.current?.focus();
     }
@@ -91,9 +91,7 @@ export function WorkspaceFrame({
         .map((id) => document.getElementById(id))
         .filter((element): element is HTMLElement => Boolean(element?.getAttribute("role") === "dialog"));
       const focusRoots = [sidebarElement, ...ownedDialogs];
-      const focusable = focusRoots.flatMap((element) => Array.from(
-        element.querySelectorAll<HTMLElement>(SIDEBAR_FOCUSABLE_SELECTOR),
-      )).filter((element) => element.tabIndex >= 0 && isVisibleFocusTarget(element));
+      const focusable = focusRoots.flatMap(getVisibleFocusTargets);
       if (focusable.length === 0) {
         event.preventDefault();
         sidebarElement.focus();
@@ -169,23 +167,4 @@ export function WorkspaceFrame({
       </div>
     </div>
   );
-}
-
-function isVisibleFocusTarget(element: HTMLElement): boolean {
-  for (
-    let current: HTMLElement | null = element;
-    current;
-    current = current.parentElement
-  ) {
-    const style = window.getComputedStyle(current);
-    if (
-      current.hidden ||
-      style.display === "none" ||
-      style.visibility === "hidden" ||
-      style.visibility === "collapse"
-    ) {
-      return false;
-    }
-  }
-  return true;
 }
