@@ -20,6 +20,8 @@ export async function verifyBundledProcessHelper(
   const diagnostics = await inspectNativeFileHelper(executablePath, platform, architecture);
   const probe = await readHelperReceipt(executablePath, ["--probe-writer-intent"], [], "intent-probe");
   if (!probe.equals(Buffer.from(supportedIntentFrame))) throw unavailable();
+  console.info(JSON.stringify({ helper: "legioncode-process-helper", stage: "bundled-intent-probe",
+    intentProbe: JSON.parse(probe.toString("utf8")) }));
 
   const directory = await mkdtemp(join(tmpdir(), "legioncode-package-fence-"));
   let lease, root, namespace;
@@ -30,7 +32,7 @@ export async function verifyBundledProcessHelper(
     root = await open(rootPath, "r");
     namespace = await open(namespacePath, "r");
     // Actual exclusive creation, never an existing empty/legacy fence inode.
-    lease = await open(join(namespacePath, "fence"), "wx", 0o600);
+    lease = await open(join(namespacePath, "fence"), "wx+", 0o600);
     const receipt = await readHelperReceipt(executablePath, [
       "--acquire-lease-fd", "6", "--root-fd", "5", "--namespace-fd", "7", "--initialize-empty", "1",
     ], [root.fd, lease.fd, namespace.fd], "fresh-inode-acquisition");
