@@ -2455,3 +2455,22 @@ renderer-supplied host path and does not manufacture a Turn scope for steering.
 
 - Existing media/readImage authorizes the actual Turn, resolves initial-prompt or accepted/applied/unconfirmed input attachment references through canonical owners, and reauthorizes after the bounded read. Accepted inputs use the same queued-media original-byte reader with full immutable scope/fingerprint/ref-set checks.
 - No synthetic Turn scope, normalized replacement bytes, renderer body fallback or new endpoint is introduced. Pending queue previews remain a separate strict-scope consumer; Native route activation still waits for held-successor admission. No new tests.
+
+## Plan 057 — Held Native queued preparation
+
+The existing Native writer owner acquires the candidate lease before queued
+admission. One synchronously returned preparation object retains the original
+acquisition and cleanup tasks. Under that held writer, the canonical latest
+Thread admission is read and its existing immutable Native resource-settlement
+receipt is verified; missing legacy evidence remains recovery-required. The
+verified predecessor identity is passed to the same SQLite queued-admission CAS.
+
+Captured Build uses the exact reserved lease and original binding after full
+admission/attempt identity checks, without reacquiring a writer. Queued Plan
+retains that same writer through the original executor's positive settlement.
+Unused cleanup first fences new work and drains original acquisition/publication;
+only canonical candidate absence or an exact known unused-acquisition proof can
+release it. Unknown closure retains the binding and lease. The existing Desktop
+ABI probe, lexical lease owner, capture and resource-receipt callbacks remain
+canonical. Public route availability still requires the actual runtime consumer
+and same-transaction predecessor guard; this port alone does not activate it.
