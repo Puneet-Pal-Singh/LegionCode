@@ -431,8 +431,9 @@ export class DelegatedTurnCoordinator {
       );
     // Validate against the exact committed descriptor before consuming any handle.
     // A malformed answer must not poison the valid correction's single-use claim.
+    let normalized: ReturnType<typeof normalizeUserInputResponse>;
     try {
-      response = normalizeUserInputResponse(request.payload, response);
+      normalized = normalizeUserInputResponse(request.payload, response);
     } catch {
       throw new RuntimeKernelError("tool_policy_denied", "User input response does not match the pending question");
     }
@@ -452,7 +453,7 @@ export class DelegatedTurnCoordinator {
     this.assertNotStopped();
     await this.options.lifecycle.respondUserInput(
       requestId,
-      response,
+      normalized,
       respondedBy,
     );
     this.userInputs.delete(requestId);
@@ -460,7 +461,7 @@ export class DelegatedTurnCoordinator {
     await this.options.dependencies.harness.control({
       kind: "user_input_reply",
       commandId: `user_input:${requestId}`,
-      reply: { replyTo: request.replyTo, response },
+      reply: { replyTo: request.replyTo, response: normalized },
     });
   }
 
