@@ -1470,6 +1470,28 @@ selection and canonical Git mutation. Handler injection, local composition,
 capability advertisement and UI activation are not implemented by this boundary.
 No live-Git selector, fallback commit path or second artifact owner is introduced.
 
+## Plan 057 — Read-only local Git service construction
+
+`createLocalReadOnlyGitService` exposes only `probeRepository` and `getStatus`
+from `DefaultGitService` through the existing canonical Node Git executor and
+verified Mac transport. Every command uses read-only probe policy; private-index
+requests are rejected. The original host lender retains root lifetime and
+quarantine responsibility, with an optional turn signal combined inside its loan.
+This private builder/export creates no runner, pin, lease or mutation capability.
+Actual native runtime consumer composition remains separate integration work.
+
+## Plan 057 — Local interruption command adapter
+
+`LocalInterruptionService` validates the requested workspace, Thread, Run, Turn
+and Run Attempt against durable admission, then delegates active Stop to the
+existing executor. Canonical lifecycle replay alone supplies a terminal receipt;
+delivery acknowledgement without terminal evidence reports only
+`interrupt_requested`. Replay validates the exact scope through the final page
+and rejects events after a terminal. The caller retains current Thread/grant
+authorization. RuntimeKernel remains the only terminal producer; this adapter
+adds no polling, state store or resource-release proof. LocalTurnService and App
+Server composition remain separate integration work.
+
 ## Local original image bytes and resource disposition
 
 `LocalChatMediaStore` owns private original image bytes through the shared
@@ -1512,6 +1534,23 @@ Profile isolation remains the existing Desktop user-data SQLite owner. Runtime
 factory composition owns injecting this service with the same grant authority and
 SQLite instance. These source changes do not claim installed persistence proof.
 
+## Plan 057 — Canonical local request byte budgets
+
+The existing local HTTP reader enforces the protocol-exported 256 KiB request
+budget after authentication and before schema validation/dispatch. This replaces
+its private 32 KiB literal so valid 24,000-code-unit text prompts fit their JSON
+envelope. Timeouts, response limits, prompt validation and uncertain-delivery
+semantics retain their existing owners. The same protocol owner gives image-bearing
+`turn/start` envelopes a bounded opt-in budget: four images and at most 10 MiB
+decoded in aggregate, with base64 expansion plus the text envelope budget. The SDK
+sets the private opt-in only for authenticated loopback transport; the local HTTP
+reader authenticates before accepting that capacity, then requires the canonical
+start schema and an image-bearing method before dispatch. Other methods keep the
+text budget. The start contract reuses canonical image/text-presence validation
+and may carry an expected provider/model assertion; actual media normalization,
+quota, immutable storage, provider-route checks and runtime admission remain with
+their composed owners. These request contracts enable no execution mode.
+
 ## Plan 057 — Local approval command adapter
 
 `LocalApprovalService` reauthorizes the recorded Thread through the current
@@ -1533,6 +1572,18 @@ This schema foundation does not select runtime behavior, project availability,
 validate actual composed ports or enable attachments, tools or mutations. The
 Turn service/runtime admission and handshake composition retain those obligations.
 Hosted request behavior and existing Git/provider contracts remain unchanged.
+
+## Plan 057 — Canonical local admission configuration metadata
+
+The existing runtime `createLocalTurnAdmission` producer may retain validated
+canonical configuration and a content-digest image fingerprint in the durable
+user-message JSON. It reuses RunMode and the existing configuration/digest schemas;
+optional fields preserve existing callers and the default ask mode. Empty text
+requires a valid digest, but digest syntax is not image authorization or evidence
+that image bytes exist. The actual trusted Turn/runtime caller remains responsible
+for composed mode/permission availability and deriving the fingerprint from real
+authorized images. No image bytes, media store, admission owner, lifecycle producer
+or capability is introduced by this metadata leaf.
 
 ## Plan 057 — Shared App Server response budget
 
