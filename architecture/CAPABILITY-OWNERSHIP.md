@@ -1151,6 +1151,8 @@ never rendered as a successfully verified closed pull request.
 - Shared client UI `useThreadInputQueue` owns the existing queue read/mutation
   delivery hook through an injected SDK client and host read key. Web retains its
   authenticated client and unchanged full hosted scope key in a thin wrapper.
+  Per-hook client/scope bindings fence displayed snapshots, read outcomes and
+  mutation completion; an older read failure cannot override a newer read.
   The shared hook renders server snapshots/receipts; it does not admit turns,
   store durable inputs, or dispatch queued work. Desktop mounting remains gated
   on an actual local input capability and canonical server/runtime owner.

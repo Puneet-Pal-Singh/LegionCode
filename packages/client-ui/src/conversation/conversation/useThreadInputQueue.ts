@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -33,31 +34,37 @@ export interface ThreadInputQueueActiveTarget {
   readonly runAttemptId: string;
 }
 
+type QueueBinding = {
+  readonly scopeKey: string | null;
+  readonly client: ThreadInputQueueClient;
+};
+
 export function useThreadInputQueue(
   scope: ThreadInputQueueScope | null,
   activeTarget: ThreadInputQueueActiveTarget | null,
   invalidationKey: string,
   client: ThreadInputQueueClient,
 ) {
+  const scopeKey = scope?.key ?? null;
+  const binding = useMemo<QueueBinding>(() => ({ scopeKey, client }), [scopeKey, client]);
   const [snapshotState, setSnapshotState] = useState<{
-    scopeKey: string;
+    binding: QueueBinding;
     value: ThreadInputQueueSnapshot;
   } | null>(null);
   const [errorState, setErrorState] = useState<{
-    scopeKey: string;
+    binding: QueueBinding;
     value: string;
   } | null>(null);
-  const scopeKey = scope?.key ?? null;
-  const scopeKeyRef = useRef(scopeKey);
+  const bindingRef = useRef<QueueBinding | null>(binding);
   const requestVersionRef = useRef(0);
   const snapshotRef = useRef<{
-    scopeKey: string;
+    binding: QueueBinding;
     value: ThreadInputQueueSnapshot;
   } | null>(null);
 
   const snapshot =
-    snapshotState?.scopeKey === scopeKey ? snapshotState.value : null;
-  const error = errorState?.scopeKey === scopeKey ? errorState.value : null;
+    snapshotState?.binding === binding ? snapshotState.value : null;
+  const error = errorState?.binding === binding ? errorState.value : null;
   const hasPendingItems = Boolean(
     snapshot &&
     snapshot.items.some(
@@ -70,39 +77,44 @@ export function useThreadInputQueue(
   );
 
   useLayoutEffect(() => {
-    scopeKeyRef.current = scopeKey;
+    bindingRef.current = binding;
     requestVersionRef.current += 1;
     snapshotRef.current = null;
-  }, [scopeKey]);
+    return () => {
+      if (bindingRef.current !== binding) return;
+      bindingRef.current = null;
+      requestVersionRef.current += 1;
+    };
+  }, [binding]);
 
   const refresh = useCallback(async () => {
-    if (!scope) return null;
-    const capturedKey = scopeKey;
+    if (!scope || bindingRef.current !== binding) return null;
+    const capturedBinding = binding;
     const requestVersion = ++requestVersionRef.current;
     try {
       const next = await client.listThreadInputs({
         operation: "thread.input.list",
         threadId: ThreadIdSchema.parse(scope.threadId),
         workspaceId: WorkspaceScopeIdSchema.parse(scope.workspaceId),
-        ...(snapshotRef.current?.scopeKey === capturedKey
+        ...(snapshotRef.current?.binding === capturedBinding
           ? { knownRevision: snapshotRef.current.value.revision }
           : {}),
       });
       if (
-        scopeKeyRef.current !== capturedKey ||
+        bindingRef.current !== capturedBinding ||
         requestVersionRef.current !== requestVersion
       ) {
         return null;
       }
-      const nextState = { scopeKey: capturedKey!, value: next };
+      const nextState = { binding: capturedBinding, value: next };
       setSnapshotState(nextState);
       snapshotRef.current = nextState;
       setErrorState(null);
       return next;
     } catch (requestError) {
-      if (scopeKeyRef.current === capturedKey) {
+      if (bindingRef.current === capturedBinding && requestVersionRef.current === requestVersion) {
         setErrorState({
-          scopeKey: capturedKey!,
+          binding: capturedBinding,
           value:
             requestError instanceof Error
               ? requestError.message
@@ -111,7 +123,7 @@ export function useThreadInputQueue(
       }
       return null;
     }
-  }, [client, scope, scopeKey]);
+  }, [binding, client, scope]);
 
   useEffect(() => {
     if (!scope) return;
@@ -140,21 +152,22 @@ export function useThreadInputQueue(
     async (
       action: () => Promise<ThreadInputReceipt>,
     ): Promise<ThreadInputReceipt | null> => {
-      const capturedKey = scopeKey;
+      if (!scope || bindingRef.current !== binding) return null;
+      const capturedBinding = binding;
       try {
         const receipt = await action();
-        if (scopeKeyRef.current !== capturedKey) return null;
+        if (bindingRef.current !== capturedBinding) return null;
         if (receipt.status === "conflict") {
-          setErrorState({ scopeKey: capturedKey!, value: receipt.message });
+          setErrorState({ binding: capturedBinding, value: receipt.message });
         } else {
           setErrorState(null);
         }
         await refresh();
-        return receipt;
+        return bindingRef.current === capturedBinding ? receipt : null;
       } catch (requestError) {
-        if (scopeKeyRef.current === capturedKey) {
+        if (bindingRef.current === capturedBinding) {
           setErrorState({
-            scopeKey: capturedKey!,
+            binding: capturedBinding,
             value:
               requestError instanceof Error
                 ? requestError.message
@@ -164,7 +177,7 @@ export function useThreadInputQueue(
         return null;
       }
     },
-    [refresh, scopeKey],
+    [binding, refresh, scope],
   );
 
   const update = useCallback(
