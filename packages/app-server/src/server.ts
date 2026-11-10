@@ -36,6 +36,8 @@ import type {
   LifecycleEvent,
   ReplayLifecycleEventsRequest,
   ReplayLifecycleEventsResponse,
+  ReadLifecycleEventChunkRequest,
+  ReadLifecycleEventChunkResponse,
   SubmitLifecycleApprovalRequest,
   ThreadInputCommand,
 } from "@repo/platform-protocol";
@@ -150,6 +152,7 @@ export type AppServerComposition = {
   };
   localLifecycleReplayService?: {
     replayLifecycleEvents(params: ReplayLifecycleEventsRequest): Promise<ReplayLifecycleEventsResponse>;
+    readLifecycleEventChunk?(params: ReadLifecycleEventChunkRequest): Promise<ReadLifecycleEventChunkResponse>;
   };
   hostedLifecycleOperationsService?: {
     replayLifecycleEvents(params: ReplayLifecycleEventsRequest): Promise<ReplayLifecycleEventsResponse>;
@@ -443,6 +446,15 @@ async function dispatch(
       }
       if (!composition.hostedLifecycleOperationsService) throw new Error("unsupported");
       return composition.hostedLifecycleOperationsService.replayLifecycleEvents(request.params);
+    }
+    case "turn/lifecycleEventChunk": {
+      if (composition.environment !== "local") {
+        throw new AppServerOperationError(400, "invalid_request", "Lifecycle event byte reads require a local environment", undefined, false);
+      }
+      if (!composition.localLifecycleReplayService?.readLifecycleEventChunk) {
+        throw new AppServerOperationError(503, "server_unavailable", "Lifecycle event byte reads are unavailable", undefined, false);
+      }
+      return composition.localLifecycleReplayService.readLifecycleEventChunk(request.params);
     }
     case "turn/diff": {
       if (composition.environment === "local") {
