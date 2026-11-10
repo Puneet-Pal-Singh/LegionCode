@@ -1,7 +1,5 @@
 import { RuntimeCredentialClient, type RuntimeCredentialRequest } from "./runtime-credentials";
-import { ProviderIdSchema } from "@repo/shared-types";
-import { createLocalProviderModelDiscovery } from "@legioncode/app-server/local-provider-model-discovery";
-import { createWorkspaceFileComposition } from "./workspace-file-composition";
+import { createDesktopNativeComposition } from "./native-runtime-composition";
 import {
   runLocalAppServerProcess,
   type LocalAppServerMessage,
@@ -52,12 +50,8 @@ parentPort.on("message", async ({ data }) => {
   }
   started = true;
   try {
-    processControl = await runLocalAppServerProcess(parentPort, data, {
-      ...createWorkspaceFileComposition(data),
-      providerModelCatalog: createLocalProviderModelDiscovery({
-        resolveCredential: (providerId) => runtimeCredentials.resolveRuntimeCredential(ProviderIdSchema.parse(providerId)),
-      }),
-    });
+    const composition = await createDesktopNativeComposition(data, runtimeCredentials);
+    processControl = await runLocalAppServerProcess(parentPort, data, composition);
     if (!processControl) {
       retainUnknownClosure();
       return;
