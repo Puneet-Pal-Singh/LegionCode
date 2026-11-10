@@ -1470,6 +1470,23 @@ selection and canonical Git mutation. Handler injection, local composition,
 capability advertisement and UI activation are not implemented by this boundary.
 No live-Git selector, fallback commit path or second artifact owner is introduced.
 
+## Desktop current-file mention suggestions
+
+SDK `listWorkspaceFileMentions` uses local `workspace/fileMentions` over the
+existing `LocalWorkspaceFilesService` native read owner. One borrowed, revocable
+physical root covers the entire query and remains held through native cleanup.
+The catalog contains current regular-file names only, never Git objects, file
+contents or immutable review evidence. Symlinks, special and reserved entries are
+not traversed or offered. Candidate policy excludes `.git`, `.legioncode`,
+`node_modules`, `.pnpm-store`, `.yarn`, `.venv`, `__pycache__`, `.next`, `.nuxt`,
+`.turbo`, `.cache` and `coverage` directories at every level. It honors opaque
+native directory pages without retaining a server-side tree/index or cursor.
+Each query is bounded to 128 pages, 20,000 examined entries, 4,000 files, 256 KiB
+of serialized result, 24 nested directory levels and five seconds. A limit
+returns an explicit truncation reason; it never claims a complete empty tree.
+The Desktop-owned mention hook and composer binding remain separate consumer
+integration. This backend change introduces no renderer filesystem access,
+attachment contents or new persistent filename index.
 ## Plan 057 — Read-only local Git service construction
 
 `createLocalReadOnlyGitService` exposes only `probeRepository` and `getStatus`
@@ -1662,6 +1679,31 @@ SQLite exclusive-lock owner is open and before new commands become ready.
 The private admission enumeration, native runtime port and App Server before-ready
 barrier are separately owned integration dependencies. This leaf does not claim
 to activate that startup barrier or recover captured Build resources.
+
+## Plan 057 — Canonical local Thread runtime read summary
+
+The same SQLite admission owner streams validated admission references and scoped
+lifecycle records to derive Thread runtime facts without writing projection state
+or platform terminal events. An immutable harnessSelection tag on the Run or user
+message denotes delegated ownership and is skipped without parsing driver data;
+Native lifecycle facts must come from the admitted worker's canonical producer.
+Without indexed Native admissions this read leaves the base projection unchanged.
+The latest indexed Native admission supplies its user leaf
+until settled; a settled Turn may supply its completed final assistant item.
+The Thread service applies that leaf only when the admission Run matches its
+existing latest platform Run pointer, preserving newer external runtime leaves.
+Runtime and existing platform terminal facts use the shared event insertion order
+for lastTerminalTurnId; canonical activity timestamps never replace later metadata.
+Thread title, pin/archive metadata, activeRunId pointer and platform projection
+sequence retain their existing owners. The admission producer links the next Turn
+to that last settled Turn and its current canonical leaf. Native factory wiring
+must inject this narrow read port from its existing single LocalPersistence owner.
+No second admission store, lifecycle reducer, terminal writer or Thread table is
+introduced; root startup composition owns the same-store injection.
+The existing SQLite admission transaction also checks Native candidate parent
+Turn/item references against those same current facts after receipt lookup and
+unsettled-Turn refusal. Stale prepared candidates are rejected, never reparented;
+immutable delegated selections remain with their existing admission owner.
 
 ## Plan 057 — Canonical named repository HEAD evidence
 
