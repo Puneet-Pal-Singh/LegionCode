@@ -2340,3 +2340,13 @@ authority. The receipt proves logical pre-dispatch settlement only. The physical
 candidate owner must independently retain and drain its original admission
 publication, prove authority was never exposed, and positively release the same
 held physical lease before closing its exact binding.
+
+## Plan 057 / 061 — Atomic local admission composition
+
+LocalTurnAdmissions remains the canonical local admission writer. Its synchronous
+admitWithin port requires the original SQLite transaction; basic Native admission,
+queued-input consumption and private delegated preparation can compose their own
+CAS with the same canonical admission and event append, without nested asynchronous
+transactions or a second admission owner. Existing scope, fingerprint, parent and
+unsettled-turn checks are unchanged. Canonical Thread ownership reads are shared
+with the local queue adapter and retain one-record streaming memory.
