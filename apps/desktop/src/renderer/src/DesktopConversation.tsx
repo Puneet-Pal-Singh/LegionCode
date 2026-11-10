@@ -127,7 +127,7 @@ function SelectedConversation({
   // The visible input leases capture eligibility; this exact conversation owns
   // attachment URLs and in-flight submission settlement across layout changes.
   const imageDraft = useChatImageAttachmentDraft(false);
-  const projectChangeReason = projectChangeUnavailableReason ??
+  const workspaceControlsReason = projectChangeUnavailableReason ??
     (!providerReady ? "Reconnect Desktop before changing projects."
       : conversation.executionActive || isApprovalVisible
         ? "Stop the current task before changing projects."
@@ -135,9 +135,11 @@ function SelectedConversation({
           ? "Confirm the current message's delivery before changing projects."
           : conversation.loading || !conversation.historyReady || conversation.historyError || conversation.hasNewerPages
             ? "Load the latest saved conversation before changing projects."
-            : draft.value.input.length > 0 || imageDraft.attachments.length > 0
-              ? "Send or clear your draft before changing projects."
-              : undefined);
+            : undefined);
+  const projectChangeReason = workspaceControlsReason ??
+    (draft.value.input.length > 0 || imageDraft.attachments.length > 0
+      ? "Send or clear your draft before changing projects."
+      : undefined);
   const projectChoice = useRef({ reason: projectChangeReason, onProjectClick });
   projectChoice.current = { reason: projectChangeReason, onProjectClick };
   const [showProjectChangeNotice, setShowProjectChangeNotice] = useState(false);
@@ -229,7 +231,11 @@ function SelectedConversation({
       renderComposer={(layout) => (
         <>
           {showProjectChangeNotice && projectChangeReason ? (
-            <ChatErrorNotice message={projectChangeReason} />
+            <ChatErrorNotice
+              message={projectChangeReason}
+              remediation="Your current conversation and draft have been kept."
+              actionLabel=""
+            />
           ) : null}
           {conversation.loading ? (
             <div className="mb-3 [&>.lc-client-screen]:!h-auto [&>.lc-client-screen]:!w-full [&>.lc-client-screen]:!bg-transparent">
@@ -277,7 +283,8 @@ function SelectedConversation({
                   scopeKey={`${thread.workspaceId}:${workspaceGrantAt}:${thread.id}`}
                   projectName={projectName}
                   onChooseProject={onProjectClick ? chooseProject : undefined}
-                  disabledReason={projectChangeReason}
+                  projectUnavailableReason={projectChangeReason}
+                  disabledReason={workspaceControlsReason}
                 />
               }
               layout={layout}
