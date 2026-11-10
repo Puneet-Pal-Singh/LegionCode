@@ -1994,3 +1994,10 @@ Desktop's workspace/grant/Thread-scoped UI owner retains text, configuration and
 the existing image draft across hero/docked layout changes and history refresh.
 Web keeps its default local image owner. Native File/Open Folder dispatches only
 trusted no-payload intent to the existing picker and explicit grant flow.
+
+Local lifecycle replay authorizes from the canonical saved Turn admission and
+its currently granted Thread, rather than requiring a first runtime event.
+An admitted Turn may return an actual empty event page while runtime preflight
+is pending. Unknown Turns remain not found; returned event Thread, Turn, attempt
+and admitted worker identity must agree. Authorization is checked again after
+the replay read. No status, event, terminal or retrying prompt is synthesized.

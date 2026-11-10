@@ -252,7 +252,7 @@ async function handleRequest(
   writeJson(response, result.statusCode, result.payload, result.headers);
 }
 
-/** Read canonical runtime bytes only after resolving their thread in the current grant. */
+/** Admission authorizes replay even while runtime preflight has not emitted events. */
 async function replayLocalLifecycle(
   persistence: LocalPersistence,
   threadService: LocalThreadService,
@@ -261,24 +261,32 @@ async function replayLocalLifecycle(
   if (params.backend && params.backend !== "execution-engine-v1") {
     throw new AppServerOperationError(400, "invalid_request", "Hosted execution backends are unavailable locally");
   }
-  const first = await persistence.lifecycleEvents.replay({
-    turnId: params.turnId, afterSequence: null, limit: 1,
-  });
-  const event = first.events[0];
-  if (!event) throw new AppServerOperationError(404, "not_found", "Local turn was not found");
-  try {
-    await threadService.get(event.threadId);
-  } catch (error) {
-    if (error instanceof LocalThreadNotFoundError) {
-      throw new AppServerOperationError(404, "not_found", "Local turn was not found in the granted workspace");
+  const admission = await persistence.turnAdmissions.getByTurn(params.turnId);
+  if (!admission) throw new AppServerOperationError(404, "not_found", "Local turn was not found");
+  const authorizeThread = async () => {
+    try {
+      const thread = await threadService.get(admission.run.threadId);
+      if (thread.workspaceId !== admission.run.workspaceId) throw new LocalThreadNotFoundError();
+    } catch (error) {
+      if (error instanceof LocalThreadNotFoundError) {
+        throw new AppServerOperationError(404, "not_found", "Local turn was not found in the granted workspace");
+      }
+      throw error;
     }
-    throw error;
-  }
-  return persistence.lifecycleEvents.replay({
+  };
+  await authorizeThread();
+  const page = await persistence.lifecycleEvents.replay({
     turnId: params.turnId,
     afterSequence: params.afterSequence ?? null,
     limit: params.limit ?? 1_000,
   });
+  if (page.events.some((event) => event.threadId !== admission.run.threadId ||
+      event.turnId !== admission.turn.id || event.runAttemptId !== admission.runAttemptId ||
+      event.producer.id !== admission.run.workerId)) {
+    throw new AppServerOperationError(503, "server_unavailable", "Local turn history does not match its admission");
+  }
+  await authorizeThread();
+  return page;
 }
 
 function readBody(
