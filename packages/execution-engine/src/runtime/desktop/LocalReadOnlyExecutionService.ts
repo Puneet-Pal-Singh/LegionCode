@@ -1,6 +1,6 @@
 import { formatLocalReadFile } from "./LocalReadFileOutput.js";
 import { readLocalDirectory } from "./LocalReadOnlyDirectory.js";
-import { reservedComponent } from "./NativeFilesystemBridge.js";
+import { isReservedNativeWorkspacePath } from "./NativeFilesystemBridge.js";
 import { openLocalWorkspaceEntry } from "./LocalReadOnlyWorkspaceHandle.js";
 import { lstat, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
@@ -95,7 +95,7 @@ export class LocalReadOnlyExecutionService implements RuntimeExecutionService {
     if (isAbsolute(local) || local === ".." || local.startsWith(`..${sep}`)) {
       throw new Error("Workspace path escapes the granted root");
     }
-    if (local.split(sep).some(reservedComponent))
+    if (local.split(sep).some(isReservedNativeWorkspacePath))
       throw new Error("Reserved workspace directories are unavailable");
     // Do not follow symlinks, including aliases that point back inside the grant.
     let component = root;
