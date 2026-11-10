@@ -616,6 +616,19 @@ that runtime/client/schema compatibility claim.
   replacing its tool row. This is a translation/presentation consideration,
   not an additional LegionCode feature or capability claim in this checkpoint.
 
+The subsequent pre-merge review for workspace settings PR #817 inspected T3
+`d756fed7aaac06134bc68cbe0047e6f14b0e9aa2` and OpenCode
+`95aa28e5c8b72007c5b4a7cbe59eadb3e8b1a863`. T3's
+[cancelled-run handoff change](https://github.com/pingdotgg/t3code/commit/d756fed7aaac06134bc68cbe0047e6f14b0e9aa2)
+adds started cancelled runs to terminal handoff candidates, excluding work that
+never started. LegionCode does not infer physical closure from cancelled status
+or copy this product handoff policy: an admitted attempt keeps its frozen
+account/environment/runtime binding, Stop acceptance remains separate from
+quiescence, and there is no silent cross-environment or payer migration. OpenCode's
+[sidebar change](https://github.com/anomalyco/opencode/commit/95aa28e5c8b72007c5b4a7cbe59eadb3e8b1a863)
+affects session UI presentation, with no native protocol, installation or account
+authority change. Runtime pins remain unchanged.
+
 ### 13.2 Shared user flow
 
 Settings → Agents → Add agent is shared client-ui using the existing SDK/App

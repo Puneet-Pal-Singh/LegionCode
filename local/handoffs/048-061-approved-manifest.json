@@ -16,8 +16,8 @@
       "bytes": 23905
     },
     "plans/rebuild/product-plans/LLD/048-local-harness-integration-and-chatgpt-plan-usage.md": {
-      "sha256": "d602de11e7f3696154dcaa2988afc3da02b0a7b9523009c53f77443a0a81cdee",
-      "bytes": 54436
+      "sha256": "f051d4318c36fa16c9e7949ebfd4023ce9f2f1d4630d9028baf2d79a6daad0bd",
+      "bytes": 55362
     },
     "plans/rebuild/product-plans/061-CLOUD-HARNESS-INTEGRATION-PLAN.md": {
       "sha256": "9c62b953f7a8cb5b86bdfcabbd9b3b4790df95c4942f57dc0ddbf00e07d5922b",
@@ -94,5 +94,5 @@
   "scope_note": "Codex and OpenCode first, cloud acceptance061 plus independent048Mac work. Claude preserved, not critical path. This commit carries approved local planning updates only; source checkpoint still requires reviewed-dev reconciliation. Primary dirty source and primary capability ledger are excluded. Reviewed integration instructions and tracked architecture authority retained; current primary AGENTS has stale pre-SDK wording overridden by user fixed construction.",
   "coordinator_checkpoint_at": "2026-11-11 Asia/Kolkata",
   "reviewed_integration_base": "40eef70370796788dcadf2a1e8a83b2653421232",
-  "checkpoint_scope": "Three existing plan documents only: actual merged custody checkpoint and user-required periodic upstream review; architecture/transport decisions and other approved document bytes unchanged."
+  "checkpoint_scope": "Existing plan checkpoints plus periodic upstream evidence; latest delta changes only LLD048 reference notes and this manifest. Architecture/transport decisions and runtime pins unchanged."
 }
