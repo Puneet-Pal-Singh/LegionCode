@@ -15,6 +15,7 @@
 #include <string.h>
 #include <strings.h>
 #include <errno.h>
+#include "legioncode-child-intent.h"
 
 /* LCFM/1, no arguments: trusted root directory object is inherited at FD 3.
  * OPEN: "LCFM", byte 1, byte 'R' (read), 'M' (mutate), or 'D' (directory), u32be path length, path.
@@ -319,7 +320,11 @@ static int run(void) {
   if (memchr(requested_path, 0, path_length)) return fail(1, "NUL is not allowed in a workspace path");
   requested_path[path_length] = 0;
   if (header[5] == 'I' || header[5] == 'G') return inspect_git_metadata(header[5] == 'G');
-  if (header[5] == 'T') return run_private_transaction(requested_path);
+  if (header[5] == 'T') {
+    lc_child_intent writer_header;
+    if (!lc_borrowed_header(6, 3, &writer_header)) return fail(5, "Writer intent authority is unavailable");
+    return run_private_transaction(requested_path);
+  }
   if (header[5] == 'D') return list_directory();
   parent_fd = open_parent(requested_path, name);
   if (parent_fd < 0) return fail(5, "Workspace parent must exist without symlinks or protected components");
@@ -328,8 +333,10 @@ static int run(void) {
    * mutation and cleanup work. Never reopen, unlock, unlink or close it here. */
   if (header[5] == 'M') {
     struct stat lease;
+    lc_child_intent writer_header;
     if (fstat(6, &lease) || !S_ISREG(lease.st_mode))
       return fail(5, "Mutation requires the trusted canonical writer lease FD6");
+    if (!lc_borrowed_header(6, 3, &writer_header)) return fail(5, "Writer intent authority is unavailable");
   }
   if (read_target(name, &original, &original_length, &original_stat, &existed, header[5] == 'M'))
     return stopped ? cancelled() : fail(5, "Target is not a stable supported regular file");
