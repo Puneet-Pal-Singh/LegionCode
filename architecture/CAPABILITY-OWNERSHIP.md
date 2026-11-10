@@ -2056,6 +2056,27 @@ parents; stale prepared candidates conflict rather than being reparented. No
 terminal mirror, projection table, second reducer or recovery authority is added.
 Native process-loss recovery retains its separate opaque delegated exclusion.
 
+## Selected cloud credential custody
+
+`persistence` owns connection identity, encrypted credential material, owner/material
+versions and the durable default-slot fence. `CloudCredentialVault` resolves the
+explicit preference selection through that same custody authority; stale or revoked
+selections remain unavailable without falling back to a different default.
+`ProviderConfigService` supplies the selection callback. Shared provider discovery,
+`AdapterSelectionService` inference and connection status consume one resolved key
+and paired configuration. Disconnect revokes the captured selected connection;
+selection changes conflict instead of reporting a different connection disconnected.
+These metadata/custody checks establish no provider identity, entitlement or host
+confinement claim.
+
+Explicit Connect stages encryption before the existing credential/preference
+transaction. The PostgreSQL preference snapshot uses private row `xmin`; Memory
+keeps its version in the canonical preference-map entry. The guarded commit
+retires only the captured credential, preserves revoked history, inserts a fresh
+credential identity and binds the new selection atomically. No credential is
+revived and no failed Connect clears a sticky selection to permit payer fallback.
+Unknown commit outcomes are reported without automatic creation retries.
+
 ## Plan 057 — Workspace-only observational Git contexts
 
 Canonical status, diff, line-count and untracked-file queries may omit Run
