@@ -2138,6 +2138,15 @@ deadline requests abort only; unknown binding cleanup retains the exact binding,
 service and slot and prevents positive SQLite/process closure. No timeout, client
 disconnect, empty active map or forced exit releases those physical obligations.
 
+The same server shutdown barrier also drains original HTTP handler promises.
+A disconnected/closed socket is not proof that its asynchronous grant, file,
+history or metadata operation finished. Handlers are registered before their
+first await and stay owned until their original promise settles. Shutdown fences
+new dispatch before and after body reads, preserves authentication checks and
+waits for those originals before SQLite closure and the private closed receipt.
+Existing HTTP fixtures await that positive shutdown contract rather than socket
+closure alone. No request lifecycle event, status store or forced cleanup is added.
+
 ## Issue 810 — Versioned hosted workspace configuration
 
 The existing `WorkspaceRepository` owns saved configuration for one primary
