@@ -3,14 +3,8 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   ArtifactIdSchema,
   ArtifactMetadataSchema,
-  RunAttemptIdSchema,
-  RunIdSchema,
-  ThreadIdSchema,
   TurnDiffPayloadSchema,
-  TurnIdSchema,
   TurnWorkspaceSnapshotSchema,
-  UserIdSchema,
-  WorkspaceIdSchema,
   type ArtifactId,
   type TurnDiffPayload,
   type TurnWorkspaceSnapshot,
@@ -18,19 +12,11 @@ import {
 import { z } from "zod";
 import { EventStoreError, LocalPersistenceError } from "./errors.js";
 import { createStableEventFingerprint } from "./fingerprint.js";
+import { LocalTurnArtifactScopeSchema as ScopeSchema } from "./local-turn-artifact-scope.js";
+import { createLocalNativeSettlementAccess, LOCAL_NATIVE_SETTLEMENT_PREFIX, validateLocalNativeSettlementRecord } from "./local-native-settlement-record.js";
 
 const PREFIX = "turn_artifact_v1:";
 const MAX_PAYLOAD_BYTES = 16 * 1024 * 1024;
-const ScopeSchema = z
-  .object({
-    userId: UserIdSchema,
-    workspaceId: WorkspaceIdSchema,
-    threadId: ThreadIdSchema,
-    runId: RunIdSchema,
-    turnId: TurnIdSchema,
-    runAttemptId: RunAttemptIdSchema,
-  })
-  .strict();
 export type LocalTurnArtifactScope = z.infer<typeof ScopeSchema>;
 export interface LocalCommitArtifactSource {
   readonly scope: LocalTurnArtifactScope;
@@ -162,6 +148,7 @@ export function createLocalTurnArtifactStore(
         );
       };
       return {
+        ...createLocalNativeSettlementAccess(database, guard, scope),
         async putSnapshot(input: {
           snapshot: TurnWorkspaceSnapshot;
           ownership: Ownership;
@@ -248,6 +235,10 @@ export function validateLocalTurnArtifacts(database: Database.Database): void {
     .prepare("SELECT key, value FROM metadata WHERE substr(key, 1, ?) = ?")
     .all(PREFIX.length, PREFIX) as { key: string; value: string }[];
   for (const row of rows) {
+    if (row.key.startsWith(LOCAL_NATIVE_SETTLEMENT_PREFIX)) {
+      validateLocalNativeSettlementRecord(row.key, row.value);
+      continue;
+    }
     const record = parseRecord(row.key, row.value);
     if (record.payload.role === "diff") {
       try {
