@@ -12,6 +12,7 @@ const PREFIX = "workspace_project_v1:";
 const KnownRecordSchema = z.object({
   version: z.literal(1),
   project: LocalWorkspaceProjectSchema,
+  hidden: z.boolean().default(false),
   /** Private, opaque native identity. Never returned through the protocol. */
   gitMetadataIdentity: z.string().min(1).max(16_384).nullable(),
 }).strict().superRefine((record, context) => {
@@ -26,7 +27,7 @@ export class LocalWorkspaceProjectRecords {
   constructor(private readonly database: Database.Database) {}
 
   list(): LocalWorkspaceProject[] {
-    return this.readAll().map(({ project }) => project).sort((left, right) =>
+    return this.readAll().filter((record) => !record.hidden).map(({ project }) => project).sort((left, right) =>
       (right.lastOpenedAt ?? "").localeCompare(left.lastOpenedAt ?? "") || left.workspaceId.localeCompare(right.workspaceId));
   }
 
@@ -34,7 +35,7 @@ export class LocalWorkspaceProjectRecords {
     return this.readAll().find((record) => record.gitMetadataIdentity === gitMetadataIdentity)?.project.workspaceId ?? null;
   }
 
-  rememberValidated(grant: LocalWorkspaceGrant, gitMetadataIdentity: string): void {
+  rememberValidated(grant: LocalWorkspaceGrant, gitMetadataIdentity: string, restoreHidden = false): void {
     const existing = this.readAll();
     const association = existing.find((record) => record.gitMetadataIdentity === gitMetadataIdentity);
     const previous = existing.find((record) => record.project.workspaceId === grant.workspaceId);
@@ -49,6 +50,7 @@ export class LocalWorkspaceProjectRecords {
         repositoryIdentity: grant.repositoryIdentity, lastOpenedAt: grant.grantedAt,
       },
       gitMetadataIdentity,
+      hidden: restoreHidden ? false : previous?.hidden ?? false,
     };
     if (previous && JSON.stringify(previous) === JSON.stringify(next)) return;
     this.write(next);
@@ -63,9 +65,16 @@ export class LocalWorkspaceProjectRecords {
         version: 1,
         project: { association: "unlinked", workspaceId, displayName: null, repositoryIdentity: null, lastOpenedAt: null },
         gitMetadataIdentity: null,
+        hidden: false,
       });
       known.add(workspaceId);
     }
+  }
+
+  hide(workspaceId: WorkspaceId): void {
+    const record = this.readAll().find((item) => item.project.workspaceId === workspaceId);
+    if (!record) throw new Error("Local project is unavailable");
+    this.write({ ...record, hidden: true });
   }
 
   private readAll(): RecordValue[] {

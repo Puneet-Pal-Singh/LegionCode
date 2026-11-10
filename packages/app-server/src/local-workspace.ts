@@ -210,6 +210,17 @@ export class LocalWorkspaceService {
     }
   }
 
+  /** Hide navigation only. Existing revocation owns current physical authority. */
+  async forgetProject(workspaceId: WorkspaceId): Promise<void> {
+    const id = WorkspaceIdSchema.parse(workspaceId);
+    if (this.transitioning) throw new Error("Local workspace grant is changing");
+    const current = await this.workspaceGrants.read();
+    if (this.transitioning) throw new Error("Local workspace grant is changing");
+    if (current?.grant.workspaceId === id) await this.revoke();
+    if (this.transitioning) throw new Error("Local workspace grant is changing");
+    await this.workspaceGrants.hideProject(id);
+  }
+
   async revoke(): Promise<void> {
     const generation = this.invalidateExecutionBindings();
     this.transitioning = true;

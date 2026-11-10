@@ -54,6 +54,7 @@ import {
   ProviderIdSchema,
   type LocalWorkspaceGrant,
   type LocalWorkspaceProjectsResponse,
+  type WorkspaceId,
   type AppServerInitializeResponse,
   type ProviderId,
   type Thread,
@@ -255,6 +256,7 @@ export type AppServerClient = {
   readWorkspaceFile(params: LocalWorkspaceReadFileParams): Promise<CheckoutReadFileResult>;
   getWorkspaceGrant(): Promise<LocalWorkspaceGrant | null>;
   listLocalWorkspaceProjects(): Promise<LocalWorkspaceProjectsResponse>;
+  forgetLocalWorkspaceProject(workspaceId: WorkspaceId): Promise<void>;
   grantWorkspace(source: WorkspaceGrantSource): Promise<LocalWorkspaceGrant>;
   revokeWorkspace(): Promise<void>;
   listThreads(): Promise<Thread[]>;
@@ -517,6 +519,9 @@ export function createAppServerClient(
     listLocalWorkspaceProjects: async () => request(options, {
       method: "workspace/localProjects", params: {},
     }, AppServerResultSchemas["workspace/localProjects"]),
+    forgetLocalWorkspaceProject: async (workspaceId) => {
+      await request(options, { method: "workspace/forgetLocalProject", params: { workspaceId } }, AppServerResultSchemas["workspace/forgetLocalProject"]);
+    },
     getWorkspaceGrant: async () => {
       const result = await request(options, {
         method: "workspace/current",

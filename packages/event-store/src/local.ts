@@ -129,6 +129,7 @@ export class LocalPersistence {
     findKnownWorkspaceId(gitMetadataIdentity: string): Promise<WorkspaceId | null>;
     rememberValidatedCurrent(value: Extract<StoredLocalWorkspaceGrant, { version: 2 }>): Promise<void>;
     rememberUnlinked(workspaceIds: readonly WorkspaceId[]): Promise<void>;
+    hideProject(workspaceId: WorkspaceId): Promise<void>;
   };
   readonly providerSelection: {
     read(): Promise<{ readonly providerId: ProviderId; readonly modelId: string } | null>;
@@ -201,6 +202,12 @@ export class LocalPersistence {
       write: async (value) => this.writeWorkspaceGrant(value),
       clear: async () => this.clearWorkspaceGrant(),
       listProjects: async () => this.guardStorage(() => new LocalWorkspaceProjectRecords(this.database).list()),
+      hideProject: async (workspaceId) => this.guardStorage(() => this.database.transaction(() => {
+        if (this.readWorkspaceGrant()?.grant.workspaceId === workspaceId) {
+          throw new Error("Revoke current workspace access before hiding its project");
+        }
+        new LocalWorkspaceProjectRecords(this.database).hide(workspaceId);
+      }).immediate()),
       findKnownWorkspaceId: async (identity) => this.guardStorage(() => new LocalWorkspaceProjectRecords(this.database).findWorkspaceId(identity)),
       rememberValidatedCurrent: async (value) => this.rememberValidatedCurrentWorkspace(value),
       rememberUnlinked: async (workspaceIds) => this.guardStorage(() => this.database.transaction(() => {
@@ -577,7 +584,7 @@ export class LocalPersistence {
     catch { throw corruptStore("Workspace grant is invalid"); }
     this.guardStorage(() => this.database.transaction(() => {
       if (parsed.version === 2 && parsed.grant.readiness === "ready") {
-        new LocalWorkspaceProjectRecords(this.database).rememberValidated(parsed.grant, parsed.gitMetadataIdentity);
+        new LocalWorkspaceProjectRecords(this.database).rememberValidated(parsed.grant, parsed.gitMetadataIdentity, true);
       }
       this.database.prepare(`INSERT INTO workspace_grant(id, value_json) VALUES (1, ?)
         ON CONFLICT(id) DO UPDATE SET value_json = excluded.value_json`).run(JSON.stringify(parsed));

@@ -53,6 +53,13 @@ across project switches. Restoring the current valid grant seeds its association
 only after the existing root/metadata verification. Historical canonical local
 Thread workspace IDs with no retained association remain `unlinked`; no folder,
 remote, name, or Thread history is used to guess their native association.
+The same repository retains a durable hidden marker for explicit Remove-project
+intent. `workspace/forgetLocalProject` invokes the existing revocation owner for
+the current grant before hiding; the SQLite transaction refuses to hide a still
+current project. Navigation omits hidden projects and their Thread metadata.
+Legacy seeding never overwrites a hidden row. Explicit validated native regrant
+restores the known association and stable ID. Revoke-access remains distinct and
+keeps navigation metadata. No Thread, artifact, filesystem, or history is deleted.
 
 `workspace/localProjects` and SDK `listLocalWorkspaceProjects` are local-only
 navigation reads, separate from hosted workspace selection. They return path-free
