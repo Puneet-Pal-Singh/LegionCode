@@ -171,11 +171,15 @@ export class LocalWorkspaceWriterLeaseOwner {
     try {
       await this.assertDirectory();
       binding.assertCurrent();
-      entry.file = await open(
-        this.filePath(entry),
-        constants.O_RDWR | constants.O_CREAT | constants.O_NOFOLLOW,
-        0o600,
-      );
+      let initializeEmpty = false;
+      try {
+        entry.file = await open(this.filePath(entry),
+          constants.O_RDWR | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+        initializeEmpty = true;
+      } catch (error) {
+        if (typeof error !== "object" || error === null || !("code" in error) || error.code !== "EEXIST") throw error;
+        entry.file = await open(this.filePath(entry), constants.O_RDWR | constants.O_NOFOLLOW);
+      }
       entry.fileIdentity = await entry.file.stat({ bigint: true });
       await this.assertEntry(entry, false);
       attempted = true;
@@ -184,6 +188,7 @@ export class LocalWorkspaceWriterLeaseOwner {
         leaseFile: entry.file,
         rootDirectory: binding.rootDirectory,
         fenceDirectory: (await this.directory!).handle,
+        initializeEmpty,
         signal: AbortSignal.any([binding.signal, entry.active.signal]),
       });
       if (acquired === "busy") {
