@@ -84,8 +84,9 @@ const config: Configuration = {
           ...processDiagnostics,
         }),
       );
-    } catch {
-      throw new Error("Packaged native helper verification failed");
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Unknown verifier failure";
+      throw new Error(`Packaged native helper verification failed: ${detail}`, { cause: error });
     }
   },
   npmRebuild: true,
