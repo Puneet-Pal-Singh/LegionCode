@@ -2036,3 +2036,22 @@ An admitted Turn may return an actual empty event page while runtime preflight
 is pending. Unknown Turns remain not found; returned event Thread, Turn, attempt
 and admitted worker identity must agree. Authorization is checked again after
 the replay read. No status, event, terminal or retrying prompt is synthesized.
+
+## Plan 057 / 048 — Shared local canonical Thread lineage
+
+The existing SQLite admission summary reads canonical terminal and completed
+assistant facts for every local admitted runtime, using the admitted worker as
+the exact producer identity. Full scope, sequence, item-start and shared insertion
+order checks remain mandatory. Harness selection metadata is not a projection
+bypass or a producer receipt; the reader never parses driver IDs or trusts the
+first observed producer. Historical producer mismatches fail closed and no saved
+record is rewritten. The delegated host must enforce that admitted-worker rule
+for normal execution, preflight and restart before its integration is activated.
+
+The same atomic admission transaction checks parent Turn/item facts for all
+local candidates after receipt lookup and unsettled-Turn refusal. Captured
+selection metadata, including explicit Native selection, cannot bypass that
+check. Native and delegated admission producers consume the same current Thread
+parents; stale prepared candidates conflict rather than being reparented. No
+terminal mirror, projection table, second reducer or recovery authority is added.
+Native process-loss recovery retains its separate opaque delegated exclusion.
