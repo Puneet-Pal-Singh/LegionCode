@@ -278,7 +278,7 @@ function SelectedConversation({
           ) : null}
           <div hidden={isApprovalVisible}>
             <DesktopComposer
-              workspaceBar={
+              workspaceBar={layout === "hero" ? (
                 <DesktopComposerWorkspaceBar
                   scopeKey={`${thread.workspaceId}:${workspaceGrantAt}:${thread.id}`}
                   projectName={projectName}
@@ -286,7 +286,7 @@ function SelectedConversation({
                   projectUnavailableReason={projectChangeReason}
                   disabledReason={workspaceControlsReason}
                 />
-              }
+              ) : undefined}
               layout={layout}
               isHidden={isApprovalVisible}
               client={client}

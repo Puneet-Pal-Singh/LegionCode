@@ -54,6 +54,7 @@ const PLAN_PLACEHOLDER =
   "Inspect the codebase and outline a safe plan without executing changes";
 
 export interface ChatInputBarProps {
+  /** New-chat welcome controls, rendered below the input surface. */
   workspaceBar?: ReactNode;
   imageDraft?: ChatImageAttachmentDraftBinding;
   composerPreferences?: ComposerPreferences;
@@ -667,7 +668,6 @@ function ChatInputBarView({
           </div>
         ) : null}
 
-        {!isHidden && workspaceBar ? <div className="mb-2 min-w-0">{workspaceBar}</div> : null}
         <div
           data-testid="chat-composer-drop-zone"
           onDragOver={(event) => {
@@ -910,6 +910,7 @@ function ChatInputBarView({
             }
           />
         </div>
+        {!isHidden && layout === "hero" && workspaceBar ? <div className="mt-2 min-w-0">{workspaceBar}</div> : null}
       </form>
       {providerDialog}
     </>

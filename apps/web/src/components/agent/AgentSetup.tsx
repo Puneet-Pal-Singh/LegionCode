@@ -608,28 +608,6 @@ export function AgentSetup({
             </div>
           </div>
         ) : null}
-        <div className="mb-2 min-w-0">
-          <WebComposerWorkspaceBar
-            scopeKey={JSON.stringify([sessionId, repo?.full_name, branch])}
-            projectName={repo?.name}
-            renderProjectTrigger={
-              onRepoClick || onProjectSelect || onNoProject
-                ? (trigger) => (
-                    <ProjectChooser
-                      key={JSON.stringify([sessionId, repo?.full_name, branch])}
-                      currentProject={repo?.full_name}
-                      projects={projects}
-                      onSelect={(project) => onProjectSelect?.(project, currentDraft())}
-                      onNewProject={() => onRepoClick?.(currentDraft())}
-                      onNoProject={() => onNoProject?.(currentDraft())}
-                    >
-                      {trigger}
-                    </ProjectChooser>
-                  )
-                : undefined
-            }
-          />
-        </div>
         <motion.div
           data-testid="setup-composer-drop-zone"
           onDragOver={imageDraft.handleDragOver}
@@ -847,6 +825,28 @@ export function AgentSetup({
               />
             </div>
           </div>
+        </div>
+        <div className="mt-2 min-w-0">
+          <WebComposerWorkspaceBar
+            scopeKey={JSON.stringify([sessionId, repo?.full_name, branch])}
+            projectName={repo?.name}
+            renderProjectTrigger={
+              onRepoClick || onProjectSelect || onNoProject
+                ? (trigger) => (
+                    <ProjectChooser
+                      key={JSON.stringify([sessionId, repo?.full_name, branch])}
+                      currentProject={repo?.full_name}
+                      projects={projects}
+                      onSelect={(project) => onProjectSelect?.(project, currentDraft())}
+                      onNewProject={() => onRepoClick?.(currentDraft())}
+                      onNoProject={() => onNoProject?.(currentDraft())}
+                    >
+                      {trigger}
+                    </ProjectChooser>
+                  )
+                : undefined
+            }
+          />
         </div>
       </form>
       {requiresRepository && !hasRepositoryContext ? (

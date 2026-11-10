@@ -492,7 +492,7 @@ export function ChatInterface({
   const renderComposerControls = (layout: ComposerLayout) => (
     <ChatComposerControls
       layout={layout}
-      workspaceBar={
+      workspaceBar={layout === "hero" ? (
         <WebComposerWorkspaceBar
           scopeKey={JSON.stringify([
             sessionId,
@@ -505,7 +505,7 @@ export function ChatInterface({
           projectUnavailableReason={projectUnavailableReason}
           disabledReason={workspaceControlsDisabledReason}
         />
-      }
+      ) : undefined}
       error={chatErrorNotice}
       continuation={continuationRecovery}
       approval={{
