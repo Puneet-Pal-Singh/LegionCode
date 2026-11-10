@@ -16,7 +16,8 @@ export type GitStatusProjectionEntry =
         | "renamed"
         | "copied"
         | "type_changed"
-        | "unmerged";
+        | "unmerged"
+        | "untracked";
       readonly path: string;
       readonly xy: { readonly index: string; readonly worktree: string };
     };
