@@ -121,8 +121,18 @@ export class LocalTurnService {
   }
 
   private async admitTurn(params: LocalTurnStartParams, captured?: NonNullable<ChatRequestBody["harnessSelection"]>): Promise<TurnAdmission> {
-    const initialization = await this.initialize();
+    // Newer local Native envelopes may carry media/provider expectations. This
+    // delegated text port must reject them explicitly, never drop their intent.
+    if ("images" in params && params.images !== undefined &&
+        (!Array.isArray(params.images) || params.images.length > 0)) {
+      throw new AppServerOperationError(400, "invalid_request", "Local delegated harness input is text-only; images are unsupported");
+    }
+    if ("expectedSelection" in params && params.expectedSelection !== undefined) {
+      throw new AppServerOperationError(400, "invalid_request", "Native provider expectations cannot configure a delegated harness");
+    }
     params = LocalTurnStartParamsSchema.parse(params);
+    this.assertSupportedConfiguration(params);
+    const initialization = await this.initialize();
     const thread = await this.authorizeThread(params.threadId, params.workspaceId);
     if (thread.status !== "active") throw new AppServerOperationError(409, "invalid_request", "Local thread is archived");
     const previous = await this.options.persistence.turnAdmissions.findByRequest(thread.id, params.clientRequestId);
@@ -182,6 +192,7 @@ export class LocalTurnService {
 
   /** Adapter for the existing placement-neutral submission envelope; no hosted principal/cookie. */
   async execute(params: ChatRequestBody): Promise<HostedChatSubmissionResult> {
+    this.assertSupportedConfiguration(params);
     if (params.identity || params.runId || params.orchestratorBackend || params.executionBackend || params.tools ||
         params.providerId || params.modelId || params.agentId || params.authMode || params.harnessId ||
         (params.harnessMode !== undefined && params.harnessMode !== "delegated")) {
@@ -426,6 +437,20 @@ export class LocalTurnService {
       this.active.delete(execution.admission.turn.id);
     }
   }
+  private assertSupportedConfiguration(input: {
+    readonly mode?: LocalTurnStartParams["mode"];
+    readonly productMode?: LocalTurnStartParams["productMode"];
+  }): void {
+    if (input.mode !== undefined || input.productMode !== undefined) {
+      // Binding.mode records a Run mode but is not proof of an enforced native
+      // policy mapping. Until that authority exists, accepting an override would
+      // silently replace caller intent with the bootstrap's current policy.
+      throw new AppServerOperationError(503, "server_unavailable",
+        "Local delegated mode and product mode require a verified harness policy mapping",
+        "LOCAL_HARNESS_CAPABILITY_UNAVAILABLE", false);
+    }
+  }
+
   private async authorizeThread(threadId: Thread["id"], workspaceId: Thread["workspaceId"]): Promise<Thread> {
     const thread = await this.options.threads.get(threadId);
     if (thread.workspaceId !== workspaceId) throw new AppServerOperationError(403, "unauthorized", "Local turn workspace does not match its Thread");
