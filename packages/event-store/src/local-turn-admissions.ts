@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import { APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES, APP_SERVER_PROTOCOL_VERSION, appServerJsonByteLength } from "@repo/platform-protocol";
 import type Database from "better-sqlite3";
-import { EVENT_SCHEMA_VERSION, EventCursorSchema, type EventCursor, PlatformEventSchema, ThreadIdSchema, TurnIdSchema, type PlatformEvent } from "@repo/platform-protocol";
+import { EVENT_SCHEMA_VERSION, EventCursorSchema, type EventCursor, PlatformEventSchema, ThreadIdSchema, TurnIdSchema, UserIdSchema, WorkspaceIdSchema, type PlatformEvent } from "@repo/platform-protocol";
 import { TurnAdmissionSchema, type TurnAdmission, type Thread } from "@repo/platform-protocol/conversation";
 import { LifecycleEventSchema, type LifecycleEvent } from "@repo/platform-protocol/lifecycle";
 import { EventStoreError, LocalPersistenceError } from "./errors.js";
 import { createStableEventFingerprint } from "./fingerprint.js";
 import type { AppendEventInput } from "./types.js";
+import { readLocalThreadRuntimeSummary, type LocalThreadRuntimeScope } from "./local-thread-runtime-summary.js";
 
 type AdmissionRow = {
   thread_id: string; request_id: string; workspace_id: string; run_id: string;
@@ -115,6 +116,22 @@ export class LocalTurnAdmissions {
     TurnIdSchema.parse(turnId);
     const row = this.database.prepare("SELECT * FROM turn_admissions WHERE turn_id = ?").get(turnId) as AdmissionRow | undefined;
     return row ? this.reconstruct(row) : null;
+  }
+
+  readThreadSummary(input: LocalThreadRuntimeScope) {
+    const scope = {
+      threadId: ThreadIdSchema.parse(input.threadId),
+      userId: UserIdSchema.parse(input.userId),
+      workspaceId: WorkspaceIdSchema.parse(input.workspaceId),
+    };
+    const rows = this.database.prepare(`SELECT a.* FROM turn_admissions a
+      JOIN events e ON e.event_id = a.run_event_id WHERE a.thread_id = ?
+      ORDER BY e.insertion_order`).iterate(scope.threadId) as Iterable<AdmissionRow>;
+    const owner = this;
+    function* admissions() {
+      for (const row of rows) yield owner.reconstruct(row);
+    }
+    return readLocalThreadRuntimeSummary(this.database, scope, admissions());
   }
 
   /** Private startup enumeration: records stay in their canonical event streams.
