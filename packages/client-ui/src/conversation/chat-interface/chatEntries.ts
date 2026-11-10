@@ -2,6 +2,13 @@ import type { Message } from "@ai-sdk/react";
 import { buildConversationTurns, readCanonicalTurnId } from "@legioncode/sdk";
 import type { LifecycleProjection } from "@legioncode/sdk";
 
+/** Validated history-snapshot facts supplied by the host, never inferred from a window. */
+export interface CanonicalConversationTurnBounds {
+  readonly rootUserMessageId: string;
+  readonly lastUserMessageId: string;
+}
+export type CanonicalConversationBounds = Readonly<Record<string, CanonicalConversationTurnBounds>>;
+
 export type ChatInterfaceEntry =
   | {
       kind: "message";
@@ -9,6 +16,7 @@ export type ChatInterfaceEntry =
       projection?: LifecycleProjection;
       editTargetTurnId?: string;
       editTargetTerminal?: boolean;
+      editUnavailable?: boolean;
       historyStatus?: "revised" | "edited";
     }
   | {
@@ -25,17 +33,26 @@ export function buildChatEntries(
   conversationTurns: ReturnType<typeof buildConversationTurns<Message>>,
   projectionsByTurnId: Readonly<Record<string, LifecycleProjection>> = {},
   activeTurnId?: string | null,
+  canonicalBoundsByTurnId?: CanonicalConversationBounds,
 ): ChatInterfaceEntry[] {
   const entries: ChatInterfaceEntry[] = [];
   const emittedWorkflowTurnIds = new Set<string>();
+  const bounded = canonicalBoundsByTurnId !== undefined;
+  const boundsByTurnId = new Map(Object.entries(canonicalBoundsByTurnId ?? {}));
   type ConversationTurn = (typeof conversationTurns)[number];
   const workflowAnchorByTurnId = new Map<string, ConversationTurn>();
   const rootPromptByTurnId = new Map<string, string>();
   const assistantsByTurnId = new Map<string, Message[]>();
   for (const turn of conversationTurns) {
     if (!turn.turnId) continue;
-    // Keep the first prompt for lineage; steering leaves remain real user rows.
-    if (turn.userMessage) {
+    const bounds = boundsByTurnId.get(turn.turnId);
+    if (bounded) {
+      if (bounds) rootPromptByTurnId.set(turn.turnId, bounds.rootUserMessageId);
+      if (bounds && turn.userMessage?.id === bounds.lastUserMessageId) {
+        workflowAnchorByTurnId.set(turn.turnId, turn);
+      }
+    } else if (turn.userMessage) {
+      // Complete transcripts can derive their root; a bounded window cannot.
       if (!rootPromptByTurnId.has(turn.turnId)) {
         rootPromptByTurnId.set(turn.turnId, turn.userMessage.id);
       }
@@ -54,6 +71,8 @@ export function buildChatEntries(
   for (const conversationTurn of conversationTurns) {
     const turnId = conversationTurn.turnId;
     const projection = turnId ? projectionsByTurnId[turnId] : undefined;
+    const hasWorkflow = Boolean(turnId && projection && projection.lastSequence > 0 &&
+      workflowAnchorByTurnId.has(turnId));
     const turnEntries: ChatInterfaceEntry[] = [];
     if (conversationTurn.userMessage) {
       turnEntries.push({
@@ -61,6 +80,8 @@ export function buildChatEntries(
         message: conversationTurn.userMessage,
         ...(projection ? { projection } : {}),
         ...(projection?.revisionOfTurnId ? { historyStatus: "edited" } : {}),
+        ...(turnId && rootPromptByTurnId.get(turnId) !== conversationTurn.userMessage.id
+          ? { editUnavailable: true } : {}),
       });
     }
     if (
@@ -83,7 +104,7 @@ export function buildChatEntries(
       emittedWorkflowTurnIds.add(turnId);
     }
     for (const assistantMessage of conversationTurn.assistantMessages ?? []) {
-      if (shouldIncludeAssistantMessage(assistantMessage, projection)) {
+      if (shouldIncludeAssistantMessage(assistantMessage, hasWorkflow ? projection : undefined)) {
         turnEntries.push({
           kind: "message",
           message: assistantMessage,
@@ -98,6 +119,8 @@ export function buildChatEntries(
   const revisedPromptIds = findRevisedPromptIds(
     conversationTurns,
     projectionsByTurnId,
+    boundsByTurnId,
+    bounded,
   );
   for (const conversationTurn of conversationTurns) {
     const projection = conversationTurn.turnId
@@ -127,7 +150,7 @@ export function buildChatEntries(
       ...(continuationEntriesByPromptId.get(
         activeProjection.originalPromptId,
       ) ?? []),
-      ...(activeProjection.lastSequence > 0
+      ...(activeProjection.lastSequence > 0 && !bounded
         ? [createWorkflowEntry(activeProjection)]
         : []),
     ]);
@@ -135,7 +158,7 @@ export function buildChatEntries(
       activeProjection.originalPromptId,
       activeProjection,
     );
-    if (activeProjection.lastSequence > 0) {
+    if (activeProjection.lastSequence > 0 && !bounded) {
       emittedWorkflowTurnIds.add(activeProjection.turnId);
     }
   }
@@ -156,7 +179,7 @@ export function buildChatEntries(
     const promptId =
       (conversationTurn.turnId
         ? rootPromptByTurnId.get(conversationTurn.turnId)
-        : undefined) ?? conversationTurn.userMessage?.id;
+        : undefined) ?? (bounded ? undefined : conversationTurn.userMessage?.id);
     const turnEntries = (entriesByTurn.get(conversationTurn) ?? []).map(
       (entry) =>
         isTurnInRevisedBranch(
@@ -231,6 +254,7 @@ export function buildChatEntries(
   if (
     orphanedActiveProjection &&
     orphanedActiveProjection.lastSequence > 0 &&
+    !bounded &&
     !emittedWorkflowTurnIds.has(orphanedActiveProjection.turnId)
   ) {
     entries.push(createWorkflowEntry(orphanedActiveProjection));
@@ -301,6 +325,8 @@ function groupWorkflowContinuations(
 function findRevisedPromptIds(
   conversationTurns: ReturnType<typeof buildConversationTurns<Message>>,
   projectionsByTurnId: Readonly<Record<string, LifecycleProjection>>,
+  boundsByTurnId: ReadonlyMap<string, CanonicalConversationTurnBounds>,
+  bounded: boolean,
 ): Set<string> {
   const revisedPromptIds = new Set<string>();
   for (const projection of Object.values(projectionsByTurnId)) {
@@ -309,6 +335,8 @@ function findRevisedPromptIds(
       projection.revisionOfTurnId,
       conversationTurns,
       projectionsByTurnId,
+      boundsByTurnId,
+      bounded,
     );
     if (promptId) revisedPromptIds.add(promptId);
   }
@@ -319,6 +347,8 @@ function findLogicalPromptId(
   initialTurnId: string,
   conversationTurns: ReturnType<typeof buildConversationTurns<Message>>,
   projectionsByTurnId: Readonly<Record<string, LifecycleProjection>>,
+  boundsByTurnId: ReadonlyMap<string, CanonicalConversationTurnBounds>,
+  bounded: boolean,
 ): string | null {
   const visited = new Set<string>();
   let currentTurnId: string | null = initialTurnId;
@@ -339,7 +369,8 @@ function findLogicalPromptId(
     const turn = conversationTurns.find(
       (candidate) => candidate.turnId === currentTurnId,
     );
-    return turn?.userMessage?.id ?? null;
+    return boundsByTurnId.get(currentTurnId)?.rootUserMessageId ??
+      (bounded ? null : turn?.userMessage?.id ?? null);
   }
   return null;
 }

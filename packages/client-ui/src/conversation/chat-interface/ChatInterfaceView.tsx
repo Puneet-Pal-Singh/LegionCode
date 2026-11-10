@@ -263,6 +263,7 @@ function resolveUserMessageEdit(
   const hasContinuationTarget = entry.editTargetTurnId !== undefined;
   if (
     !props.onUserMessageEdit ||
+    entry.editUnavailable ||
     entry.message.role !== "user" ||
     entry.historyStatus === "revised" ||
     (hasContinuationTarget

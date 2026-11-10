@@ -62,7 +62,12 @@ export { ContextUsageRing } from "./conversation/context/ContextUsageRing.js";
 export { ContextDetailsPanel, type ContextSessionSnapshot } from "./conversation/context/ContextDetailsPanel.js";
 export * from "./conversation/fileMentions.js";
 
-export { buildChatEntries, type ChatInterfaceEntry } from "./conversation/chat-interface/chatEntries.js";
+export {
+  buildChatEntries,
+  type ChatInterfaceEntry,
+  type CanonicalConversationTurnBounds,
+  type CanonicalConversationBounds,
+} from "./conversation/chat-interface/chatEntries.js";
 export * from "./conversation/chat-interface/changedFiles.js";
 export { buildChatMessageMetadata, buildLifecycleMessageMetadata } from "./conversation/chat-interface/messageMetadata.js";
 export { buildLifecycleTerminalViewModel } from "./conversation/chat-interface/LifecycleTerminalViewModel.js";
