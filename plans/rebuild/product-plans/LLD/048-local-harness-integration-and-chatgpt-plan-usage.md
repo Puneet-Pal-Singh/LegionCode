@@ -629,6 +629,32 @@ quiescence, and there is no silent cross-environment or payer migration. OpenCod
 affects session UI presentation, with no native protocol, installation or account
 authority change. Runtime pins remain unchanged.
 
+The replay/steering integration checkpoint also reviewed these exact source
+changes, without changing runtime pins or claiming provider acceptance:
+
+- T3 `dd0737d3e2029da533f1c430a10869a060396b63`
+  [scopes agent sign-in approval to a linked environment and browser-held access](https://github.com/pingdotgg/t3code/commit/dd0737d3e2029da533f1c430a10869a060396b63).
+  LegionCode keeps local/cloud authorization explicit; a convenient browser
+  approval UI does not authorize copying credentials or imply hosted subscription
+  access approval.
+- OpenCode `993a2808879853210a5e8e80eabfc55c4299f30e`
+  [lets parked Claude tool calls finish across instruction/tool changes](https://github.com/anomalyco/opencode/commit/993a2808879853210a5e8e80eabfc55c4299f30e),
+  explicitly fails calls to removed tools, and starts a new process after abort
+  when the launch binding changed. Adapt the lifetime lesson to LegionCode's
+  frozen attempts: mutable settings cannot silently restart or rebind an active
+  attempt, and pending replies stay bound to their originating generation.
+- The actual Codex 0.167.0 source, revision
+  `086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a`, supports
+  [client user-message correlation](https://github.com/openai/codex/blob/rust-v0.167.0/codex-rs/app-server-protocol/src/protocol/v2/item.rs#L939).
+  A steer RPC queues input; the later completed user-message notification follows
+  accepted history recording. The driver must correlate the original input and
+  admitted native turn through the existing observation journal before emitting
+  an application receipt. That notification does not expose model-step or
+  context-revision values. A truthful delegated receipt contract and its real
+  driver consumer are required; do not invent those fields or equate RPC ACK
+  with application. This is an identified implementation gap, not completed
+  steering acceptance.
+
 ### 13.2 Shared user flow
 
 Settings → Agents → Add agent is shared client-ui using the existing SDK/App
