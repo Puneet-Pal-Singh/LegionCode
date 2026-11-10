@@ -9,42 +9,42 @@ import type {
 import type {
   ProviderModelCacheStore,
   ProviderModelCacheRecord,
-} from "../stores/ProviderModelCacheStore";
-import type { ProviderCredentialService } from "../ProviderCredentialService";
-import { ProviderRegistryService } from "../ProviderRegistryService";
+} from "./ProviderModelCacheStore.js";
+import type { ProviderModelCredentialPort, ProviderModelRegistryPort } from "./ports.js";
+import { builtinProviderRegistry } from "../registry.js";
 import {
   ProviderModelCacheError,
   ProviderModelDiscoveryAuthError,
   ProviderModelDiscoveryApiError,
-} from "./errors";
+} from "./errors.js";
 import type {
   ProviderModelCatalogPort,
   OpenRouterModelCatalogPort,
-} from "./ProviderModelCatalogPort";
-import { OpenRouterModelCatalogAdapter } from "./adapters/OpenRouterModelCatalogAdapter";
-import { GoogleModelCatalogAdapter } from "./adapters/GoogleModelCatalogAdapter";
-import { OpenAICompatibleModelCatalogAdapter } from "./adapters/OpenAICompatibleModelCatalogAdapter";
-import { OpenCodeGoModelCatalogAdapter } from "./adapters/OpenCodeGoModelCatalogAdapter";
-import { OpenCodeZenModelCatalogAdapter } from "./adapters/OpenCodeZenModelCatalogAdapter";
-import { CloudflareAIModelCatalogAdapter } from "./adapters/CloudflareAIModelCatalogAdapter";
+} from "./ProviderModelCatalogPort.js";
+import { OpenRouterModelCatalogAdapter } from "./adapters/OpenRouterModelCatalogAdapter.js";
+import { GoogleModelCatalogAdapter } from "./adapters/GoogleModelCatalogAdapter.js";
+import { OpenAICompatibleModelCatalogAdapter } from "./adapters/OpenAICompatibleModelCatalogAdapter.js";
+import { OpenCodeGoModelCatalogAdapter } from "./adapters/OpenCodeGoModelCatalogAdapter.js";
+import { OpenCodeZenModelCatalogAdapter } from "./adapters/OpenCodeZenModelCatalogAdapter.js";
+import { CloudflareAIModelCatalogAdapter } from "./adapters/CloudflareAIModelCatalogAdapter.js";
 import {
   buildCloudflareAIRoute,
   resolveCloudflareRuntimeModelId,
   type CloudflareConnectionConfig,
-} from "../cloudflare/CloudflareAIRouteBuilder";
-import { ProviderModelRankingService } from "./ProviderModelRankingService";
-import { ProviderModelDiscoveryObservability } from "./ProviderModelDiscoveryObservability";
+} from "./CloudflareAIRouteBuilder.js";
+import { ProviderModelRankingService } from "./ProviderModelRankingService.js";
+import { ProviderModelDiscoveryObservability } from "./ProviderModelDiscoveryObservability.js";
 import {
   enrichModelFromModelDev,
   listCloudflareAIGatewayModels,
   listRunnableModelDevModels,
   type ModelDevCatalogSource,
-} from "./ModelDevCatalog";
-import type { OpenRouterRecommendationInput } from "./types";
+} from "./ModelDevCatalog.js";
+import type { OpenRouterRecommendationInput } from "./types.js";
 import {
   OPENROUTER_DISCOVERY_CATEGORIES,
   type OpenRouterDiscoveryCategory,
-} from "./types";
+} from "./types.js";
 
 // Demand-driven refresh keeps serverless runtimes current without relying on
 // background timers. A provider is revalidated on the first request after one
@@ -66,14 +66,14 @@ export class ProviderModelDiscoveryService {
   private readonly adapters: Map<string, ProviderModelCatalogPort>;
   private readonly rankingService: ProviderModelRankingService;
   private readonly observability: ProviderModelDiscoveryObservability;
-  private readonly registryService: ProviderRegistryService;
+  private readonly registryService: ProviderModelRegistryPort;
   private readonly modelDevCatalogSource: ModelDevCatalogSource | null;
 
   constructor(
     private readonly cacheStore: ProviderModelCacheStore,
-    private readonly credentialService: ProviderCredentialService,
+    private readonly credentialService: ProviderModelCredentialPort,
     registryOrAdapters?:
-      | ProviderRegistryService
+      | ProviderModelRegistryPort
       | Partial<Record<string, ProviderModelCatalogPort>>,
     adaptersOrRanking?:
       | Partial<Record<string, ProviderModelCatalogPort>>
@@ -334,9 +334,7 @@ export class ProviderModelDiscoveryService {
     }
     let config: CloudflareConnectionConfig | undefined;
     try {
-      const candidate = await this.credentialService.getConnectionConfig(
-        providerId,
-      );
+      const candidate = (await this.credentialService.resolveCredential(providerId))?.connectionConfig;
       if (isCloudflareConfigForProvider(providerId, candidate)) {
         config = candidate;
       }
@@ -515,9 +513,9 @@ export class ProviderModelDiscoveryService {
     let apiKey: string | null = null;
     let connectionConfig: ProviderConnectionConfig | undefined;
     try {
-      apiKey = await this.credentialService.getApiKey(providerId);
-      connectionConfig =
-        await this.credentialService.getConnectionConfig(providerId);
+      const credential = await this.credentialService.resolveCredential(providerId);
+      apiKey = credential?.apiKey ?? null;
+      connectionConfig = credential?.connectionConfig;
     } catch (_error) {
       throw new ProviderModelDiscoveryAuthError(
         `Failed to read ${providerId} credentials for model discovery. Reconnect this provider and retry.`,
@@ -742,9 +740,9 @@ export class ProviderModelDiscoveryService {
     let apiKey: string | null = null;
     let connectionConfig: ProviderConnectionConfig | undefined;
     try {
-      apiKey = await this.credentialService.getApiKey(providerId);
-      connectionConfig =
-        await this.credentialService.getConnectionConfig(providerId);
+      const credential = await this.credentialService.resolveCredential(providerId);
+      apiKey = credential?.apiKey ?? null;
+      connectionConfig = credential?.connectionConfig;
     } catch (_error) {
       throw new ProviderModelDiscoveryAuthError(
         `Failed to read ${providerId} credentials for model discovery. Reconnect this provider and retry.`,
@@ -807,7 +805,7 @@ export class ProviderModelDiscoveryService {
 
 function resolveConstructorArgs(
   registryOrAdapters:
-    | ProviderRegistryService
+    | ProviderModelRegistryPort
     | Partial<Record<string, ProviderModelCatalogPort>>
     | undefined,
   adaptersOrRanking:
@@ -820,16 +818,16 @@ function resolveConstructorArgs(
     | undefined,
   maybeObservability: ProviderModelDiscoveryObservability | undefined,
 ): {
-  registryService: ProviderRegistryService;
+  registryService: ProviderModelRegistryPort;
   adapters: Partial<Record<string, ProviderModelCatalogPort>>;
   rankingService: ProviderModelRankingService;
   observability: ProviderModelDiscoveryObservability;
 } {
-  const defaultRegistry = new ProviderRegistryService();
+  const defaultRegistry = builtinProviderRegistry;
   const defaultRanking = new ProviderModelRankingService();
   const defaultObservability = new ProviderModelDiscoveryObservability();
 
-  if (registryOrAdapters instanceof ProviderRegistryService) {
+  if (isRegistryPort(registryOrAdapters)) {
     return {
       registryService: registryOrAdapters,
       adapters:
@@ -866,8 +864,14 @@ function resolveConstructorArgs(
   };
 }
 
+function isRegistryPort(
+  value: ProviderModelRegistryPort | Partial<Record<string, ProviderModelCatalogPort>> | undefined,
+): value is ProviderModelRegistryPort {
+  return typeof value?.listProviders === "function" && typeof value?.getProvider === "function";
+}
+
 function buildAdapterRegistry(
-  registryService: ProviderRegistryService,
+  registryService: ProviderModelRegistryPort,
   provided: Partial<Record<string, ProviderModelCatalogPort>>,
 ): Map<string, ProviderModelCatalogPort> {
   const adapters = new Map<string, ProviderModelCatalogPort>();

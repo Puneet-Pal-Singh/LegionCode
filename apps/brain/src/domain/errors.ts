@@ -1,4 +1,5 @@
 import type { ProviderErrorCode } from "@repo/shared-types";
+import { ProviderModelDiscoveryError } from "@repo/provider-core/discovery";
 
 /**
  * Domain error taxonomy for Brain.
@@ -211,7 +212,7 @@ export class AxisDailyLimitExceededError extends DomainError {
  * Type guard: check if an error is a domain error with typed properties.
  */
 export function isDomainError(error: unknown): error is DomainError {
-  return error instanceof DomainError;
+  return error instanceof DomainError || error instanceof ProviderModelDiscoveryError;
 }
 
 /**

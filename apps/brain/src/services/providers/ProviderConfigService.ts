@@ -29,22 +29,22 @@ import type {
   ProviderId,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
+import { ProviderIdSchema } from "@repo/shared-types";
 import type { CredentialStore } from "./stores/CredentialStore";
 import type { PreferenceStore } from "./stores/PreferenceStore";
-import type { ProviderModelCacheStore } from "./stores/ProviderModelCacheStore";
 import type { ProviderAuditLog } from "./stores/ProviderAuditLog";
 import type { ProviderQuotaStore } from "./stores/ProviderQuotaStore";
 import { CloudCredentialVault } from "./CloudCredentialVault";
 import { ProviderCredentialService } from "./ProviderCredentialService";
-import { ProviderCatalogService } from "./ProviderCatalogService";
 import { ProviderConnectionService } from "./ProviderConnectionService";
 import { ProviderRegistryService } from "./ProviderRegistryService";
-import { AXIS_DAILY_LIMIT } from "./axis";
+import { AXIS_DAILY_LIMIT, AXIS_PROVIDER_ID, getAxisDiscoveredModels } from "./axis";
 import {
   HttpModelDevCatalogSource,
+  ProviderCatalogService,
   ProviderModelDiscoveryService,
-} from "./model-discovery";
-import type { ProviderModelDiscoveryService as ProviderModelDiscoveryServiceType } from "./model-discovery";
+  type ProviderModelCacheStore,
+} from "@repo/provider-core/discovery";
 import { isDomainError } from "../../domain/errors";
 
 export interface ProviderConfigServiceOptions {
@@ -64,7 +64,7 @@ export class ProviderConfigService {
   private credentialService: ProviderCredentialService;
   private registryService: ProviderRegistryService;
   private catalogService: ProviderCatalogService | null = null;
-  private modelDiscoveryService: ProviderModelDiscoveryServiceType | null =
+  private modelDiscoveryService: ProviderModelDiscoveryService | null =
     null;
   private connectionService: ProviderConnectionService;
   private storageReadyPromise: Promise<void> | null = null;
@@ -296,6 +296,11 @@ export class ProviderConfigService {
         this.getModelDiscoveryService(),
         async (provider: ProviderRegistryEntry) =>
           this.canExposeCatalogProvider(provider),
+        {
+          getModels: (providerId) => providerId === AXIS_PROVIDER_ID
+            ? getAxisDiscoveredModels()
+            : undefined,
+        },
       );
     }
     return this.catalogService;
@@ -305,7 +310,10 @@ export class ProviderConfigService {
     if (!this.modelDiscoveryService) {
       this.modelDiscoveryService = new ProviderModelDiscoveryService(
         this.options.modelCacheStore,
-        this.credentialService,
+        {
+          resolveCredential: (providerId) =>
+            this.credentialVault.resolveCredential(ProviderIdSchema.parse(providerId)),
+        },
         this.registryService,
         undefined,
         undefined,
