@@ -250,6 +250,14 @@ export class ProviderConfigService {
     return this.getCatalogService().refreshDiscoveredModels(providerId);
   }
 
+  async resolveCredential(providerId: ProviderId): Promise<{
+    apiKey: string;
+    connectionConfig?: ProviderConnectionConfig;
+  } | null> {
+    await this.ensureStorageReady();
+    return this.credentialService.resolveCredential(providerId);
+  }
+
   async getApiKey(providerId: ProviderId): Promise<string | null> {
     await this.ensureStorageReady();
     return this.credentialVault.getApiKey(providerId);

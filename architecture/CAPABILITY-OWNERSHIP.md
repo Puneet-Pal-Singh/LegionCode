@@ -1882,3 +1882,16 @@ Concurrent exact image retries derive a validation-only submitted fingerprint
 when another request commits before their image preparation. They use the same
 codec as initial receipt retries without persisting media or resolving providers;
 current Thread authorization and immutable saved-intent checks still gate return.
+
+## Selected cloud credential custody
+
+`persistence` owns connection identity, encrypted credential material, owner/material
+versions and the durable default-slot fence. `CloudCredentialVault` resolves the
+explicit preference selection through that same custody authority; stale or revoked
+selections remain unavailable without falling back to a different default.
+`ProviderConfigService` supplies the selection callback. Shared provider discovery,
+`AdapterSelectionService` inference and connection status consume one resolved key
+and paired configuration. Disconnect revokes the captured selected connection;
+selection changes conflict instead of reporting a different connection disconnected.
+These metadata/custody checks establish no provider identity, entitlement or host
+confinement claim.

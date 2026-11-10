@@ -29,14 +29,47 @@ export class CloudCredentialVault implements CredentialVault {
     apiKey: string,
     connectionConfig?: ProviderConnectionConfig,
   ): Promise<void> {
-    await this.credentialStore.setCredential({
-      credentialId: crypto.randomUUID(),
-      userId: this.userId,
-      providerId,
-      label: "default",
-      apiKey,
-      connectionConfig,
-    });
+    const selected = await this.selectedConnection?.(providerId);
+    let expected: CredentialAcquisition | undefined;
+    if (selected !== undefined) {
+      const record = await this.credentialStore.getConnection(selected);
+      if (
+        !record ||
+        record.credentialId !== selected ||
+        record.userId !== this.userId ||
+        record.providerId !== providerId ||
+        !record.isDefault ||
+        record.deletedAt !== null ||
+        record.credentialKind !== "api_key"
+      )
+        throw new Error(
+          "Selected credential cannot be reconnected through the default route",
+        );
+      expected = {
+        connectionId: record.credentialId,
+        userId: this.userId,
+        providerId,
+        ownerGeneration: record.authOwnerGeneration,
+        tokenMaterialVersion: record.tokenMaterialVersion,
+      };
+    }
+    if ((await this.selectedConnection?.(providerId)) !== selected)
+      throw new Error("Credential selection changed during reconnect");
+    await this.credentialStore.setCredential(
+      {
+        credentialId: expected?.connectionId ?? crypto.randomUUID(),
+        userId: this.userId,
+        providerId,
+        label: "default",
+        apiKey,
+        connectionConfig,
+      },
+      expected,
+    );
+    // The captured target may have been updated; a picker change does not undo
+    // that mutation and must not report a different selection connected.
+    if ((await this.selectedConnection?.(providerId)) !== selected)
+      throw new Error("Credential selection changed during reconnect");
   }
 
   async getApiKey(providerId: ProviderId): Promise<string | null> {
@@ -112,27 +145,85 @@ export class CloudCredentialVault implements CredentialVault {
   }
 
   async deleteCredential(providerId: ProviderId): Promise<void> {
-    await this.credentialStore.deleteCredential(providerId);
+    const selected = await this.selectedConnection?.(providerId);
+    const record =
+      selected !== undefined
+        ? await this.credentialStore.getConnection(selected)
+        : await this.credentialStore.getCredential(providerId);
+    const assertSelection = async () => {
+      if ((await this.selectedConnection?.(providerId)) !== selected)
+        throw new Error("Credential selection changed during disconnect");
+    };
+    await assertSelection();
+    if (!record) {
+      if (selected !== undefined)
+        throw new Error("Selected credential is unavailable");
+      // Preserve the absent-default epoch fence for legacy provider-only calls.
+      await this.credentialStore.deleteCredential(providerId);
+      await assertSelection();
+      return;
+    }
+    if (
+      record.userId !== this.userId ||
+      record.providerId !== providerId ||
+      (selected !== undefined && record.credentialId !== selected) ||
+      record.credentialKind !== "api_key"
+    )
+      throw new Error("Credential disconnect scope mismatch");
+    if (record.status === "revoked" && record.deletedAt !== null) {
+      // Sticky explicit selections remain disconnected; never delete a new default.
+      await assertSelection();
+      return;
+    }
+    if (record.deletedAt !== null)
+      throw new Error("Selected credential is unavailable");
+    const expected: CredentialAcquisition = {
+      connectionId: record.credentialId,
+      userId: this.userId,
+      providerId,
+      ownerGeneration: record.authOwnerGeneration,
+      tokenMaterialVersion: record.tokenMaterialVersion,
+    };
+    await assertSelection();
+    if (record.isDefault) {
+      await this.credentialStore.deleteCredential(providerId, expected);
+    } else {
+      const revoked = await this.credentialStore.revokeConnection(expected);
+      if (!revoked) {
+        const current = await this.credentialStore.getConnection(
+          expected.connectionId,
+        );
+        if (
+          !current ||
+          current.userId !== this.userId ||
+          current.providerId !== providerId ||
+          current.authOwnerGeneration !== expected.ownerGeneration + 1 ||
+          current.status !== "revoked" ||
+          current.deletedAt === null
+        )
+          throw new Error("Credential changed during disconnect");
+      }
+    }
+    // A concurrent explicit picker change must not report the new target as
+    // disconnected. Only the captured target was ever eligible for revocation.
+    await assertSelection();
   }
 
   async isConnected(providerId: ProviderId): Promise<boolean> {
-    const cred = await this.credentialStore.getCredential(providerId);
-    return cred !== null && cred.status === "connected";
+    return (await this.resolveCredential(providerId)) !== null;
   }
 
   async getConnectionConfig(
     providerId: ProviderId,
   ): Promise<ProviderConnectionConfig | undefined> {
-    const credential = await this.credentialStore.getCredential(providerId);
-    return credential?.connectionConfig;
+    return (await this.resolveCredential(providerId))?.connectionConfig;
   }
 
   async listConnectedProviders(): Promise<ProviderId[]> {
     const allProviders = await this.credentialStore.listCredentialProviders();
     const connectedProviders: ProviderId[] = [];
     for (const providerId of allProviders) {
-      const cred = await this.credentialStore.getCredential(providerId);
-      if (cred && cred.status === "connected") {
+      if (await this.isConnected(providerId)) {
         connectedProviders.push(providerId);
       }
     }
