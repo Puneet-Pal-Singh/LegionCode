@@ -1,0 +1,315 @@
+{
+  "head": "3d87bcc70a72e4386c76a864439a773ced83b744",
+  "base": "661530257785245cf36a7f770898215ae46b3e74",
+  "branch": "codex/fix-r3-steering-receipt-metadata-20261114",
+  "remoteHead": "3d87bcc70a72e4386c76a864439a773ced83b744",
+  "sourceClean": true,
+  "published": true,
+  "commits": [
+    "89a2c13175742a03eacfb3d1e4fe311bf891f234",
+    "a2fef17cc5cff8b958e7d92eac16d3331df21a86",
+    "3d87bcc70a72e4386c76a864439a773ced83b744"
+  ],
+  "paths": [
+    "apps/brain/src/integration/app-server/HostedThreadInputOperations.ts",
+    "apps/brain/src/runtime/DelegatedRunExecution.ts",
+    "architecture/CAPABILITY-OWNERSHIP.md"
+  ],
+  "sourceHashes": {
+    "apps/brain/src/integration/app-server/HostedThreadInputOperations.ts": {
+      "sha256": "695055ec2e48e527f7f4588610747ff2a8ba9f09d924e2209aa364bbffdeeb38",
+      "bytes": 32242
+    },
+    "apps/brain/src/runtime/DelegatedRunExecution.ts": {
+      "sha256": "525e00cd6cca5e6c8904b9914b94dc7e0da04aff29550eadef5d46861edac8ec",
+      "bytes": 9383
+    },
+    "architecture/CAPABILITY-OWNERSHIP.md": {
+      "sha256": "67126f1db563296b876444418962b1769b28d404e300a6509cda557400d4ae21",
+      "bytes": 162647
+    }
+  },
+  "executor": {
+    "host": "58fee81c1a0b",
+    "os": "Linux6.18.57x86_64",
+    "managedCloud": "connected/running",
+    "isolatedWritableWorktree": "/workspace/LegionCode-R3-REAL-PG-661530-20261114"
+  },
+  "handoff": {
+    "revision": "876e496690feb6284087bfdf95110b184c9cc0f9",
+    "manifestSHA256": "c5b25ae00a3a503b3000984239cf8d3355124ff8652d4730be0c5603fe031ad8",
+    "verifiedDocuments": 19
+  },
+  "scope": [
+    "Return exact validated stored turn_not_active/target_superseded conflict receipt409 for same direct/queued identity without redispatch/reclaim/receipt rewrite.",
+    "Reject unsupported message/part metadata before delegated canonical acceptance; existing canonical ThreadInputContentSchema bounds aggregate full text at100000 and preserves all whitespace and ordered concatenation."
+  ],
+  "checks": [
+    {
+      "command": "node node_modules/typescript/bin/tsc --noEmit -p apps/brain/tsconfig.json",
+      "exitCode": 0,
+      "log": "/tmp/r3-steering-followup-20261114/brain-types-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "command": "node scripts/gates/check-architecture-boundaries.mjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-steering-followup-20261114/architecture.log",
+      "sha256": "91500b0d9dfbc3ce9fab62ce2f083e0c6d82c41531528f48c54ecaa9dfd763a0",
+      "bytes": 65
+    },
+    {
+      "command": "REBUILD_CHANGED_FILES='<exact three owned paths>' node scripts/gates/check-rebuild-governance.mjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-steering-followup-20261114/governance.log",
+      "sha256": "9a5c7cafae7b03c771af4ee23d69de18f537c9ba47d3b6bfc73080addf7513b1",
+      "bytes": 40
+    },
+    {
+      "command": "node --test scripts/gates/check-architecture-boundaries.test.mjs scripts/gates/check-rebuild-governance.test.mjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-steering-followup-20261114/gates.log",
+      "sha256": "d78f8352cc6b4e089d64f0d55e63beef4fb7f1e9b3309f5656e31fa702bcf01c",
+      "bytes": 2753
+    },
+    {
+      "command": "node /tmp/r3-steering-followup-20261114/metadata-controls.cjs 3d87bcc70a72e4386c76a864439a773ced83b744",
+      "exitCode": 0,
+      "log": "/tmp/r3-steering-followup-20261114/metadata-frozen.log",
+      "sha256": "4984f0341dcc57b9f965bec5a06eab5d1f813ade330279582fc990aa34f0be0a",
+      "bytes": 38
+    },
+    {
+      "command": "node /tmp/r3-steering-followup-20261114/kernel-final.cjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-steering-followup-20261114/kernel-final.log",
+      "sha256": "58998d5441264ce3432d96dee99c9607381cf7fddbca18602aab4659453076e3",
+      "bytes": 666
+    },
+    {
+      "command": "node /tmp/r3-real-pg-20261114/real-pg.cjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-steering-followup-20261114/real-pg-final.log",
+      "sha256": "775430d14f5513a7ac31fdf386b60205bbe8bdffe134067dc19c975fb3484f4f",
+      "bytes": 35
+    },
+    {
+      "command": "node /tmp/r3-real-pg-20261114/hosted-real-pg.cjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-steering-followup-20261114/hosted-final.log",
+      "sha256": "3bb900342aff944b8c4d06dc224d9cfa090ebb0b943154baab21c2048cf12a32",
+      "bytes": 54
+    },
+    {
+      "command": "node /tmp/r3-steering-followup-20261114/conflict-after.cjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-steering-followup-20261114/conflict-final.log",
+      "sha256": "f767ed977213154e6aafe96d7aa793924954ecdc55be4ed85e70e5886e1ae4b7",
+      "bytes": 441
+    },
+    {
+      "command": "node /tmp/r3-steering-followup-20261114/conflict-roundtrip.cjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-steering-followup-20261114/conflict-roundtrip-final.log",
+      "sha256": "a51772bd4d2c5841928da662d8a319f8c6820955998b95fbf6ca54e83d16d18b",
+      "bytes": 724
+    },
+    {
+      "command": "node /tmp/r3-real-pg-20261114/handler.cjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-steering-followup-20261114/handler-final.log",
+      "sha256": "b10d5a89c4d4e9871bbe43b1fad3a2b181401d32c17ed947905df734692a5f16",
+      "bytes": 75
+    }
+  ],
+  "results": {
+    "metadataAndBoundedText": 13,
+    "realPostgresRepository": 18,
+    "actualHostedWithRealRepository": {
+      "scenarios": 30,
+      "pass": 28,
+      "knownStillFailing": 2,
+      "failures": [
+        "prior accepted identical image retry409 instead200",
+        "prior accepted control-character name identical image retry409 instead200"
+      ],
+      "important": "JSONB fingerprint repair NOT granted/applied. These are known product failures, not green acceptance."
+    },
+    "storedConflictsRealPg": {
+      "prior-conflict": {
+        "status": 409,
+        "result": {
+          "status": "conflict",
+          "code": "turn_not_active",
+          "message": "Original canonical conflict"
+        },
+        "counts": {
+          "lookup": 1,
+          "enqueue": 0,
+          "claim": 0,
+          "models": 0,
+          "media": 0,
+          "rpc": 0,
+          "receipt": 0
+        }
+      },
+      "prior-conflict-superseded": {
+        "status": 409,
+        "result": {
+          "status": "conflict",
+          "code": "target_superseded",
+          "message": "Original canonical conflict"
+        },
+        "counts": {
+          "lookup": 1,
+          "enqueue": 0,
+          "claim": 0,
+          "models": 0,
+          "media": 0,
+          "rpc": 0,
+          "receipt": 0
+        }
+      }
+    },
+    "freshRuntime409ThenRetryRealPg": {
+      "direct-runtime409": {
+        "first": {
+          "status": "conflict",
+          "code": "turn_not_active",
+          "message": "not active"
+        },
+        "second": {
+          "status": "conflict",
+          "code": "turn_not_active",
+          "message": "not active"
+        },
+        "status": 409,
+        "before": {
+          "lookup": 1,
+          "enqueue": 1,
+          "claim": 0,
+          "models": 0,
+          "media": 0,
+          "rpc": 1,
+          "receipt": 1
+        },
+        "after": {
+          "lookup": 2,
+          "enqueue": 1,
+          "claim": 0,
+          "models": 0,
+          "media": 0,
+          "rpc": 1,
+          "receipt": 1
+        }
+      },
+      "queued-runtime409": {
+        "first": {
+          "status": "conflict",
+          "code": "turn_not_active",
+          "message": "not active"
+        },
+        "second": {
+          "status": "conflict",
+          "code": "turn_not_active",
+          "message": "not active"
+        },
+        "status": 409,
+        "before": {
+          "lookup": 0,
+          "enqueue": 0,
+          "claim": 1,
+          "models": 0,
+          "media": 0,
+          "rpc": 1,
+          "receipt": 1
+        },
+        "after": {
+          "lookup": 0,
+          "enqueue": 0,
+          "claim": 1,
+          "models": 0,
+          "media": 0,
+          "rpc": 1,
+          "receipt": 1
+        }
+      }
+    },
+    "actualKernelLifecycle": {
+      "revision": "3d87bcc70a72e4386c76a864439a773ced83b744",
+      "scope": "actual frozen normalizer registration, DelegatedTurnCoordinator and RuntimeLifecycleCoordinator; synthetic append/control ports only; zero providers/OS",
+      "results": [
+        {
+          "mode": "duplicate",
+          "canonicalAccepted": 1,
+          "controls": 1,
+          "applied": 0
+        },
+        {
+          "mode": "malformed",
+          "canonicalAccepted": 0,
+          "controls": 0,
+          "applied": 0
+        },
+        {
+          "mode": "stop-before-accept",
+          "canonicalAccepted": 0,
+          "controls": 0,
+          "applied": 0
+        },
+        {
+          "mode": "stop-after-accept",
+          "canonicalAccepted": 1,
+          "controls": 0,
+          "applied": 0
+        },
+        {
+          "mode": "control-unknown",
+          "canonicalAccepted": 1,
+          "controls": 1,
+          "applied": 0
+        },
+        {
+          "mode": "append-unknown",
+          "canonicalAccepted": 1,
+          "controls": 0,
+          "applied": 0
+        }
+      ]
+    },
+    "handler": 5,
+    "existingGates": 39,
+    "producedAppliedEvents": 0
+  },
+  "independentReview": "Parent read-only reviewed exact3d87 diff clear before publication.",
+  "publication": {
+    "fetch": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "push": {
+      "sha256": "7778045f902228524360363eec31dc8101f6d33f8b97e92079ee61ee7ef16cbe",
+      "bytes": 393
+    },
+    "remoteVerifiedBy": "git ls-remote --heads origin refs/heads/codex/fix-r3-steering-receipt-metadata-20261114"
+  },
+  "cleanup": {
+    "ownedPostgreSQL15_8Stopped": true,
+    "ownedUnixSocketRemoved": true,
+    "sourceWorktreeClean": true,
+    "physicalWipUntouched": true
+  },
+  "limitations": [
+    "Known JSONB mediaRef key-order fingerprint failure remains on descendant pending separate Root grant. No claim all hosted scenarios green.",
+    "Real PostgreSQL owner/query/JSONB/transaction evidence uses actual0033table DDL and sessions owner fixture, not full hosted schema/application.",
+    "Hosted admission/native metadata/runtime/network and kernel append/control boundaries are explicit fixtures. Prior Applied receipt is existing-row fixture, not fabricated Applied production evidence.",
+    "No Native/Handler/contracts/schema/lockfile/provider/account/API endpoint/credentials/installed acceptance changes; no PR/deploy."
+  ],
+  "embeddedProbes": {
+    "metadata-controls.cjs": "const fs=require('fs'),cp=require('child_process'),vm=require('vm'),assert=require('assert/strict');\nconst root='/workspace/LegionCode-R3-REAL-PG-661530-20261114',dir='/tmp/r3-steering-followup-20261114',revision=process.argv[2]||'working';\nconst ts=require(root+'/node_modules/typescript/lib/typescript.js'),P=require('/tmp/r3-real-pg-20261114/protocol.cjs');\nconst source=p=>revision==='working'?fs.readFileSync(root+'/'+p,'utf8'):cp.execFileSync('git',['show',revision+':'+p],{cwd:root,encoding:'utf8'});\nfunction load(s){const m={exports:{}};vm.runInNewContext(ts.transpileModule(s,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:m,exports:m.exports,require:n=>n==='@repo/platform-protocol'?P:{},Reflect});return m.exports;}\nconst src=source('apps/brain/src/runtime/DelegatedRunExecution.ts'),mod=load(src),callback=src.slice(src.indexOf('  input.threadInputs.register(turnId,'),src.indexOf('  prepared.checkoutLifecycle.beginRuntimeExecution'));\nlet accept,effects=0,last;const sentinel=new Error('unknown storage/control');const context={input:{threadInputs:{register:(id,fn)=>accept=fn}},turnId:'fixture-turn',kernel:{acceptThreadInput:x=>{effects++;last=x;return Promise.resolve(7);}},...mod,Reflect};\nvm.runInNewContext(ts.transpileModule(callback,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,context);\nconst base={inputId:'i',clientInputId:'c',transcriptMessageId:'t'},results=[];\nasync function check(name,message,valid){const before=effects;let err;try{await accept({...base,message});}catch(e){err=e;}if(valid){assert.equal(err,undefined,name);assert.equal(effects,before+1);assert.equal(last.accepted.message.content,'  a\\nb  ');}else{assert(err instanceof mod.DelegatedThreadInputPreacceptError,name);assert.equal(effects,before,name);}results.push({name,valid,effects:effects-before,error:err?.name});}\n(async()=>{await check('plain string',{role:'user',content:'  a\\nb  '},true);await check('ordered parts',{role:'user',content:[{type:'text',text:'  a\\n'},{type:'text',text:'b  '}]},true);\nfor(const [name,message] of [['empty',{role:'user',content:''}],['whitespace',{role:'user',content:' \\n '}],['oversize string',{role:'user',content:'x'.repeat(100001)}],['oversize parts',{role:'user',content:[{type:'text',text:'x'.repeat(50001)},{type:'text',text:'x'.repeat(50000)}]}],['part providerOptions',{role:'user',content:[{type:'text',text:'text',providerOptions:{fixture:'unsupported'}}]}],['part extra',{role:'user',content:[{type:'text',text:'text',extra:1}]}],['message providerOptions',{role:'user',content:'text',providerOptions:{fixture:'unsupported'}}],['message extra',{role:'user',content:'text',extra:1}],['mixed image',{role:'user',content:[{type:'text',text:'text'},{type:'image',image:'x'}]}]])await check(name,message,false);\nassert.equal(mod.normalizeDelegatedThreadInputText('x'.repeat(100000)).length,100000);results.push({name:'canonical exact 100000 boundary',valid:true});context.kernel.acceptThreadInput=()=>Promise.reject(sentinel);await assert.rejects(accept({...base,message:{role:'user',content:'valid'}}),e=>e===sentinel);results.push({name:'downstream error identity',unchanged:true});\nfs.writeFileSync(dir+'/metadata-'+revision+'-result.json',JSON.stringify({revision,results,scope:'actual source registry callback + canonical public content schema; kernel acceptance/control is an explicit counter, not provider'},null,2)+'\\n');console.log(results.length+' metadata/boundedtext controls PASS');})().catch(e=>{console.error(e.stack);process.exitCode=1});\n",
+    "conflict-after.cjs": "const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),crypto=require('node:crypto');\nconst root='/workspace/LegionCode-R3-REAL-PG-661530-20261114',dir='/tmp/r3-real-pg-20261114';\nconst {Pool}=require(root+'/node_modules/.pnpm/pg@8.20.0/node_modules/pg'); const pool=new Pool({host:dir+'/socket',port:55471,user:'agent',database:'postgres',max:6});\nfunction sqlClient(lose=false){return {query:(s,p)=>pool.query(s,p),async transaction(fn){const c=await pool.connect();try{await c.query('BEGIN');const out=await fn({query:(s,p)=>c.query(s,p)});await c.query('COMMIT');if(lose)throw Error('injected durable COMMIT ACK loss');return out;}catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;}finally{c.release();}}};}\nconst ts=require(root+'/node_modules/typescript/lib/typescript.js'),P=require(dir+'/protocol.cjs'),Repo=require(dir+'/repository.cjs'),Media=require(dir+'/media-validation.cjs');\nfunction load(source,mocks){const module={exports:{}};vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module,exports:module.exports,require(n){if(n in mocks)return mocks[n];throw Error('unmocked '+n);},crypto:crypto.webcrypto,TextEncoder,Response,Request,URL,console});return module.exports;}\nconst domain=load(fs.readFileSync(root+'/apps/brain/src/domain/errors.ts','utf8'),{});\nconst delegated=load(fs.readFileSync(root+'/apps/brain/src/runtime/DelegatedRunExecution.ts','utf8'),{'@repo/runtime-kernel':{},'@repo/platform-protocol':P,'../domain/errors':domain});\nconst serverSource=fs.readFileSync(root+'/packages/app-server/src/server.ts','utf8');\nconst server=load(serverSource.slice(serverSource.indexOf('export class AppServerOperationError'),serverSource.indexOf('/** Preserves the existing provider error contract')),{});\nconst id={userId:'11111111-1111-4111-8111-111111111111',workspaceId:'22222222-2222-4222-8222-222222222222',sessionId:'33333333-3333-4333-8333-333333333333',threadId:'thr_'+ 'a'.repeat(24),turnId:'trn_'+'b'.repeat(24),runAttemptId:'attempt_'+'c'.repeat(24),runId:'run_'+'d'.repeat(24)};\nconst sha=x=>crypto.createHash('sha256').update(x).digest('hex');let cases=0;\n// Actual shared delegated registration callback, with canonical acceptance/control spies.\nconst source=fs.readFileSync(root+'/apps/brain/src/runtime/DelegatedRunExecution.ts','utf8');\nconst callback=source.slice(source.indexOf('  input.threadInputs.register(turnId,'),source.indexOf('  prepared.checkoutLifecycle.beginRuntimeExecution'));\nlet accept,accepted=0,last;const sentinel=new Error('storage/control unknown');\nconst context={input:{threadInputs:{register(t,fn){assert.equal(t,id.turnId);accept=fn;}}},turnId:id.turnId,kernel:{acceptThreadInput(x){accepted++;last=x;return Promise.resolve(7);}},...delegated};\nvm.runInNewContext(ts.transpileModule(callback,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,context);\nconst base={turnId:id.turnId,inputId:'44444444-4444-4444-8444-444444444444',clientInputId:'client1',transcriptMessageId:'transcript1'};\n(async()=>{\nfor(const content of ['  alpha\\n beta  ',[{type:'text',text:'  alpha\\n'},{type:'text',text:' beta  '}]]){const n=accepted;assert.equal(await accept({...base,message:{role:'user',content}}),7);assert.equal(accepted,n+1);assert.equal(last.accepted.message.content,'  alpha\\n beta  ');assert.equal(last.accepted.inputId,base.inputId);assert.equal(last.clientInputId,base.clientInputId);assert.equal(last.transcriptMessageId,base.transcriptMessageId);cases++;}\nfor(const content of ['',[],[{type:'text',text:' \\n'}],[{type:'image',image:'data:image/png;base64,AAAA'}],[{type:'text',text:'yes'},{type:'image',image:'data:image/png;base64,AAAA'}]]){const n=accepted;assert.throws(()=>accept({...base,message:{role:'user',content}}),delegated.DelegatedThreadInputPreacceptError);assert.equal(accepted,n);cases++;}\ncontext.kernel.acceptThreadInput=()=>Promise.reject(sentinel);await assert.rejects(accept({...base,message:{role:'user',content:'valid'}}),e=>e===sentinel);cases++;\nasync function hosted(mode){const counts={lookup:0,enqueue:0,claim:0,models:0,media:0,rpc:0,receipt:0};\nconst image={dataUrl:'data:image/png;base64,AAAA',name:'image.png',mediaType:'image/png'};\nif(mode.includes('controlname'))image.name='im\\u0000age.png';\nconst queued=mode.startsWith('queued');const invalid=mode.includes('image')||mode.includes('invalid');\nconst command=queued?{operation:'thread.input.steer',threadId:id.threadId,workspaceId:id.workspaceId,itemId:base.inputId,expectedVersion:1,expectedTurnId:id.turnId,expectedRunAttemptId:id.runAttemptId}:{operation:'turn.steer',threadId:id.threadId,workspaceId:id.workspaceId,clientInputId:'client1',expectedTurnId:id.turnId,expectedRunAttemptId:id.runAttemptId,content:{text:mode.includes('blank')?'  ':'text',images:invalid?[image]:[]}};\nlet item={itemId:base.inputId,clientInputId:'client1',order:0,version:1,state:mode.includes('consuming')?'consuming':'pending',delivery:queued&&!mode.includes('consuming')?'queue':'steer',targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId,text:mode.includes('blank')?'  ':'text',mediaRefs:(queued||mode.startsWith('prior'))&&invalid?[{type:'image_attachment',attachmentId:'in_'+sha('client1:0:'+image.dataUrl).slice(0,32),name:Media.normalizeAttachmentName(image.name),mediaType:'image/png',byteSize:3}]:[],configuration:{},receipt:null};\nitem.fingerprint=sha(JSON.stringify({operation:'turn.steer',text:item.text,mediaRefs:item.mediaRefs,targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId}));\nif(mode.includes('accepted'))item.receipt={status:'accepted',clientInputId:'client1',inputId:item.itemId,targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId,acceptedSequence:7};\nif(mode.includes('applied'))item.receipt={status:'applied',inputId:item.itemId,targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId,acceptedSequence:7,appliedSequence:8,modelStep:1,contextRevision:1};\nif(mode.includes('unconfirmed'))item.receipt={status:'unconfirmed',inputId:item.itemId,targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId,acceptedSequence:7,terminalSequence:8};\nif(mode.includes('conflict')){item.receipt={status:'conflict',code:mode.includes('superseded')?'target_superseded':'turn_not_active',message:'Original canonical conflict'};item.state='cancelled';}\nif(mode.includes('altered'))command.content.text='changed';\nif(mode.includes('changedimage'))image.dataUrl='data:image/png;base64,BBBB';\nif(mode.includes('target'))command.expectedTurnId='trn_'+'e'.repeat(24);\nawait pool.query('TRUNCATE thread_inputs,thread_input_state');\nconst real=new Repo.PostgresThreadInputRepository(sqlClient());\nconst lost=new Repo.PostgresThreadInputRepository(sqlClient(true));\nif(queued||mode.startsWith('prior')){\n const seeded=await real.enqueue({...id,delivery:item.delivery,targetTurnId:item.targetTurnId,targetRunAttemptId:item.targetRunAttemptId,clientInputId:item.clientInputId,fingerprint:item.fingerprint,text:item.text,mediaRefs:item.mediaRefs,configuration:item.configuration});\n await pool.query('UPDATE thread_inputs SET state=$2,receipt_json=$3::jsonb WHERE id=$1',[seeded.item.itemId,item.state,item.receipt?JSON.stringify(item.receipt.status==='conflict'?item.receipt:{...item.receipt,inputId:seeded.item.itemId}):null]);\n item=await real.getByClientInputId({...id,clientInputId:item.clientInputId});\n if(queued)command.itemId=item.itemId;\n}\nconst repo={async getByClientInputId(x){counts.lookup++;if(mode.includes('lookupfail'))throw sentinel;return real.getByClientInputId(x);},async getById(x){return real.getById(x);},async enqueue(x){counts.enqueue++;if(mode.includes('enqueueconflict'))throw new Repo.ThreadInputConflictError('changed','client_input_conflict');if(mode.includes('duplicate'))await real.enqueue(x);const out=await(mode.includes('enqueueunknown')?lost:real).enqueue(x);item=out.item;return out;},async claimForSteering(x){counts.claim++;if(mode.includes('claimconflict'))throw new Repo.ThreadInputConflictError('changed','queue_item_changed');return (mode.includes('claimunknown')?lost:real).claimForSteering(x);},async recordReceipt(x){counts.receipt++;return real.recordReceipt(x);}};\nconst mocks={'../../runtime/DelegatedRunExecution':delegated,'@repo/chat-media/validation':Media,'@repo/platform-protocol':P,'@repo/shared-types':P,'@repo/persistence':Repo,'@legioncode/app-server/server':server,'../../domain/errors':domain,\n '../../services/chat/ChatMediaStore':{ChatMediaStore:class{async putImage(){counts.media++;throw Error('media forbidden');}}},'../../services/chat/ChatImageSettings':{resolveChatImageSettings(){}},'../../services/chat/ChatImageModelPolicy':{assertChatImageModelSupport(){}},'../../services/chat/ChatModelMetadataResolution':{async resolveChatModelMetadata(){counts.models++;return {}; }},\n '../../services/runs/RunPersistenceFactory':{withRunRepository:async(e,fn)=>fn({getRun:async()=>({})})},'../../services/sessions/TranscriptPersistenceFactory':{withTranscriptRepository:async(e,fn)=>fn({listSessions:async()=>({sessions:[{id:id.sessionId,threadId:id.threadId,workspaceId:id.workspaceId}]})})},'../../services/thread-inputs/ThreadInputPersistenceFactory':{withThreadInputRepository:async(e,fn)=>fn(repo)},'../../services/thread-inputs/ThreadInputCommandService':{},'../../services/turn-admissions/TurnAdmissionPersistenceFactory':{withTurnAdmissionRepository:async(e,fn)=>fn({getByTurnId:async()=>({...id,state:'admitted',harnessSelection:mode.includes('native')?null:{selection:{harness:'codex'}}})})},'../../services/turn-admissions/ResumeTurnService':{ResumeTurnError:class extends Error{}},\n '../../controllers/chat-runtime-helpers':{resolveExecutionScope:async()=>id,fetchRunProviderModels:async()=>{counts.models++;throw Error('model forbidden');},fetchRunRuntimeRoute:async()=>{counts.rpc++;if(mode.includes('transport'))throw sentinel;if(mode.includes('runtime409'))return Response.json({code:'turn_not_active',error:'not active'},{status:409});if(mode.includes('runtime400'))return Response.json({code:delegated.DelegatedThreadInputPreacceptError.code},{status:400});return Response.json({acceptedSequence:7});}}\n};\nconst hosted=load(fs.readFileSync(root+'/apps/brain/src/integration/app-server/HostedThreadInputOperations.ts','utf8'),mocks);\ntry{const out=await hosted.composeHostedThreadInputOperations(new Request('http://fixture'),{},id.userId).execute(command);return {status:out.statusCode,result:out.result,counts};}catch(e){return {status:e.statusCode,code:e.code,counts};}}\nconst outcomes={};for(const mode of ['prior-conflict','prior-conflict-superseded'])outcomes[mode]=await hosted(mode);require('fs').writeFileSync('/tmp/r3-steering-followup-20261114/conflict-after-result.json',JSON.stringify(outcomes,null,2)+'\\n');console.log(JSON.stringify(outcomes));for(const mode of Object.keys(outcomes)){assert.equal(outcomes[mode].status,409);assert.equal(outcomes[mode].counts.rpc+outcomes[mode].counts.receipt,0);}\nawait pool.end();})().catch(async e=>{console.error(e.stack);await pool.end();process.exitCode=1;});\n",
+    "conflict-roundtrip.cjs": "const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),crypto=require('node:crypto');\nconst root='/workspace/LegionCode-R3-REAL-PG-661530-20261114',dir='/tmp/r3-real-pg-20261114';\nconst {Pool}=require(root+'/node_modules/.pnpm/pg@8.20.0/node_modules/pg'); const pool=new Pool({host:dir+'/socket',port:55471,user:'agent',database:'postgres',max:6});\nfunction sqlClient(lose=false){return {query:(s,p)=>pool.query(s,p),async transaction(fn){const c=await pool.connect();try{await c.query('BEGIN');const out=await fn({query:(s,p)=>c.query(s,p)});await c.query('COMMIT');if(lose)throw Error('injected durable COMMIT ACK loss');return out;}catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;}finally{c.release();}}};}\nconst ts=require(root+'/node_modules/typescript/lib/typescript.js'),P=require(dir+'/protocol.cjs'),Repo=require(dir+'/repository.cjs'),Media=require(dir+'/media-validation.cjs');\nfunction load(source,mocks){const module={exports:{}};vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module,exports:module.exports,require(n){if(n in mocks)return mocks[n];throw Error('unmocked '+n);},crypto:crypto.webcrypto,TextEncoder,Response,Request,URL,console});return module.exports;}\nconst domain=load(fs.readFileSync(root+'/apps/brain/src/domain/errors.ts','utf8'),{});\nconst delegated=load(fs.readFileSync(root+'/apps/brain/src/runtime/DelegatedRunExecution.ts','utf8'),{'@repo/runtime-kernel':{},'@repo/platform-protocol':P,'../domain/errors':domain});\nconst serverSource=fs.readFileSync(root+'/packages/app-server/src/server.ts','utf8');\nconst server=load(serverSource.slice(serverSource.indexOf('export class AppServerOperationError'),serverSource.indexOf('/** Preserves the existing provider error contract')),{});\nconst id={userId:'11111111-1111-4111-8111-111111111111',workspaceId:'22222222-2222-4222-8222-222222222222',sessionId:'33333333-3333-4333-8333-333333333333',threadId:'thr_'+ 'a'.repeat(24),turnId:'trn_'+'b'.repeat(24),runAttemptId:'attempt_'+'c'.repeat(24),runId:'run_'+'d'.repeat(24)};\nconst sha=x=>crypto.createHash('sha256').update(x).digest('hex');let cases=0;\n// Actual shared delegated registration callback, with canonical acceptance/control spies.\nconst source=fs.readFileSync(root+'/apps/brain/src/runtime/DelegatedRunExecution.ts','utf8');\nconst callback=source.slice(source.indexOf('  input.threadInputs.register(turnId,'),source.indexOf('  prepared.checkoutLifecycle.beginRuntimeExecution'));\nlet accept,accepted=0,last;const sentinel=new Error('storage/control unknown');\nconst context={input:{threadInputs:{register(t,fn){assert.equal(t,id.turnId);accept=fn;}}},turnId:id.turnId,kernel:{acceptThreadInput(x){accepted++;last=x;return Promise.resolve(7);}},...delegated};\nvm.runInNewContext(ts.transpileModule(callback,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,context);\nconst base={turnId:id.turnId,inputId:'44444444-4444-4444-8444-444444444444',clientInputId:'client1',transcriptMessageId:'transcript1'};\n(async()=>{\nfor(const content of ['  alpha\\n beta  ',[{type:'text',text:'  alpha\\n'},{type:'text',text:' beta  '}]]){const n=accepted;assert.equal(await accept({...base,message:{role:'user',content}}),7);assert.equal(accepted,n+1);assert.equal(last.accepted.message.content,'  alpha\\n beta  ');assert.equal(last.accepted.inputId,base.inputId);assert.equal(last.clientInputId,base.clientInputId);assert.equal(last.transcriptMessageId,base.transcriptMessageId);cases++;}\nfor(const content of ['',[],[{type:'text',text:' \\n'}],[{type:'image',image:'data:image/png;base64,AAAA'}],[{type:'text',text:'yes'},{type:'image',image:'data:image/png;base64,AAAA'}]]){const n=accepted;assert.throws(()=>accept({...base,message:{role:'user',content}}),delegated.DelegatedThreadInputPreacceptError);assert.equal(accepted,n);cases++;}\ncontext.kernel.acceptThreadInput=()=>Promise.reject(sentinel);await assert.rejects(accept({...base,message:{role:'user',content:'valid'}}),e=>e===sentinel);cases++;\nasync function hosted(mode){const counts={lookup:0,enqueue:0,claim:0,models:0,media:0,rpc:0,receipt:0};\nconst image={dataUrl:'data:image/png;base64,AAAA',name:'image.png',mediaType:'image/png'};\nif(mode.includes('controlname'))image.name='im\\u0000age.png';\nconst queued=mode.startsWith('queued');const invalid=mode.includes('image')||mode.includes('invalid');\nconst command=queued?{operation:'thread.input.steer',threadId:id.threadId,workspaceId:id.workspaceId,itemId:base.inputId,expectedVersion:1,expectedTurnId:id.turnId,expectedRunAttemptId:id.runAttemptId}:{operation:'turn.steer',threadId:id.threadId,workspaceId:id.workspaceId,clientInputId:'client1',expectedTurnId:id.turnId,expectedRunAttemptId:id.runAttemptId,content:{text:mode.includes('blank')?'  ':'text',images:invalid?[image]:[]}};\nlet item={itemId:base.inputId,clientInputId:'client1',order:0,version:1,state:mode.includes('consuming')?'consuming':'pending',delivery:queued&&!mode.includes('consuming')?'queue':'steer',targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId,text:mode.includes('blank')?'  ':'text',mediaRefs:(queued||mode.startsWith('prior'))&&invalid?[{type:'image_attachment',attachmentId:'in_'+sha('client1:0:'+image.dataUrl).slice(0,32),name:Media.normalizeAttachmentName(image.name),mediaType:'image/png',byteSize:3}]:[],configuration:{},receipt:null};\nitem.fingerprint=sha(JSON.stringify({operation:'turn.steer',text:item.text,mediaRefs:item.mediaRefs,targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId}));\nif(mode.includes('accepted'))item.receipt={status:'accepted',clientInputId:'client1',inputId:item.itemId,targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId,acceptedSequence:7};\nif(mode.includes('applied'))item.receipt={status:'applied',inputId:item.itemId,targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId,acceptedSequence:7,appliedSequence:8,modelStep:1,contextRevision:1};\nif(mode.includes('unconfirmed'))item.receipt={status:'unconfirmed',inputId:item.itemId,targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId,acceptedSequence:7,terminalSequence:8};\nif(mode.includes('altered'))command.content.text='changed';\nif(mode.includes('changedimage'))image.dataUrl='data:image/png;base64,BBBB';\nif(mode.includes('target'))command.expectedTurnId='trn_'+'e'.repeat(24);\nawait pool.query('TRUNCATE thread_inputs,thread_input_state');\nconst real=new Repo.PostgresThreadInputRepository(sqlClient());\nconst lost=new Repo.PostgresThreadInputRepository(sqlClient(true));\nif(queued||mode.startsWith('prior')){\n const seeded=await real.enqueue({...id,delivery:item.delivery,targetTurnId:item.targetTurnId,targetRunAttemptId:item.targetRunAttemptId,clientInputId:item.clientInputId,fingerprint:item.fingerprint,text:item.text,mediaRefs:item.mediaRefs,configuration:item.configuration});\n await pool.query('UPDATE thread_inputs SET state=$2,receipt_json=$3::jsonb WHERE id=$1',[seeded.item.itemId,item.state,item.receipt?JSON.stringify({...item.receipt,inputId:seeded.item.itemId}):null]);\n item=await real.getByClientInputId({...id,clientInputId:item.clientInputId});\n if(queued)command.itemId=item.itemId;\n}\nconst repo={async getByClientInputId(x){counts.lookup++;if(mode.includes('lookupfail'))throw sentinel;return real.getByClientInputId(x);},async getById(x){return real.getById(x);},async enqueue(x){counts.enqueue++;if(mode.includes('enqueueconflict'))throw new Repo.ThreadInputConflictError('changed','client_input_conflict');if(mode.includes('duplicate'))await real.enqueue(x);const out=await(mode.includes('enqueueunknown')?lost:real).enqueue(x);item=out.item;return out;},async claimForSteering(x){counts.claim++;if(mode.includes('claimconflict'))throw new Repo.ThreadInputConflictError('changed','queue_item_changed');return (mode.includes('claimunknown')?lost:real).claimForSteering(x);},async recordReceipt(x){counts.receipt++;return real.recordReceipt(x);}};\nconst mocks={'../../runtime/DelegatedRunExecution':delegated,'@repo/chat-media/validation':Media,'@repo/platform-protocol':P,'@repo/shared-types':P,'@repo/persistence':Repo,'@legioncode/app-server/server':server,'../../domain/errors':domain,\n '../../services/chat/ChatMediaStore':{ChatMediaStore:class{async putImage(){counts.media++;throw Error('media forbidden');}}},'../../services/chat/ChatImageSettings':{resolveChatImageSettings(){}},'../../services/chat/ChatImageModelPolicy':{assertChatImageModelSupport(){}},'../../services/chat/ChatModelMetadataResolution':{async resolveChatModelMetadata(){counts.models++;return {}; }},\n '../../services/runs/RunPersistenceFactory':{withRunRepository:async(e,fn)=>fn({getRun:async()=>({})})},'../../services/sessions/TranscriptPersistenceFactory':{withTranscriptRepository:async(e,fn)=>fn({listSessions:async()=>({sessions:[{id:id.sessionId,threadId:id.threadId,workspaceId:id.workspaceId}]})})},'../../services/thread-inputs/ThreadInputPersistenceFactory':{withThreadInputRepository:async(e,fn)=>fn(repo)},'../../services/thread-inputs/ThreadInputCommandService':{},'../../services/turn-admissions/TurnAdmissionPersistenceFactory':{withTurnAdmissionRepository:async(e,fn)=>fn({getByTurnId:async()=>({...id,state:'admitted',harnessSelection:mode.includes('native')?null:{selection:{harness:'codex'}}})})},'../../services/turn-admissions/ResumeTurnService':{ResumeTurnError:class extends Error{}},\n '../../controllers/chat-runtime-helpers':{resolveExecutionScope:async()=>id,fetchRunProviderModels:async()=>{counts.models++;throw Error('model forbidden');},fetchRunRuntimeRoute:async()=>{counts.rpc++;if(mode.includes('transport'))throw sentinel;if(mode.includes('runtime409'))return Response.json({code:'turn_not_active',error:'not active'},{status:409});if(mode.includes('runtime400'))return Response.json({code:delegated.DelegatedThreadInputPreacceptError.code},{status:400});return Response.json({acceptedSequence:7});}}\n};\nconst hosted=load(fs.readFileSync(root+'/apps/brain/src/integration/app-server/HostedThreadInputOperations.ts','utf8'),mocks);\ntry{const ops=hosted.composeHostedThreadInputOperations(new Request('http://fixture'),{},id.userId);const first=await ops.execute(command);assert.equal(first.statusCode,409);const before={...counts};const second=await ops.execute(command);assert.equal(second.statusCode,409);assert.deepEqual(second.result,first.result);assert.equal(counts.rpc,before.rpc);assert.equal(counts.receipt,before.receipt);assert.equal(counts.enqueue,before.enqueue);assert.equal(counts.claim,before.claim);return {first:first.result,second:second.result,status:second.statusCode,before,after:counts};}catch(e){throw e;}}\nconst outcomes={};for(const mode of ['direct-runtime409','queued-runtime409'])outcomes[mode]=await hosted(mode);fs.writeFileSync('/tmp/r3-steering-followup-20261114/conflict-roundtrip-result.json',JSON.stringify(outcomes,null,2)+'\\n');console.log(JSON.stringify(outcomes));await pool.end();})().catch(async e=>{console.error(e.stack);await pool.end();process.exitCode=1;});\n",
+    "kernel-final.cjs": "const fs=require('node:fs'),vm=require('node:vm'),cp=require('node:child_process'),assert=require('node:assert/strict'),crypto=require('node:crypto');\nconst root='/workspace/LegionCode-R3-REAL-PG-661530-20261114',revision='3d87bcc70a72e4386c76a864439a773ced83b744';\nconst ts=require(root+'/node_modules/typescript/lib/typescript.js'),P=require('/tmp/r3-real-pg-20261114/protocol.cjs');\nfunction source(path){return cp.execFileSync('git',['show',revision+':'+path],{cwd:root,encoding:'utf8'})}\nfunction load(text,mocks){const module={exports:{}};const code=ts.transpileModule(text,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;new Function('module','exports','require','crypto',code)(module,module.exports,n=>{if(n in mocks)return mocks[n];throw Error('unmocked '+n)},crypto.webcrypto);return module.exports}\nconst errors=load(source('packages/runtime-kernel/src/errors.ts'),{'@repo/platform-protocol':P});\nconst {RuntimeLifecycleCoordinator}=load(source('packages/runtime-kernel/src/RuntimeLifecycleCoordinator.ts'),{'@repo/platform-protocol':P,'@repo/platform-protocol/lifecycle':P,'@repo/worker-protocol':{},'./errors.js':errors});\nconst {DelegatedTurnCoordinator}=load(source('packages/runtime-kernel/src/harness/DelegatedTurnCoordinator.ts'),{'@repo/platform-protocol':P,'@repo/worker-protocol':{},'../ApprovalCoordinator.js':{},'../errors.js':errors,'../RuntimeLifecycleCoordinator.js':{RuntimeLifecycleCoordinator},'./HarnessObservationIngestor.js':{}});\nconst domain=load(source('apps/brain/src/domain/errors.ts'),{});\nconst normalize=load(source('apps/brain/src/runtime/DelegatedRunExecution.ts'),{'@repo/runtime-kernel':{},'@repo/platform-protocol':P,'../domain/errors':domain});\nconst callback=source('apps/brain/src/runtime/DelegatedRunExecution.ts').split('  input.threadInputs.register(turnId,')[1].split('  prepared.checkoutLifecycle.beginRuntimeExecution')[0];\nconst id={threadId:'thr_review01',workspaceId:'wrk_review01',turnId:'trn_review01',runAttemptId:'attempt_review01'};\nconst command={mode:'start',commandId:'canonical-start',selection:{},leaseId:'lease_review01',filesystemRoot:'/unused'};\nasync function scenario(mode){const events=[];let controls=0,auth=0;const sentinel=new Error('synthetic unknown '+mode),signal=new AbortController();\n const lifecycle=new RuntimeLifecycleCoordinator({...id,producerId:'worker_review01',clock:{now:()=>new Date(0).toISOString()},executionCapability:'conversation',sink:{appendBatch:async batch=>{batch.forEach(e=>P.LifecycleEventSchema.parse(e));events.push(...batch);if(mode==='append-unknown'&&batch.some(e=>e.type==='turn.input.accepted'))throw sentinel;return batch}}});\n await lifecycle.start();\n const coordinator=new DelegatedTurnCoordinator({command,run:{},turn:{},approvals:{},lifecycle,signal:signal.signal,dependencies:{capabilities:{steer:true},assertActive:async()=>{auth++;if(mode==='stop-before-accept'&&auth===1)signal.abort();if(mode==='stop-after-accept'&&auth===2)signal.abort()},harness:{control:async input=>{controls++;assert.equal(input.kind,'steer');assert.equal(input.text,'  first\\nsecond  ');if(mode==='control-unknown')throw sentinel;return {accepted:true}}}}});\n coordinator.session={runAttemptId:id.runAttemptId,instanceId:'review-instance',externalSessionId:'acknowledged-synthetic-fixture',processGeneration:'00000000-0000-4000-8000-000000000001'};\n coordinator.ingestor={ready:async()=>{},steeringTarget:'acknowledged-native-turn'};\n let accept;new Function('input','turnId','kernel','normalizeDelegatedThreadInputText','DelegatedThreadInputPreacceptError',ts.transpileModule('input.threadInputs.register(turnId,'+callback,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText)({threadInputs:{register:(_,fn)=>accept=fn}},id.turnId,{acceptThreadInput:input=>coordinator.acceptThreadInput(input)},normalize.normalizeDelegatedThreadInputText,normalize.DelegatedThreadInputPreacceptError);\n const request={inputId:'review-input',clientInputId:'review-client',transcriptMessageId:'review-transcript',message:{role:'user',content:[{type:'text',text:'  first\\n'},{type:'text',text:'second  '}]}};\n if(mode==='duplicate'){\n  const [a,b]=await Promise.all([accept(request),accept(request)]);assert.equal(a,b);assert.equal(controls,1);assert.equal(events.filter(e=>e.type==='turn.input.accepted').length,1);assert.equal(lifecycle.hasPendingThreadInputs(),true);assert.equal(await lifecycle.reserveCompletion(()=>lifecycle.hasPendingThreadInputs()),false);\n }else if(mode==='malformed'){\n  for(const content of [[],[{type:'image',image:'x'}],[{type:'text',text:'yes'},{type:'image',image:'x'}],[{type:'text',text:' \\n'}]])assert.throws(()=>accept({...request,message:{role:'user',content}}),normalize.DelegatedThreadInputPreacceptError);\n  assert.equal(controls,0);assert.equal(events.filter(e=>e.type==='turn.input.accepted').length,0);\n }else{\n  await assert.rejects(accept(request));assert.equal(controls,mode==='control-unknown'?1:0);\n  if(mode==='control-unknown'){const n=controls;await accept(request);assert.equal(controls,n)}\n  if(mode==='append-unknown')await assert.rejects(accept(request));\n  assert.equal(events.filter(e=>e.type==='turn.input.accepted').length,mode==='stop-before-accept'?0:1);\n }\n assert.equal(events.filter(e=>e.type==='turn.input.applied').length,0);\n return {mode,canonicalAccepted:events.filter(e=>e.type==='turn.input.accepted').length,controls,applied:0};}\n(async()=>{const results=[];for(const mode of ['duplicate','malformed','stop-before-accept','stop-after-accept','control-unknown','append-unknown'])results.push(await scenario(mode));const report={revision,scope:'actual frozen normalizer registration, DelegatedTurnCoordinator and RuntimeLifecycleCoordinator; synthetic append/control ports only; zero providers/OS',results};fs.writeFileSync('/tmp/r3-steering-followup-20261114/kernel-final-result.json',JSON.stringify(report,null,2)+'\\n');console.log(JSON.stringify(report))})().catch(e=>{console.error(e.stack);process.exitCode=1});\n"
+  }
+}
