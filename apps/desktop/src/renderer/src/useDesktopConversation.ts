@@ -9,12 +9,13 @@ import {
   type AppServerClient,
   type LifecycleProjection,
   type LocalTurnStartParams,
+  type LocalThreadHistoryMessagesContinuation,
 } from "@legioncode/sdk";
 import { useConversationTurnLifecycle } from "@legioncode/client-ui";
 import type { EventCursor, Thread, TurnAdmission } from "@repo/platform-protocol";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-const HISTORY_PAGE_SIZE = 25;
+import { readDesktopHistoryWindow, assertDesktopAdmissionScope as assertScope, type DesktopHistoryWindow, DESKTOP_HISTORY_PAGE_SIZE as HISTORY_PAGE_SIZE } from "./desktop-conversation-history";
 const REPLAY_CONCURRENCY = 2;
 
 /** Scoped SDK reads and command delivery; lifecycle truth stays in SDK replay. */
@@ -28,6 +29,11 @@ export function useDesktopConversation(
   admissionConfirmed.current = onAdmissionConfirmed;
   const lifecycleClient = useMemo(() => createAppServerLifecycleClient(client), [client]);
   const [admissions, setAdmissions] = useState<TurnAdmission[]>([]);
+  const [body, setBody] = useState<Pick<DesktopHistoryWindow, "messages" | "window">>({ messages: [], window: null });
+  const [messagesContinuation, setMessagesContinuation] = useState<LocalThreadHistoryMessagesContinuation | null>(null);
+  const [navigation, setNavigation] = useState({ key: 0, intent: "latest" as "earlier" | "newer" | "latest" });
+  const [completedNavigation, setCompletedNavigation] = useState(navigation);
+  const inputReadSequence = useRef({ turnId: "", sequence: 0 });
   const [replayedProjections, setProjections] = useState<Record<string, LifecycleProjection>>({});
   const [loading, setLoading] = useState(true);
   const [historyReady, setHistoryReady] = useState(false);
@@ -77,6 +83,8 @@ export function useDesktopConversation(
       admittedDelivery.current = null;
       pendingRequest.current = null;
       setAdmissions([]);
+      setBody({ messages: [], window: null });
+      setMessagesContinuation(null);
       setProjections({});
       setAfterCursor(null);
       setLatestPage(true);
@@ -84,45 +92,29 @@ export function useDesktopConversation(
       setNextCursor(null);
       loadedScope.current = { client, workspaceId: thread.workspaceId, threadId: thread.id };
     }
-    if (!scopeMatches && (afterCursor !== null || !latestPage)) return () => { controller.abort(); };
+    if (!scopeMatches && (afterCursor !== null || !latestPage || messagesContinuation !== null)) return () => { controller.abort(); };
     if (!enabled) {
       setInitialReadSettled(false);
       setAdmissions([]);
+      setBody({ messages: [], window: null });
+      setMessagesContinuation(null);
       setProjections({});
       return () => { controller.abort(); };
     }
     void (async () => {
-      const page = await client.getThreadHistoryPage({
+      const page = await readDesktopHistoryWindow(client, thread, {
         workspaceId: thread.workspaceId, threadId: thread.id,
-        afterCursor, limit: HISTORY_PAGE_SIZE,
-        ...(latestPage ? { latest: true } : {}),
-      });
-      if (controller.signal.aborted) return;
-      if (page.admissions.length > HISTORY_PAGE_SIZE || (page.nextCursor && page.nextCursor === afterCursor)) {
-        throw new Error("Invalid history page");
-      }
-      const history = [...page.admissions];
-      for (const admission of history) assertScope(admission, thread);
-      // Existing cursors name the last returned record, even on the last page.
-      // A one-record lookahead distinguishes the tail without retaining another page.
-      const lookahead = page.nextCursor ? await client.getThreadHistoryPage({
-        workspaceId: thread.workspaceId, threadId: thread.id,
-        afterCursor: page.nextCursor, limit: 1,
-      }) : null;
-      if (controller.signal.aborted) return;
-      const followingCursor = lookahead?.admissions.length ? page.nextCursor : null;
-      const latest = history.at(-1);
-      if (latest) {
-        const restored = await client.getTurn(latest.turn.id);
-        assertScope(restored, thread);
-        if (restored.turn.id !== latest.turn.id || restored.run.id !== latest.run.id || restored.runAttemptId !== latest.runAttemptId) {
-          throw new Error("Restored turn identity changed");
-        }
-        history[history.length - 1] = restored;
-      }
-      if (controller.signal.aborted) return;
-      setNextCursor(followingCursor);
-      setHasEarlier(latestPage && page.hasEarlier === true);
+        ...(messagesContinuation ? { messagesContinuation, messageLimit: 100 } : {
+          afterCursor, limit: HISTORY_PAGE_SIZE, messageLimit: 100,
+          ...(latestPage ? { latest: true } : {}),
+        }),
+      }, { admissions, ...body, nextCursor, hasEarlier }, controller.signal);
+      if (controller.signal.aborted || scope.current !== controller) return;
+      const history = page.admissions;
+      setNextCursor(page.nextCursor);
+      setHasEarlier(page.hasEarlier);
+      setBody({ messages: page.messages, window: page.window });
+      setCompletedNavigation(navigation);
       if (history.some((item) => item.clientRequestId === pendingRequest.current?.clientRequestId)) {
         pendingRequest.current = null;
         setError(null);
@@ -144,10 +136,10 @@ export function useDesktopConversation(
       setLoading(false);
     });
     return () => { controller.abort(); };
-  }, [client, lifecycleClient, thread.id, thread.workspaceId, reload, afterCursor, latestPage, enabled]);
+  }, [client, lifecycleClient, thread.id, thread.workspaceId, reload, afterCursor, latestPage, messagesContinuation, navigation.key, enabled]);
 
   const latest = enabled && scopeMatches ? admissions.at(-1) ?? null : null;
-  const followsLatest = Boolean(enabled && scopeMatches && latestPage && nextCursor === null);
+  const followsLatest = Boolean(enabled && scopeMatches && latestPage && nextCursor === null && !body.window?.hasLater);
   const active = useConversationTurnLifecycle(latest?.turn.id, followsLatest, lifecycleClient);
   const activeProjection = followsLatest && active.isReplayReady ? active.projection : null;
   const projections = useMemo(
@@ -192,6 +184,19 @@ export function useDesktopConversation(
     setInterrupting(false);
   }, [activeProjection]);
 
+  useEffect(() => {
+    const sequence = activeProjection?.inputSequence ?? 0;
+    if (!activeProjection || !followsLatest || loading || delivering || interrupting || !historyReady) return;
+    const previous = inputReadSequence.current;
+    if (previous.turnId === activeProjection.turnId && sequence <= previous.sequence) return;
+    inputReadSequence.current = { turnId: activeProjection.turnId, sequence };
+    if (sequence === 0) return;
+    // Invalidate this read owner from canonical accepted/applied facts; their
+    // acknowledgement contains no transcript body and never supplies a row.
+    setMessagesContinuation(null);
+    setReload((value) => value + 1);
+  }, [activeProjection?.turnId, activeProjection?.inputSequence, followsLatest, loading, delivering, interrupting, historyReady]);
+
   async function submit(
     prompt: string,
     configuration: LocalTurnConfiguration,
@@ -214,6 +219,7 @@ export function useDesktopConversation(
       loading ||
       nextCursor !== null ||
       !latestPage ||
+      body.window?.hasLater ||
       (latest !== null && (!activeProjection || !activeProjection.terminal))
     )
       return false;
@@ -263,20 +269,12 @@ export function useDesktopConversation(
         client, workspaceId: thread.workspaceId, threadId: thread.id,
         turnId: admission.turn.id,
       };
-      const nextAdmissions = admissions.some(
-        (item) => item.turn.id === admission.turn.id,
-      )
-        ? admissions
-        : [...admissions, admission];
-      const visible = nextAdmissions.slice(-HISTORY_PAGE_SIZE);
-      if (nextAdmissions.length > visible.length) setHasEarlier(true);
-      const visibleIds = new Set<string>(visible.map((item) => item.turn.id));
-      setAdmissions(visible);
-      setProjections((current) =>
-        Object.fromEntries(
-          Object.entries(current).filter(([turnId]) => visibleIds.has(turnId)),
-        ),
-      );
+      setHistoryReady(false);
+      setMessagesContinuation(null);
+      setLatestPage(true);
+      setAfterCursor(null);
+      setNavigation((value) => ({ key: value.key + 1, intent: "latest" }));
+      setReload((value) => value + 1);
       pendingRequest.current = null;
       try {
         admissionConfirmed.current?.(admission);
@@ -346,7 +344,7 @@ export function useDesktopConversation(
 
   async function stop(): Promise<void> {
     const controller = scope.current;
-    if (!enabled || !scopeMatches || !historyReady || loading || !latestPage || nextCursor !== null || !executionActive || !controller || controller.signal.aborted || !latest || projections[latest.turn.id]?.terminal) return;
+    if (!enabled || !scopeMatches || !historyReady || loading || !latestPage || nextCursor !== null || body.window?.hasLater || !executionActive || !controller || controller.signal.aborted || !latest || projections[latest.turn.id]?.terminal) return;
     if (stopCommand.current) return stopCommand.current;
     setInterrupting(true);
     const request = client.interruptLocalTurn({
@@ -385,7 +383,7 @@ export function useDesktopConversation(
         ? "Read saved conversation before sending another message."
         : delivering
           ? "Confirming message delivery…"
-          : nextCursor !== null || !latestPage
+          : nextCursor !== null || !latestPage || body.window?.hasLater
             ? "Return to the latest turns before sending another message."
             : awaitingActiveReplay || (latest && !activeProjection)
               ? "Read the admitted turn's runtime status before sending another message."
@@ -395,6 +393,9 @@ export function useDesktopConversation(
 
   return {
     admissions: scopeReadable ? admissions : [],
+    messages: scopeReadable ? body.messages : [],
+    messagesWindow: scopeReadable ? body.window : null,
+    historyNavigation: { key: String(completedNavigation.key), intent: completedNavigation.intent },
     projections: scopeReadable ? projections : {},
     loading: historyLoading,
     initialLoading: historyLoading && (!initialReadSettled || !scopeMatches),
@@ -409,9 +410,21 @@ export function useDesktopConversation(
     deliveryPending: scopeReadable && delivering,
     executionActive: scopeReadable && executionActive,
     submissionUnavailableReason,
-    nextPage: enabled && nextCursor && historyReady && !loading ? () => { setLatestPage(false); setAfterCursor(nextCursor); } : null,
-    firstPage: enabled && (afterCursor !== null || (latestPage && hasEarlier)) ? () => { setLatestPage(false); setAfterCursor(null); } : null,
-    hasNewerPages: enabled && (nextCursor !== null || !latestPage),
+    nextPage: enabled && historyReady && !loading && (body.window?.hasLater || nextCursor) ? () => {
+      setNavigation((value) => ({ key: value.key + 1, intent: "newer" }));
+      if (body.window?.hasLater) {
+        setMessagesContinuation({ turnIds: body.window.turnIds, throughCursor: body.window.throughCursor,
+          direction: "forward", cursor: body.window.lastCursor });
+      } else { setMessagesContinuation(null); setLatestPage(false); setAfterCursor(nextCursor); }
+    } : null,
+    firstPage: enabled && historyReady && !loading && (body.window?.hasEarlier || afterCursor !== null || (latestPage && hasEarlier)) ? () => {
+      setNavigation((value) => ({ key: value.key + 1, intent: "earlier" }));
+      if (body.window?.hasEarlier) {
+        setMessagesContinuation({ turnIds: body.window.turnIds, throughCursor: body.window.throughCursor,
+          direction: "backward", cursor: body.window.firstCursor });
+      } else { setMessagesContinuation(null); setLatestPage(false); setAfterCursor(null); }
+    } : null,
+    hasNewerPages: enabled && (nextCursor !== null || !latestPage || body.window?.hasLater === true),
     pendingSelection: pendingRequest.current?.expectedSelection ?? null,
     pendingConfiguration: pendingRequest.current
       ? LocalTurnConfigurationSchema.parse({
@@ -420,14 +433,8 @@ export function useDesktopConversation(
         })
       : null,
     submit, stop, interrupting: scopeMatches && interrupting,
-    canStop: Boolean(scopeReadable && historyReady && !loading && latestPage && nextCursor === null && !interrupting && latest && executionActive),
+    canStop: Boolean(scopeReadable && historyReady && !loading && latestPage && nextCursor === null && !body.window?.hasLater && !interrupting && latest && executionActive),
     retry: active.retry,
-    reload: () => { setLatestPage(true); setAfterCursor(null); setReload((value) => value + 1); },
+    reload: () => { setMessagesContinuation(null); setLatestPage(true); setAfterCursor(null); setNavigation((value) => ({ key: value.key + 1, intent: "latest" })); setReload((value) => value + 1); },
   };
-}
-
-function assertScope(admission: TurnAdmission, thread: Thread): void {
-  if (admission.run.workspaceId !== thread.workspaceId || admission.run.threadId !== thread.id || admission.turn.threadId !== thread.id || admission.turn.runId !== admission.run.id) {
-    throw new Error("Local admission does not belong to the selected thread");
-  }
 }

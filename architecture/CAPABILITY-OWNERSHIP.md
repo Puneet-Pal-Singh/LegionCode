@@ -3287,6 +3287,17 @@ or start boundary and disable live bottom-follow; an explicit Latest restores
 bottom-follow. Hosts without navigation intent retain existing behavior. This
 keeps one scroll owner rather than layering Desktop-specific scroll effects.
 
+Desktop's existing `useDesktopConversation` remains the sole bounded history,
+replay and continuation read owner. Its focused reader separates whole-Turn
+admission paging from immutable body-window navigation, verifies the same
+admissions/attempts on continuation, and replaces the visible message window.
+It follows an explicit initial empty-body continuation once rather than draining
+history, and preserves its existing bounded latest-admission restoration and
+lookahead. Scope/generation cancellation fences late reads. Confirmed admission
+and canonical input invalidation reread the tail; neither acknowledgement nor
+queue metadata manufactures transcript rows. Public queue activation and installed
+acceptance remain separate runtime/product gates.
+
 - Client-supplied history Turn sets that are missing, foreign, duplicated or
   malformed are invalid snapshot selections, not database-corruption evidence.
   The private reader returns its opaque cursor conflict; the public request
