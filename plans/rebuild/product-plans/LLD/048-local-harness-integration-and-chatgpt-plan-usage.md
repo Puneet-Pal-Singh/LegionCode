@@ -655,6 +655,34 @@ changes, without changing runtime pins or claiming provider acceptance:
   with application. This is an identified implementation gap, not completed
   steering acceptance.
 
+### 13.1.2 Upstream checkpoint — 2026-11-14
+
+The checked upstream tips are T3 Code
+`c83e78fe073db40b17cd6d478a88fe575125bb96` and OpenCode
+`f91b88efac039856f284979984ac43cd93bce8f5`. This checkpoint inspected the relevant
+runtime-update and account-connection changes below; it is not a new runtime pin
+or a claim that every intervening upstream feature is supported.
+
+T3's merged [OpenCode update verification](https://github.com/pingdotgg/t3code/pull/22839),
+merge `b5256ad09c0553347a6ddfd2d30de9b9c12c79d5`, distinguishes an installed CLI
+from a still-running older server. LegionCode must likewise report installation
+and running runtime versions separately, validate the admitted pinned server and
+typed client, and require safe explicit restart when an update cannot apply yet.
+It must not silently replace an active attempt's runtime, terminate user work,
+attach to an arbitrary server URL or infer process settlement from a successful
+installer. LegionCode retains its own private authenticated OpenCode v2 server.
+
+OpenCode's [connection-dialog change](https://github.com/anomalyco/opencode/commit/f91b88efac039856f284979984ac43cd93bce8f5)
+separates provider/account/sign-in navigation. Its regression cases retain
+coverage for late asynchronous results when navigating back. Adapt the UI lesson through shared
+client-ui and existing SDK/App Server operations: pending, cancelled and completed
+steps remain distinct, and stale completion cannot navigate or select a different
+account. UI cancellation does not itself prove credential revocation or execution
+quiescence; existing vault generation/CAS and originating request identity remain
+authoritative. This upstream UI provides no LegionCode hosted subscription approval.
+Codex remains pinned to 0.167.0 and OpenCode to 2.2.5; their existing acceptance
+gates remain outstanding.
+
 ### 13.2 Shared user flow
 
 Settings → Agents → Add agent is shared client-ui using the existing SDK/App
