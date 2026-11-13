@@ -3,6 +3,7 @@ export {
   EventStoreError,
   LifecycleReplayEventTooLargeError,
   LocalPersistenceError,
+  LocalThreadUserHistoryFrameTooLargeError,
   type EventStoreErrorCode,
 } from "./errors.js";
 export { MemoryEventStore } from "./MemoryEventStore.js";
@@ -82,5 +83,4 @@ export {
 } from "./local/harness-control-plane.js";
 export type { LocalHarnessControlPlanePort } from "./local/harness-control-plane.js";
 
-export { LocalThreadUserHistoryFrameTooLargeError } from "./local-thread-user-history.js";
 export type { LocalThreadUserHistoryInput, LocalThreadUserHistoryPage, LocalThreadUserHistoryWindow, LocalThreadUserHistoryContinuation } from "./local-thread-user-history.js";

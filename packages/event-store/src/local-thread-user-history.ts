@@ -3,7 +3,7 @@ import {
   ChatImageAttachmentRefSchema, ConversationHistoryMessageSchema, EventCursorSchema, ItemIdSchema, TurnIdSchema,
   PlatformEventSchema, type ConversationHistoryMessage, type EventCursor, type TurnAdmission, type TurnId, type ItemId,
 } from "@repo/platform-protocol";
-import { EventStoreError, LocalPersistenceError } from "./errors.js";
+import { EventStoreError, LocalPersistenceError, LocalThreadUserHistoryFrameTooLargeError } from "./errors.js";
 import { createStableEventFingerprint } from "./fingerprint.js";
 import { platformFingerprint } from "./local-platform-fingerprint.js";
 import { readLocalOwnedThread } from "./local-thread-ownership.js";
@@ -161,9 +161,6 @@ export function readLocalThreadUserHistory(database: Database.Database, admissio
     }
     return pageFor(selected);
   })();
-}
-export class LocalThreadUserHistoryFrameTooLargeError extends EventStoreError {
-  constructor(readonly excessBytes: number) { super("history_row_too_large", "History admission frame requires a smaller page"); }
 }
 function corrupt() { return new LocalPersistenceError("corrupt", "Saved user history conflicts with canonical ownership or event content"); }
 function cursorConflict() { return new EventStoreError("cursor_conflict", "Saved user history cursor does not belong to its exact Thread and Turn snapshot"); }
