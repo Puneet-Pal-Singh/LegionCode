@@ -1,0 +1,100 @@
+--- a/packages/persistence/src/thread-inputs/PostgresThreadInputRepository.ts
++++ b/packages/persistence/src/thread-inputs/PostgresThreadInputRepository.ts
+@@ -42,7 +42,7 @@
+ 
+   async enqueue(input: CreateThreadInput): Promise<{ item: StoredThreadInput; revision: number; duplicate: boolean }> {
+     return await this.client.transaction(async (tx) => {
+-      await assertOwnedScope(tx, input);
++      await assertOwnedScope(tx, input, true);
+       const state = await lockState(tx, input);
+       const existing = await tx.query<InputRow>(READ_CLIENT_INPUT_SQL, [
+         input.threadId,
+@@ -152,7 +152,7 @@
+ 
+   async update(input: UpdateThreadInput): Promise<ThreadInputMutation> {
+     return await this.client.transaction(async (tx) => {
+-      await assertOwnedScope(tx, input);
++      await assertOwnedScope(tx, input, true);
+       await lockState(tx, input);
+       const current = await readOwnedInput(tx, input, input.itemId);
+       if (!current || current.state !== "pending" || current.version !== input.expectedVersion) {
+@@ -176,7 +176,7 @@
+ 
+   async claimForSteering(input: import("./types.js").ClaimQueuedInputForSteering): Promise<ThreadInputMutation & { readonly revision?: number }> {
+     return await this.client.transaction(async (tx) => {
+-      await assertOwnedScope(tx, input);
++      await assertOwnedScope(tx, input, true);
+       await lockState(tx, input);
+       const current = await readOwnedInput(tx, input, input.itemId);
+       if (
+@@ -207,7 +207,7 @@
+ 
+   async remove(input: ThreadInputScope & { itemId: string; expectedVersion: number }): Promise<ThreadInputMutation> {
+     return await this.client.transaction(async (tx) => {
+-      await assertOwnedScope(tx, input);
++      await assertOwnedScope(tx, input, true);
+       await lockState(tx, input);
+       const current = await readOwnedInput(tx, input, input.itemId);
+       if (!current || current.state !== "pending" || current.version !== input.expectedVersion) {
+@@ -229,7 +229,7 @@
+ 
+   async setPaused(input: ThreadInputScope & { paused: boolean; reason: string | null }): Promise<number> {
+     return await this.client.transaction(async (tx) => {
+-      await assertOwnedScope(tx, input);
++      await assertOwnedScope(tx, input, true);
+       await lockState(tx, input);
+       const result = await tx.query<InputRow>(SET_PAUSED_SQL, [input.sessionId, input.paused, input.paused ? input.reason : null]);
+       return requiredNumber(result.rows[0]?.revision, "revision");
+@@ -239,7 +239,7 @@
+   async recordReceipt(input: ThreadInputScope & { itemId: string; expectedVersion: number; receipt: import("@repo/platform-protocol").ThreadInputReceipt; state: StoredThreadInput["state"] }): Promise<ThreadInputMutation> {
+     const receipt = ThreadInputReceiptSchema.parse(input.receipt);
+     return await this.client.transaction(async (tx) => {
+-      await assertOwnedScope(tx, input);
++      await assertOwnedScope(tx, input, true);
+       await lockState(tx, input);
+       const current = await readOwnedInput(tx, input, input.itemId);
+       if (!current || current.version !== input.expectedVersion) {
+@@ -259,8 +259,8 @@
+   }
+ }
+ 
+-async function assertOwnedScope(client: SqlClient, scope: ThreadInputScope): Promise<void> {
+-  const result = await client.query<InputRow>(ASSERT_SCOPE_SQL, [scope.sessionId, scope.userId, scope.threadId, scope.workspaceId]);
++async function assertOwnedScope(client: SqlClient, scope: ThreadInputScope, lockSession = false): Promise<void> {
++  const result = await client.query<InputRow>(lockSession ? `${ASSERT_SCOPE_SQL} FOR UPDATE` : ASSERT_SCOPE_SQL, [scope.sessionId, scope.userId, scope.threadId, scope.workspaceId]);
+   if (!result.rows[0]) throw new ThreadInputConflictError("Conversation, thread, or workspace scope does not match", "thread_scope_conflict");
+ }
+ 
+--- a/packages/persistence/src/lifecycle-events/PostgresLifecycleEventStore.ts
++++ b/packages/persistence/src/lifecycle-events/PostgresLifecycleEventStore.ts
+@@ -69,6 +69,10 @@
+   ): Promise<readonly LifecycleEvent[]> {
+     const parsed = events.map((event) => LifecycleEventSchema.parse(event));
+     return await this.client.transaction(async (tx) => {
++      if (this.options.validateAdmission !== false) {
++        // Existing session ownership precedes all turn/input/transcript locks.
++        await tx.query(LOCK_ADMITTED_SESSIONS_SQL, [[...new Set(parsed.map((event) => event.turnId))]]);
++      }
+       const result: LifecycleEvent[] = [];
+       for (const event of parsed) {
+         if (this.options.validateAdmission !== false) {
+@@ -553,6 +557,7 @@
+   }
+ }
+ 
++const LOCK_ADMITTED_SESSIONS_SQL = `SELECT s.id FROM sessions s WHERE EXISTS (SELECT 1 FROM canonical_turn_admissions a WHERE a.session_id = s.id AND a.turn_id = ANY($1::text[])) ORDER BY s.id FOR UPDATE OF s`;
+ const LOCK_TURN_STREAM_SQL = `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`;
+ const READ_IDEMPOTENT_SQL = `SELECT event_json, sequence FROM canonical_lifecycle_events WHERE turn_id = $1 AND idempotency_key = $2`;
+ const READ_LAST_SEQUENCE_SQL = `SELECT sequence FROM canonical_lifecycle_events WHERE turn_id = $1 ORDER BY sequence DESC LIMIT 1 FOR UPDATE`;
+--- a/packages/persistence/src/sessions/PostgresTranscriptRepository.ts
++++ b/packages/persistence/src/sessions/PostgresTranscriptRepository.ts
+@@ -1078,7 +1078,8 @@
+   client: SqlClient,
+   sessionId: string,
+ ): Promise<void> {
+-  const result = await client.query<TranscriptRow>(FIND_SESSION_SQL, [
++  // Existing-session append must own its session before message dedupe/FK locks.
++  const result = await client.query<TranscriptRow>(`${FIND_SESSION_SQL} FOR UPDATE`, [
+     sessionId,
+   ]);
+   if (!result.rows[0]) {
