@@ -3275,6 +3275,12 @@ yield, return or cancellation. Read cancellation fences late results and does
 not claim execution-resource closure. Desktop mounting remains separate from
 this SDK consumer and does not add another history watcher or persistence owner.
 
+The existing SDK conversation lifecycle projection retains the maximum sequence
+of canonical accepted/applied input events as body-free `inputSequence` read
+invalidation. Desktop's existing history owner can refresh a bounded tail from
+that fact; no additional subscription, acknowledgement-body reconstruction or
+input state owner is introduced.
+
 - Client-supplied history Turn sets that are missing, foreign, duplicated or
   malformed are invalid snapshot selections, not database-corruption evidence.
   The private reader returns its opaque cursor conflict; the public request
