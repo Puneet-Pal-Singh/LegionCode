@@ -1792,3 +1792,9 @@ mutation authority.
 A validated same-identity hosted retry returns its existing canonical
 `turn_not_active` or `target_superseded` conflict receipt as 409. It does not
 redispatch, rewrite cancellation or replace an unknown outcome with rejection.
+
+Delegated normalization accepts only plain user role/content and text type/text
+parts, rejecting unsupported message or part metadata before canonical input
+acceptance. The existing canonical ThreadInputContentSchema validates the full
+ordered text and its length without trimming or adding separators. Native rich
+messages and downstream storage/control error classification are unchanged.

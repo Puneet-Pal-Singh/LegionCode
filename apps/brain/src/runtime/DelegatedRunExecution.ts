@@ -8,6 +8,7 @@ import {
 import type { LifecycleEventStore } from "@repo/persistence";
 import type { LifecycleEvent, TurnId } from "@repo/platform-protocol";
 import {
+  ThreadInputContentSchema,
   workspaceIdFromExternalId,
   userIdFromExternalId,
 } from "@repo/platform-protocol";
@@ -36,12 +37,16 @@ export function normalizeDelegatedThreadInputText(content: CoreMessage["content"
     if (!Array.isArray(content) || content.length === 0) throw new DelegatedThreadInputPreacceptError();
     text = "";
     for (const part of content) {
-      if (!part || part.type !== "text" || typeof part.text !== "string") throw new DelegatedThreadInputPreacceptError();
+      if (!part || part.type !== "text" || typeof part.text !== "string" ||
+          Reflect.ownKeys(part).some((key) => key !== "type" && key !== "text")) {
+        throw new DelegatedThreadInputPreacceptError();
+      }
       text += part.text;
     }
   }
-  if (!text.trim()) throw new DelegatedThreadInputPreacceptError();
-  return text;
+  const validated = ThreadInputContentSchema.safeParse({ text, images: [] });
+  if (!validated.success) throw new DelegatedThreadInputPreacceptError();
+  return validated.data.text;
 }
 
 type DelegatedInput = StartTurnInput & {
@@ -144,7 +149,10 @@ export async function executeDelegatedRun(input: {
     kernel.resolveApproval(turnId, approvalId, resolution),
   );
   input.threadInputs.register(turnId, (threadInput) => {
-    if (threadInput.message.role !== "user") throw new DelegatedThreadInputPreacceptError();
+    if (threadInput.message.role !== "user" ||
+        Reflect.ownKeys(threadInput.message).some((key) => key !== "role" && key !== "content")) {
+      throw new DelegatedThreadInputPreacceptError();
+    }
     const message = { ...threadInput.message, content: normalizeDelegatedThreadInputText(threadInput.message.content) };
     return kernel.acceptThreadInput({
       turnId,
