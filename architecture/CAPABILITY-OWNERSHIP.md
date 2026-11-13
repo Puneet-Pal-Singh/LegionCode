@@ -2502,3 +2502,7 @@ alone does not claim installed history/queue acceptance. No new tests or stores.
   The private reader returns its opaque cursor conflict; the public request
   schema continues to reject malformed IDs/duplicate sets before storage reads.
   Actual mismatched canonical rows/fingerprints remain corruption failures.
+
+- A workspace grant revoked or switched before the synchronous history read also
+  invalidates that snapshot selection; it is not classified as corrupt storage.
+  Malformed persisted grant content still fails through the storage guard.

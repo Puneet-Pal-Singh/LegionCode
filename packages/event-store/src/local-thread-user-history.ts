@@ -46,7 +46,7 @@ export function readLocalThreadUserHistory(database: Database.Database, admissio
   return database.transaction(() => {
     readLocalOwnedThread(database, input, false);
     const grant = database.prepare("SELECT value_json FROM workspace_grant WHERE id=1").get() as { value_json: string } | undefined;
-    if (!grant || parseStoredGrant(JSON.parse(grant.value_json)).grant.workspaceId !== input.workspaceId) throw corrupt();
+    if (!grant || parseStoredGrant(JSON.parse(grant.value_json)).grant.workspaceId !== input.workspaceId) throw cursorConflict();
     const parsedTurnIds = TurnIdSchema.array().min(1).max(100)
       .refine((ids) => new Set(ids).size === ids.length).safeParse(input.turnIds);
     if (!parsedTurnIds.success) throw cursorConflict();
