@@ -3112,3 +3112,11 @@ terminal presentation now offers that same immutable review without inferring
 capture from terminal status or reading live Git. Missing or mismatched capture
 remains unavailable. Web and Desktop retain the same SDK projection and shared
 review selection owner; completed-response artifact presentation is unchanged.
+
+### Shared provider connection accessibility
+
+The shared provider chooser moves focus within its own view when selecting a
+provider replaces the search screen with credentials. Success and recovery
+messages expose status/alert semantics to assistive technology. Web and Desktop
+consume this same presentation; credential custody and modal focus restoration
+remain with their existing host and overlay owners.
