@@ -10,6 +10,7 @@ import type { AppServerClient } from "@legioncode/sdk";
 import type { Thread } from "@repo/platform-protocol";
 import type { DesktopBuildInfo } from "../../shared/desktop-api";
 import { DesktopArchivedSettings } from "./DesktopArchivedSettings";
+import { DesktopHostedAccount } from "./DesktopHostedAccount";
 import { DesktopProviderSetup } from "./DesktopProviderSetup";
 import { useDesktopProviderSettings } from "./useDesktopProviderSettings";
 
@@ -52,10 +53,13 @@ export function DesktopSettingsDialog({
       provider={provider}
       generalScopeDescription="Model visibility is saved for the granted workspace. Provider routes are explicit and protected credentials stay in OS-backed storage."
       composerSettings={
-        <ComposerSettingsSection
-          preferences={preferences}
-          onChange={updateComposerPreferences}
-        />
+        <>
+          <DesktopHostedAccount />
+          <ComposerSettingsSection
+            preferences={preferences}
+            onChange={updateComposerPreferences}
+          />
+        </>
       }
       archivedContent={
         <DesktopArchivedSettings

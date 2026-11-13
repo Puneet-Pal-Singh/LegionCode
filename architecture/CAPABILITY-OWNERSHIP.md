@@ -3083,3 +3083,23 @@ The package is not registered by an active product constructor here. Binary/sche
 pins are not OS confinement or installed-feature acceptance; both remain explicitly
 unaccepted in the runtime manifest. Whole-scope quiescence requires actual injected
 proof, and missing evidence stays unknown. Native provider execution is unchanged.
+## Desktop hosted account connection
+
+Desktop main owns an isolated persistent production Electron Session for the
+existing hosted Web OAuth/cookie identity. Settings consumes only validated
+status/connect/disconnect IPC. Authentication windows have no preload or Desktop
+IPC trust, deny permissions/downloads/popups, and allow only the fixed hosted
+login/callback and GitHub navigation. Landing redirects trigger a bounded read
+of the existing `/auth/session`; they do not establish authentication themselves.
+Only the safe account id/login projection crosses preload. Cookies, OAuth codes,
+provider credentials and private network configuration remain in main/server.
+
+One connection/revocation operation owns its original requests. Generation
+checks fence stale session reads; failed revocation retains a retryable state.
+Quit drains those operations and flushes the persistent jar without cancelling
+hosted agent work. Local vault and local App Server routing remain independent.
+No challenge/redeem service or duplicate identity persistence is added.
+
+This connects the actual Settings action, not Cloud task execution. Hosted SDK
+workspace/session/provider/task composition and exact installed OAuth/restart/
+revocation acceptance remain required before Cloud can be advertised as ready.
