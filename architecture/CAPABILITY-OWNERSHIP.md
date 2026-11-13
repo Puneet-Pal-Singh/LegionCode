@@ -2409,6 +2409,19 @@ pins are not OS confinement or installed-feature acceptance; both remain explici
 unaccepted in the runtime manifest. Whole-scope quiescence requires actual injected
 proof, and missing evidence stays unknown. Native provider execution is unchanged.
 
+## Plans 048 / 061 — Private OpenCode v2 driver foundation
+
+The private harness-opencode server adapter translates pinned OpenCode v2 client,
+event and permission representations through the existing worker contracts.
+Canonical selection, policy resolution and effective-policy attestation are
+required injected authorities; the native permission mapper neither grants
+permissions nor certifies enforcement. Real full-scope quiescence and ordered
+stream-drain evidence remain separate from foreground process completion.
+
+This package and its matched dependency graph are an inactive driver foundation,
+not a local registration or route. RuntimeKernel remains the lifecycle/approval
+writer, harness-core retains host/journal ownership, and unsupported resume stays
+unavailable. The driver requires Node 22 and never falls back to Native execution.
 ### Original Native provider request settlement
 
 The same Native attempt factory retains every original protected-gateway request
