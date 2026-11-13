@@ -2,9 +2,11 @@ export {
   LocalTurnConfigurationSchema,
   LocalTurnConfigurationOptionsSchema,
   LocalTurnMediaLimitsSchema,
+  parseLocalQueuedInputConfiguration,
   type LocalTurnConfiguration,
   type LocalTurnConfigurationOptions,
   type LocalTurnMediaLimits,
+  type LocalQueuedInputConfiguration,
 } from "./local-turn-configuration.js";
 export {
   APP_SERVER_PROTOCOL_VERSION,

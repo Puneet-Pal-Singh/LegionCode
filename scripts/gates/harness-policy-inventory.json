@@ -379,6 +379,14 @@
       "disposition": "convert-typed-protocol-projector",
       "purpose": "Pinned generated native RPC translation data consumed by TurnStartParams and CodexDriver. The union describes the native request representation; it does not resolve canonical permissions or attest confinement. Preserve generated vendor bytes.",
       "gate": "corepack pnpm --filter @repo/harness-codex check-types"
+    },
+    {
+      "path": "packages/harness-opencode/src/server/OpenCodePermissionPolicy.ts",
+      "owner": "harness-opencode-native-permission-translation",
+      "category": "permission",
+      "disposition": "convert-typed-protocol-projector",
+      "purpose": "Capture immutable native permission rules and compare effective native representations for OpenCodeV2Driver, OpenCodeSession and OpenCodeEventMapper. Canonical resolution and attestation remain with the injected resolvePolicy/assertEffectivePolicy authority; this adapter is not a competing permission owner.",
+      "gate": "corepack pnpm --filter @repo/harness-opencode check-types"
     }
   ]
 }

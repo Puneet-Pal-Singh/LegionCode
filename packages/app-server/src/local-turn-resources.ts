@@ -7,6 +7,8 @@ import { AppServerOperationError } from "./server.js";
 export interface LocalTurnPreparation {
   readonly operation: Promise<unknown>;
   binding?: LocalWorkspaceExecutionBinding;
+  /** Original opaque acquisition, registered before its first await. */
+  releaseUnadmitted?: () => Promise<boolean>;
 }
 
 /** Constructed by this original binding owner only after successful close. */
@@ -90,6 +92,10 @@ export class LocalTurnResources {
   async closePreparation(preparation: LocalTurnPreparation): Promise<void> {
     const binding = preparation.binding;
     if (!binding) return;
+    if (preparation.releaseUnadmitted) {
+      if (await preparation.releaseUnadmitted() !== true) throw retained();
+      preparation.releaseUnadmitted = undefined;
+    }
     await binding.close();
     preparation.binding = undefined;
   }
@@ -158,6 +164,7 @@ export class LocalTurnResources {
     };
     this.executors.set(admission.turn.id, owned);
     preparation.binding = undefined;
+    preparation.releaseUnadmitted = undefined;
     void cleanup.catch(() => {
       console.error(
         "Local runtime resource release was not confirmed; binding retained",

@@ -1,5 +1,6 @@
 import {
-  ContentDigestSchema, ThreadInputReceiptSchema, ThreadIdSchema,
+  ThreadInputReceiptSchema, ThreadIdSchema,
+  parseLocalQueuedInputConfiguration,
   type ChatImageAttachmentRef, type TurnAdmission,
 } from "@repo/platform-protocol";
 import type { LocalPersistence } from "@repo/event-store/local";
@@ -7,7 +8,7 @@ import { ThreadInputConflictError, type StoredThreadInput, type ThreadInputScope
 import { RuntimeKernelError } from "@repo/runtime-kernel";
 import type { LocalThreadService } from "./local-threads.js";
 import type { LocalTurnService } from "./local-turns.js";
-import { LocalQueuedInputMediaOwnershipSchema, type LocalQueuedInputMediaPort, type LocalQueuedInputMediaScope } from "./local-queued-input-media.js";
+import { LocalQueuedInputMediaOwnershipSchema, LocalQueuedInputMediaScopeSchema, localQueuedInputMediaRead, type LocalQueuedInputMediaPort, type LocalQueuedInputMediaScope } from "./local-queued-input-media.js";
 import { AppServerMethodOutcome, AppServerOperationError } from "./server.js";
 import { readLocalTurnArtifactPublication } from "./local-turn-artifact-publication.js";
 import { LocalInterruptionAttemptNotActiveError } from "./local-interruption.js";
@@ -33,13 +34,12 @@ export function createLocalThreadInputOperations(options: {
   const service = new ThreadInputCommandService({
     repository, authorize,
     validateConfiguration: (configuration) => {
-      if (Object.keys(configuration).length)
-        throw new AppServerOperationError(400, "invalid_request", "Native queued inputs use the current workspace configuration; send an empty configuration", "local_input_configuration_unsupported", false);
+      validateNativeConfiguration(configuration);
     },
     prepareMedia: async ({ scope, inputId, mediaRevision, images }): Promise<PreparedThreadInputMedia> => {
       if (!images.length) return { references: [], fingerprint: null, mediaRevision: null, discardUnpublished: async () => undefined };
+      const mediaScope = LocalQueuedInputMediaScopeSchema.parse({ userId: scope.userId, workspaceId: scope.workspaceId, threadId: scope.threadId, inputId, mediaRevision });
       const token = await options.media.prepareQueued(images);
-      const mediaScope = { userId: scope.userId, workspaceId: scope.workspaceId, threadId: scope.threadId, inputId, mediaRevision };
       let references: readonly ChatImageAttachmentRef[];
       try { references = await token.persist(mediaScope); }
       catch (error) {
@@ -85,10 +85,7 @@ export function createLocalThreadInputOperations(options: {
       if (item.receipt?.status === "started") return item.receipt;
       if (item.delivery !== "queue" || item.state !== "pending" || item.version !== command.expectedVersion)
         return { status: "conflict", code: "queue_item_changed", message: "Queue item changed or was already consumed." };
-      // Existing rows imported from another placement cannot silently select a
-      // different Native provider, model, mode or sandbox.
-      if (Object.keys(item.configuration).length)
-        throw new AppServerOperationError(400, "invalid_request", "Native queued input configuration is unsupported", "local_input_configuration_unsupported", false);
+      validateNativeConfiguration(item.configuration);
       try {
         const admission = await options.startQueuedTurn({ scope, item, command, explicitStart,
           prepareMedia: async (signal) => item.mediaRefs.length ? options.media.promoteQueued({ ...mediaRead(item), signal }) : undefined });
@@ -131,15 +128,20 @@ export function createLocalThreadInputOperations(options: {
   };
 }
 
+function validateNativeConfiguration(configuration: unknown): void {
+  try { parseLocalQueuedInputConfiguration(configuration); }
+  catch {
+    throw new AppServerOperationError(400, "invalid_request", "Native queued input configuration is unsupported", "local_input_configuration_unsupported", false);
+  }
+}
+
 function sameTarget(scope: ThreadInputScope, admission: TurnAdmission, runAttemptId: string): boolean {
   return admission.run.userId === scope.userId && admission.run.workspaceId === scope.workspaceId &&
     admission.run.threadId === scope.threadId && admission.runAttemptId === runAttemptId;
 }
 function mediaRead(item: StoredThreadInput) {
   if (!item.mediaRevision || !item.mediaFingerprint) throw new AppServerOperationError(503, "server_unavailable", "Queued image ownership is unavailable", "local_image_unavailable", false);
-  const scope: LocalQueuedInputMediaScope = { userId: item.userId, workspaceId: item.workspaceId, threadId: item.threadId,
-    inputId: item.itemId, mediaRevision: item.mediaRevision };
-  return { scope, fingerprint: ContentDigestSchema.parse(item.mediaFingerprint), references: item.mediaRefs };
+  return localQueuedInputMediaRead(item);
 }
 
 /** Same canonical row owner for startup journal reconciliation and all byte reads. */

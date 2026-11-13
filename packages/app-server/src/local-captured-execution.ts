@@ -1,4 +1,5 @@
 import type { ToolAuthorizationPort } from "@repo/runtime-kernel";
+import { isDeepStrictEqual } from "node:util";
 import type { LocalPersistence } from "@repo/event-store/local";
 import {
   TurnAdmissionSchema,
@@ -43,12 +44,20 @@ const BACKEND_CAPABILITIES = [
   "single_executable_nofork",
 ] as const;
 
+export interface LocalCapturedReservedLease {
+  readonly binding: LocalWorkspaceExecutionBinding;
+  readonly admission: TurnAdmission;
+  readonly lease: LocalWorkspaceWriterLease;
+}
+
 export interface LocalCapturedExecutionOptions {
   readonly persistence: Pick<
     LocalPersistence,
     "turnArtifacts" | "lifecycleEvents"
   >;
   readonly leases: LocalWorkspaceWriterLeaseOwner;
+  /** Same pre-admission acquisition, held continuously through queued admission. */
+  readonly reservedLease?: LocalCapturedReservedLease;
   readonly storageDirectory: string;
   readonly filesystemHelperPath: string;
   readonly processHelperPath: string;
@@ -68,6 +77,8 @@ export function createLocalCapturedExecutionCapability(
   LocalTurnExecutionCapability<LocalWorkspaceExecutionBinding>,
   { artifactCapture: "required" }
 > {
+  const reserved = options.reservedLease ? Object.freeze({ ...options.reservedLease,
+    admission: TurnAdmissionSchema.parse(options.reservedLease.admission) }) : undefined;
   return {
     artifactCapture: "required",
     commandExecution: "single_executable_nofork",
@@ -98,7 +109,11 @@ export function createLocalCapturedExecutionCapability(
       }
       signal.throwIfAborted();
       binding.assertCurrent();
-      const lease = await options.leases
+      if (reserved && (reserved.binding !== binding || !isDeepStrictEqual(reserved.admission, admission) ||
+          reserved.lease.rootDirectory !== binding.rootDirectory || reserved.lease.filesystemRoot !== binding.filesystemRoot ||
+          Object.keys(attempt).some((key) => reserved.lease.attempt[key as keyof LocalTurnAttemptIdentity] !== attempt[key as keyof LocalTurnAttemptIdentity])))
+        throw new Error("Reserved captured lease belongs to a different exact admission or binding");
+      const lease = reserved?.lease ?? await options.leases
         .acquire({ binding, attempt })
         .catch((error: unknown) => {
           if (

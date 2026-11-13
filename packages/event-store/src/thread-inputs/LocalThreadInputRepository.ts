@@ -6,6 +6,7 @@ import {
   ChatImageAttachmentRefSchema, ItemIdSchema, LifecycleEventSchema,
   PlatformEventSchema, ThreadInputQueueItemSchema, ThreadInputQueueSnapshotSchema,
   ThreadInputReceiptSchema, TurnAdmissionSchema, TurnIdSchema,
+  LocalTurnConfigurationSchema, parseLocalQueuedInputConfiguration,
   type LifecycleEvent, type PlatformEvent, type TurnAdmission, type TurnId,
 } from "@repo/platform-protocol";
 import { LocalPersistenceError } from "../errors.js";
@@ -226,6 +227,18 @@ export class LocalThreadInputRepository implements ThreadInputRepository {
       const candidate = TurnAdmissionSchema.parse(input.candidate);
       if (candidate.userMessage.type !== "user_message" || isDelegated(candidate))
         throw new ThreadInputConflictError("Native queue cannot admit a delegated or non-user candidate", "thread_scope_conflict");
+      let captured: ReturnType<typeof parseLocalQueuedInputConfiguration>;
+      try { captured = parseLocalQueuedInputConfiguration(item.configuration); }
+      catch { throw corrupt("Stored Native queued configuration is unsupported"); }
+      const candidateConfiguration = LocalTurnConfigurationSchema.safeParse(candidate.userMessage.content.configuration);
+      if (!candidateConfiguration.success ||
+          candidateConfiguration.data.mode !== captured.configuration.mode ||
+          candidateConfiguration.data.productMode !== captured.configuration.productMode ||
+          candidate.run.mode !== (captured.configuration.mode === "build" ? "auto_edit" : "plan") ||
+          (captured.expectedSelection !== undefined &&
+            (candidate.run.providerId !== captured.expectedSelection.providerId ||
+              candidate.run.modelId !== captured.expectedSelection.modelId)))
+        throw corrupt("Queued candidate differs from its captured Native execution configuration");
       const images = ChatImageAttachmentRefSchema.array().parse(candidate.userMessage.content.images ?? []);
       if (candidate.clientRequestId !== `thread-input:${item.itemId}` || candidate.run.userId !== input.userId ||
           candidate.run.workspaceId !== input.workspaceId || candidate.run.threadId !== input.threadId ||
@@ -391,7 +404,7 @@ export class LocalThreadInputRepository implements ThreadInputRepository {
     const prior = priorRow ? PlatformEventSchema.parse(JSON.parse(priorRow.event_json)) : null;
     if (!prior || prior.type !== "item.completed") throw corrupt("Accepted input has no canonical user parent");
     const row = this.database.prepare("SELECT MAX(sequence) AS sequence FROM events WHERE family='platform' AND stream_type='run' AND stream_id=?").get(admission.run.id) as { sequence: number };
-    this.appendPlatform({ type: "item.completed", threadId: item.threadId, workspaceId: item.workspaceId, runId: admission.run.id,
+    this.appendPlatform({ type: "item.completed", threadId: admission.run.threadId, workspaceId: admission.run.workspaceId, runId: admission.run.id,
       scopeType: "run", scopeId: admission.run.id, producer: event.producer, schemaVersion: 1, idempotencyKey: `thread-input:${item.itemId}`,
       payload: { item: { id: ItemIdSchema.parse(`itm_input_${item.itemId.replaceAll("-", "")}`), threadId: admission.run.threadId,
         runId: admission.run.id, turnId: admission.turn.id, parentItemId: prior.payload.item.id, branchId: admission.userMessage.branchId,
