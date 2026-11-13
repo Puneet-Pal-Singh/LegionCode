@@ -1,0 +1,571 @@
+{
+  "head": "c7ad58f8eae80a2e5817ccdb4f8689cd48557f94",
+  "base": "3d87bcc70a72e4386c76a864439a773ced83b744",
+  "branch": "codex/fix-r3-steering-lookup-lock-order-20261114",
+  "remoteHead": "c7ad58f8eae80a2e5817ccdb4f8689cd48557f94",
+  "published": true,
+  "sourceClean": true,
+  "paths": [
+    "packages/persistence/src/thread-inputs/PostgresThreadInputRepository.ts",
+    "architecture/CAPABILITY-OWNERSHIP.md"
+  ],
+  "sourceHashes": {
+    "packages/persistence/src/thread-inputs/PostgresThreadInputRepository.ts": {
+      "sha256": "12dc0a1a0e30529a73f08cba75c723c90c06c8ba1365cac53df988ba0ca69dcb",
+      "bytes": 18275
+    },
+    "architecture/CAPABILITY-OWNERSHIP.md": {
+      "sha256": "d6c8bc8c628aecf2640505be0d3e489e7578b0b1e1f181a8aa545e7707b4a23f",
+      "bytes": 163004
+    }
+  },
+  "executor": {
+    "host": "58fee81c1a0b",
+    "linux": "Linux6.18.57x86_64",
+    "managedCloud": "connected/running",
+    "worktree": "/workspace/LegionCode-R3-LOOKUP-LOCK-20261114",
+    "writableVerified": true,
+    "node": "24.22.1",
+    "realPostgres": "15.8, disposable owned UNIXsocket only, no TCP or endpoint credentials"
+  },
+  "handoff": {
+    "sha": "876e496690feb6284087bfdf95110b184c9cc0f9",
+    "manifestSHA256": "c5b25ae00a3a503b3000984239cf8d3355124ff8652d4730be0c5603fe031ad8",
+    "hashesAndLengthsVerified": 19
+  },
+  "change": "Remove only new client-ID point lookup state-row SELECT FOR UPDATE. Preserve immutable tuple capture, full owner scope assertion and exact input-row SELECT FOR UPDATE. No canonical projection or preexisting mutation writer edits.",
+  "before": {
+    "cases": [
+      {
+        "kind": "accepted",
+        "results": [
+          {
+            "status": "rejected",
+            "code": "40P01",
+            "message": "deadlock detected"
+          },
+          {
+            "status": "fulfilled"
+          }
+        ],
+        "row": {
+          "state": "consuming",
+          "receipt_json": {
+            "status": "accepted",
+            "inputId": "c7f223a1-d4c7-43d6-8618-38dca8ed01e6",
+            "targetTurnId": "trn_bbbbbbbbbbbbbbbbbbbbbbbb",
+            "clientInputId": "same",
+            "acceptedSequence": 2,
+            "targetRunAttemptId": "attempt_cccccccccccccccccccccccc"
+          },
+          "accepted_sequence": "2",
+          "applied_sequence": null
+        },
+        "lookupStateLock": true,
+        "projectorInputLock": true
+      },
+      {
+        "kind": "applied",
+        "results": [
+          {
+            "status": "fulfilled"
+          },
+          {
+            "status": "rejected",
+            "code": "40P01",
+            "message": "deadlock detected"
+          }
+        ],
+        "row": {
+          "state": "consuming",
+          "receipt_json": null,
+          "accepted_sequence": "2",
+          "applied_sequence": null
+        },
+        "lookupStateLock": true,
+        "projectorInputLock": true
+      }
+    ],
+    "postgresVersion": "15.8",
+    "result": "Both actual accepted/applied canonical projection schedules deadlock40P01; baseline applied schedule aborts actual projector transaction."
+  },
+  "after": {
+    "projectorFirst": [
+      {
+        "kind": "accepted",
+        "results": [
+          {
+            "status": "fulfilled"
+          },
+          {
+            "status": "fulfilled"
+          }
+        ],
+        "row": {
+          "state": "consuming",
+          "receipt_json": {
+            "status": "accepted",
+            "inputId": "08559b78-e736-4853-ac59-ef4f5f94e03a",
+            "targetTurnId": "trn_bbbbbbbbbbbbbbbbbbbbbbbb",
+            "clientInputId": "same",
+            "acceptedSequence": 2,
+            "targetRunAttemptId": "attempt_cccccccccccccccccccccccc"
+          },
+          "accepted_sequence": "2",
+          "applied_sequence": null
+        },
+        "lookupStateLock": false,
+        "projectorInputLock": true
+      },
+      {
+        "kind": "applied",
+        "results": [
+          {
+            "status": "fulfilled"
+          },
+          {
+            "status": "fulfilled"
+          }
+        ],
+        "row": {
+          "state": "consumed",
+          "receipt_json": {
+            "status": "applied",
+            "inputId": "8e6afd4d-a905-4bd9-b2bb-d70df236d077",
+            "modelStep": 1,
+            "targetTurnId": "trn_bbbbbbbbbbbbbbbbbbbbbbbb",
+            "appliedSequence": 3,
+            "contextRevision": 1,
+            "acceptedSequence": 2,
+            "targetRunAttemptId": "attempt_cccccccccccccccccccccccc"
+          },
+          "accepted_sequence": "2",
+          "applied_sequence": "3"
+        },
+        "lookupStateLock": false,
+        "projectorInputLock": true
+      }
+    ],
+    "lookupFirst": [
+      {
+        "kind": "accepted",
+        "results": [
+          {
+            "status": "fulfilled"
+          },
+          {
+            "status": "fulfilled"
+          }
+        ],
+        "row": {
+          "state": "consuming",
+          "receipt_json": {
+            "status": "accepted",
+            "inputId": "2cd32cb3-20a1-4c94-93d8-0f766df04607",
+            "targetTurnId": "trn_bbbbbbbbbbbbbbbbbbbbbbbb",
+            "clientInputId": "same",
+            "acceptedSequence": 2,
+            "targetRunAttemptId": "attempt_cccccccccccccccccccccccc"
+          },
+          "accepted_sequence": "2",
+          "applied_sequence": null
+        },
+        "lookupStateLock": false,
+        "projectorInputLock": true
+      },
+      {
+        "kind": "applied",
+        "results": [
+          {
+            "status": "fulfilled"
+          },
+          {
+            "status": "fulfilled"
+          }
+        ],
+        "row": {
+          "state": "consumed",
+          "receipt_json": {
+            "status": "applied",
+            "inputId": "d877e42a-4a37-4fe8-a62a-45318aff53c8",
+            "modelStep": 1,
+            "targetTurnId": "trn_bbbbbbbbbbbbbbbbbbbbbbbb",
+            "appliedSequence": 3,
+            "contextRevision": 1,
+            "acceptedSequence": 2,
+            "targetRunAttemptId": "attempt_cccccccccccccccccccccccc"
+          },
+          "accepted_sequence": "2",
+          "applied_sequence": "3"
+        },
+        "lookupStateLock": false,
+        "projectorInputLock": true
+      }
+    ],
+    "result": "Four actual projection/lookup schedules pass, exact input row lock retained; no queue-state lock in read."
+  },
+  "preexistingSeparateFinding": {
+    "severity": "P2",
+    "ownerFiles": [
+      "packages/persistence/src/thread-inputs/PostgresThreadInputRepository.ts",
+      "packages/persistence/src/lifecycle-events/PostgresLifecycleEventStore.ts"
+    ],
+    "actualReproducedCases": [
+      {
+        "kind": "accepted",
+        "results": [
+          {
+            "status": "rejected",
+            "code": "40P01",
+            "message": "deadlock detected"
+          },
+          {
+            "status": "fulfilled"
+          }
+        ],
+        "row": {
+          "state": "consuming",
+          "receipt_json": {
+            "status": "accepted",
+            "inputId": "67caf08a-c516-4632-8e10-7bb52426f65b",
+            "targetTurnId": "trn_bbbbbbbbbbbbbbbbbbbbbbbb",
+            "clientInputId": "same",
+            "acceptedSequence": 2,
+            "targetRunAttemptId": "attempt_cccccccccccccccccccccccc"
+          },
+          "accepted_sequence": "2",
+          "applied_sequence": null
+        },
+        "lookupStateLock": true,
+        "projectorInputLock": true
+      },
+      {
+        "kind": "applied",
+        "results": [
+          {
+            "status": "rejected",
+            "code": "40P01",
+            "message": "deadlock detected"
+          },
+          {
+            "status": "fulfilled"
+          }
+        ],
+        "row": {
+          "state": "consumed",
+          "receipt_json": {
+            "status": "applied",
+            "inputId": "4c5ca1ae-f35e-4c20-bbd7-c186c46f7e62",
+            "modelStep": 1,
+            "targetTurnId": "trn_bbbbbbbbbbbbbbbbbbbbbbbb",
+            "appliedSequence": 3,
+            "contextRevision": 1,
+            "acceptedSequence": 2,
+            "targetRunAttemptId": "attempt_cccccccccccccccccccccccc"
+          },
+          "accepted_sequence": "2",
+          "applied_sequence": "3"
+        },
+        "lookupStateLock": true,
+        "projectorInputLock": true
+      }
+    ],
+    "order": "Existing enqueue duplicate locks state via LOCK_STATE_SQL then input via READ_CLIENT_INPUT_SQL. Canonical accepted/applied projector locks input then state. Both accepted/applied inversion schedules reproduce40P01 independently of corrected lookup.",
+    "otherSourceOrders": {
+      "update": 153,
+      "claimForSteering": 177,
+      "remove": 208,
+      "recordReceipt": 239
+    },
+    "canonicalProjectors": {
+      "projectAcceptedThreadInput": 205,
+      "projectAppliedThreadInput": 279
+    },
+    "scope": "Observed existing writer source orders; only actual enqueue/projector deadlocks reproduced. No other writers changed or claimed fixed."
+  },
+  "additionalResults": {
+    "realRepository": {
+      "version": "PostgreSQL 15.8 on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 7.5.0-3ubuntu1~18.04) 7.5.0, 64-bit",
+      "cases": [
+        "real PostgreSQL15.8 UNIXsocket noTCP",
+        "absence lookup no state allocation",
+        "allstate readonly pending",
+        "allstate readonly consuming",
+        "allstate readonly consumed",
+        "allstate readonly cancelled",
+        "foreign userId denied",
+        "foreign threadId denied",
+        "foreign workspaceId denied",
+        "foreign sessionId denied",
+        "foreign clientID no disclosure",
+        "same clientID separateowner scopes",
+        "captured tuple immutable across await",
+        "missing lookup linearizes while future writer holds state only",
+        "exactinput lookup lock serializes existing receipt mutation without state cycle",
+        "concurrent duplicate onecanonical row",
+        "real committed enqueue ACKloss rereads sameidentity",
+        "real committed claim ACKloss remainsconsuming"
+      ],
+      "caseCount": 18,
+      "realConcurrentPostgres": true,
+      "limits": "Actual repository + actual existing table DDL. Sessions owner fixture only; no full application migrations, provider, account or OS acceptance."
+    },
+    "hostedRealPg": {
+      "scenarios": 30,
+      "pass": 28,
+      "knownFailing": 2,
+      "failure": "Existing ungranted JSONB image fingerprint retry mismatch remains unfixed; no claim all hosted green."
+    },
+    "gateCases": 39
+  },
+  "checks": [
+    {
+      "command": "node node_modules/typescript/bin/tsc --noEmit -p packages/persistence/tsconfig.json",
+      "exitCode": 0,
+      "log": "/tmp/r3-lookup-lock-20261114/persistence-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "command": "node node_modules/typescript/bin/tsc --noEmit -p apps/brain/tsconfig.json",
+      "exitCode": 0,
+      "log": "/tmp/r3-lookup-lock-20261114/brain-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "command": "node scripts/gates/check-architecture-boundaries.mjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-lookup-lock-20261114/architecture.log",
+      "sha256": "91500b0d9dfbc3ce9fab62ce2f083e0c6d82c41531528f48c54ecaa9dfd763a0",
+      "bytes": 65
+    },
+    {
+      "command": "REBUILD_CHANGED_FILES='<exact two changed paths>' node scripts/gates/check-rebuild-governance.mjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-lookup-lock-20261114/governance.log",
+      "sha256": "9a5c7cafae7b03c771af4ee23d69de18f537c9ba47d3b6bfc73080addf7513b1",
+      "bytes": 40
+    },
+    {
+      "command": "node --test scripts/gates/check-architecture-boundaries.test.mjs scripts/gates/check-rebuild-governance.test.mjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-lookup-lock-20261114/gates.log",
+      "sha256": "e54596555ebb75e14d5e74750fe27fad3fdf17ea826b9a4ecb879e4982534770",
+      "bytes": 2771
+    },
+    {
+      "command": "node /tmp/r3-lookup-lock-20261114/lock-order.cjs 3d87bcc70a72e4386c76a864439a773ced83b744",
+      "exitCode": 0,
+      "log": "/tmp/r3-lookup-lock-20261114/before.log",
+      "sha256": "fb0978c6037e5884834cd52af379ee3d70b34730241542d01f71aa32ea684d35",
+      "bytes": 747
+    },
+    {
+      "command": "node /tmp/r3-lookup-lock-20261114/lock-order.cjs c7ad58f8eae80a2e5817ccdb4f8689cd48557f94 fixed",
+      "exitCode": 0,
+      "log": "/tmp/r3-lookup-lock-20261114/frozen-projection-first.log",
+      "sha256": "df4f186d91cc25832e7a77a2f3661421622be785887b48ab9971dd17c1c05e4c",
+      "bytes": 901
+    },
+    {
+      "command": "node /tmp/r3-lookup-lock-20261114/lock-order.cjs c7ad58f8eae80a2e5817ccdb4f8689cd48557f94 fixed lookup-first",
+      "exitCode": 0,
+      "log": "/tmp/r3-lookup-lock-20261114/frozen-lookup-first.log",
+      "sha256": "7c4f01e2b8f969325e42069a5a3d26a4cafad49dfbe6acb0950003c9285b2b00",
+      "bytes": 901
+    },
+    {
+      "command": "node /tmp/r3-lookup-lock-20261114/lock-order.cjs working fixed ignored legacy-enqueue",
+      "exitCode": 0,
+      "log": "/tmp/r3-lookup-lock-20261114/preexisting-enqueue-inversion.log",
+      "sha256": "e647a864562b02b90c1585a5ad3f30528f4e0ec9cfcb1625bb13c1258ab1783c",
+      "bytes": 987
+    },
+    {
+      "command": "node /tmp/r3-lookup-lock-20261114/repository-final.cjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-lookup-lock-20261114/repository-final.log",
+      "sha256": "775430d14f5513a7ac31fdf386b60205bbe8bdffe134067dc19c975fb3484f4f",
+      "bytes": 35
+    },
+    {
+      "command": "node /tmp/r3-lookup-lock-20261114/build-probes.cjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-lookup-lock-20261114/build-probes.log",
+      "sha256": "d12af5ec6015bf04d2cf91bcf717eb65e51dc020db2e813ced217bb6b34c21f3",
+      "bytes": 65
+    },
+    {
+      "command": "node /tmp/r3-lookup-lock-20261114/hosted-real-pg.cjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-lookup-lock-20261114/hosted-real-pg.log",
+      "sha256": "3bb900342aff944b8c4d06dc224d9cfa090ebb0b943154baab21c2048cf12a32",
+      "bytes": 54
+    }
+  ],
+  "artifacts": {
+    "persistence-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "before.log": {
+      "sha256": "fb0978c6037e5884834cd52af379ee3d70b34730241542d01f71aa32ea684d35",
+      "bytes": 747
+    },
+    "repository-final.cjs": {
+      "sha256": "c303b5e8e63979a32551f1a803068da468763dc5af1f7bce434cc823bef626fb",
+      "bytes": 8913
+    },
+    "result-working-lookup-first.json": {
+      "sha256": "1efc523a610f669e37a99ff6b019b4becb3a1a2f7090b4293a9a011d61c66255",
+      "bytes": 8118
+    },
+    "governance.log": {
+      "sha256": "9a5c7cafae7b03c771af4ee23d69de18f537c9ba47d3b6bfc73080addf7513b1",
+      "bytes": 40
+    },
+    "media-validation.cjs": {
+      "sha256": "458e4ee337fa47b484b6cf7726792783ace777b464e8bc2c3399c93daa1b8e4d",
+      "bytes": 339166
+    },
+    "lock-order.cjs": {
+      "sha256": "156bc2fbad3bffb3cfa7458b7d8e6e34a444289c0a275ca7fb91bb183633c252",
+      "bytes": 8791
+    },
+    "repository.cjs": {
+      "sha256": "05d77dd7417c59a1c714c471c141718d0874549f5a47a63ce1c0c77079fa46ac",
+      "bytes": 271907
+    },
+    "result-working.json": {
+      "sha256": "873abb9c2a37e96f58ce9fa01693d7ea42111c12bf1537ae7bab3d1d354537a7",
+      "bytes": 8112
+    },
+    "publication-push.log": {
+      "sha256": "9b4c5acbb3a06fe41988576d82c33519d5540b16c2969052260937be38ae03bf",
+      "bytes": 396
+    },
+    "repository-final-result.json": {
+      "sha256": "9c838a645cc20b22a15f6ee28c091a3b125ea24d672a78d719ce7e6ad16feacd",
+      "bytes": 1136
+    },
+    "build-probes.cjs": {
+      "sha256": "c63a609c90c7e93e63a4ff4611c4f975436c9c4442748f9783d0316cb79b7e16",
+      "bytes": 681
+    },
+    "hosted-real-pg.cjs": {
+      "sha256": "b6baad922c07285b09f3036e84d6741b00f01580c174c1f25f694a6dbae67507",
+      "bytes": 13615
+    },
+    "repository-final.log": {
+      "sha256": "775430d14f5513a7ac31fdf386b60205bbe8bdffe134067dc19c975fb3484f4f",
+      "bytes": 35
+    },
+    "gates.log": {
+      "sha256": "e54596555ebb75e14d5e74750fe27fad3fdf17ea826b9a4ecb879e4982534770",
+      "bytes": 2771
+    },
+    "result-working-ignoredlegacy-enqueue.json": {
+      "sha256": "11d5b1b5ba1b812374b12e67f3ce4d810fe89cb3d3d3ac03246b1b6e1996e265",
+      "bytes": 8928
+    },
+    "build-probes.log": {
+      "sha256": "d12af5ec6015bf04d2cf91bcf717eb65e51dc020db2e813ced217bb6b34c21f3",
+      "bytes": 65
+    },
+    "after-lookup-first.log": {
+      "sha256": "b73875ff00fbfa16bdf29c3369966d4a0683cdd7f696e28e21f963021b3b2336",
+      "bytes": 901
+    },
+    "publication-fetch.log": {
+      "sha256": "948862dc6abba0e08b786159d5786365daa8fe0b081934a5ebafef1ec836f50c",
+      "bytes": 103
+    },
+    "architecture.log": {
+      "sha256": "91500b0d9dfbc3ce9fab62ce2f083e0c6d82c41531528f48c54ecaa9dfd763a0",
+      "bytes": 65
+    },
+    "protocol.cjs": {
+      "sha256": "2b9d5f282159f5c29d4ff883ca6a58659daf2b3b336bc1385be2006d75f1722f",
+      "bytes": 302586
+    },
+    "after-projection-first.log": {
+      "sha256": "21a758926066d6b7d0acd1aa33fe4566ceac13effe9045bee4c61090d0f8f05c",
+      "bytes": 901
+    },
+    "frozen-projection-first.log": {
+      "sha256": "df4f186d91cc25832e7a77a2f3661421622be785887b48ab9971dd17c1c05e4c",
+      "bytes": 901
+    },
+    "frozen-lookup-first.log": {
+      "sha256": "7c4f01e2b8f969325e42069a5a3d26a4cafad49dfbe6acb0950003c9285b2b00",
+      "bytes": 901
+    },
+    "hosted-real-pg-result.json": {
+      "sha256": "a29a4fae0791e843a8a1eaed6149a8aedd6fbe4f210c1562566d8d71bba6b644",
+      "bytes": 7807
+    },
+    "result-3d87bcc70a72e4386c76a864439a773ced83b744.json": {
+      "sha256": "947d51dfb040cc050812507a67cdb15c1c1fbb2325b9d6723469185b4fe21c01",
+      "bytes": 8262
+    },
+    "result-working-projection-first.json": {
+      "sha256": "dfd8c48e3b94f4e5f00f990fa72c9af26ebae35f28a7793858828c42a7506ddc",
+      "bytes": 8112
+    },
+    "result-c7ad58f8eae80a2e5817ccdb4f8689cd48557f94-projection-first.json": {
+      "sha256": "141ab837e7546ce026f79d2896c411f176e3b3fd25c529577f2e7ae33a941362",
+      "bytes": 8145
+    },
+    "hosted-real-pg.log": {
+      "sha256": "3bb900342aff944b8c4d06dc224d9cfa090ebb0b943154baab21c2048cf12a32",
+      "bytes": 54
+    },
+    "after.log": {
+      "sha256": "91eb465d7d2c9999e32dd78d674f010f724e809049ce399e21bb8e3c3e089958",
+      "bytes": 901
+    },
+    "result-c7ad58f8eae80a2e5817ccdb4f8689cd48557f94-lookup-first.json": {
+      "sha256": "1b6255164aa09b5c9fb8ae8efe5a69fd203d403a84b83ea357b7a9b9e0e72661",
+      "bytes": 8151
+    },
+    "preexisting-enqueue-inversion.log": {
+      "sha256": "e647a864562b02b90c1585a5ad3f30528f4e0ec9cfcb1625bb13c1258ab1783c",
+      "bytes": 987
+    },
+    "brain-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    }
+  },
+  "embeddedProbeSources": {
+    "lock-order.cjs": "const fs=require('fs'),vm=require('vm'),cp=require('child_process'),assert=require('assert/strict');\nconst root='/workspace/LegionCode-R3-LOOKUP-LOCK-20261114',cache='/workspace/LegionCode-R3-REAL-PG-661530-20261114',dir='/tmp/r3-lookup-lock-20261114';\nconst ts=require(cache+'/node_modules/typescript/lib/typescript.js'),P=require('/tmp/r3-real-pg-20261114/protocol.cjs'),{Pool}=require(cache+'/node_modules/.pnpm/pg@8.20.0/node_modules/pg');\nconst revision=process.argv[2]||'3d87bcc70a72e4386c76a864439a773ced83b744';const read=p=>revision==='working'?fs.readFileSync(root+'/'+p,'utf8'):cp.execFileSync('git',['show',revision+':'+p],{cwd:root,encoding:'utf8'});\nfunction load(s,mocks){const m={exports:{}};vm.runInNewContext(ts.transpileModule(s,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:m,exports:m.exports,require:n=>{if(n in mocks)return mocks[n];throw Error('unmocked '+n);}});return m.exports;}\nconst errors=load(read('packages/event-store/src/errors.ts'),{});let transcriptCalls=0;\nconst lifecycle=load(read('packages/persistence/src/lifecycle-events/PostgresLifecycleEventStore.ts')+'\\nexport {projectAcceptedThreadInput,projectAppliedThreadInput};',{'@repo/event-store':errors,'@repo/platform-protocol/lifecycle':P,'@repo/platform-protocol':P,'@repo/shared-types':P,'../sessions/PostgresTranscriptRepository.js':{PostgresTranscriptRepository:class{async appendMessageToExistingSession(){transcriptCalls++;}}}});\nconst {PostgresThreadInputRepository}=load(read('packages/persistence/src/thread-inputs/PostgresThreadInputRepository.ts'),{'@repo/platform-protocol':P});\nconst pool=new Pool({host:'/tmp/r3-real-pg-20261114/socket',port:55471,user:'agent',database:'postgres',max:6});const q=(s,p)=>pool.query(s,p);\nconst scope={sessionId:'33333333-3333-4333-8333-333333333333',userId:'11111111-1111-4111-8111-111111111111',threadId:'thr_'+'a'.repeat(24),workspaceId:'22222222-2222-4222-8222-222222222222'},turnId='trn_'+'b'.repeat(24),runAttemptId='attempt_'+'c'.repeat(24),runId='run_'+'d'.repeat(24);\nfunction deferred(){let resolve;const promise=new Promise(r=>resolve=r);return{promise,resolve};}\nconst traces=[];function client(label,hook){return {async transaction(fn){const c=await pool.connect();try{await c.query('BEGIN');await c.query(\"SET LOCAL deadlock_timeout='100ms'\");await c.query(\"SET LOCAL lock_timeout='3s'\");const out=await fn({async query(s,p){traces.push({label,phase:'query',sql:s});const r=await c.query(s,p);if(hook)await hook(s,r,c);return r;}});await c.query('COMMIT');return out;}catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}}};}\nasync function setup(){await q('DROP TABLE IF EXISTS canonical_turn_admissions,thread_inputs,thread_input_state,sessions CASCADE');await q('CREATE TABLE sessions(id UUID PRIMARY KEY,user_id UUID,thread_id TEXT,workspace_id UUID)');await q('INSERT INTO sessions VALUES($1,$2,$3,$4)',[scope.sessionId,scope.userId,scope.threadId,scope.workspaceId]);const migration=read('packages/persistence/src/migrations/0033-thread-inputs-and-continuations.ts');for(const name of ['thread_input_state','thread_inputs']){const m=migration.match(new RegExp('`(CREATE TABLE IF NOT EXISTS '+name+' \\\\([\\\\s\\\\S]*?\\\\))`'));assert(m);await q(m[1]);}await q('CREATE TABLE canonical_turn_admissions(session_id UUID,thread_id TEXT,turn_id TEXT,run_attempt_id TEXT,run_id TEXT,revision_of_turn_id TEXT,admission_state TEXT)');await q('INSERT INTO canonical_turn_admissions VALUES($1,$2,$3,$4,$5,NULL,\\'admitted\\')',[scope.sessionId,scope.threadId,turnId,runAttemptId,runId]);}\nfunction event(kind,item){return P.LifecycleEventSchema.parse({eventId:'evt_'+('e'.repeat(24)),threadId:scope.threadId,turnId,runAttemptId,sequence:kind==='accepted'?2:3,idempotencyKey:'fixture-'+kind,producer:{kind:'runtime_kernel',id:'verified-fixture'},schemaVersion:1,createdAt:'2026-11-14T00:00:00.000Z',type:'turn.input.'+kind,payload:kind==='accepted'?{inputId:item.itemId,clientInputId:'same',transcriptMessageId:'fixture-message'}:{inputId:item.itemId,acceptedSequence:2,modelStep:1,contextRevision:1}});}\nasync function scenario(kind){await setup();const repo=new PostgresThreadInputRepository(client('seed'));const seeded=await repo.enqueue({...scope,clientInputId:'same',fingerprint:'fixed',delivery:'steer',targetTurnId:turnId,targetRunAttemptId:runAttemptId,text:'text',mediaRefs:[],configuration:{}});if(kind==='applied')await q(\"UPDATE thread_inputs SET state='consuming',accepted_sequence=2 WHERE id=$1\",[seeded.item.itemId]);const stateHeld=deferred(),inputHeld=deferred();let aState=false,bInput=false;\nconst legacy=process.argv[5]==='legacy-enqueue';const lookupClient=client(legacy?'legacy-enqueue':'lookup',async s=>{if(s.startsWith(legacy?'INSERT INTO thread_input_state':'SELECT revision FROM thread_input_state')){aState=true;stateHeld.resolve();await inputHeld.promise;}});\nconst projectionClient=client('projection',async s=>{if((kind==='accepted'&&s.includes('FOR UPDATE OF input'))||(kind==='applied'&&s.startsWith(\"UPDATE thread_inputs SET state = 'consumed'\"))){bInput=true;inputHeld.resolve();}});\nconst lookupRepo=new PostgresThreadInputRepository(lookupClient);const project=()=>projectionClient.transaction(tx=>kind==='accepted'?lifecycle.projectAcceptedThreadInput(tx,event(kind,seeded.item)):lifecycle.projectAppliedThreadInput(tx,event(kind,seeded.item)));\nlet results;\nif((revision==='working'||process.argv[3]==='fixed')&&!legacy){\n if(process.argv[4]==='lookup-first'){\n  const held=deferred(),release=deferred();const firstRead=new PostgresThreadInputRepository(client('lookup-fixed-first',async sql=>{if(sql.startsWith('SELECT * FROM thread_inputs')){held.resolve();await release.promise;}}));\n  const reading=firstRead.getByClientInputId({...scope,clientInputId:'same'});await held.promise;let projectDone=false;const projecting=project().then(x=>{projectDone=true;return x;});await new Promise(r=>setTimeout(r,30));assert.equal(projectDone,false);release.resolve();results=await Promise.allSettled([reading,projecting]);assert(results.every(x=>x.status==='fulfilled'));assert.equal(aState,false);\n }else{\n // Projector holds actual input row first; new point lookup waits only there.\n const release=deferred();const holding=client('projection-fixed',async s=>{if((kind==='accepted'&&s.includes('FOR UPDATE OF input'))||(kind==='applied'&&s.startsWith(\"UPDATE thread_inputs SET state = 'consumed'\"))){bInput=true;inputHeld.resolve();await release.promise;}});\n const projecting=holding.transaction(tx=>kind==='accepted'?lifecycle.projectAcceptedThreadInput(tx,event(kind,seeded.item)):lifecycle.projectAppliedThreadInput(tx,event(kind,seeded.item)));await inputHeld.promise;let readDone=false;const reading=lookupRepo.getByClientInputId({...scope,clientInputId:'same'}).then(x=>{readDone=true;return x;});await new Promise(r=>setTimeout(r,30));assert.equal(readDone,false);release.resolve();results=await Promise.allSettled([reading,projecting]);assert(results.every(x=>x.status==='fulfilled'));assert.equal(results[0].value.receipt.status,kind);assert.equal(aState,false);\n }\n}else{\n const reading=legacy?lookupRepo.enqueue({...scope,clientInputId:'same',fingerprint:'fixed',delivery:'steer',targetTurnId:turnId,targetRunAttemptId:runAttemptId,text:'text',mediaRefs:[],configuration:{}}):lookupRepo.getByClientInputId({...scope,clientInputId:'same'});await stateHeld.promise;const projecting=project();results=await Promise.allSettled([reading,projecting]);assert(results.some(x=>x.status==='rejected'&&x.reason.code==='40P01'));assert(aState&&bInput);\n}\nconst row=(await q('SELECT state,receipt_json,accepted_sequence,applied_sequence FROM thread_inputs WHERE id=$1',[seeded.item.itemId])).rows[0];return {kind,results:results.map(x=>x.status==='rejected'?{status:x.status,code:x.reason.code,message:x.reason.message}:{status:x.status}),row,lookupStateLock:aState,projectorInputLock:bInput};}\n(async()=>{const cases=[];for(const kind of ['accepted','applied'])cases.push(await scenario(kind));fs.writeFileSync(dir+'/result-'+revision+'-'+(process.argv[4]||'projection-first')+(process.argv[5]||'')+'.json',JSON.stringify({revision,postgresVersion:(await q('SHOW server_version')).rows[0].server_version,cases,traces,transcriptCalls,scope:'Exact actual canonical projection function bodies + actual repository + actual SQL/receipt schemas; temporary module exports only. Accepted transcript append is explicit no-op fixture (unrelated transcript tables not installed); applied projection has no transcript dependency. Applied event is a controlled projection fixture, NOT proof native/provider applied.'},null,2)+'\\n');console.log(JSON.stringify(cases));await pool.end();})().catch(async e=>{console.error(e.stack);await pool.end();process.exitCode=1});\n",
+    "repository-final.cjs": "const fs=require('fs'),assert=require('assert/strict'),crypto=require('crypto');\nconst root='/workspace/LegionCode-R3-LOOKUP-LOCK-20261114',dir='/tmp/r3-real-pg-20261114';\nconst {Pool}=require(root+'/node_modules/.pnpm/pg@8.20.0/node_modules/pg');\nconst ts=require(root+'/node_modules/typescript/lib/typescript.js');const P=require('/tmp/r3-real-pg-20261114/protocol.cjs');const m={exports:{}};new Function('module','exports','require',ts.transpileModule(fs.readFileSync(root+'/packages/persistence/src/thread-inputs/PostgresThreadInputRepository.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(m,m.exports,n=>{if(n==='@repo/platform-protocol')return P;throw Error(n)});const {PostgresThreadInputRepository}=m.exports;\nconst pool=new Pool({host:dir+'/socket',port:55471,user:'agent',database:'postgres',max:8});const cases=[];\nconst q=(s,p)=>pool.query(s,p);const scope={sessionId:'33333333-3333-4333-8333-333333333333',userId:'11111111-1111-4111-8111-111111111111',workspaceId:'22222222-2222-4222-8222-222222222222',threadId:'thr_'+'a'.repeat(24)};\nfunction deferred(){let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};}\nfunction adapter(opts={}){return {query:q,async transaction(fn){const c=await pool.connect();try{await c.query('BEGIN');let called=false;const tx={async query(sql,p){const out=await c.query(sql,p);if(opts.afterQuery&&!called&&opts.match?.(sql)){called=true;await opts.afterQuery(sql,p,out);}return out;}};const out=await fn(tx);await c.query('COMMIT');if(opts.afterCommit)await opts.afterCommit(out);return out;}catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;}finally{c.release();}}};}\nconst repo=new PostgresThreadInputRepository(adapter());const content={...scope,delivery:'steer',targetTurnId:'trn_'+'b'.repeat(24),targetRunAttemptId:'attempt_'+'c'.repeat(24),text:'text',mediaRefs:[],configuration:{}};\nasync function setup(){await q('DROP TABLE IF EXISTS thread_inputs,thread_input_state,sessions CASCADE');await q('CREATE TABLE sessions(id UUID PRIMARY KEY,user_id UUID,thread_id TEXT,workspace_id UUID,active_run_id TEXT)');await q('INSERT INTO sessions(id,user_id,thread_id,workspace_id) VALUES($1,$2,$3,$4)',[scope.sessionId,scope.userId,scope.threadId,scope.workspaceId]);const src=fs.readFileSync(root+'/packages/persistence/src/migrations/0033-thread-inputs-and-continuations.ts','utf8');for(const name of ['thread_input_state','thread_inputs']){const m=src.match(new RegExp('`(CREATE TABLE IF NOT EXISTS '+name+' \\\\([\\\\s\\\\S]*?\\\\))`'));assert(m);await q(m[1]);}}\nasync function run(){await setup();const v=(await q('select version()')).rows[0].version;assert(v.includes('PostgreSQL 15.8'));cases.push('real PostgreSQL15.8 UNIXsocket noTCP');\nassert.equal(await repo.getByClientInputId({...scope,clientInputId:'absent'}),null);assert.equal((await q('select count(*) n from thread_input_state')).rows[0].n,'0');cases.push('absence lookup no state allocation');\nconst inserted=await repo.enqueue({...content,clientInputId:'same',fingerprint:'same'});let snapshot=JSON.stringify((await q('select * from thread_input_state')).rows);\nfor(const state of ['pending','consuming','consumed','cancelled']){await q('update thread_inputs set state=$2 where id=$1',[inserted.item.itemId,state]);const before=JSON.stringify((await q('select * from thread_inputs where id=$1',[inserted.item.itemId])).rows);assert.equal((await repo.getByClientInputId({...scope,clientInputId:'same'})).state,state);assert.equal(JSON.stringify((await q('select * from thread_inputs where id=$1',[inserted.item.itemId])).rows),before);cases.push('allstate readonly '+state);}\nassert.equal(JSON.stringify((await q('select * from thread_input_state')).rows),snapshot);\nfor(const [key,value] of [['userId','99999999-9999-4999-8999-999999999999'],['threadId','thr_'+'f'.repeat(24)],['workspaceId','99999999-9999-4999-8999-999999999999'],['sessionId','99999999-9999-4999-8999-999999999999']]){await assert.rejects(repo.getByClientInputId({...scope,[key]:value,clientInputId:'same'}));cases.push('foreign '+key+' denied');}\nassert.equal(await repo.getByClientInputId({...scope,clientInputId:'other'}),null);cases.push('foreign clientID no disclosure');\nconst other={sessionId:'55555555-5555-4555-8555-555555555555',userId:'66666666-6666-4666-8666-666666666666',workspaceId:'77777777-7777-4777-8777-777777777777',threadId:'thr_'+'e'.repeat(24)};await q('insert into sessions(id,user_id,workspace_id,thread_id) values($1,$2,$3,$4)',[other.sessionId,other.userId,other.workspaceId,other.threadId]);const foreign=await repo.enqueue({...content,...other,clientInputId:'same',fingerprint:'foreign'});assert.notEqual(foreign.item.itemId,inserted.item.itemId);assert.equal((await repo.getByClientInputId({...scope,clientInputId:'same'})).itemId,inserted.item.itemId);cases.push('same clientID separateowner scopes');\nconst wait=deferred(),release=deferred();const snapRepo=new PostgresThreadInputRepository(adapter({match:s=>s.startsWith('SELECT s.id'),afterQuery:async()=>{wait.resolve();await release.promise;}}));const mutable={...scope,clientInputId:'same'},pending=snapRepo.getByClientInputId(mutable);await wait.promise;Object.assign(mutable,other,{clientInputId:'not-same'});release.resolve();assert.equal((await pending).itemId,inserted.item.itemId);cases.push('captured tuple immutable across await');\n// A state-only writer does not block the point read of a missing input.\nconst w=deferred(),go=deferred();const blocked=new PostgresThreadInputRepository(adapter({match:s=>s.startsWith('INSERT INTO thread_input_state'),afterQuery:async()=>{w.resolve();await go.promise;}}));const writing=blocked.enqueue({...content,clientInputId:'write-first',fingerprint:'wf'});await w.promise;assert.equal(await repo.getByClientInputId({...scope,clientInputId:'write-first'}),null);go.resolve();const written=await writing;assert.equal((await repo.getByClientInputId({...scope,clientInputId:'write-first'})).itemId,written.item.itemId);cases.push('missing lookup linearizes while future writer holds state only');\n// An existing exact input remains locked against a competing canonical mutation.\nconst r=deferred(),rg=deferred();const lockedRead=new PostgresThreadInputRepository(adapter({match:s=>s.startsWith('SELECT * FROM thread_inputs'),afterQuery:async()=>{r.resolve();await rg.promise;}}));const old=lockedRead.getByClientInputId({...scope,clientInputId:'same'});await r.promise;let wrote=false;const later=repo.recordReceipt({...scope,itemId:inserted.item.itemId,expectedVersion:1,state:'cancelled',receipt:{status:'conflict',code:'turn_not_active',message:'existing canonical fixture'}}).then(x=>{wrote=true;return x;});await new Promise(r=>setTimeout(r,40));assert.equal(wrote,false);rg.resolve();assert.equal((await old).itemId,inserted.item.itemId);assert.equal((await later).status,'changed');cases.push('exactinput lookup lock serializes existing receipt mutation without state cycle');\nconst dup=await Promise.all([repo.enqueue({...content,clientInputId:'dup',fingerprint:'d'}),repo.enqueue({...content,clientInputId:'dup',fingerprint:'d'})]);assert.equal(dup[0].item.itemId,dup[1].item.itemId);assert.equal(dup.filter(x=>x.duplicate).length,1);cases.push('concurrent duplicate onecanonical row');\nconst lost=new PostgresThreadInputRepository(adapter({afterCommit:async()=>{throw Error('injected COMMIT ACK loss');}}));await assert.rejects(lost.enqueue({...content,clientInputId:'ack-loss',fingerprint:'ack'}),/ACK loss/);const recovered=await repo.getByClientInputId({...scope,clientInputId:'ack-loss'});assert(recovered);const retried=await repo.enqueue({...content,clientInputId:'ack-loss',fingerprint:'ack'});assert(retried.duplicate);assert.equal(retried.item.itemId,recovered.itemId);cases.push('real committed enqueue ACKloss rereads sameidentity');\nconst queued=await repo.enqueue({...content,delivery:'queue',targetTurnId:undefined,targetRunAttemptId:undefined,clientInputId:'claim-loss',fingerprint:'claim'});await assert.rejects(lost.claimForSteering({...scope,itemId:queued.item.itemId,expectedVersion:1,targetTurnId:content.targetTurnId,targetRunAttemptId:content.targetRunAttemptId}),/ACK loss/);const claimed=await repo.getByClientInputId({...scope,clientInputId:'claim-loss'});assert.equal(claimed.state,'consuming');assert.equal(claimed.version,2);cases.push('real committed claim ACKloss remainsconsuming');\nfs.writeFileSync('/tmp/r3-lookup-lock-20261114/repository-final-result.json',JSON.stringify({version:v,cases,caseCount:cases.length,realConcurrentPostgres:true,limits:'Actual repository + actual existing table DDL. Sessions owner fixture only; no full application migrations, provider, account or OS acceptance.'},null,2)+'\\n');console.log(cases.length+' real PostgreSQL controls passed');}\nrun().then(()=>pool.end()).catch(async e=>{console.error(e.stack);await pool.end();process.exitCode=1});\n"
+  },
+  "review": "Parent read-only exactc7ad58 diff review cleared before ordinary branch publication.",
+  "publication": {
+    "fetch": {
+      "sha256": "948862dc6abba0e08b786159d5786365daa8fe0b081934a5ebafef1ec836f50c",
+      "bytes": 103
+    },
+    "push": {
+      "sha256": "9b4c5acbb3a06fe41988576d82c33519d5540b16c2969052260937be38ae03bf",
+      "bytes": 396
+    },
+    "remoteVerified": "git ls-remote --heads origin refs/heads/codex/fix-r3-steering-lookup-lock-order-20261114"
+  },
+  "cleanup": {
+    "ownedPostgresStopped": true,
+    "ownedUnixSocketRemoved": true,
+    "sourceClean": true,
+    "physicalWipUntouched": true
+  },
+  "limits": [
+    "Actual canonical projectAcceptedThreadInput/projectAppliedThreadInput function bodies loaded from exact Git object with temporary module exports only. Actual SQL, row locks, receipt schemas and updates use PostgreSQL15.8.",
+    "Accepted projection transcript append uses an explicit unrelated no-op fixture; full canonical append/event/admission and transcript store not installed. Applied projection has no transcript fixture. Controlled Applied projection event is not native/provider Applied proof.",
+    "Actual existing0033inbox table DDL; sessions and canonical admissions are minimal identity fixtures. No claim full production migration/schema deployment.",
+    "State-only writer may now precede absent-input read; null is this read linearization, never proof future same-ID acceptance cannot occur.",
+    "Preexisting enqueue/mutation vs canonical projection lock inversion remains Root-owned separate correction. JSONB image fingerprint repair remains ungranted/unfixed.",
+    "No contracts/schema/lockfile/newtests/registrations/provider/account calls/credentials/Native/factory/P11/private ownership edits, no PR/deploy."
+  ]
+}
