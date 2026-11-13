@@ -1,0 +1,208 @@
+{
+  "head": "e9ba79ad264239229eda5a2c1df0af4c09382b6c",
+  "base": "3d306c43a9a9f49ca4e1377bad51f309402606eb",
+  "branch": "codex/fix-r3-codex-steer-client-id-20261114",
+  "clean": true,
+  "executor": {
+    "host": "58fee81c1a0b",
+    "uname": "Linux 6.18.57 x86_64",
+    "cloud": "connected/running/current",
+    "worktree": "/workspace/LegionCode-R3-CODEX-INPUT-ID-20261114",
+    "writable_probe_removed": true
+  },
+  "handoff": {
+    "revision": "876e496690feb6284087bfdf95110b184c9cc0f9",
+    "manifest_sha256": "c5b25ae00a3a503b3000984239cf8d3355124ff8652d4730be0c5603fe031ad8",
+    "verified_hashes_lengths": 19
+  },
+  "changed_paths": [
+    "architecture/CAPABILITY-OWNERSHIP.md",
+    "packages/harness-codex/src/server/CodexDriver.ts"
+  ],
+  "source_hashes": {
+    "architecture/CAPABILITY-OWNERSHIP.md": {
+      "sha256": "61a28a7b53502b9494533cc69f86bd51d07d2460fede74b835ab93f7393b018f",
+      "bytes": 187084
+    },
+    "packages/harness-codex/src/server/CodexDriver.ts": {
+      "sha256": "31009993492cc77e1f88595dd3a5428c2a4252dec0d0759fa3d6985c39cf1cfc",
+      "bytes": 25665
+    }
+  },
+  "pinned_evidence": {
+    "packages/harness-codex/src/runtime-manifest.json": {
+      "sha256": "dec298add489965b9040aa2e424ea4110757288fb3744c48bb83bfd93ca572fb",
+      "bytes": 1437
+    },
+    "packages/harness-codex/src/server/protocol/generated/v2/TurnSteerParams.ts": {
+      "sha256": "c2c371c45b5d23508821615b05a5fb6a0c695aab4aca91505be2d9d53006a3b6",
+      "bytes": 458
+    },
+    "packages/harness-codex/src/server/CodexNativeSession.ts": {
+      "sha256": "7c51bf140d9cffe4d34d2b8a1e2656e4f0c9c43ee57de5f7cb9eb61f1e42f126",
+      "bytes": 7647
+    },
+    "packages/harness-codex/src/server/transport/CodexStdioTransport.ts": {
+      "sha256": "4d2a4ce06c1a82557b511bf4f184ea57ce120d5e41732250852d37799207bd68",
+      "bytes": 13945
+    },
+    "packages/worker-protocol/src/harness.ts": {
+      "sha256": "0d51d5c9432d12f315702838258248225c7db1ca0f0413fb3f2a995ecf85bbcb",
+      "bytes": 16338
+    },
+    "packages/harness-core/src/server/HarnessSessionManager.ts": {
+      "sha256": "d3faee0446ec46ea9f41802fc536e857573b1c7a63e1a63e455fc3daa7b38381",
+      "bytes": 32427
+    }
+  },
+  "checks": [
+    {
+      "command": "corepack pnpm --filter @repo/harness-codex build",
+      "exit_code": 0,
+      "log": "/tmp/r3-codex-input-id-20261114/build.log",
+      "sha256": "1423bbf72ed91bf92c971ea24e685aaeb971941b6728c1cdd368aa2499360700",
+      "bytes": 114
+    },
+    {
+      "command": "corepack pnpm --filter @repo/harness-codex check-types",
+      "exit_code": 0,
+      "log": "/tmp/r3-codex-input-id-20261114/types.log",
+      "sha256": "2e7f4eb32c2a938699a4e3e4c0163134e709e7dd66db2642edc65e3a4e08fbf0",
+      "bytes": 129
+    },
+    {
+      "command": "node scripts/gates/check-architecture-boundaries.mjs",
+      "exit_code": 0,
+      "log": "/tmp/r3-codex-input-id-20261114/architecture.log",
+      "sha256": "91500b0d9dfbc3ce9fab62ce2f083e0c6d82c41531528f48c54ecaa9dfd763a0",
+      "bytes": 65
+    },
+    {
+      "command": "node scripts/gates/check-rebuild-governance.mjs",
+      "exit_code": 0,
+      "log": "/tmp/r3-codex-input-id-20261114/governance.log",
+      "sha256": "9a5c7cafae7b03c771af4ee23d69de18f537c9ba47d3b6bfc73080addf7513b1",
+      "bytes": 40
+    },
+    {
+      "command": "node /tmp/r3-codex-input-id-20261114/build-probe.cjs",
+      "exit_code": 0,
+      "log": "/tmp/r3-codex-input-id-20261114/build-probe.log",
+      "sha256": "1e8a963ea8cb468cad1885ae6728cbe9b5129cb935747dea00dafbca1146a587",
+      "bytes": 97
+    },
+    {
+      "command": "node /tmp/r3-codex-input-id-20261114/probe.cjs",
+      "exit_code": 0,
+      "log": "/tmp/r3-codex-input-id-20261114/probe.log",
+      "sha256": "a959ddc2f28c6144df95cd4e1288d9b6bc3280be8574ec35d34ef251d35feb65",
+      "bytes": 1251
+    }
+  ],
+  "controls": {
+    "count": 10,
+    "results": [
+      {
+        "name": "originating canonical accepted input ID reaches actual native RPC frame",
+        "pass": true
+      },
+      {
+        "name": "identical concurrent command deduplicates to one native RPC",
+        "pass": true
+      },
+      {
+        "name": "changed accepted identity under same command fingerprint is denied",
+        "pass": true
+      },
+      {
+        "name": "stale process generation denied by actual host manager before native RPC",
+        "pass": true
+      },
+      {
+        "name": "stale process generation denied by actual driver control",
+        "pass": true
+      },
+      {
+        "name": "stale external turn denied by actual host manager",
+        "pass": true
+      },
+      {
+        "name": "stale expected turn denied by actual NativeSession before transport",
+        "pass": true
+      },
+      {
+        "name": "stale native thread rejected by actual NativeSession",
+        "pass": true
+      },
+      {
+        "name": "unknown steer ACK retained across duplicate and later command without resend",
+        "pass": true
+      },
+      {
+        "name": "initial turn/start payload remains without steer correlation field",
+        "pass": true
+      }
+    ],
+    "limits": [
+      "Actual source-extracted driver control, actual NativeSession, StdioTransport, Worker schemas, HarnessSessionManager; synthetic streams/native replies and already-open host attachment fixture.",
+      "No native executable, provider/account call, OS/host admission/confinement acceptance, Applied observation or model-step/context revision proof."
+    ]
+  },
+  "embedded_probe_sources": {
+    "build-probe.cjs": {
+      "sha256": "6f3594ed37e1656b0675ad000396a38f5d3db3c6589ed9b56e6ca7798ea0b78e",
+      "bytes": 1820,
+      "content": "const fs=require('node:fs');\nconst path=require('node:path');\nconst esbuild=require('/workspace/LegionCode-R3-REPLAY-3D306-20261111/node_modules/.pnpm/esbuild@0.27.3/node_modules/esbuild');\nconst root='/workspace/LegionCode-R3-CODEX-INPUT-ID-20261114';\nconst src=fs.readFileSync(root+'/packages/harness-codex/src/server/CodexDriver.ts','utf8');\nconst begin=src.indexOf('        control: async (raw) => {');\nconst end=src.indexOf('        awaitQuiescence:',begin);\nif(begin<0||end<0)throw Error('exact driver control cutpoint missing');\nconst block=src.slice(begin,end);\nconst wrapper=`import {HarnessControlCommandSchema} from '${root}/packages/worker-protocol/src/index.ts';\nimport {CodexTransportError} from '${root}/packages/harness-codex/src/server/transport/CodexStdioTransport.ts';\nexport {CodexStdioTransport,CodexTransportError} from '${root}/packages/harness-codex/src/server/transport/CodexStdioTransport.ts';\nexport {CodexNativeSession} from '${root}/packages/harness-codex/src/server/CodexNativeSession.ts';\nexport {HarnessSessionManager} from '${root}/packages/harness-core/src/server/HarnessSessionManager.ts';\nexport function makeDriverControl(native,transport,learnedSession) {\n let stopped=false,terminal=false,externalTurnId='native-turn'; const threadId='native-thread';\n const pendingReplies=new Map(),pendingQuestions=new Map(); const fail=()=>{stopped=true};\n return {${block} getStopped:()=>stopped};\n}`;\nfs.writeFileSync('/tmp/r3-codex-input-id-20261114/driver-control.ts',wrapper);\nesbuild.buildSync({stdin:{contents:wrapper,resolveDir:root,sourcefile:'driver-control.ts',loader:'ts'},bundle:true,platform:'node',format:'cjs',outfile:'/tmp/r3-codex-input-id-20261114/actual.cjs'});\nconsole.log('Bundled exact driver control with actual NativeSession/StdioTransport/HostManager/Worker schemas');\n"
+    },
+    "probe.cjs": {
+      "sha256": "9d8fed1df67e256d67988d9d512b52423f836fbdd645833955a0db601cb187a4",
+      "bytes": 6561,
+      "content": "const assert=require('node:assert/strict');\nconst {PassThrough,Writable}=require('node:stream');\nconst {CodexStdioTransport,CodexNativeSession,HarnessSessionManager,makeDriverControl}=require('./actual.cjs');\nconst results=[];\nconst session={runAttemptId:'attempt_correlation',instanceId:'codex-instance',externalSessionId:'native-thread',processGeneration:'11111111-1111-4111-8111-111111111111'};\nconst command=()=>({kind:'steer',commandId:'command-distinct',session:{...session},expectedExternalTurnId:'native-turn',accepted:{inputId:'canonical-input-EXACT',clientInputId:'different-client-id',transcriptMessageId:'different-transcript-id',acceptedSequence:7},text:' ordered text '});\nasync function setup(mode='success'){\n const frames=[],output=new PassThrough();let notifications=0;\n const input=new Writable({write(data,_,done){const frame=JSON.parse(data.toString());frames.push(frame);done();queueMicrotask(()=>{\n  if(frame.method==='turn/steer'&&mode==='unknown'){output.emit('error',new Error('synthetic lost ACK'));return;}\n  const result=frame.method==='thread/start'?{thread:{id:'native-thread',status:{type:'idle'}},model:'pinned-model',cwd:'/owned-workspace',modelProvider:'openai',approvalPolicy:'untrusted',approvalsReviewer:'user',sandbox:{type:'workspaceWrite',networkAccess:false,excludeTmpdirEnvVar:true,excludeSlashTmp:true,writableRoots:['/owned-workspace']}}:frame.method==='turn/start'?{turn:{id:'native-turn',status:'inProgress'}}:{turnId:'native-turn'};\n  output.write(JSON.stringify({id:frame.id,result})+'\\n');\n });}});\n const transport=new CodexStdioTransport({input,output,requestTimeoutMs:1000,onNotification(){notifications++},onRequest(){throw Error('unexpected native request')},onClose(){}});\n const native=new CodexNativeSession(transport);\n await native.open({sandbox:'workspace-write',approvalPolicy:'untrusted',approvalsReviewer:'user',modelProvider:'openai',model:'pinned-model',cwd:'/owned-workspace'});\n await native.start({threadId:'native-thread',input:[{type:'text',text:'initial',text_elements:[]} ]});\n const driver=makeDriverControl(native,transport,session);\n const manager=new HarnessSessionManager({});\n // Explicit fixture for an already-open exact-generation attachment. Production\n // open/admission/host/process behavior is not exercised or claimed here.\n manager.attachments.set(session.runAttemptId,{command:{selection:{authOwnerGeneration:4}},session,live:driver,controls:new Map(),execution:Promise.resolve(),externalTurnId:'native-turn',stopping:false});\n return {frames,transport,native,driver,manager,count:()=>frames.filter(f=>f.method==='turn/steer').length,notifications:()=>notifications};\n}\nasync function test(name,fn){await fn();results.push({name,pass:true});}\n(async()=>{\n await test('originating canonical accepted input ID reaches actual native RPC frame',async()=>{const x=await setup();await x.manager.control(command());const p=x.frames.find(f=>f.method==='turn/steer').params;assert.deepEqual(p,{threadId:'native-thread',expectedTurnId:'native-turn',clientUserMessageId:'canonical-input-EXACT',input:[{type:'text',text:' ordered text ',text_elements:[]}]});assert.equal(x.notifications(),0);x.transport.close();});\n await test('identical concurrent command deduplicates to one native RPC',async()=>{const x=await setup();const a=x.manager.control(command()),b=x.manager.control(command());assert.equal(a,b);await Promise.all([a,b]);assert.equal(x.count(),1);x.transport.close();});\n await test('changed accepted identity under same command fingerprint is denied',async()=>{const x=await setup();await x.manager.control(command());const bad=command();bad.accepted.inputId='other-input';await assert.rejects(x.manager.control(bad));assert.equal(x.count(),1);x.transport.close();});\n await test('stale process generation denied by actual host manager before native RPC',async()=>{const x=await setup();const bad=command();bad.session.processGeneration='22222222-2222-4222-8222-222222222222';assert.throws(()=>x.manager.control(bad));assert.equal(x.count(),0);x.transport.close();});\n await test('stale process generation denied by actual driver control',async()=>{const x=await setup();const bad=command();bad.session.processGeneration='22222222-2222-4222-8222-222222222222';await assert.rejects(x.driver.control(bad));assert.equal(x.count(),0);x.transport.close();});\n await test('stale external turn denied by actual host manager',async()=>{const x=await setup();const bad=command();bad.expectedExternalTurnId='other-native-turn';await assert.rejects(x.manager.control(bad));assert.equal(x.count(),0);x.transport.close();});\n await test('stale expected turn denied by actual NativeSession before transport',async()=>{const x=await setup();const bad=command();bad.expectedExternalTurnId='other-native-turn';await assert.rejects(x.driver.control(bad));assert.equal(x.count(),0);x.transport.close();});\n await test('stale native thread rejected by actual NativeSession',async()=>{const x=await setup();await assert.rejects(x.native.steer({threadId:'other-thread',expectedTurnId:'native-turn',clientUserMessageId:'canonical-input-EXACT',input:[]}));assert.equal(x.count(),0);x.transport.close();});\n await test('unknown steer ACK retained across duplicate and later command without resend',async()=>{const x=await setup('unknown');const a=x.manager.control(command());await assert.rejects(a,e=>e.outcome==='unknown');const b=x.manager.control(command());assert.equal(a,b);await assert.rejects(b);const next=command();next.commandId='next-command';next.accepted.inputId='next-input';await assert.rejects(x.manager.control(next));assert.equal(x.count(),1);assert.equal(x.driver.getStopped(),true);assert.equal(x.notifications(),0);x.transport.close();});\n await test('initial turn/start payload remains without steer correlation field',async()=>{const x=await setup();assert.equal(Object.hasOwn(x.frames.find(f=>f.method==='turn/start').params,'clientUserMessageId'),false);x.transport.close();});\n const out={count:results.length,results,limits:['Actual source-extracted driver control, actual NativeSession, StdioTransport, Worker schemas, HarnessSessionManager; synthetic streams/native replies and already-open host attachment fixture.','No native executable, provider/account call, OS/host admission/confinement acceptance, Applied observation or model-step/context revision proof.']};require('node:fs').writeFileSync('/tmp/r3-codex-input-id-20261114/result.json',JSON.stringify(out,null,2)+'\\n');console.log(JSON.stringify(out));\n})().catch(e=>{console.error(e);process.exitCode=1});\n"
+    }
+  },
+  "limits": [
+    "No provider/account/native executable/OS-confinement/installed acceptance calls.",
+    "No Applied observations, modelStep/contextRevision, capability flags, shared contracts, pins, initial prompt or provider transcript recovery changes.",
+    "Actual source-extracted driver control plus actual NativeSession/StdioTransport/HostManager/schema code; synthetic native streams/replies and already-open host attachment fixture.",
+    "No initial host/process/admission lifecycle proof; existing account binding and generation checks remain source-unchanged.",
+    "Reused same-base3d306 existing dependency cache with workspace links targeting this isolated worktree; no install/manifests/lock changes.",
+    "Publication gate inspected full origin/main overlap; pinned requested base retained. No moving main/dev merge or physical integration performed."
+  ],
+  "published": true,
+  "remote_sha": "e9ba79ad264239229eda5a2c1df0af4c09382b6c",
+  "independent_review": {
+    "reviewer": "parent integration owner",
+    "exact_revision": "e9ba79ad264239229eda5a2c1df0af4c09382b6c",
+    "result": "clear: one payload line plus approved accurate ledger paragraph"
+  },
+  "publication": {
+    "fetch": {
+      "command": "git fetch origin",
+      "exit_code": 0,
+      "log": "/tmp/r3-codex-input-id-20261114/fetch.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "publication-gate": {
+      "command": "git status -sb; upstream divergence if present; git diff --name-only origin/main...HEAD",
+      "exit_code": 0,
+      "log": "/tmp/r3-codex-input-id-20261114/publication-gate.log",
+      "sha256": "2c09aea36eee116174ee7258f40fff31d28eb8dcd9e0b0b89545ea0b1f89cf5d",
+      "bytes": 57914
+    },
+    "push": {
+      "command": "git push origin HEAD:refs/heads/codex/fix-r3-codex-steer-client-id-20261114",
+      "exit_code": 0,
+      "log": "/tmp/r3-codex-input-id-20261114/push.log",
+      "sha256": "0355f135d615983b1db2d4247a69f338a2a1ed008ae2edc20288734697e1c27f",
+      "bytes": 381
+    },
+    "remote": {
+      "command": "git ls-remote --heads origin refs/heads/codex/fix-r3-codex-steer-client-id-20261114",
+      "exit_code": 0,
+      "log": "/tmp/r3-codex-input-id-20261114/remote.log",
+      "sha256": "0d028279a0b29c6fef262931b79933baafa2d245a194d18396ecc235cec46a0e",
+      "bytes": 96
+    }
+  }
+}
