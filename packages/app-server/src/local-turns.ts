@@ -1,7 +1,8 @@
 import { isDeepStrictEqual } from "node:util";
 import { readLocalThreadHistory } from "./local-thread-history.js";
 import type { LocalTurnAttemptIdentity, LocalTurnAttemptInput } from "@legioncode/execution-engine/runtime/desktop/LocalReadOnlyTurnExecutor";
-import type { StoredThreadInput, ThreadInputScope } from "@repo/event-store";
+import { ThreadInputConflictError, type StoredThreadInput, type ThreadInputScope } from "@repo/event-store";
+import { LocalWorkspaceWriterLeaseError } from "./local-workspace-writer-lease.js";
 import type { InputCommand } from "./thread-inputs/ports.js";
 import type { BYOKDiscoveredProviderModel } from "@repo/shared-types";
 import {
@@ -177,7 +178,18 @@ export class LocalTurnService {
       mode: captured.configuration.mode, productMode: captured.configuration.productMode,
       ...(captured.expectedSelection ? { expectedSelection: captured.expectedSelection } : {}),
     };
-    return this.resources.prepare((preparation) => this.startPreparedTurn(params, preparation, input));
+    try {
+      return await this.resources.prepare((preparation) => this.startPreparedTurn(params, preparation, input));
+    } catch (error) {
+      // The ORIGINAL preparation includes its unused-acquisition proof and
+      // binding.close in finally. Failed or unknown cleanup replaces the busy
+      // error, so only a positively closed candidate reaches this classification.
+      if (error instanceof LocalWorkspaceWriterLeaseError && error.code === "workspace_writer_busy" &&
+          error.awaitAcquisitionQuiescence !== undefined) {
+        throw new ThreadInputConflictError("Workspace writer is busy; this input remains queued.", "thread_not_idle");
+      }
+      throw error;
+    }
   }
 
   async assertSteerImageInput(turnId: TurnId, runAttemptId: TurnAdmission["runAttemptId"]): Promise<void> {

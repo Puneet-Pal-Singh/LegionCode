@@ -2703,3 +2703,21 @@ alone does not claim installed history/queue acceptance. No new tests or stores.
 - Accepted-input platform events take their branded Thread and workspace identity
   from the same parsed canonical admission after its queue/attempt scope checks;
   the durable row still owns the input body and receipt. No raw-ID cast is used.
+
+### Native queue while a predecessor writer is closing
+
+A canonical terminal may precede the original executor/provider/writer/binding
+cleanup. A queued input arriving in that interval remains pending: the physical
+writer acquisition still runs and can return a known busy refusal. Only after
+the ORIGINAL unused-candidate preparation proves its own acquisition quiescence
+and closes its original binding does LocalTurnService map that exact typed busy
+error to the existing thread_not_idle conflict. The Native placement adapter
+preserves the queue without pausing, consuming or resending it. The predecessor's
+actual positive settlement callback can subsequently advance the same queue via
+a new held-writer acquisition and exact predecessor receipt verification.
+
+Unknown acquisition/cleanup, lost publication acknowledgement and missing
+predecessor evidence retain their existing pause/reconciliation behavior. A busy
+writer owned by another Thread is described as workspace contention; this fix
+adds no cross-Thread dispatcher or automatic wake guarantee. Terminal history and
+logical idle never substitute for physical writer proof. No new tests or stores.
