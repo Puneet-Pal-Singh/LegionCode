@@ -2441,3 +2441,14 @@ proof, and missing evidence stays unknown. Native provider execution is unchange
   Only enqueue suppresses/logs an automatic-start failure after durable intent
   persistence, preserving its existing pending receipt. Native physical cleanup
   callbacks retain their original tracked failure and pause owner.
+### Original Native provider request settlement
+
+The same Native attempt factory retains every original protected-gateway request
+before invocation. Kernel cancellation polling can settle its observer first;
+that result is not provider-request closure. After the original executor result
+and worker proof settle, the factory fences new requests and awaits all retained
+adapter promises before writer release, binding close and immutable resource
+settlement. A request that ignores cancellation keeps that original obligation;
+no abort acknowledgement, deadline or empty executor map substitutes for it.
+This is buffered-request resource ownership only; it does not invent streaming
+phases, output/retry semantics or another canonical lifecycle producer.
