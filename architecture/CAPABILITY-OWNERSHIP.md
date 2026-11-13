@@ -3103,3 +3103,26 @@ No challenge/redeem service or duplicate identity persistence is added.
 This connects the actual Settings action, not Cloud task execution. Hosted SDK
 workspace/session/provider/task composition and exact installed OAuth/restart/
 revocation acceptance remain required before Cloud can be advertised as ready.
+
+## Desktop hosted App Server session binding
+
+Desktop main's `DesktopHostedAccount` owns the private persistent Electron
+session. Its scope-checked `run` loan registers the original operation before
+invocation, validates production/account/generation before and after the request,
+and drains those operations before logout or quit. Neither detach nor shutdown
+issues a cloud Turn interrupt. The existing hosted server remains the only
+authentication, admission, lifecycle, credential and artifact authority.
+
+`DesktopHostedAppServer` adapts validated, explicitly allowlisted hosted App
+Server envelopes to the existing SDK HTTP transport and that private session's
+`fetch`. The renderer never receives a cookie, bearer token or arbitrary URL
+operation. Local grants, local Threads, local Turn start/history and OS-vault
+commands cannot cross this route. Method-derived ingress hints retain existing
+hosted large-body handling under a bounded IPC ceiling; responses use the SDK's
+existing one-MiB body limit.
+
+Only status and the four admission acknowledgement headers cross early metadata
+notifications. The same bounded receipt is retained in failure results when body
+parsing fails. Callback notification errors do not abandon the original SDK body
+read. Public Desktop hosted task mounting and installed Native Cloud acceptance
+remain separate consumers; this transport does not advertise execution readiness.

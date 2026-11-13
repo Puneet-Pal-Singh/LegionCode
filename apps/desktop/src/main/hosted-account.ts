@@ -1,6 +1,7 @@
 import { BrowserWindow, session, type Session } from "electron";
 import { GitHubSessionResponseSchema } from "@repo/shared-types";
 import type { HostedAccountSnapshot } from "../shared/hosted-account";
+import { HostedRequestScopeSchema, type HostedRequestScope } from "../shared/hosted-request";
 
 // Release target is a closed application choice, never a renderer-supplied URL.
 const BRAIN = "https://brain.legioncode.dev";
@@ -34,6 +35,25 @@ export class DesktopHostedAccount {
     this.pending.add(operation);
     void operation.then(() => this.pending.delete(operation), () => this.pending.delete(operation));
     return operation;
+  }
+
+  /** Main-only session loan. Logout/quit fence new loans and drain the original operation. */
+  run<T>(scope: HostedRequestScope, operation: (session: Session) => Promise<T>): Promise<T> {
+    const captured = Object.freeze(HostedRequestScopeSchema.parse(scope));
+    const assertCurrent = () => {
+      if (this.closing || this.disconnection || this.snapshot.state !== "signed_in" ||
+          captured.generation !== this.generation || captured.accountId !== this.snapshot.account?.id) {
+        throw new Error("Hosted account changed");
+      }
+    };
+    assertCurrent();
+    // Register before invoking a collaborator which may start a real request.
+    return this.track(Promise.resolve().then(async () => {
+      assertCurrent();
+      const result = await operation(this.session);
+      assertCurrent();
+      return result;
+    }));
   }
 
   private async readSession(generation: number): Promise<HostedAccountSnapshot> {
