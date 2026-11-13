@@ -89,7 +89,7 @@ export class ThreadInputCommandService {
     // Reconcile a saved receipt before consulting a potentially ended executor.
     // The original request fingerprint is still checked by enqueue below.
     if (!isDeliveryReceipt(previous?.receipt ?? null) && previous?.receipt?.status !== "conflict") {
-      const targetConflict = await this.ports.assertSteeringTarget(scope, command, command.content.images.length > 0);
+      const targetConflict = await this.ports.assertSteeringTarget(scope, command, command.content.images.length > 0, "turn.steer");
       if (targetConflict) return { statusCode: 409, result: targetConflict };
     }
     const media = await this.ports.prepareMedia({ scope, inputId, clientInputId: command.clientInputId, mediaRevision: 1, images: command.content.images });
@@ -113,7 +113,7 @@ export class ThreadInputCommandService {
       return conflict("target_superseded", "This input is already bound to a different turn attempt.");
     if (isDeliveryReceipt(item.receipt)) return { statusCode: 200, result: item.receipt };
     if (item.receipt?.status === "conflict") return { statusCode: 409, result: item.receipt };
-    const targetConflict = await this.ports.assertSteeringTarget(scope, command, item.mediaRefs.length > 0);
+    const targetConflict = await this.ports.assertSteeringTarget(scope, command, item.mediaRefs.length > 0, "thread.input.steer");
     if (targetConflict) return { statusCode: 409, result: targetConflict };
     await this.ports.authorize(command);
     if (item.delivery === "queue") {
