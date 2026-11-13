@@ -3281,6 +3281,12 @@ invalidation. Desktop's existing history owner can refresh a bounded tail from
 that fact; no additional subscription, acknowledgement-body reconstruction or
 input state owner is introduced.
 
+The existing shared chat auto-scroll hook also consumes explicit bounded-history
+navigation intent. Earlier/newer page replacements align to their adjoining end
+or start boundary and disable live bottom-follow; an explicit Latest restores
+bottom-follow. Hosts without navigation intent retain existing behavior. This
+keeps one scroll owner rather than layering Desktop-specific scroll effects.
+
 - Client-supplied history Turn sets that are missing, foreign, duplicated or
   malformed are invalid snapshot selections, not database-corruption evidence.
   The private reader returns its opaque cursor conflict; the public request
