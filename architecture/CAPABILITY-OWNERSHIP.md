@@ -3004,3 +3004,19 @@ This package has no active local constructor, driver registration or public-rout
 consumer yet. Its client facade exports protocol types only; Node SDK and process
 services stay behind the server export. Final driver/constructor wiring is the
 activation boundary, and no Native provider fallback is introduced.
+
+## Shared hosted conversation dispatch
+
+`@legioncode/sdk` owns hosted submission wire freezing, reservation-envelope
+validation, transport cancellation binding and matching acknowledgement
+observation through `dispatchHostedConversationSubmission`. Web's existing
+`useChatCore` consumes that helper and retains only browser notifications and
+presentation. The existing SDK submission registry remains the sole owner of
+retry identity and frozen payloads; `submitConversationMessage` still confirms
+admission from the bound acknowledgement or exact canonical lifecycle replay.
+No new submission loop, recovery store or runtime lifecycle producer is added.
+
+Desktop can consume this same dispatch boundary with its environment-bound
+client. Hosted Desktop authentication, workspace/session mounting and installed
+Native Cloud acceptance remain unwired; extracting dispatch does not advertise
+Cloud readiness or transfer local credentials.
