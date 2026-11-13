@@ -109,31 +109,31 @@ describe("GitPlugin", () => {
     });
     const plugin = new GitPlugin();
     const authorizedCommitId = "a".repeat(40);
-
-    const result = await plugin.execute(asSandbox(), {
+    const token = "ghp_exampleSecretToken123456789";
+    const onLog = vi.fn();
+    const payload = {
       action: "git_clone",
       runId: "run_git_pinned_clone_1",
       url: "https://github.com/example/repository.git",
-      token: "ghp_exampleSecretToken123456789",
+      token,
       startPoint: authorizedCommitId,
-    });
+      __toolbox: { callId: "pinned-clone-call" },
+    };
+
+    const result = await plugin.execute(asSandbox(), payload, onLog);
 
     expect(result.success).toBe(true);
     const gitCommands = runSafeCommandMock.mock.calls
       .map(([, spec]) => spec)
       .filter((spec) => spec.command === "git");
     expect(gitCommands.map((spec) => spec.args)).toEqual([
-      ["-C", "/home/sandbox/checkouts/run_git_pinned_clone_1", "init"],
+      ["init"],
       [
-        "-C",
-        "/home/sandbox/checkouts/run_git_pinned_clone_1",
         "config",
         "remote.origin.url",
         "https://github.com/example/repository.git",
       ],
       [
-        "-C",
-        "/home/sandbox/checkouts/run_git_pinned_clone_1",
         "fetch",
         "--depth=1",
         "--no-tags",
@@ -141,8 +141,6 @@ describe("GitPlugin", () => {
         authorizedCommitId,
       ],
       [
-        "-C",
-        "/home/sandbox/checkouts/run_git_pinned_clone_1",
         "checkout",
         "--detach",
         authorizedCommitId,
@@ -151,9 +149,70 @@ describe("GitPlugin", () => {
     expect(gitCommands[2]?.env).toMatchObject({
       GIT_CONFIG_VALUE_0: expect.stringMatching(/^AUTHORIZATION: basic /),
     });
+    expect([gitCommands[0]?.env, gitCommands[1]?.env, gitCommands[3]?.env])
+      .toEqual([{}, {}, {}]);
+    for (const spec of gitCommands) {
+      expect(spec).toMatchObject({
+        cwd: "/home/sandbox/checkouts/run_git_pinned_clone_1",
+        runId: payload.runId,
+        callId: "pinned-clone-call",
+        toolName: "git.clone",
+        borrowedLease: true,
+        timeoutMs: 0,
+      });
+      expect(spec.args).not.toContain("-C");
+    }
     expect(gitCommands.flatMap((spec) => spec.args ?? []).join(" ")).not.toMatch(
       /authorization|basic|ghp_/i,
     );
+    const authHeader = gitCommands[2]?.env?.GIT_CONFIG_VALUE_0;
+    expect(authHeader).toEqual(expect.any(String));
+    const encodedToken = authHeader!.split(" ").at(-1)!;
+    const visibleOutput = JSON.stringify({ result, logs: onLog.mock.calls });
+    expect(visibleOutput).not.toContain(token);
+    expect(visibleOutput).not.toContain(encodedToken);
+    expect(gitCommands.flatMap((spec) => spec.args ?? []).join(" "))
+      .not.toContain(encodedToken);
+
+    runSafeCommandMock.mockClear();
+    runSafeCommandMock.mockImplementation(async (_sandbox, spec) => ({
+      exitCode: spec.args?.includes("fetch") ? 128 : 0,
+      stdout: "",
+      stderr: spec.args?.includes("fetch") ? "Pinned fetch failed" : "",
+    }));
+    const failed = await plugin.execute(asSandbox(), payload, onLog);
+    expect(failed.success).toBe(false);
+    expect(failed.error).toBe("Pinned fetch failed");
+    const failedGitCommands = runSafeCommandMock.mock.calls
+      .map(([, spec]) => spec)
+      .filter((spec) => spec.command === "git");
+    expect(failedGitCommands.map((spec) => spec.args))
+      .toEqual(gitCommands.slice(0, 3).map((spec) => spec.args));
+    expect(failedGitCommands.some((spec) => spec.args?.includes("checkout")))
+      .toBe(false);
+    expect(JSON.stringify({ failed, logs: onLog.mock.calls })).not.toContain(token);
+    expect(JSON.stringify({ failed, logs: onLog.mock.calls }))
+      .not.toContain(encodedToken);
+
+    const actualSafeCommand = await vi.importActual<
+      typeof import("./security/SafeCommand")
+    >("./security/SafeCommand");
+    const fallbackExec = vi.fn();
+    const missingBorrowedTransport = await actualSafeCommand.runSafeCommand(
+      asSandbox({ exec: fallbackExec }),
+      {
+        command: "node",
+        runId: payload.runId,
+        callId: "pinned-missing-transport",
+        toolName: "git.clone",
+        borrowedLease: true,
+        timeoutMs: 0,
+      },
+      ["node"],
+    );
+    expect(missingBorrowedTransport.exitCode).not.toBe(0);
+    expect(missingBorrowedTransport.stderr).toContain("execIfRunning");
+    expect(fallbackExec).not.toHaveBeenCalled();
   });
 
   it("routes git_unstage through GitService", async () => {

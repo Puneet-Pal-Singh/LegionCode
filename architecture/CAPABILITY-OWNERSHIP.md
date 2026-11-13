@@ -2433,3 +2433,25 @@ settlement. A request that ignores cancellation keeps that original obligation;
 no abort acknowledgement, deadline or empty executor map substitutes for it.
 This is buffered-request resource ownership only; it does not invent streaming
 phases, output/retry semantics or another canonical lifecycle producer.
+
+## Shared exact-commit checkout materialization
+
+`git-service`'s private `./pinned-checkout` entry now owns the existing pinned
+checkout sequence: initialize the checkout, configure the credential-free origin
+URL, fetch only the authorized commit with depth one and no tags, then check out
+that exact commit detached. It consumes the existing `GitCommandExecutor` contract
+and stops at the first failed command; it adds no Git transport or security policy.
+
+Secure's real `GitPlugin` pinned-clone branch consumes this helper through the
+existing `SandboxGitCommandExecutor`. Its canonical Node runner owns contained
+Git execution, Linux subreaper/pidfd closure and validated auth environment;
+`SafeCommand` / Toolbox preserve normalized run and original call context. The
+executor borrows the existing checkout lease with no competing outer timeout.
+Its `execIfRunning` transport fails closed without restarting a stopped sandbox
+or falling back to direct Git execution. Scoped auth environment reaches only
+fetch; credentials never enter command arguments or the configured origin URL.
+The replaced `SandboxGitWorkspaceCloner` is deleted. Ordinary unpinned clone
+retains its existing direct `runToolboxCommand` behavior. URL/commit authorization,
+Cloudflare Sandbox execution and immutable checkout ownership remain with their
+existing owners. This migration does not enable managed local checkouts,
+container commands or installed Desktop execution.
