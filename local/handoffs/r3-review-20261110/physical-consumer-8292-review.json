@@ -1,0 +1,58 @@
+{
+  "base": "7c609c23ee1f5335da55e0975d7cf0d6ebc88908",
+  "merge": "8292c8d41804d510358732caa02188ea99152043",
+  "proposal_only": true,
+  "entries": [
+    {
+      "path": "architecture/CAPABILITY-OWNERSHIP.md",
+      "stages": {
+        "1": {
+          "blob": "af42729235854ef2da3c04f226fdd3db55358887",
+          "sha256": "4ad846ab2961cde5812a78e7b7832d76d1b97c15f0d0a844a12895036ccf0017",
+          "bytes": 192301
+        },
+        "2": {
+          "blob": "7da08680221bcfcce9b1d25194aa1d9aa0d9c4fe",
+          "sha256": "1a21dd457ddfbd95ff1f27ad21e1483a7085a47f5685357c5c6fb2ab7822a49f",
+          "bytes": 202755
+        },
+        "3": {
+          "blob": "65e5d600d1737ec2f8e5635209a90c5c35ef89f8",
+          "sha256": "627d7f5c451c1d1334ee972c4a670573a1f437d220b849cd22baa9ebe8923750",
+          "bytes": 193489
+        }
+      },
+      "proposed_blob": "fd103b2c18908daa3d2f0a8e2fa064db303f6768",
+      "proposed_sha256": "3467fbc487138d9ba3b248508d3e3bfadfad811b06fd2bc8a82b448ffa636ccd",
+      "bytes": 204463
+    },
+    {
+      "path": "pnpm-lock.yaml",
+      "stages": {
+        "1": {
+          "blob": "0837aba277e4e33c4d9f3d916d58ebb7f7051727",
+          "sha256": "12ba7e10e6081cda5ed2bc1883e99f9b3e356495ab8a26e4f3dee35e9ec2b0c3",
+          "bytes": 433694
+        },
+        "2": {
+          "blob": "49ae5f38fe4ba693b5351e11cd572a4d57d6c854",
+          "sha256": "fe8a54bdf530d38eaf9013154dad66e187ee242093e5029125ba8951077fab04",
+          "bytes": 462795
+        },
+        "3": {
+          "blob": "132f3655c7c7f5a8f5027254036231abad1e0d15",
+          "sha256": "4779a313cd3aa96d9a18662f58fcfa1e4727cfb4c0f3fa2ab46045d524884360",
+          "bytes": 434431
+        }
+      },
+      "proposed_blob": "49ae5f38fe4ba693b5351e11cd572a4d57d6c854",
+      "proposed_sha256": "fe8a54bdf530d38eaf9013154dad66e187ee242093e5029125ba8951077fab04",
+      "bytes": 462795
+    }
+  ],
+  "resolution": [
+    "retain existing pinned three driver importers; no manifest/pin/dependency changes",
+    "retain both existing ledger sections without duplicate Native heading, append canonical missing-resource-receipt caveat",
+    "preserve incoming host foundation ownership rationale while correcting stale no-consumer statement to actual gated AppServer consumer"
+  ]
+}
