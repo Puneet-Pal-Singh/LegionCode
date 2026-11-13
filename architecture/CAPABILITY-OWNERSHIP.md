@@ -2693,3 +2693,9 @@ alone does not claim installed history/queue acceptance. No new tests or stores.
 - A workspace grant revoked or switched before the synchronous history read also
   invalidates that snapshot selection; it is not classified as corrupt storage.
   Malformed persisted grant content still fails through the storage guard.
+
+- Private queued-image consumers share one strict ownership-schema translation
+  from the durable queue row. Image preparation parses the actual scope before
+  processing bytes; provider history and original reads consume the same parsed
+  identity, fingerprint and references. Raw repository strings never substitute
+  for canonical branded scope, and no casts or alternate byte authority are used.

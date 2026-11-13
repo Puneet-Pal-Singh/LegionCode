@@ -1,5 +1,5 @@
 import {
-  ContentDigestSchema, ThreadInputReceiptSchema, ThreadIdSchema,
+  ThreadInputReceiptSchema, ThreadIdSchema,
   parseLocalQueuedInputConfiguration,
   type ChatImageAttachmentRef, type TurnAdmission,
 } from "@repo/platform-protocol";
@@ -8,7 +8,7 @@ import { ThreadInputConflictError, type StoredThreadInput, type ThreadInputScope
 import { RuntimeKernelError } from "@repo/runtime-kernel";
 import type { LocalThreadService } from "./local-threads.js";
 import type { LocalTurnService } from "./local-turns.js";
-import { LocalQueuedInputMediaOwnershipSchema, type LocalQueuedInputMediaPort, type LocalQueuedInputMediaScope } from "./local-queued-input-media.js";
+import { LocalQueuedInputMediaOwnershipSchema, LocalQueuedInputMediaScopeSchema, localQueuedInputMediaRead, type LocalQueuedInputMediaPort, type LocalQueuedInputMediaScope } from "./local-queued-input-media.js";
 import { AppServerMethodOutcome, AppServerOperationError } from "./server.js";
 import { readLocalTurnArtifactPublication } from "./local-turn-artifact-publication.js";
 import { LocalInterruptionAttemptNotActiveError } from "./local-interruption.js";
@@ -38,8 +38,8 @@ export function createLocalThreadInputOperations(options: {
     },
     prepareMedia: async ({ scope, inputId, mediaRevision, images }): Promise<PreparedThreadInputMedia> => {
       if (!images.length) return { references: [], fingerprint: null, mediaRevision: null, discardUnpublished: async () => undefined };
+      const mediaScope = LocalQueuedInputMediaScopeSchema.parse({ userId: scope.userId, workspaceId: scope.workspaceId, threadId: scope.threadId, inputId, mediaRevision });
       const token = await options.media.prepareQueued(images);
-      const mediaScope = { userId: scope.userId, workspaceId: scope.workspaceId, threadId: scope.threadId, inputId, mediaRevision };
       let references: readonly ChatImageAttachmentRef[];
       try { references = await token.persist(mediaScope); }
       catch (error) {
@@ -141,9 +141,7 @@ function sameTarget(scope: ThreadInputScope, admission: TurnAdmission, runAttemp
 }
 function mediaRead(item: StoredThreadInput) {
   if (!item.mediaRevision || !item.mediaFingerprint) throw new AppServerOperationError(503, "server_unavailable", "Queued image ownership is unavailable", "local_image_unavailable", false);
-  const scope: LocalQueuedInputMediaScope = { userId: item.userId, workspaceId: item.workspaceId, threadId: item.threadId,
-    inputId: item.itemId, mediaRevision: item.mediaRevision };
-  return { scope, fingerprint: ContentDigestSchema.parse(item.mediaFingerprint), references: item.mediaRefs };
+  return localQueuedInputMediaRead(item);
 }
 
 /** Same canonical row owner for startup journal reconciliation and all byte reads. */

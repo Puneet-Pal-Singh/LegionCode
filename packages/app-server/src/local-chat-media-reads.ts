@@ -12,6 +12,7 @@ import {
 import { LocalChatMediaError, LOCAL_CHAT_MEDIA_LIMITS } from "./local-chat-media-records.js";
 import type { LocalChatMediaStore } from "./local-chat-media-store.js";
 import { AppServerOperationError } from "./server.js";
+import { localQueuedInputMediaRead } from "./local-queued-input-media.js";
 
 /** The canonical Turn owner reauthorizes the current grant/thread before and
  * after each bounded private-byte read. Renderer IDs never select a host path. */
@@ -72,9 +73,7 @@ export class LocalChatMediaReads {
     if (matches.length !== 1 || !this.options.store.readQueuedOriginal) throw unavailable();
     const { item, reference } = matches[0]!;
     if (!item.mediaRevision || !item.mediaFingerprint) throw unavailable();
-    const saved = await this.options.store.readQueuedOriginal({ scope: { userId: item.userId, workspaceId: item.workspaceId,
-      threadId: item.threadId, inputId: item.itemId, mediaRevision: item.mediaRevision },
-      fingerprint: item.mediaFingerprint, references: item.mediaRefs, reference });
+    const saved = await this.options.store.readQueuedOriginal({ ...localQueuedInputMediaRead(item), reference });
     const current = (await this.options.queuedInputs.listAcceptedForTurn(scope)).find((candidate) => candidate.itemId === item.itemId);
     if (!current || current.mediaRevision !== item.mediaRevision || current.mediaFingerprint !== item.mediaFingerprint ||
         !isDeepStrictEqual(current.mediaRefs, item.mediaRefs)) throw unavailable();

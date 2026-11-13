@@ -1,6 +1,6 @@
 import type { BYOKDiscoveredProviderModel } from "@repo/shared-types";
 import type { StoredThreadInput } from "@repo/event-store";
-import type { LocalQueuedInputMediaPort } from "./local-queued-input-media.js";
+import { localQueuedInputMediaRead, type LocalQueuedInputMediaPort } from "./local-queued-input-media.js";
 import { lstat } from "node:fs/promises";
 import { isDeepStrictEqual } from "node:util";
 import { basename, isAbsolute } from "node:path";
@@ -587,9 +587,7 @@ async function queuedUserProviderMessage(item: StoredThreadInput,
   if (!item.mediaRefs.length) return { role: "user", content: item.text };
   if (!media?.resolveQueuedForProvider || !item.mediaRevision || !item.mediaFingerprint)
     throw new Error("Native input image history has no canonical media owner");
-  const parts = await media.resolveQueuedForProvider({ scope: { userId: item.userId, workspaceId: item.workspaceId,
-    threadId: item.threadId, inputId: item.itemId, mediaRevision: item.mediaRevision }, fingerprint: item.mediaFingerprint,
-    references: item.mediaRefs, signal });
+  const parts = await media.resolveQueuedForProvider({ ...localQueuedInputMediaRead(item), signal });
   return { role: "user", content: [{ type: "text", text: item.text }, ...parts] };
 }
 

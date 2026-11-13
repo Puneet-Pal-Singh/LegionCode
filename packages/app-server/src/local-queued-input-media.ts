@@ -1,3 +1,4 @@
+import type { StoredThreadInput } from "@repo/event-store";
 import { z } from "zod";
 import {
   ChatImageAttachmentRefSchema, ContentDigestSchema, ThreadIdSchema,
@@ -47,4 +48,15 @@ export interface LocalQueuedInputMediaPort {
   readQueuedOriginal(input: LocalQueuedInputMediaRead & { readonly reference: ChatImageAttachmentRef }): Promise<{
     reference: ChatImageAttachmentRef; bytes: Uint8Array; sha256: string; fingerprint: string;
   }>;
+}
+
+/** One canonical boundary from durable queue rows to private image ownership. */
+export function localQueuedInputMediaRead(item: Pick<StoredThreadInput,
+  "userId" | "workspaceId" | "threadId" | "itemId" | "mediaRevision" | "mediaFingerprint" | "mediaRefs"
+>): LocalQueuedInputMediaOwnership {
+  return LocalQueuedInputMediaOwnershipSchema.parse({
+    scope: { userId: item.userId, workspaceId: item.workspaceId, threadId: item.threadId,
+      inputId: item.itemId, mediaRevision: item.mediaRevision },
+    fingerprint: item.mediaFingerprint, references: item.mediaRefs,
+  });
 }
