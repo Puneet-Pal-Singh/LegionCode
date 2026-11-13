@@ -2699,3 +2699,7 @@ alone does not claim installed history/queue acceptance. No new tests or stores.
   processing bytes; provider history and original reads consume the same parsed
   identity, fingerprint and references. Raw repository strings never substitute
   for canonical branded scope, and no casts or alternate byte authority are used.
+
+- Accepted-input platform events take their branded Thread and workspace identity
+  from the same parsed canonical admission after its queue/attempt scope checks;
+  the durable row still owns the input body and receipt. No raw-ID cast is used.

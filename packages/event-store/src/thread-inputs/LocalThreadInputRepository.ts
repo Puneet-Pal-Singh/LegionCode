@@ -404,7 +404,7 @@ export class LocalThreadInputRepository implements ThreadInputRepository {
     const prior = priorRow ? PlatformEventSchema.parse(JSON.parse(priorRow.event_json)) : null;
     if (!prior || prior.type !== "item.completed") throw corrupt("Accepted input has no canonical user parent");
     const row = this.database.prepare("SELECT MAX(sequence) AS sequence FROM events WHERE family='platform' AND stream_type='run' AND stream_id=?").get(admission.run.id) as { sequence: number };
-    this.appendPlatform({ type: "item.completed", threadId: item.threadId, workspaceId: item.workspaceId, runId: admission.run.id,
+    this.appendPlatform({ type: "item.completed", threadId: admission.run.threadId, workspaceId: admission.run.workspaceId, runId: admission.run.id,
       scopeType: "run", scopeId: admission.run.id, producer: event.producer, schemaVersion: 1, idempotencyKey: `thread-input:${item.itemId}`,
       payload: { item: { id: ItemIdSchema.parse(`itm_input_${item.itemId.replaceAll("-", "")}`), threadId: admission.run.threadId,
         runId: admission.run.id, turnId: admission.turn.id, parentItemId: prior.payload.item.id, branchId: admission.userMessage.branchId,
