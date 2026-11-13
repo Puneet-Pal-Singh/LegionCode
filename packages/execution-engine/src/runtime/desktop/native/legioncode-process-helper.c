@@ -2,8 +2,10 @@
  *
  * CLI: --timeout-ms N [--term-grace-ms N] [--cwd-fd 5] [--cwd-relative PATH]
  *      [--lease-fd 6] --profile TRUSTED_SEATBELT_PROFILE -- /absolute/executable [argv...]
- * Lock-only CLI: --acquire-lease-fd 6 (FD4 receipt; no target fork).
- * FD3: G releases the stopped child after its started receipt; C/other bytes
+ * Lock-only CLI: --acquire-lease-fd 6 --root-fd 5 --namespace-fd 7
+ *                --initialize-empty 1|0 (1 only for the owner's actual O_EXCL inode).
+ * --probe-writer-intent validates the actual Darwin identity/signaling ABI.
+ * FD3: G releases the pipe-gated child after its started receipt; C/other bytes
  *      cancel; EOF means owner loss. FD4: trusted NDJSON v1 receipts only.
  * FD5: optional granted directory. FD6: shared writer-fence open description.
  * The child closes control/status/root/lease descriptors before policy exec.
@@ -36,11 +38,13 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#include "legioncode-child-intent.h"
 
 #define CONTROL_FD 3
 #define STATUS_FD 4
 #define ROOT_FD 5
 #define LEASE_FD 6
+#define NAMESPACE_FD 7
 #define MAX_TIMEOUT_MS UINT64_C(86400000)
 #define MAX_GRACE_MS UINT64_C(5000)
 
@@ -132,26 +136,56 @@ static int acquire_lease(void) {
   int flags = fcntl(LEASE_FD, F_GETFD);
   if (flags < 0 || fstat(LEASE_FD, &info) != 0 || !S_ISREG(info.st_mode) ||
       fcntl(LEASE_FD, F_SETFD, flags | FD_CLOEXEC) != 0) return 70;
-  while (flock(LEASE_FD, LOCK_EX | LOCK_NB) != 0) {
-    if (errno == EINTR) continue;
-    return (errno == EWOULDBLOCK || errno == EAGAIN) ? 75 : 70;
-  }
-  return 0;
+  return lc_writer_lock(LEASE_FD);
 }
 
-static int lease_only(void) {
+static int lease_only(bool initialize_empty) {
   const char *state;
   char data[96];
   int outcome, size;
   if (!configure_pipe(STATUS_FD, true) || !set_handler(SIGPIPE, SIG_IGN)) return 64;
-  outcome = acquire_lease();
+  struct stat existing;
+  if (fstat(LEASE_FD, &existing) || !S_ISREG(existing.st_mode)) outcome = 70;
+  else if (existing.st_size == 0 && !initialize_empty) outcome = 75;
+  else outcome = acquire_lease();
+  // Existing empty state is not historical child-exclusion proof. The busy
+  // result above took no new OFD lock, including during concurrent fresh init.
+  if (outcome == 0 && !lc_intent_acquire(LEASE_FD, ROOT_FD, NAMESPACE_FD, initialize_empty)) outcome = 70;
   state = outcome == 0 ? "acquired" : (outcome == 75 ? "busy" : "error");
   size = snprintf(data, sizeof(data),
-    "{\"v\":1,\"event\":\"lease\",\"state\":\"%s\"}\n", state);
+    "{\"v\":2,\"event\":\"lease\",\"state\":\"%s\",\"intentVersion\":1}\n", state);
   if (size <= 0 || (size_t)size >= sizeof(data) || !receipt(data, (size_t)size)) outcome = 74;
   (void)close(LEASE_FD);
   (void)close(STATUS_FD);
   return outcome;
+}
+
+static int intent_probe(void) {
+  if (!configure_pipe(STATUS_FD, true) || !set_handler(SIGPIPE, SIG_IGN) || !lc_intent_probe()) return 70;
+  const char frame[] = "{\"v\":2,\"event\":\"intent_probe\",\"state\":\"supported\",\"intentVersion\":1}\n";
+  return receipt(frame, sizeof(frame) - 1) ? 0 : 74;
+}
+
+static bool private_pipe(int descriptors[2], bool nonblocking_reader) {
+  int original[2];
+  if (pipe(original)) return false;
+  descriptors[0] = fcntl(original[0], F_DUPFD_CLOEXEC, NAMESPACE_FD + 1);
+  descriptors[1] = fcntl(original[1], F_DUPFD_CLOEXEC, NAMESPACE_FD + 1);
+  (void)close(original[0]); (void)close(original[1]);
+  if (descriptors[0] < 0 || descriptors[1] < 0) goto failed;
+  for (unsigned int i = 0; i < 2; ++i) {
+    int flags = fcntl(descriptors[i], F_GETFD);
+    if (flags < 0 || fcntl(descriptors[i], F_SETFD, flags | FD_CLOEXEC)) goto failed;
+  }
+  if (nonblocking_reader) {
+    int flags = fcntl(descriptors[0], F_GETFL);
+    if (flags < 0 || fcntl(descriptors[0], F_SETFL, flags | O_NONBLOCK)) goto failed;
+  }
+  return true;
+failed:
+  if (descriptors[0] >= 0) (void)close(descriptors[0]);
+  if (descriptors[1] >= 0) (void)close(descriptors[1]);
+  return false;
 }
 
 static void signal_child(pid_t child, int value) {
@@ -204,7 +238,7 @@ static bool enter_root(const char *relative) {
 }
 
 static void child_exec(char **arguments, bool use_root, const char *relative,
-                       long descriptor_limit) {
+                       long descriptor_limit, int start_fd, int ready_fd) {
   sigset_t empty;
   if (!set_handler(SIGPIPE, SIG_DFL) || !set_handler(SIGTERM, SIG_DFL) ||
       !set_handler(SIGINT, SIG_DFL) || !set_handler(SIGHUP, SIG_DFL) ||
@@ -215,10 +249,18 @@ static void child_exec(char **arguments, bool use_root, const char *relative,
   (void)close(LEASE_FD);
   if (use_root && !enter_root(relative)) _exit(126);
   (void)close(ROOT_FD);
-  for (long descriptor = LEASE_FD + 1; descriptor < descriptor_limit; ++descriptor)
-    (void)close((int)descriptor);
-  /* No untrusted execution until the guardian observes this exact stop. */
-  if (raise(SIGSTOP) != 0) _exit(126);
+  for (long descriptor = LEASE_FD + 1; descriptor < descriptor_limit; ++descriptor) {
+    if (descriptor != start_fd && descriptor != ready_fd) (void)close((int)descriptor);
+  }
+  /* The only start writer belongs to the guardian. Its death closes the pipe:
+   * a SIGCONT cannot bypass this gate or turn unknown intent into execution. */
+  unsigned char command = 'R'; ssize_t count;
+  do { count = write(ready_fd, &command, 1); } while (count < 0 && errno == EINTR);
+  (void)close(ready_fd);
+  if (count != 1) _exit(126);
+  do { count = read(start_fd, &command, 1); } while (count < 0 && errno == EINTR);
+  (void)close(start_fd);
+  if (count != 1 || command != 'G') _exit(126);
   execv("/usr/bin/sandbox-exec", arguments);
   _exit(127);
 }
@@ -229,14 +271,21 @@ int main(int argc, char **argv) {
   bool use_root = false, use_lease = false, grace_seen = false;
   bool stopped = false, announced = false, go = false, resumed = false;
   bool terminating = false, killed = false, status_ok = true;
+  bool intent_written = false;
+  lc_child_intent intent;
+  int start_pipe[2] = {-1, -1}, ready_pipe[2] = {-1, -1};
   int target = 0, status = 0;
   pid_t child;
   long descriptor_limit;
   char **arguments;
   sigset_t empty;
 
-  if (argc == 3 && strcmp(argv[1], "--acquire-lease-fd") == 0 &&
-      strcmp(argv[2], "6") == 0) return lease_only();
+  if (argc == 2 && strcmp(argv[1], "--probe-writer-intent") == 0) return intent_probe();
+  if (argc == 9 && strcmp(argv[1], "--acquire-lease-fd") == 0 && strcmp(argv[2], "6") == 0 &&
+      strcmp(argv[3], "--root-fd") == 0 && strcmp(argv[4], "5") == 0 &&
+      strcmp(argv[5], "--namespace-fd") == 0 && strcmp(argv[6], "7") == 0 &&
+      strcmp(argv[7], "--initialize-empty") == 0 &&
+      (strcmp(argv[8], "0") == 0 || strcmp(argv[8], "1") == 0)) return lease_only(strcmp(argv[8], "1") == 0);
 
   for (int index = 1; index < argc; ++index) {
     if (strcmp(argv[index], "--") == 0) { target = index + 1; break; }
@@ -268,6 +317,8 @@ int main(int argc, char **argv) {
     if (fstat(ROOT_FD, &directory) != 0 || !S_ISDIR(directory.st_mode)) return 64;
   }
   if (use_lease) {
+    lc_child_intent header;
+    if (!use_root || !lc_borrowed_header(LEASE_FD, ROOT_FD, &header)) return 70;
     int outcome = acquire_lease();
     if (outcome != 0) return outcome;
   }
@@ -285,31 +336,52 @@ int main(int argc, char **argv) {
   arguments[2] = (char *)profile;
   for (int index = target; index < argc; ++index) arguments[index - target + 3] = argv[index];
 
+  if (!private_pipe(start_pipe, false)) { free(arguments); return 71; }
+  if (!private_pipe(ready_pipe, true)) {
+    (void)close(start_pipe[0]); (void)close(start_pipe[1]); free(arguments); return 71;
+  }
   child = fork();
-  if (child < 0) { free(arguments); return 71; }
-  if (child == 0) child_exec(arguments, use_root, cwd_relative, descriptor_limit);
+  if (child < 0) {
+    for (unsigned int i = 0; i < 2; ++i) { (void)close(start_pipe[i]); (void)close(ready_pipe[i]); }
+    free(arguments); return 71;
+  }
+  if (child == 0) {
+    (void)close(start_pipe[1]); (void)close(ready_pipe[0]);
+    child_exec(arguments, use_root, cwd_relative, descriptor_limit, start_pipe[0], ready_pipe[1]);
+  }
+  (void)close(start_pipe[0]); (void)close(ready_pipe[1]);
   free(arguments);
-  (void)close(ROOT_FD);
 
   for (;;) {
-    pid_t observed = waitpid(child, &status, WNOHANG | WUNTRACED);
+    pid_t observed = waitpid(child, &status, WNOHANG);
     if (observed == child) {
       if (WIFEXITED(status) || WIFSIGNALED(status)) break;
-      if (WIFSTOPPED(status) && !resumed) stopped = true;
     } else if (observed < 0 && errno != EINTR) {
       /* No terminal receipt without an actual terminal wait result. */
       if (errno != ECHILD) {
         signal_child(child, SIGKILL);
         do { observed = waitpid(child, &status, 0); } while (observed < 0 && errno == EINTR);
         if (observed == child && (WIFEXITED(status) || WIFSIGNALED(status))) {
-          (void)terminal(child, status, "guardian_error", !announced);
+          if (!intent_written || lc_intent_complete(LEASE_FD, &intent))
+            (void)terminal(child, status, "guardian_error", !announced);
         }
       }
       return 71;
     }
-    if (stopped && !announced && !terminating) {
-      if (started(child)) announced = true;
-      else { status_ok = false; reason = "guardian_error"; }
+    if (!stopped && !announced && !terminating) {
+      unsigned char ready; ssize_t count = read(ready_pipe[0], &ready, 1);
+      if (count == 1 && ready == 'R') stopped = true;
+      else if (count == 0 || (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) reason = "guardian_error";
+    }
+    if (stopped && !announced && !terminating && reason == NULL) {
+      if (use_lease) {
+        if (lc_intent_begin(LEASE_FD, ROOT_FD, child, &intent)) intent_written = true;
+        else { status_ok = false; reason = "guardian_error"; }
+      }
+      if (reason == NULL) {
+        if (started(child)) announced = true;
+        else { status_ok = false; reason = "guardian_error"; }
+      }
     }
     if (!terminating && reason == NULL) {
       unsigned char commands[32];
@@ -338,8 +410,11 @@ int main(int argc, char **argv) {
         /* TERM must also reach a stopped child, including the initial gate. */
         signal_child(child, SIGCONT);
       } else if (stopped && go && !resumed) {
-        resumed = true;
-        signal_child(child, SIGCONT);
+        const unsigned char start = 'G'; ssize_t count;
+        do { count = write(start_pipe[1], &start, 1); } while (count < 0 && errno == EINTR);
+        (void)close(start_pipe[1]); start_pipe[1] = -1;
+        if (count == 1) resumed = true;
+        else { status_ok = false; reason = "guardian_error"; }
       }
     }
     if (terminating && !killed && now >= kill_at) {
@@ -354,9 +429,13 @@ int main(int argc, char **argv) {
     }
   }
   /* waitpid has reaped the exact direct child. Output never comes from it. */
+  if (start_pipe[1] >= 0) (void)close(start_pipe[1]);
+  (void)close(ready_pipe[0]);
+  if (intent_written && !lc_intent_complete(LEASE_FD, &intent)) return 74;
   if (!terminal(child, status, reason == NULL ? "exited" : reason, !announced)) status_ok = false;
   (void)close(CONTROL_FD);
   (void)close(STATUS_FD);
+  (void)close(ROOT_FD);
   /* Reaping precedes the guardian's final fence close; never call LOCK_UN. */
   (void)close(LEASE_FD);
   return status_ok ? 0 : 74;

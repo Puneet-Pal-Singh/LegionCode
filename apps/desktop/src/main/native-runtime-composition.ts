@@ -10,6 +10,7 @@ import { createArtifactGitService } from "@legioncode/app-server/local-artifact-
 import { createLocalArtifactCommitComposition } from "@legioncode/app-server/local-artifact-commit-composition";
 import type { LocalAppServerCompositionOptions } from "@legioncode/app-server/local-process";
 import { NativePermissionPolicyResolver } from "@legioncode/execution-engine/runtime/engine/NativePermissionPolicyResolver";
+import { probeNativeWriterIntentABI } from "@legioncode/execution-engine/runtime/desktop/NativeWriterFence";
 import { PermissionProfileIdSchema, WorkerIdSchema } from "@repo/platform-protocol";
 import { ProviderIdSchema } from "@repo/shared-types";
 import type { LocalAppServerStartMessage } from "../shared/desktop-api";
@@ -39,7 +40,12 @@ export async function createDesktopNativeComposition(
     if (error instanceof Error && "code" in error && error.code === "git_process_containment_unavailable") return discovery;
     throw error;
   }
-  const leases = config.nativeWriterFenceDirectory ? new LocalWorkspaceWriterLeaseOwner({
+  // Complete the original helper probe before advertising captured execution.
+  // Unsupported helpers leave Build/commits unavailable; requests are never rerouted.
+  const writerIntentSupported = config.nativeWriterFenceDirectory
+    ? await probeNativeWriterIntentABI({ helperPath: processHelperPath, signal: new AbortController().signal })
+    : false;
+  const leases = config.nativeWriterFenceDirectory && writerIntentSupported ? new LocalWorkspaceWriterLeaseOwner({
     trustedFenceDirectory: config.nativeWriterFenceDirectory,
     helperPath: processHelperPath,
   }) : undefined;
@@ -103,7 +109,7 @@ export async function createDesktopNativeComposition(
           inspectMetadataLayout: binding.inspectMetadataLayout,
         }),
       }) : undefined,
-      releaseExecution: leases ? (attempt, proof) => leases.releaseAttempt(attempt, proof) : undefined,
+      releaseExecution: leases ? (attempt, proof, onReleased) => leases.releaseAttempt(attempt, proof, onReleased) : undefined,
       workerId: WorkerIdSchema.parse("worker_localdesktop"),
       permissionProfileId: PermissionProfileIdSchema.parse("perm_localdesktop"),
       resolvePermissionPolicy: (productMode) => new NativePermissionPolicyResolver(productMode).resolve(),
