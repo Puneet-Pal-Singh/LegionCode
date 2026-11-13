@@ -477,6 +477,10 @@ async function steerQueuedThreadInput(input: {
     ["accepted", "applied", "unconfirmed"].includes(item.receipt.status)) {
     return outcome(item.receipt);
   }
+  if (item.delivery === "steer" && item.receipt?.status === "conflict" &&
+      (item.receipt.code === "turn_not_active" || item.receipt.code === "target_superseded")) {
+    return outcome(ThreadInputReceiptSchema.parse(item.receipt), 409);
+  }
   const admission = await withTurnAdmissionRepository(env, (repository) =>
     repository.getByTurnId(command.expectedTurnId),
   );
