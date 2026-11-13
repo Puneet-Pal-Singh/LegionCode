@@ -1804,3 +1804,10 @@ does not lock queue state ahead of canonical accepted/applied receipt projection
 which owns input-then-state updates. Missing rows remain a read ordering point,
 not proof of future nonacceptance; legacy mutation-writer lock ordering is outside
 this narrow read-port correction.
+
+Hosted image retries project stored attachment references through the same
+canonical schema used by original image persistence before rebuilding the
+existing content fingerprint. PostgreSQL JSONB object-key ordering therefore
+cannot turn identical legacy bytes into a conflict. Exact values, deterministic
+attachment identity, original stored hashes and receipt/unknown semantics remain
+unchanged; no image upload or Native model lookup is repeated.

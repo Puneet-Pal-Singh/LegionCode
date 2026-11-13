@@ -220,7 +220,7 @@ async function steerTurn(input: {
         }
       }
       const expectedFingerprint = await sha256(JSON.stringify({operation: command.operation, text: command.content.text,
-        mediaRefs: prior.mediaRefs, targetTurnId: command.expectedTurnId, targetRunAttemptId: command.expectedRunAttemptId}));
+        mediaRefs: prior.mediaRefs.map((ref) => ChatImageAttachmentRefSchema.parse(ref)), targetTurnId: command.expectedTurnId, targetRunAttemptId: command.expectedRunAttemptId}));
       if (prior.fingerprint !== expectedFingerprint) {
         throw new ThreadInputConflictError("Client input ID was reused with different content", "client_input_conflict");
       }
