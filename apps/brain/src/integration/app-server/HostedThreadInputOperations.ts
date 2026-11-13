@@ -3,6 +3,7 @@ import {
   ThreadInputReceiptSchema,
   ThreadIdSchema,
   WorkspaceScopeIdSchema,
+  type ThreadInputReceipt,
 } from "@repo/platform-protocol";
 import {
   ChatImageAttachmentRefSchema,
@@ -115,7 +116,9 @@ async function assertSteeringTarget(input: {
   }
 }
 
-async function deliverSteer(env: Env, scope: ThreadInputScope, item: StoredThreadInput, operation: "turn.steer" | "thread.input.steer") {
+async function deliverSteer(env: Env, scope: ThreadInputScope, item: StoredThreadInput, operation: "turn.steer" | "thread.input.steer"): Promise<
+  { acceptedSequence: number } | Extract<ThreadInputReceipt, { status: "conflict" }>
+> {
   const admission = await withTurnAdmissionRepository(env, (owner) => owner.getByTurnId(item.targetTurnId!));
   if (!admission || admission.state !== "admitted" || admission.userId !== scope.userId || admission.sessionId !== scope.sessionId ||
       admission.threadId !== scope.threadId || admission.workspaceId !== scope.workspaceId || admission.runAttemptId !== item.targetRunAttemptId)
