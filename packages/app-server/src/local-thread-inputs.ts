@@ -1,5 +1,6 @@
 import {
   ContentDigestSchema, ThreadInputReceiptSchema, ThreadIdSchema,
+  parseLocalQueuedInputConfiguration,
   type ChatImageAttachmentRef, type TurnAdmission,
 } from "@repo/platform-protocol";
 import type { LocalPersistence } from "@repo/event-store/local";
@@ -33,8 +34,7 @@ export function createLocalThreadInputOperations(options: {
   const service = new ThreadInputCommandService({
     repository, authorize,
     validateConfiguration: (configuration) => {
-      if (Object.keys(configuration).length)
-        throw new AppServerOperationError(400, "invalid_request", "Native queued inputs use the current workspace configuration; send an empty configuration", "local_input_configuration_unsupported", false);
+      validateNativeConfiguration(configuration);
     },
     prepareMedia: async ({ scope, inputId, mediaRevision, images }): Promise<PreparedThreadInputMedia> => {
       if (!images.length) return { references: [], fingerprint: null, mediaRevision: null, discardUnpublished: async () => undefined };
@@ -85,10 +85,7 @@ export function createLocalThreadInputOperations(options: {
       if (item.receipt?.status === "started") return item.receipt;
       if (item.delivery !== "queue" || item.state !== "pending" || item.version !== command.expectedVersion)
         return { status: "conflict", code: "queue_item_changed", message: "Queue item changed or was already consumed." };
-      // Existing rows imported from another placement cannot silently select a
-      // different Native provider, model, mode or sandbox.
-      if (Object.keys(item.configuration).length)
-        throw new AppServerOperationError(400, "invalid_request", "Native queued input configuration is unsupported", "local_input_configuration_unsupported", false);
+      validateNativeConfiguration(item.configuration);
       try {
         const admission = await options.startQueuedTurn({ scope, item, command, explicitStart,
           prepareMedia: async (signal) => item.mediaRefs.length ? options.media.promoteQueued({ ...mediaRead(item), signal }) : undefined });
@@ -129,6 +126,13 @@ export function createLocalThreadInputOperations(options: {
       await service.onTurnTerminal({ ...scope, type: publication.terminal.type });
     },
   };
+}
+
+function validateNativeConfiguration(configuration: unknown): void {
+  try { parseLocalQueuedInputConfiguration(configuration); }
+  catch {
+    throw new AppServerOperationError(400, "invalid_request", "Native queued input configuration is unsupported", "local_input_configuration_unsupported", false);
+  }
 }
 
 function sameTarget(scope: ThreadInputScope, admission: TurnAdmission, runAttemptId: string): boolean {

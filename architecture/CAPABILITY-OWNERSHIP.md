@@ -2558,3 +2558,22 @@ and same-transaction predecessor guard; this port alone does not activate it.
 - Queued execution requires the actual same-entry writer-release callback before
   accepting positive cleanup. The owner's ordinary pre-acquisition/missing-entry
   fallback cannot certify a writer that was acquired before queued admission.
+
+### Captured Native queued configuration
+
+- The shared protocol owns one strict Native queued-configuration interpreter.
+  Existing queue fields capture Plan/Build mode, product policy and an optional
+  complete provider/model pair. Native maps canonical `auto_edit` to Build;
+  absent fields retain the explicit Plan/AskAlways defaults. Unsupported harness
+  and reasoning fields are rejected before queue publication or media effects.
+- The Native placement adapter validates enqueue and update intent through that
+  interpreter. LocalTurnService starts the immutable saved configuration and
+  forwards its explicit provider/model pair to the existing selection guard,
+  including same-request receipt reconciliation. A changed selected provider
+  cannot silently substitute for that saved pair.
+- The same immediate SQLite queue/admission transaction interprets the stored
+  configuration through the same helper and verifies candidate configuration,
+  Run mode and explicit selection before admission/queue consumption. It does
+  not infer policy from current UI state or introduce another queue writer.
+- Native Queue route activation still requires the reviewed held-writer and
+  bounded history consumer join. No new protocol fields or tests are added.

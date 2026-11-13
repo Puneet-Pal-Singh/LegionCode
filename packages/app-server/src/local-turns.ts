@@ -5,6 +5,7 @@ import type { InputCommand } from "./thread-inputs/ports.js";
 import type { BYOKDiscoveredProviderModel } from "@repo/shared-types";
 import {
   TurnAdmissionSchema,
+  parseLocalQueuedInputConfiguration,
   ModelIdSchema,
   ContentDigestSchema,
   WorkspaceIdSchema,
@@ -165,8 +166,16 @@ export class LocalTurnService {
     if (input.item.threadId !== input.scope.threadId || input.item.userId !== input.scope.userId ||
         input.item.workspaceId !== input.scope.workspaceId || input.item.itemId !== input.command.itemId)
       throw new AppServerOperationError(409, "conflict", "Queued input scope has changed");
+    let captured: ReturnType<typeof parseLocalQueuedInputConfiguration>;
+    try { captured = parseLocalQueuedInputConfiguration(input.item.configuration); }
+    catch {
+      throw new AppServerOperationError(400, "invalid_request", "Native queued input configuration is unsupported", "local_input_configuration_unsupported", false);
+    }
     const params: LocalTurnStartParams = { workspaceId: WorkspaceIdSchema.parse(input.scope.workspaceId),
-      threadId: ThreadIdSchema.parse(input.scope.threadId), clientRequestId: `thread-input:${input.item.itemId}`, prompt: input.item.text };
+      threadId: ThreadIdSchema.parse(input.scope.threadId), clientRequestId: `thread-input:${input.item.itemId}`, prompt: input.item.text,
+      mode: captured.configuration.mode, productMode: captured.configuration.productMode,
+      ...(captured.expectedSelection ? { expectedSelection: captured.expectedSelection } : {}),
+    };
     return this.resources.prepare((preparation) => this.startPreparedTurn(params, preparation, input));
   }
 
