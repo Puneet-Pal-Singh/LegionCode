@@ -1,3 +1,4 @@
+import { platformFingerprint } from "./local-platform-fingerprint.js";
 import { LocalThreadInputRepository, type LocalQueuedInputStart } from "./thread-inputs/LocalThreadInputRepository.js";
 import { ThreadInputConflictError } from "./thread-inputs/errors.js";
 import type { ThreadInputRepository } from "./thread-inputs/types.js";
@@ -916,11 +917,6 @@ function parseStoredLifecycleEvent(json: string): LifecycleEvent {
   catch { throw corruptStore("Stored lifecycle event is invalid"); }
 }
 
-function platformFingerprint(event: PlatformEvent): string {
-  const storeOwnedFields = new Set(["eventId", "sequence", "cursor", "createdAt"]);
-  const input = Object.fromEntries(Object.entries(event).filter(([key]) => !storeOwnedFields.has(key)));
-  return createStableEventFingerprint(input);
-}
 
 
 function isTerminal(event: LifecycleEvent): boolean {
