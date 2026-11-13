@@ -1788,3 +1788,7 @@ media identity before returning prior receipts; unknown prior claims remain
 retained. A null read is a transaction ordering point, not a claim that a later
 concurrent request can never accept that identity. This adds no schema or inbox
 mutation authority.
+
+A validated same-identity hosted retry returns its existing canonical
+`turn_not_active` or `target_superseded` conflict receipt as 409. It does not
+redispatch, rewrite cancellation or replace an unknown outcome with rejection.

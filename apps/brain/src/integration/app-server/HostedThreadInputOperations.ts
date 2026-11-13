@@ -225,6 +225,10 @@ async function steerTurn(input: {
         throw new ThreadInputConflictError("Client input ID was reused with different content", "client_input_conflict");
       }
       if (prior.receipt && ["accepted", "applied", "unconfirmed"].includes(prior.receipt.status)) return outcome(prior.receipt);
+      if (prior.receipt?.status === "conflict" &&
+          (prior.receipt.code === "turn_not_active" || prior.receipt.code === "target_superseded")) {
+        return outcome(ThreadInputReceiptSchema.parse(prior.receipt), 409);
+      }
       throw operationError(503, "server_unavailable", "Steering outcome is being reconciled. Retry with the same input ID.", "THREAD_INPUT_OUTCOME_UNKNOWN");
     }
     // This point read is linearized before this request's rejection, not proof
