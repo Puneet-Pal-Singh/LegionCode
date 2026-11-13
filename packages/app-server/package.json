@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./protocol": "./src/protocol.ts",
+    "./thread-inputs": "./src/thread-inputs/ThreadInputCommandService.ts",
     "./server": "./src/server.ts",
     "./handshake": "./src/handshake.ts",
     "./thread-titles": "./src/thread-titles/index.ts",

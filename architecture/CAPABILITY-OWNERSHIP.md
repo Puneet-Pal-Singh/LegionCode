@@ -2940,6 +2940,54 @@ window width and resize never open a closed card. Web and Desktop use the same
 provider and menu. This replaces automatic wide-window expansion without changing
 environment data, Git review or runtime ownership.
 
+## Plan 057 — Native input safe-point prerequisite
+
+The existing Native executor exposes the published Desktop exact-attempt input
+port to its held RuntimeKernel. It snapshots provider message data before awaits
+and rejects superseded, stopped, finished or terminal attempts. Canonical accepted
+and applied events remain Kernel-owned. This optional private port alone enables
+no queue, route or client dispatch; the same-writer durable input service must
+admit the exact input before calling it. The existing preparation-resource proof
+and positive physical shutdown responsibilities remain unchanged.
+
+## Plan 057 — Shared durable input repository contract
+
+Event-store owns the placement-independent thread-input repository contract and
+its conflict error. Persistence reexports that same contract for hosted callers;
+its existing Postgres writer remains authoritative. Private optional input identity
+and immutable media batch fields support the same local image owner without
+adding public queue fields or storing image bytes in queue rows. Native SQLite
+and shared command-service activation follow in the same integration slice; this
+contract move alone does not enable local queue or steering.
+
+## Plan 057 / 061 — Atomic local admission composition
+
+LocalTurnAdmissions remains the canonical local admission writer. Its synchronous
+admitWithin port requires the original SQLite transaction; basic Native admission,
+queued-input consumption and private delegated preparation can compose their own
+CAS with the same canonical admission and event append, without nested asynchronous
+transactions or a second admission owner. Existing scope, fingerprint, parent and
+unsettled-turn checks are unchanged. Canonical Thread ownership reads are shared
+with the local queue adapter and retain one-record streaming memory.
+
+### Local Native queued input storage prerequisite
+
+- `LocalThreadInputRepository` is the SQLite adapter for the existing shared thread-input repository contract. It uses the same LocalPersistence connection and immediate transaction owner; no second lifecycle or admission writer is introduced.
+- Queued-start CAS and `LocalTurnAdmissions.admitWithin` commit together. Accepted/applied/unconfirmed receipts and the accepted canonical platform user message are projected in the existing lifecycle append transaction. Pending intent is not transcript content.
+- Startup validates scope, indexed rows, canonical delivery receipts and accepted user bodies. The current v1/v2 workspace-grant parser is extracted without changing its contract. Queue bytes remain metadata-only; the existing media owner stores attachments.
+- This is a storage prerequisite. Native command routing, positive physical-idle proof, provider history and the shared Hosted adapter must be composed before claiming Queue or Steer availability. No new tests or registrations.
+
+### Shared queued input command owner
+
+- AppServer `ThreadInputCommandService` owns enqueue/update/remove/CAS steering, authoritative receipt reread, unknown-delivery pause and completed/idle advancement behind storage, authorization, media and runtime ports.
+- Hosted AppServer commands and the existing Hosted terminal callback now use that owner. Brain retains the existing quota/admission/dispatch/model/image and PostgreSQL transaction adapters; no duplicate local policy is activated by this extraction.
+- Native transport composition and positive physical-idle/history integration remain pending. This commit alone does not advertise Native Queue/Steer. No new tests or registrations.
+
+### Native queued admission and safe-point input seams
+
+- Native queued starts reuse the existing LocalTurnService binding/model/image preparation and canonical admission path, substituting only the same-writer queue/admission CAS. Image promotion supplies the existing preparation token without data URL reconstruction.
+- Exact-attempt Steer forwards to the already published executor safe-point port; it does not write acceptance or application events itself. The existing resource owner invokes its completion callback only after physical release and binding closure, within the original tracked cleanup operation and behind the shutdown fence.
+- These are private caller seams. Native Queue remains unavailable until held successor-lease predecessor proof and complete transport/media/history composition are wired. No standalone idle boolean or missing-executor inference is introduced. No new tests.
 ## Plans 048 / 061 — Same-writer local harness persistence foundation
 
 The existing exclusive LocalPersistence SQLite connection owns durable local
@@ -3083,3 +3131,136 @@ The package is not registered by an active product constructor here. Binary/sche
 pins are not OS confinement or installed-feature acceptance; both remain explicitly
 unaccepted in the runtime manifest. Whole-scope quiescence requires actual injected
 proof, and missing evidence stays unknown. Native provider execution is unchanged.
+## Plan 057 — Native predecessor resource settlement evidence
+
+The existing `LocalTurnResources` owner records Native resource settlement only
+after the original executor's combined terminal/capture/quiescence proof, the
+same writer owner's positive release and the original binding's successful close.
+The existing immutable Turn-artifact metadata authority stores the exact admission,
+terminal/publication digests, root and Git metadata identity, grant provenance and
+actual released namespace/writer-file identity. It creates no lifecycle event or
+public review artifact. Unknown write acknowledgements require an exact durable
+record read before the same owned entry is removed; unreadable or absent evidence
+retains that owner and prevents positive shutdown.
+
+The private Native predecessor reader validates those canonical references under
+the successor's already-held physical writer, using a metadata-only tracked loan
+that exposes no file descriptor or execution capability. It never acquires or
+releases a replacement fence. Missing legacy or crash-before-receipt evidence is
+explicit `native_predecessor_recovery_required`; terminal history, artifacts and
+an absent executor map never establish physical settlement. There is no automatic
+historical backfill from a freshly acquired fence.
+
+Unused prepared acquisitions have a separate positive cleanup path on the same
+writer entry. Sticky physical exposure prevents that path after any broad authority
+loan or tracked execution. The trusted first consumer must fence and await its
+original canonical publication before its exact absence read; unknown publication
+or cleanup retains the original binding and lease. This source does not activate
+delegated external execution or supply its missing physical process boundary.
+
+Crash-before-receipt recovery remains a concrete backend limitation: the Native
+process guardian retains the writer descriptor through normal exact-child reaping,
+but its target closes that descriptor before execution. An unexpectedly lost
+guardian therefore cannot be excluded solely by acquiring the old fence. No
+preparation label or new receipt is substituted for surviving-child exclusion.
+
+### Accepted Native input lineage
+
+- Thread read summaries use the actual same-Turn canonical accepted user item as the active user leaf, requiring its exact input/transcript identity, scope, parent chain and accepted lifecycle sequence. A settled assistant becomes the leaf only when completed after the latest accepted input.
+- Runtime resource-release notification requires the actual Native settlement issuer/receipt path, binding closure and original owner deletion; a custom executor without that capability cannot trigger queue advancement. No new tests or sequence/state writer.
+
+### Queue admission physical boundary
+
+- Shared advancement selects only logically eligible queue intent. Physical idle is not represented as a separate boolean predicate: the actual Native start adapter must verify predecessor settlement under its already-held successor lease before atomic queue/admission publication. Unknown physical authority must pause and reject, preserving intent.
+
+- Saved known input conflicts/cancellations are terminal command receipts and are never re-delivered by the shared command owner. SQLite startup rejects conflicting queue/Steer target, receipt/state and pause representations.
+
+- Completion-triggered queue reconciliation is registered with the existing preparation tracker before its first await, because the released executor is already removed. Shutdown drains this original operation before persistence closes. Receipt retries check the canonical stored delivery before requiring a still-active executor. Native inbox startup applies the same opaque delegated-owner boundary as its lifecycle projection.
+
+- Canonical terminal projection pauses queued advancement for both accepted-but-unapplied inputs and targeted pending/claimed inputs with no authoritative delivery receipt. It preserves the exact inbox row and never invents an accepted sequence or silently retries unknown delivery.
+## Plan 057 — Queued input media ownership
+
+The existing LocalChatMediaStore owns queued original image bytes in the same
+private files and resource journal, with the same codec and bounded image/count,
+pending-byte and concurrent-I/O limits. Version-one Turn manifests, attachment
+identities and paths remain unchanged. Queued manifests bind actual canonical
+user/workspace/thread/input identity and immutable mediaRevision before any Run
+or Turn exists. Mutable queue metadata/receipt versions do not rename that batch.
+
+The existing SQLite queue owner supplies exact scope/fingerprint/reference
+lookups, including consumed history. Startup and pending cleanup use those actual
+receipts; missing lookup, conflicting or unknown ownership retains resources.
+Promotion verifies original bytes and current canonical queue ownership before
+and after reads and before/after publication into the actual Native Turn scope.
+Active steering borrows normalized provider images only after the same checks;
+no inline pixels become queue columns or lifecycle payloads.
+
+The existing authenticated image-request opt-in recognizes only image-bearing
+start, steer, enqueue and update methods under its unchanged byte limit. SDK and
+Desktop already consume that shared helper. Queue claims, durable publication,
+Native safe points and the constructor lookup wiring remain the existing queue
+and runtime owners' integration responsibility; this media leaf alone does not
+advertise queue or steering availability.
+
+### Native queue placement and applied-input history
+
+- The private Native command adapter uses shared policy, exact current Thread authorization, admitted-model vision checks, immutable queued media and the existing executor safe point. It requires an explicitly supplied queued-start owner; no optimistic default is composed or advertised.
+- Local media journal reconciliation reads the exact same SQLite input row/media revision. The actual Native runtime receives those existing ports and reconstructs applied Steer user messages in canonical lifecycle order; accepted-but-unapplied history is never silently delivered as a fresh prompt. Missing required canonical rows/media fail closed.
+- Full Queue activation still requires held-successor physical preparation before admission, accepted-image authenticated reads and final route/capability composition. No new tests or registrations.
+
+- Native queue admission explicitly rejects delegated captures. Native accepted-user enrichment applies only inside the same opaque ownership boundary; shared delegated terminal/assistant summaries remain with their original reader and are not forced to manufacture Native inbox/platform records.
+
+- First Native inbox migration applies the same canonical opaque delegated-owner boundary before refusing orphan Native input events. Existing delegated history does not falsely require a Native inbox.
+The same media owner exposes a private original-image read for canonical queued
+scope and its full reference set. Exact queue ownership is rechecked around the
+bounded file read, with original digest and metadata validation; originals are
+never normalized or reencoded for review. The existing media/readImage owner
+must resolve the accepted/applied/unconfirmed input under the actual Turn and
+attempt and reauthorize after the read. This port adds no public endpoint or
+renderer-supplied host path and does not manufacture a Turn scope for steering.
+
+### Accepted input original image reader
+
+- Existing media/readImage authorizes the actual Turn, resolves initial-prompt or accepted/applied/unconfirmed input attachment references through canonical owners, and reauthorizes after the bounded read. Accepted inputs use the same queued-media original-byte reader with full immutable scope/fingerprint/ref-set checks.
+- No synthetic Turn scope, normalized replacement bytes, renderer body fallback or new endpoint is introduced. Pending queue previews remain a separate strict-scope consumer; Native route activation still waits for held-successor admission. No new tests.
+
+### Queued successor admission race guard
+
+- The private queue/admission transaction requires the exact predecessor Turn ID returned by held-successor physical verification (null only for a fresh Thread). It rereads the latest canonical admission on the same immediate SQLite writer before admitWithin and rejects any intervening ordinary or queued admission. No public schema or physical-proof shortcut is added.
+
+### Frozen Native input model capability
+
+- Steer image eligibility comes from the actual executor's existing captured admitted model snapshot, checked before publication and again at exact-attempt delivery. Missing support fails closed; live discovery is not a second decision owner. Text and saved-receipt retries retain their paths.
+- Native applied-input history enrichment respects the same opaque delegated boundary as inbox projection and Thread lineage. Shared lifecycle scope/producer validation and historical assistant handling remain unchanged.
+
+### Hosted shared-input compatibility
+
+- Hosted update/remove known CAS conflict receipts retain their existing HTTP 200 wrapper. Direct Steer response denials retain the existing HTTP 502/THREAD_INPUT_NOT_CONFIRMED mapping through a private placement brand; queued-Steer and unknown Native delivery keep their existing 503 reconciliation path.
+- Shared policy still owns durable command/CAS/receipt decisions. Placement transport status does not become a second input state owner. No new tests.
+
+## Plan 057 — Canonical accepted-user history windows
+
+The existing local SQLite event connection projects initial admission user items
+and durable accepted input bodies into the shared ConversationHistoryMessage
+contract. The original append/lifecycle/inbox owners remain unchanged. Native
+accepted rows must match their exact durable acceptance receipt and immutable
+body/image references; pending queue rows and acknowledgement-only payloads do
+not become transcript messages. Opaque delegated admissions retain their own
+canonical producer without manufacturing a Native inbox.
+
+The existing thread/history endpoint preserves whole-Turn admission cursors and
+adds separately bounded user-message windows. A real canonical user-item cursor
+pins an immutable high-watermark over the authorized Turn set. Latest reads query
+the body tail directly; forward/backward continuation validates canonical anchors
+and never includes later appends. The response includes actual earlier/later
+bounds and the last canonical user-item ID per selected Turn at that snapshot, so
+thin clients place one workflow after its real last user without loading every
+older steering message. Root edit identity remains the admission's user item.
+
+Each page returns at most 100 messages within the complete one-MiB App Server
+frame, including admission and window metadata. Admission selection reuses its
+original cursor authority with a private byte budget when envelope overhead
+requires a smaller page. An initial empty message prefix explicitly continues;
+a continuation-only page must advance or fail explicitly for an oversized row.
+The SDK/renderer consumer owns cancellable bounded-window navigation; this source
+alone does not claim installed history/queue acceptance. No new tests or stores.
