@@ -3298,6 +3298,16 @@ and canonical input invalidation reread the tail; neither acknowledgement nor
 queue metadata manufactures transcript rows. Public queue activation and installed
 acceptance remain separate runtime/product gates.
 
+Desktop mounts those canonical user records through the shared history converter
+and `buildChatEntries` with snapshot last-user IDs and admission root IDs. It no
+longer rebuilds the transcript from admission prompts alone. Accepted inputs retain
+their actual per-message immutable image references and Turn-authorized original
+reads; preview tokens include message identity, and page replacement revokes old
+URLs through the existing preview-cache lifetime. Existing history notices expose
+Earlier/Newer/Latest navigation; the shared scroll hook consumes only completed
+navigation intent. Web consumes the same shared presentation with its own unchanged
+hosted history/authentication owner.
+
 - Client-supplied history Turn sets that are missing, foreign, duplicated or
   malformed are invalid snapshot selections, not database-corruption evidence.
   The private reader returns its opaque cursor conflict; the public request

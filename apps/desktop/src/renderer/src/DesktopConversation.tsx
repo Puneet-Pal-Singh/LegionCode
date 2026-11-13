@@ -5,20 +5,23 @@ import {
   ChatInterfaceView,
   useCompletedTurnReview,
   useChatImageAttachmentDraft,
-  type ChatInterfaceEntry,
+  buildChatEntries,
+  convertConversationHistoryMessages,
+  useChatAutoScroll,
 } from "@legioncode/client-ui";
 import {
   LocalTurnConfigurationSchema,
   type LocalTurnConfigurationOptions,
   type AppServerClient,
+  buildConversationTurns,
+  projectConversationHistoryMessages,
 } from "@legioncode/sdk";
 import type { Thread, TurnAdmission } from "@repo/platform-protocol";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { DesktopApproval } from "./DesktopApproval";
 import { DesktopComposer } from "./DesktopComposer";
 import { DesktopComposerWorkspaceBar } from "./DesktopComposerWorkspaceBar";
 import {
-  desktopImageSource,
   useDesktopImagePreviews,
 } from "./useDesktopImagePreviews";
 import { useDesktopConversation } from "./useDesktopConversation";
@@ -85,7 +88,7 @@ function SelectedConversation({
   );
   const imagePreviews = useDesktopImagePreviews(
     client,
-    conversation.admissions,
+    conversation.messages,
   );
   const admission = conversation.admissions.at(-1);
   const projection = admission
@@ -156,45 +159,32 @@ function SelectedConversation({
     projection ?? null,
     admission?.userMessage.id ?? null,
   );
-  const entries: ChatInterfaceEntry[] = conversation.admissions.flatMap(
-    (item) => {
-      const replay = conversation.projections[item.turn.id];
-      const result: ChatInterfaceEntry[] = [];
-      if (
-        item.userMessage.type === "user_message" &&
-        typeof item.userMessage.content.text === "string"
-      ) {
-        result.push({
-          kind: "message",
-          message: {
-            id: item.userMessage.id,
-            role: "user",
-            content: item.userMessage.content.text,
-            data: {
-              metadata: {
-                imageAttachments: (
-                  imagePreviews.referencesByTurn.get(item.turn.id) ?? []
-                ).map((reference) => ({
-                  ...reference,
-                  src: desktopImageSource(item.turn.id, reference.attachmentId),
-                })),
-              },
-            },
-          },
-          ...(replay ? { projection: replay } : {}),
-        });
-      }
-      if (replay?.turnId === item.turn.id) {
-        result.push({
-          kind: "workflow",
-          key: `workflow:${item.turn.id}`,
-          turnId: item.turn.id,
-          projection: replay,
-        });
-      }
-      return result;
-    },
-  );
+  const messages = useMemo(() => convertConversationHistoryMessages(projectConversationHistoryMessages(
+    conversation.messages.map((message) => ({ ...message, data: { metadata: {
+      ...message.data?.metadata,
+      imageAttachments: (imagePreviews.referencesByMessage.get(message.id) ?? []).map((source) => ({
+        ...source.reference, src: source.token,
+      })),
+    } } })),
+  )), [conversation.messages, imagePreviews.referencesByMessage]);
+  const bounds = useMemo(() => {
+    const lastUsers = new Map(conversation.messagesWindow?.lastUserByTurn.map((last) => [last.turnId, last.itemId]));
+    return Object.fromEntries(conversation.admissions.flatMap((item) => {
+      const lastUserMessageId = lastUsers.get(item.turn.id);
+      return lastUserMessageId ? [[item.turn.id, { rootUserMessageId: item.userMessage.id, lastUserMessageId }]] : [];
+    }));
+  }, [conversation.admissions, conversation.messagesWindow]);
+  const entries = useMemo(() => buildChatEntries(buildConversationTurns(messages), conversation.projections,
+    conversation.activeProjection?.turnId ?? null, bounds),
+  [messages, conversation.projections, conversation.activeProjection?.turnId, bounds]);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const lastEntry = entries.at(-1);
+  useChatAutoScroll({ activeRun: conversation.executionActive,
+    latestMessageKey: lastEntry ? lastEntry.kind === "message" ? lastEntry.message.id : lastEntry.key : null,
+    lifecycleSequence: conversation.activeProjection?.lastSequence ?? 0,
+    placeholderVisible: conversation.loading,
+    scopeKey: `${thread.workspaceId}:${workspaceGrantAt}:${thread.id}`,
+    scrollRef, historyNavigation: conversation.historyNavigation });
   const showHeroComposer = !conversation.initialLoading &&
     !conversation.hasNewerPages && !conversation.firstPage && entries.length === 0;
   const unavailableArtifact = async (): Promise<never> => {
@@ -202,6 +192,7 @@ function SelectedConversation({
   };
   return (
     <ChatInterfaceView
+      ref={scrollRef}
       workspaceId={thread.workspaceId}
       threadId={thread.id}
       runAttemptId={admission?.runAttemptId ?? null}
@@ -338,19 +329,23 @@ function SelectedConversation({
           ) : null}
           {conversation.firstPage ? (
             <ChatErrorNotice
-              message="Earlier saved turns are available."
-              remediation="Return to the first page of this conversation."
-              actionLabel="First turns"
+              message="Earlier saved messages are available."
+              remediation="Load the preceding bounded message window. Older Turn pages remain available through the same history reader."
+              actionLabel="Earlier messages"
               onOpen={conversation.firstPage}
             />
           ) : null}
           {conversation.hasNewerPages ? (
             <ChatErrorNotice
               message="Showing earlier conversation."
-              remediation="Load newer turns to continue."
-              actionLabel="Load newer turns"
+              remediation="Load the next bounded window, or return to the latest saved messages."
+              actionLabel={conversation.nextPage ? "Newer messages" : "Latest messages"}
               onOpen={conversation.nextPage ?? conversation.reload}
             />
+          ) : null}
+          {conversation.hasNewerPages && conversation.nextPage ? (
+            <ChatErrorNotice message="Return to the current task." remediation="Load a fresh canonical tail snapshot."
+              actionLabel="Latest messages" onOpen={conversation.reload} />
           ) : null}
         </>
       }
