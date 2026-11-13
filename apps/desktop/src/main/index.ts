@@ -27,6 +27,8 @@ import { createWindowOptions } from "./window-options";
 import { installDesktopApplicationMenu } from "./application-menu";
 import { LocalAppServerSupervisor } from "./local-app-server-supervisor";
 import { DesktopCredentialVault } from "./desktop-credential-vault";
+import { DesktopHostedAccount } from "./hosted-account";
+import { HOSTED_ACCOUNT_CHANNEL, HostedAccountCommandSchema } from "../shared/hosted-account";
 import {
   assertTrustedDesktopFrame as assertTrustedFrameFacts,
   resolveDesktopAppServerRequest,
@@ -39,6 +41,7 @@ const preloadPath = fileURLToPath(
 const isPrimaryInstance = app.requestSingleInstanceLock();
 if (!isPrimaryInstance) app.quit();
 let credentialVault: DesktopCredentialVault | null = null;
+let hostedAccount: DesktopHostedAccount | null = null;
 const localAppServer = new LocalAppServerSupervisor(
   (request) => providerRequestHeaders(request),
   async (providerId) => credentialVault?.acquireRuntimeCredentialLease(providerId) ?? null,
@@ -107,6 +110,15 @@ function handleNativeInvoke<T>(
 handleNativeInvoke(ENVIRONMENT_SNAPSHOT_CHANNEL, () =>
   localAppServer.getEnvironment(),
 );
+handleNativeInvoke(HOSTED_ACCOUNT_CHANNEL, async (event, value) => {
+  const command = HostedAccountCommandSchema.parse(value);
+  if (!hostedAccount || isQuitting || shutdownPromise) throw new Error("Hosted account is unavailable");
+  if (command.operation === "status") return hostedAccount.status();
+  if (command.operation === "disconnect") return hostedAccount.disconnect();
+  const parent = BrowserWindow.fromWebContents(event.sender);
+  if (!parent) throw new Error("Desktop window is unavailable");
+  return hostedAccount.connect(parent);
+});
 handleNativeInvoke(ENVIRONMENT_RESTART_CHANNEL, async () => {
   if (shutdownPromise || isQuitting) throw new Error("Local runtime shutdown is pending");
   environmentGeneration += 1;
@@ -229,6 +241,7 @@ handleNativeInvoke(BUILD_INFO_CHANNEL, () => ({
 
 void app.whenReady().then(() => {
   if (!isPrimaryInstance) return;
+  hostedAccount = new DesktopHostedAccount();
   credentialVault = new DesktopCredentialVault(app.getPath("userData"), {
     isEncryptionAvailable: () =>
       safeStorage.isEncryptionAvailable() &&
@@ -301,7 +314,7 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   if (!shutdownPromise) {
     pendingWorkspaceSelections.clear();
-    shutdownPromise = localAppServer.stop().then(() => {
+    shutdownPromise = Promise.all([localAppServer.stop(), hostedAccount?.close()]).then(() => {
       isQuitting = true;
       app.quit();
     }).catch(() => {

@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import { HOSTED_ACCOUNT_CHANNEL, HostedAccountCommandSchema, HostedAccountSnapshotSchema } from "../shared/hosted-account";
 import { z } from "zod";
 
 import {
@@ -44,6 +45,9 @@ const BuildInfoSchema = z
   .strict();
 
 const desktopApi: DesktopApi = {
+  hostedAccount: async (command) => HostedAccountSnapshotSchema.parse(
+    await ipcRenderer.invoke(HOSTED_ACCOUNT_CHANNEL, HostedAccountCommandSchema.parse(command)),
+  ),
   request: async (envelope) => {
     const request = AppServerRequestSchema.parse(envelope);
     assertLocalAppServerRequestBudget(request);

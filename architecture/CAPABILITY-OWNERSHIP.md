@@ -3004,3 +3004,24 @@ This package has no active local constructor, driver registration or public-rout
 consumer yet. Its client facade exports protocol types only; Node SDK and process
 services stay behind the server export. Final driver/constructor wiring is the
 activation boundary, and no Native provider fallback is introduced.
+
+## Desktop hosted account connection
+
+Desktop main owns an isolated persistent production Electron Session for the
+existing hosted Web OAuth/cookie identity. Settings consumes only validated
+status/connect/disconnect IPC. Authentication windows have no preload or Desktop
+IPC trust, deny permissions/downloads/popups, and allow only the fixed hosted
+login/callback and GitHub navigation. Landing redirects trigger a bounded read
+of the existing `/auth/session`; they do not establish authentication themselves.
+Only the safe account id/login projection crosses preload. Cookies, OAuth codes,
+provider credentials and private network configuration remain in main/server.
+
+One connection/revocation operation owns its original requests. Generation
+checks fence stale session reads; failed revocation retains a retryable state.
+Quit drains those operations and flushes the persistent jar without cancelling
+hosted agent work. Local vault and local App Server routing remain independent.
+No challenge/redeem service or duplicate identity persistence is added.
+
+This connects the actual Settings action, not Cloud task execution. Hosted SDK
+workspace/session/provider/task composition and exact installed OAuth/restart/
+revocation acceptance remain required before Cloud can be advertised as ready.
