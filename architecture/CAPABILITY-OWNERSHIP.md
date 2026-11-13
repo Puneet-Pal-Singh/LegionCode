@@ -2436,3 +2436,8 @@ proof, and missing evidence stays unknown. Native provider execution is unchange
 - Hosted queued-Steer target denial retains its original 409 error envelope and
   operation code; direct Steer retains its conflict receipt. The shared target
   validation port carries operation context only for this placement mapping.
+
+- Shared advancement propagates original start failures to the terminal observer.
+  Only enqueue suppresses/logs an automatic-start failure after durable intent
+  persistence, preserving its existing pending receipt. Native physical cleanup
+  callbacks retain their original tracked failure and pause owner.
