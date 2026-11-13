@@ -3103,3 +3103,12 @@ No challenge/redeem service or duplicate identity persistence is added.
 This connects the actual Settings action, not Cloud task execution. Hosted SDK
 workspace/session/provider/task composition and exact installed OAuth/restart/
 revocation acceptance remain required before Cloud can be advertised as ready.
+
+### Shared immutable review after failed or interrupted turns
+
+The shared conversation review hook admits a settled repository turn only when
+its own canonical diff and captured snapshot state agree. Failed/interrupted
+terminal presentation now offers that same immutable review without inferring
+capture from terminal status or reading live Git. Missing or mismatched capture
+remains unavailable. Web and Desktop retain the same SDK projection and shared
+review selection owner; completed-response artifact presentation is unchanged.

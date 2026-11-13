@@ -29,6 +29,7 @@ import {
   type CompletedTurnReview,
 } from "./useCompletedTurnReview.js";
 import { ChatMessage } from "../ChatMessage.js";
+import { ChangedFilesCard } from "../chat-message/ChangedFilesCard.js";
 import { lifecyclePhaseLabel } from "@legioncode/sdk";
 import { CanonicalWorkflowSurface } from "../workflow/CanonicalWorkflowSurface.js";
 import { PendingWorkflowSurface } from "../workflow/PendingWorkflowSurface.js";
@@ -443,17 +444,6 @@ function TerminalMessage(
   const completedTurnReview = useCompletedTurnReview(props.projection, null);
   if (!terminal) return null;
 
-  if (terminal.state === "interrupted") return null;
-
-  if (terminal.state !== "completed") {
-    return (
-      <ConversationTerminalMarker
-        interrupted={false}
-        content={terminal.content}
-      />
-    );
-  }
-
   const openCanonicalTurnReview = () => {
     if (!completedTurnReview.turnId) return;
     props.selectCanonicalTurnReview({
@@ -464,6 +454,23 @@ function TerminalMessage(
     });
     props.onReviewOpen?.();
   };
+
+  if (terminal.state !== "completed") {
+    return (
+      <>
+        {terminal.state !== "interrupted" ? (
+          <ConversationTerminalMarker interrupted={false} content={terminal.content} />
+        ) : null}
+        {completedTurnReview.turnId && !completedTurnReview.error && completedTurnReview.files.length > 0 ? (
+          <ChangedFilesCard
+            files={completedTurnReview.files}
+            loadFileDiff={completedTurnReview.loadFileDiff}
+            onReviewOpen={openCanonicalTurnReview}
+          />
+        ) : null}
+      </>
+    );
+  }
 
   return (
     <ChatMessage
