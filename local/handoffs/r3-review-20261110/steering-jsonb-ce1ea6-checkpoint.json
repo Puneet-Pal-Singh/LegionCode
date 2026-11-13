@@ -1,0 +1,1351 @@
+{
+  "head": "ce1ea6c5bd8c52c019c633d32f48d6cf032c7c87",
+  "base": "c7ad58f8eae80a2e5817ccdb4f8689cd48557f94",
+  "branch": "codex/fix-r3-steering-jsonb-retry-20261114",
+  "remoteHead": "ce1ea6c5bd8c52c019c633d32f48d6cf032c7c87",
+  "published": true,
+  "sourceClean": true,
+  "paths": [
+    "apps/brain/src/integration/app-server/HostedThreadInputOperations.ts",
+    "architecture/CAPABILITY-OWNERSHIP.md"
+  ],
+  "sourceHashes": {
+    "apps/brain/src/integration/app-server/HostedThreadInputOperations.ts": {
+      "sha256": "805cbe079f3bdeaf8714ca95752b74c3d8b8c6f548b6386df404dad228aee565",
+      "bytes": 32296
+    },
+    "architecture/CAPABILITY-OWNERSHIP.md": {
+      "sha256": "a8154a702ba815736b2b5d13a4e26f02b664b2ee20bd9aa53ade2cbaddf8dabd",
+      "bytes": 163455
+    }
+  },
+  "hostedPreimageSHA256": "695055ec2e48e527f7f4588610747ff2a8ba9f09d924e2209aa364bbffdeeb38",
+  "hostedPostimageSHA256": "805cbe079f3bdeaf8714ca95752b74c3d8b8c6f548b6386df404dad228aee565",
+  "sourceChange": "ONE line reparses prior mediaRefs through already imported canonical ChatImageAttachmentRefSchema before rebuilding SAME original SHA256(JSON.stringify(...)) fingerprint. Existing persisted schema key order is restored after JSONB; no sorting/new algorithm/hash rewrite/new fields.",
+  "executor": {
+    "host": "58fee81c1a0b",
+    "linux": "Linux6.18.57x86_64",
+    "managedCloud": "connected/running",
+    "worktree": "/workspace/LegionCode-R3-JSONB-REPAIR-20261114",
+    "writableVerified": true,
+    "node": "24.22.1",
+    "postgres": "15.8",
+    "isolatedPostgresSocket": "/tmp/r3-jsonb-repair-20261114/socket",
+    "port": 55473,
+    "listenAddresses": "empty/noTCP"
+  },
+  "handoff": {
+    "sha": "a262deff27944094045fd9ecef5e36d7d7955083",
+    "manifestSHA256": "af96a3730c1ac16f04cc148754397c945cd8453c6182e4b82cc92baa0e9e4e60",
+    "verifiedHashesAndLengths": 19,
+    "sourceBaseMerged": false
+  },
+  "results": {
+    "beforeExactC7": {
+      "knownProductFailures": 2,
+      "scenarioOutcomes": {
+        "prior-accepted-image": {
+          "status": 409,
+          "code": "conflict",
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": true
+        },
+        "prior-accepted-image-controlname": {
+          "status": 409,
+          "code": "conflict",
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": true
+        }
+      },
+      "note": "Negative controls assert observed old409 for identical image retry; these are BUG repros, not passing acceptance."
+    },
+    "afterRealPG": {
+      "ingressCases": 8,
+      "hostedCases": 42,
+      "outcomes": {
+        "direct-image": {
+          "status": 400,
+          "code": "invalid_request",
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": false
+        },
+        "queued-image": {
+          "status": 400,
+          "code": "invalid_request",
+          "counts": {
+            "lookup": 0,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": false
+        },
+        "direct-blank": {
+          "status": 400,
+          "code": "invalid_request",
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": false
+        },
+        "queued-blank": {
+          "status": 400,
+          "code": "invalid_request",
+          "counts": {
+            "lookup": 0,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": false
+        },
+        "prior-blank": {
+          "status": 503,
+          "code": "server_unavailable",
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": true
+        },
+        "prior-accepted-blank": {
+          "status": 200,
+          "result": {
+            "status": "accepted",
+            "clientInputId": "client1",
+            "inputId": "1e1dd536-f1fe-41fe-9798-02f30e6dd37c",
+            "targetTurnId": "trn_bbbbbbbbbbbbbbbbbbbbbbbb",
+            "targetRunAttemptId": "attempt_cccccccccccccccccccccccc",
+            "acceptedSequence": 7
+          },
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": true
+        },
+        "queued-consuming-image": {
+          "status": 503,
+          "code": "server_unavailable",
+          "counts": {
+            "lookup": 0,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": false
+        },
+        "prior-consuming": {
+          "status": 503,
+          "code": "server_unavailable",
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": true
+        },
+        "prior-accepted": {
+          "status": 200,
+          "result": {
+            "status": "accepted",
+            "clientInputId": "client1",
+            "inputId": "88d16293-4837-4ced-9b6b-278e90f1660a",
+            "targetTurnId": "trn_bbbbbbbbbbbbbbbbbbbbbbbb",
+            "targetRunAttemptId": "attempt_cccccccccccccccccccccccc",
+            "acceptedSequence": 7
+          },
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": true
+        },
+        "prior-altered-accepted": {
+          "status": 409,
+          "code": "conflict",
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": true
+        },
+        "prior-accepted-image": {
+          "status": 200,
+          "result": {
+            "status": "accepted",
+            "clientInputId": "client1",
+            "inputId": "660bd75c-bdca-4b7a-86d8-20140847185c",
+            "targetTurnId": "trn_bbbbbbbbbbbbbbbbbbbbbbbb",
+            "targetRunAttemptId": "attempt_cccccccccccccccccccccccc",
+            "acceptedSequence": 7
+          },
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": true
+        },
+        "prior-accepted-image-controlname": {
+          "status": 200,
+          "result": {
+            "status": "accepted",
+            "clientInputId": "client1",
+            "inputId": "0efe89bb-680e-4827-b1e4-4c276066a62e",
+            "targetTurnId": "trn_bbbbbbbbbbbbbbbbbbbbbbbb",
+            "targetRunAttemptId": "attempt_cccccccccccccccccccccccc",
+            "acceptedSequence": 7
+          },
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": true
+        },
+        "prior-accepted-image-changedimage": {
+          "status": 409,
+          "code": "conflict",
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": true
+        },
+        "prior-applied": {
+          "status": 200,
+          "result": {
+            "status": "applied",
+            "inputId": "d2e5dd46-125c-4125-bf2a-6fd5483a1c50",
+            "targetTurnId": "trn_bbbbbbbbbbbbbbbbbbbbbbbb",
+            "targetRunAttemptId": "attempt_cccccccccccccccccccccccc",
+            "acceptedSequence": 7,
+            "appliedSequence": 8,
+            "modelStep": 1,
+            "contextRevision": 1
+          },
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": true
+        },
+        "prior-unconfirmed": {
+          "status": 200,
+          "result": {
+            "status": "unconfirmed",
+            "inputId": "d8815323-d29e-4fcb-89d2-39dbe22ef7e0",
+            "targetTurnId": "trn_bbbbbbbbbbbbbbbbbbbbbbbb",
+            "targetRunAttemptId": "attempt_cccccccccccccccccccccccc",
+            "acceptedSequence": 7,
+            "terminalSequence": 8
+          },
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": true
+        },
+        "prior-target-accepted": {
+          "status": 409,
+          "code": "conflict",
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": true
+        },
+        "direct-lookupfail": {
+          "status": 503,
+          "code": "server_unavailable",
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": false
+        },
+        "direct-transport": {
+          "status": 503,
+          "code": "server_unavailable",
+          "counts": {
+            "lookup": 1,
+            "enqueue": 1,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 1,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": false
+        },
+        "queued-transport": {
+          "status": 503,
+          "code": "server_unavailable",
+          "counts": {
+            "lookup": 0,
+            "enqueue": 0,
+            "claim": 1,
+            "models": 0,
+            "media": 0,
+            "rpc": 1,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": false
+        },
+        "direct-runtime400": {
+          "status": 503,
+          "code": "server_unavailable",
+          "counts": {
+            "lookup": 1,
+            "enqueue": 1,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 1,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": false
+        },
+        "queued-runtime400": {
+          "status": 503,
+          "code": "server_unavailable",
+          "counts": {
+            "lookup": 0,
+            "enqueue": 0,
+            "claim": 1,
+            "models": 0,
+            "media": 0,
+            "rpc": 1,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": false
+        },
+        "direct-duplicate": {
+          "status": 503,
+          "code": "server_unavailable",
+          "counts": {
+            "lookup": 1,
+            "enqueue": 1,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": false
+        },
+        "direct-enqueueunknown": {
+          "status": 503,
+          "code": "server_unavailable",
+          "counts": {
+            "lookup": 1,
+            "enqueue": 1,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": false
+        },
+        "direct-enqueueconflict": {
+          "status": 409,
+          "code": "conflict",
+          "counts": {
+            "lookup": 1,
+            "enqueue": 1,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": false
+        },
+        "queued-claimunknown": {
+          "status": 503,
+          "code": "server_unavailable",
+          "counts": {
+            "lookup": 0,
+            "enqueue": 0,
+            "claim": 1,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": false
+        },
+        "queued-claimconflict": {
+          "status": 409,
+          "result": {
+            "status": "conflict",
+            "code": "queue_item_changed",
+            "message": "changed"
+          },
+          "counts": {
+            "lookup": 0,
+            "enqueue": 0,
+            "claim": 1,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": false
+        },
+        "direct-runtime409": {
+          "status": 409,
+          "result": {
+            "status": "conflict",
+            "code": "turn_not_active",
+            "message": "not active"
+          },
+          "counts": {
+            "lookup": 1,
+            "enqueue": 1,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 1,
+            "receipt": 1
+          },
+          "storedRowsUnchanged": false
+        },
+        "queued-runtime409": {
+          "status": 409,
+          "result": {
+            "status": "conflict",
+            "code": "turn_not_active",
+            "message": "not active"
+          },
+          "counts": {
+            "lookup": 0,
+            "enqueue": 0,
+            "claim": 1,
+            "models": 0,
+            "media": 0,
+            "rpc": 1,
+            "receipt": 1
+          },
+          "storedRowsUnchanged": false
+        },
+        "native-runtime409": {
+          "status": 409,
+          "result": {
+            "status": "conflict",
+            "code": "turn_not_active",
+            "message": "not active"
+          },
+          "counts": {
+            "lookup": 0,
+            "enqueue": 1,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 1,
+            "receipt": 1
+          },
+          "storedRowsUnchanged": false
+        },
+        "queued-native-runtime409": {
+          "status": 409,
+          "result": {
+            "status": "conflict",
+            "code": "turn_not_active",
+            "message": "not active"
+          },
+          "counts": {
+            "lookup": 0,
+            "enqueue": 0,
+            "claim": 1,
+            "models": 0,
+            "media": 0,
+            "rpc": 1,
+            "receipt": 1
+          },
+          "storedRowsUnchanged": false
+        },
+        "prior-accepted-image-spacesname": {
+          "status": 200,
+          "result": {
+            "status": "accepted",
+            "clientInputId": "client1",
+            "inputId": "e3305388-ace4-493b-a0b9-ab613a6da703",
+            "targetTurnId": "trn_bbbbbbbbbbbbbbbbbbbbbbbb",
+            "targetRunAttemptId": "attempt_cccccccccccccccccccccccc",
+            "acceptedSequence": 7
+          },
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": true
+        },
+        "prior-accepted-image-multi": {
+          "status": 200,
+          "result": {
+            "status": "accepted",
+            "clientInputId": "client1",
+            "inputId": "3e9e61e5-152a-4a0e-a91d-71f9dc098f33",
+            "targetTurnId": "trn_bbbbbbbbbbbbbbbbbbbbbbbb",
+            "targetRunAttemptId": "attempt_cccccccccccccccccccccccc",
+            "acceptedSequence": 7
+          },
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": true
+        },
+        "prior-accepted-image-multi-swapimages": {
+          "status": 409,
+          "code": "conflict",
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": true
+        },
+        "prior-applied-image": {
+          "status": 200,
+          "result": {
+            "status": "applied",
+            "inputId": "688cc3f9-c2d7-4445-ba54-5f33e6da14f1",
+            "targetTurnId": "trn_bbbbbbbbbbbbbbbbbbbbbbbb",
+            "targetRunAttemptId": "attempt_cccccccccccccccccccccccc",
+            "acceptedSequence": 7,
+            "appliedSequence": 8,
+            "modelStep": 1,
+            "contextRevision": 1
+          },
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": true
+        },
+        "prior-unconfirmed-image": {
+          "status": 200,
+          "result": {
+            "status": "unconfirmed",
+            "inputId": "bf6dd60b-092a-4fa8-8dcd-d028a087a958",
+            "targetTurnId": "trn_bbbbbbbbbbbbbbbbbbbbbbbb",
+            "targetRunAttemptId": "attempt_cccccccccccccccccccccccc",
+            "acceptedSequence": 7,
+            "terminalSequence": 8
+          },
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": true
+        },
+        "prior-conflict-image": {
+          "status": 409,
+          "result": {
+            "status": "conflict",
+            "code": "turn_not_active",
+            "message": "Original canonical conflict"
+          },
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": true
+        },
+        "prior-conflict-superseded-image": {
+          "status": 409,
+          "result": {
+            "status": "conflict",
+            "code": "target_superseded",
+            "message": "Original canonical conflict"
+          },
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": true
+        },
+        "prior-image": {
+          "status": 503,
+          "code": "server_unavailable",
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": true
+        },
+        "prior-consuming-image": {
+          "status": 503,
+          "code": "server_unavailable",
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": true
+        },
+        "prior-accepted-image-changedname": {
+          "status": 409,
+          "code": "conflict",
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": true
+        },
+        "prior-accepted-image-changedtype": {
+          "status": 409,
+          "code": "conflict",
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": true
+        },
+        "prior-accepted-image-tamperbytesize": {
+          "status": 409,
+          "code": "conflict",
+          "counts": {
+            "lookup": 1,
+            "enqueue": 0,
+            "claim": 0,
+            "models": 0,
+            "media": 0,
+            "rpc": 0,
+            "receipt": 0
+          },
+          "storedRowsUnchanged": true
+        }
+      },
+      "scope": "Actual Hosted and delegated ingress; actual PostgreSQL15.8+repository and JSONB nested mediaRef roundtrip. Existing receipt/status rows are fixtures, not newly produced native Applied evidence; runtime/admission/native ports explicit fixtures."
+    },
+    "repositoryRealPG": {
+      "version": "PostgreSQL 15.8 on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 7.5.0-3ubuntu1~18.04) 7.5.0, 64-bit",
+      "cases": [
+        "real PostgreSQL15.8 UNIXsocket noTCP",
+        "absence lookup no state allocation",
+        "allstate readonly pending",
+        "allstate readonly consuming",
+        "allstate readonly consumed",
+        "allstate readonly cancelled",
+        "foreign userId denied",
+        "foreign threadId denied",
+        "foreign workspaceId denied",
+        "foreign sessionId denied",
+        "foreign clientID no disclosure",
+        "same clientID separateowner scopes",
+        "captured tuple immutable across await",
+        "missing lookup linearizes while future writer holds state only",
+        "exactinput lookup lock serializes existing receipt mutation without state cycle",
+        "concurrent duplicate onecanonical row",
+        "real committed enqueue ACKloss rereads sameidentity",
+        "real committed claim ACKloss remainsconsuming"
+      ],
+      "caseCount": 18,
+      "realConcurrentPostgres": true,
+      "limits": "Actual repository + actual existing table DDL. Sessions owner fixture only; no full application migrations, provider, account or OS acceptance."
+    },
+    "metadataAndCanonicalBound": {
+      "revision": "ce1ea6c5bd8c52c019c633d32f48d6cf032c7c87",
+      "results": [
+        {
+          "name": "plain string",
+          "valid": true,
+          "effects": 1
+        },
+        {
+          "name": "ordered parts",
+          "valid": true,
+          "effects": 1
+        },
+        {
+          "name": "empty",
+          "valid": false,
+          "effects": 0,
+          "error": "DelegatedThreadInputPreacceptError"
+        },
+        {
+          "name": "whitespace",
+          "valid": false,
+          "effects": 0,
+          "error": "DelegatedThreadInputPreacceptError"
+        },
+        {
+          "name": "oversize string",
+          "valid": false,
+          "effects": 0,
+          "error": "DelegatedThreadInputPreacceptError"
+        },
+        {
+          "name": "oversize parts",
+          "valid": false,
+          "effects": 0,
+          "error": "DelegatedThreadInputPreacceptError"
+        },
+        {
+          "name": "part providerOptions",
+          "valid": false,
+          "effects": 0,
+          "error": "DelegatedThreadInputPreacceptError"
+        },
+        {
+          "name": "part extra",
+          "valid": false,
+          "effects": 0,
+          "error": "DelegatedThreadInputPreacceptError"
+        },
+        {
+          "name": "message providerOptions",
+          "valid": false,
+          "effects": 0,
+          "error": "DelegatedThreadInputPreacceptError"
+        },
+        {
+          "name": "message extra",
+          "valid": false,
+          "effects": 0,
+          "error": "DelegatedThreadInputPreacceptError"
+        },
+        {
+          "name": "mixed image",
+          "valid": false,
+          "effects": 0,
+          "error": "DelegatedThreadInputPreacceptError"
+        },
+        {
+          "name": "canonical exact 100000 boundary",
+          "valid": true
+        },
+        {
+          "name": "downstream error identity",
+          "unchanged": true
+        }
+      ],
+      "scope": "actual source registry callback + canonical public content schema; kernel acceptance/control is an explicit counter, not provider"
+    },
+    "freshDirectQueued409Retry": {
+      "direct-runtime409": {
+        "first": {
+          "status": "conflict",
+          "code": "turn_not_active",
+          "message": "not active"
+        },
+        "second": {
+          "status": "conflict",
+          "code": "turn_not_active",
+          "message": "not active"
+        },
+        "status": 409,
+        "before": {
+          "lookup": 1,
+          "enqueue": 1,
+          "claim": 0,
+          "models": 0,
+          "media": 0,
+          "rpc": 1,
+          "receipt": 1
+        },
+        "after": {
+          "lookup": 2,
+          "enqueue": 1,
+          "claim": 0,
+          "models": 0,
+          "media": 0,
+          "rpc": 1,
+          "receipt": 1
+        }
+      },
+      "queued-runtime409": {
+        "first": {
+          "status": "conflict",
+          "code": "turn_not_active",
+          "message": "not active"
+        },
+        "second": {
+          "status": "conflict",
+          "code": "turn_not_active",
+          "message": "not active"
+        },
+        "status": 409,
+        "before": {
+          "lookup": 0,
+          "enqueue": 0,
+          "claim": 1,
+          "models": 0,
+          "media": 0,
+          "rpc": 1,
+          "receipt": 1
+        },
+        "after": {
+          "lookup": 0,
+          "enqueue": 0,
+          "claim": 1,
+          "models": 0,
+          "media": 0,
+          "rpc": 1,
+          "receipt": 1
+        }
+      }
+    },
+    "kernel": {
+      "revision": "ce1ea6c5bd8c52c019c633d32f48d6cf032c7c87",
+      "scope": "actual frozen normalizer registration, DelegatedTurnCoordinator and RuntimeLifecycleCoordinator; synthetic append/control ports only; zero providers/OS",
+      "results": [
+        {
+          "mode": "duplicate",
+          "canonicalAccepted": 1,
+          "controls": 1,
+          "applied": 0
+        },
+        {
+          "mode": "malformed",
+          "canonicalAccepted": 0,
+          "controls": 0,
+          "applied": 0
+        },
+        {
+          "mode": "stop-before-accept",
+          "canonicalAccepted": 0,
+          "controls": 0,
+          "applied": 0
+        },
+        {
+          "mode": "stop-after-accept",
+          "canonicalAccepted": 1,
+          "controls": 0,
+          "applied": 0
+        },
+        {
+          "mode": "control-unknown",
+          "canonicalAccepted": 1,
+          "controls": 1,
+          "applied": 0
+        },
+        {
+          "mode": "append-unknown",
+          "canonicalAccepted": 1,
+          "controls": 0,
+          "applied": 0
+        }
+      ]
+    },
+    "handler": {
+      "cases": [
+        {
+          "mode": "preaccept",
+          "status": 400,
+          "media": 0,
+          "accepts": 1
+        },
+        {
+          "mode": "unknown",
+          "status": 503,
+          "media": 0,
+          "accepts": 1
+        },
+        {
+          "mode": "duplicate",
+          "status": 200,
+          "media": 0,
+          "accepts": 0
+        },
+        {
+          "mode": "delegated-image",
+          "status": 400,
+          "media": 0,
+          "accepts": 0
+        },
+        {
+          "mode": "native-image",
+          "status": 200,
+          "media": 1,
+          "accepts": 1
+        }
+      ],
+      "scope": "Actual handler method with configured canonical admission/store/registry/media spies; no provider/network"
+    },
+    "existingGateCases": 39,
+    "fixturePNGs": {
+      "format": "valid deterministic1x1RGBA PNG, CRC32/zlib generated locally; no external images/provider",
+      "sizes": [
+        70,
+        70,
+        70
+      ]
+    }
+  },
+  "jsonbOrderingProof": {
+    "postgresVersion": "15.8",
+    "query": "SELECT $1::jsonb AS content",
+    "originalKeys": [
+      "type",
+      "attachmentId",
+      "name",
+      "mediaType",
+      "byteSize"
+    ],
+    "storedKeys": [
+      "name",
+      "type",
+      "byteSize",
+      "mediaType",
+      "attachmentId"
+    ],
+    "originalSerialization": "{\"operation\":\"turn.steer\",\"text\":\"text\",\"mediaRefs\":[{\"type\":\"image_attachment\",\"attachmentId\":\"in_0123456789abcdef0123456789abcdef\",\"name\":\"image.png\",\"mediaType\":\"image/png\",\"byteSize\":3}],\"targetTurnId\":\"trn_bbbbbbbbbbbbbbbbbbbbbbbb\",\"targetRunAttemptId\":\"attempt_cccccccccccccccccccccccc\"}",
+    "storedSerialization": "{\"operation\":\"turn.steer\",\"text\":\"text\",\"mediaRefs\":[{\"name\":\"image.png\",\"type\":\"image_attachment\",\"byteSize\":3,\"mediaType\":\"image/png\",\"attachmentId\":\"in_0123456789abcdef0123456789abcdef\"}],\"targetTurnId\":\"trn_bbbbbbbbbbbbbbbbbbbbbbbb\",\"targetRunAttemptId\":\"attempt_cccccccccccccccccccccccc\"}",
+    "canonicalSerialization": "{\"operation\":\"turn.steer\",\"text\":\"text\",\"mediaRefs\":[{\"type\":\"image_attachment\",\"attachmentId\":\"in_0123456789abcdef0123456789abcdef\",\"name\":\"image.png\",\"mediaType\":\"image/png\",\"byteSize\":3}],\"targetTurnId\":\"trn_bbbbbbbbbbbbbbbbbbbbbbbb\",\"targetRunAttemptId\":\"attempt_cccccccccccccccccccccccc\"}",
+    "originalFingerprint": "f9f53cb58ac95bf87f98180aafc0591034797462d97baaddadc3a9e52d8abd7a",
+    "storedOrderFingerprint": "46cfe7e90da489d9c3cff4527035b65fef0b68d32d4cec571ba3c50023f697a0",
+    "reparsedFingerprint": "f9f53cb58ac95bf87f98180aafc0591034797462d97baaddadc3a9e52d8abd7a",
+    "conclusion": "JSONB key ordering changes fingerprint; existing canonical ref schema projection restores original persistImages order."
+  },
+  "checks": [
+    {
+      "command": "node node_modules/typescript/bin/tsc --noEmit -p apps/brain/tsconfig.json",
+      "exitCode": 0,
+      "log": "/tmp/r3-jsonb-repair-20261114/brain-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "command": "node /tmp/r3-jsonb-repair-20261114/build-probes.cjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-jsonb-repair-20261114/build-probes.log",
+      "sha256": "d12af5ec6015bf04d2cf91bcf717eb65e51dc020db2e813ced217bb6b34c21f3",
+      "bytes": 65
+    },
+    {
+      "command": "node /tmp/r3-jsonb-repair-20261114/repository-controls.cjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-jsonb-repair-20261114/repository-controls.log",
+      "sha256": "775430d14f5513a7ac31fdf386b60205bbe8bdffe134067dc19c975fb3484f4f",
+      "bytes": 35
+    },
+    {
+      "command": "node /tmp/r3-jsonb-repair-20261114/before-c7.cjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-jsonb-repair-20261114/before-c7.log",
+      "sha256": "dd798b66557636bde7e0c937a5b2711723b6ee1b04b80bead478f09a83a2a0af",
+      "bytes": 56
+    },
+    {
+      "command": "node /tmp/r3-jsonb-repair-20261114/hosted-jsonb.cjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-jsonb-repair-20261114/hosted-jsonb-final.log",
+      "sha256": "903fce7643b511deba58d84c97f0ac336b821bdeb940e99899d312f28a12b695",
+      "bytes": 57
+    },
+    {
+      "command": "node /tmp/r3-jsonb-repair-20261114/metadata-controls.cjs ce1ea6c5bd8c52c019c633d32f48d6cf032c7c87",
+      "exitCode": 0,
+      "log": "/tmp/r3-jsonb-repair-20261114/metadata-frozen.log",
+      "sha256": "4984f0341dcc57b9f965bec5a06eab5d1f813ade330279582fc990aa34f0be0a",
+      "bytes": 38
+    },
+    {
+      "command": "node /tmp/r3-jsonb-repair-20261114/conflict-roundtrip.cjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-jsonb-repair-20261114/conflict-roundtrip-final.log",
+      "sha256": "a51772bd4d2c5841928da662d8a319f8c6820955998b95fbf6ca54e83d16d18b",
+      "bytes": 724
+    },
+    {
+      "command": "node /tmp/r3-jsonb-repair-20261114/jsonb-proof.cjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-jsonb-repair-20261114/jsonb-proof.log",
+      "sha256": "cc18319a7bc05e9edfec1dfcdb66ad95135f66a47a0966e102a8fc5f6b64dc91",
+      "bytes": 103
+    },
+    {
+      "command": "node /tmp/r3-jsonb-repair-20261114/kernel.cjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-jsonb-repair-20261114/kernel.log",
+      "sha256": "378e2305bc05049ddb554dc83b57fd79ac57f5f29a58be019311dbf44d556583",
+      "bytes": 666
+    },
+    {
+      "command": "node /tmp/r3-jsonb-repair-20261114/handler.cjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-jsonb-repair-20261114/handler.log",
+      "sha256": "b10d5a89c4d4e9871bbe43b1fad3a2b181401d32c17ed947905df734692a5f16",
+      "bytes": 75
+    },
+    {
+      "command": "node scripts/gates/check-architecture-boundaries.mjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-jsonb-repair-20261114/architecture.log",
+      "sha256": "91500b0d9dfbc3ce9fab62ce2f083e0c6d82c41531528f48c54ecaa9dfd763a0",
+      "bytes": 65
+    },
+    {
+      "command": "REBUILD_CHANGED_FILES='<exact two changed paths>' node scripts/gates/check-rebuild-governance.mjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-jsonb-repair-20261114/governance.log",
+      "sha256": "9a5c7cafae7b03c771af4ee23d69de18f537c9ba47d3b6bfc73080addf7513b1",
+      "bytes": 40
+    },
+    {
+      "command": "node --test scripts/gates/check-architecture-boundaries.test.mjs scripts/gates/check-rebuild-governance.test.mjs",
+      "exitCode": 0,
+      "log": "/tmp/r3-jsonb-repair-20261114/gates.log",
+      "sha256": "e4db5454ea1bf9cdd1d7a3f81784b86644411723ef4bdc356428003abeee1f0c",
+      "bytes": 2748
+    }
+  ],
+  "artifacts": {
+    "hosted-jsonb-final.log": {
+      "sha256": "903fce7643b511deba58d84c97f0ac336b821bdeb940e99899d312f28a12b695",
+      "bytes": 57
+    },
+    "governance.log": {
+      "sha256": "9a5c7cafae7b03c771af4ee23d69de18f537c9ba47d3b6bfc73080addf7513b1",
+      "bytes": 40
+    },
+    "media-validation.cjs": {
+      "sha256": "458e4ee337fa47b484b6cf7726792783ace777b464e8bc2c3399c93daa1b8e4d",
+      "bytes": 339166
+    },
+    "hosted-jsonb-result.json": {
+      "sha256": "58fe0dbeca3256d228148e1604c227f1f98154cdfe13454410dec60218bbf92e",
+      "bytes": 16210
+    },
+    "repository-controls.log": {
+      "sha256": "775430d14f5513a7ac31fdf386b60205bbe8bdffe134067dc19c975fb3484f4f",
+      "bytes": 35
+    },
+    "repository.cjs": {
+      "sha256": "05d77dd7417c59a1c714c471c141718d0874549f5a47a63ce1c0c77079fa46ac",
+      "bytes": 271907
+    },
+    "metadata-ce1ea6c5bd8c52c019c633d32f48d6cf032c7c87-result.json": {
+      "sha256": "01f41d2b031226b89b4f6cffd67bc90b042b9d07fb54f7d13f36e75d687c6366",
+      "bytes": 1799
+    },
+    "publication-push.log": {
+      "sha256": "25ded60b70fcc337e60f35fbffe97e4131d0bfc9b61415497ee91c266879489a",
+      "bytes": 378
+    },
+    "repository-final-result.json": {
+      "sha256": "9c838a645cc20b22a15f6ee28c091a3b125ea24d672a78d719ce7e6ad16feacd",
+      "bytes": 1136
+    },
+    "build-probes.cjs": {
+      "sha256": "0fb3a5bf9250b70e506dee3f57acd29abaffe1c4c1e87f4a1c179640ff816d4b",
+      "bytes": 683
+    },
+    "kernel.cjs": {
+      "sha256": "704b095eafb75372fa09b04c03aeed2adeb43d95ce5e08c8f012d4db96452d08",
+      "bytes": 6010
+    },
+    "metadata-frozen.log": {
+      "sha256": "4984f0341dcc57b9f965bec5a06eab5d1f813ade330279582fc990aa34f0be0a",
+      "bytes": 38
+    },
+    "gates.log": {
+      "sha256": "e4db5454ea1bf9cdd1d7a3f81784b86644411723ef4bdc356428003abeee1f0c",
+      "bytes": 2748
+    },
+    "conflict-roundtrip.log": {
+      "sha256": "a51772bd4d2c5841928da662d8a319f8c6820955998b95fbf6ca54e83d16d18b",
+      "bytes": 724
+    },
+    "build-probes.log": {
+      "sha256": "d12af5ec6015bf04d2cf91bcf717eb65e51dc020db2e813ced217bb6b34c21f3",
+      "bytes": 65
+    },
+    "server.log": {
+      "sha256": "5b3231a831fbd9a74abafd3d10cb69a4e865044634058ecc83b79c60d40b184b",
+      "bytes": 2008
+    },
+    "conflict-roundtrip.cjs": {
+      "sha256": "5179b346f795e8ac5b666e534fe229af08cb1eca1b694d54ed51b671f771202d",
+      "bytes": 11028
+    },
+    "handler-result.json": {
+      "sha256": "33ab98fbc969a96b9aaab73be381d52e5016a67a83bb15835d42cacf8c7253da",
+      "bytes": 637
+    },
+    "jsonb-proof.cjs": {
+      "sha256": "04a55b84fc826bf16bcc9393e5ffbd48cdfa39dc32a49367a491577fc2ff8012",
+      "bytes": 2038
+    },
+    "publication-fetch.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "architecture.log": {
+      "sha256": "91500b0d9dfbc3ce9fab62ce2f083e0c6d82c41531528f48c54ecaa9dfd763a0",
+      "bytes": 65
+    },
+    "metadata-working-result.json": {
+      "sha256": "e9ecd54018a3a93da063939ccecf6e1c7f69f21c5077df758c0aad64eca0f2ef",
+      "bytes": 1766
+    },
+    "png-fixture-metadata.json": {
+      "sha256": "250b7265152c26d48e370cd3a4c2b3c83a8ab3f306e1773645030c60779ea820",
+      "bytes": 149
+    },
+    "jsonb-proof.log": {
+      "sha256": "cc18319a7bc05e9edfec1dfcdb66ad95135f66a47a0966e102a8fc5f6b64dc91",
+      "bytes": 103
+    },
+    "protocol.cjs": {
+      "sha256": "2b9d5f282159f5c29d4ff883ca6a58659daf2b3b336bc1385be2006d75f1722f",
+      "bytes": 302586
+    },
+    "metadata-controls.cjs": {
+      "sha256": "1fb50996d2a6b2351339354892a1106b1f547a44b6e8da6c67e187544539f899",
+      "bytes": 3568
+    },
+    "handler.cjs": {
+      "sha256": "22c8724a10d81c8361a36e36e8a418be27de4b4c724cd303578bce10448860f0",
+      "bytes": 3240
+    },
+    "hosted-jsonb.log": {
+      "sha256": "a188e94e547e6508f6b0ea0cede6e0257a49752c91c774b0a7ff0a5f55838ab2",
+      "bytes": 57
+    },
+    "before-c7-jsonb-result.json": {
+      "sha256": "fe0c92db057f98111aeb3f0771a46866f26a19dd37a4f4b83bf85eba87f1c40c",
+      "bytes": 910
+    },
+    "conflict-roundtrip-result.json": {
+      "sha256": "7d2870aaf0dd190e2146597207e456c821116547f88e2bc4f7b396d273cf9cd9",
+      "bytes": 1159
+    },
+    "kernel-result.json": {
+      "sha256": "88ad4b625fc9056b1eb25b9aeb31e7862aa6c88909c9906202f4ea485819c96f",
+      "bytes": 934
+    },
+    "initdb.log": {
+      "sha256": "ef782002db421d9853efafe28cc7bf1b822bc7793e0b7a2f4c5ef34981256b52",
+      "bytes": 942
+    },
+    "jsonb-proof.json": {
+      "sha256": "b1512a2689c5dabebf468af9be383f2dfd9ac49d3e7158eef9a9813e8459a5d8",
+      "bytes": 1774
+    },
+    "before-c7.cjs": {
+      "sha256": "f3472570106631812c87fb11caf785af8dc2999178bfe99eb5faeee5d575bd73",
+      "bytes": 14136
+    },
+    "before-c7.log": {
+      "sha256": "dd798b66557636bde7e0c937a5b2711723b6ee1b04b80bead478f09a83a2a0af",
+      "bytes": 56
+    },
+    "handler.log": {
+      "sha256": "b10d5a89c4d4e9871bbe43b1fad3a2b181401d32c17ed947905df734692a5f16",
+      "bytes": 75
+    },
+    "metadata.log": {
+      "sha256": "4984f0341dcc57b9f965bec5a06eab5d1f813ade330279582fc990aa34f0be0a",
+      "bytes": 38
+    },
+    "kernel.log": {
+      "sha256": "378e2305bc05049ddb554dc83b57fd79ac57f5f29a58be019311dbf44d556583",
+      "bytes": 666
+    },
+    "conflict-roundtrip-final.log": {
+      "sha256": "a51772bd4d2c5841928da662d8a319f8c6820955998b95fbf6ca54e83d16d18b",
+      "bytes": 724
+    },
+    "repository-controls.cjs": {
+      "sha256": "65c520b838462cf05dee303160eee6d50eb3895284860b6111ecb9525c744bff",
+      "bytes": 8925
+    },
+    "brain-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "hosted-jsonb.cjs": {
+      "sha256": "31c122d8a373752e67538f830d2501ebfe8eb58e4791180fcdb0ec9b369cb25b",
+      "bytes": 15138
+    }
+  },
+  "embeddedProbeSources": {
+    "hosted-jsonb.cjs": "const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),crypto=require('node:crypto');\nconst root='/workspace/LegionCode-R3-JSONB-REPAIR-20261114',dir='/tmp/r3-jsonb-repair-20261114';\nconst {Pool}=require(root+'/node_modules/.pnpm/pg@8.20.0/node_modules/pg'); const pool=new Pool({host:dir+'/socket',port:55473,user:'agent',database:'postgres',max:6});\nfunction sqlClient(lose=false){return {query:(s,p)=>pool.query(s,p),async transaction(fn){const c=await pool.connect();try{await c.query('BEGIN');const out=await fn({query:(s,p)=>c.query(s,p)});await c.query('COMMIT');if(lose)throw Error('injected durable COMMIT ACK loss');return out;}catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;}finally{c.release();}}};}\nconst ts=require(root+'/node_modules/typescript/lib/typescript.js'),P=require(dir+'/protocol.cjs'),Repo=require(dir+'/repository.cjs'),Media=require(dir+'/media-validation.cjs');\nfunction load(source,mocks){const module={exports:{}};vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module,exports:module.exports,require(n){if(n in mocks)return mocks[n];throw Error('unmocked '+n);},crypto:crypto.webcrypto,TextEncoder,Response,Request,URL,console});return module.exports;}\nconst domain=load(fs.readFileSync(root+'/apps/brain/src/domain/errors.ts','utf8'),{});\nconst delegated=load(fs.readFileSync(root+'/apps/brain/src/runtime/DelegatedRunExecution.ts','utf8'),{'@repo/runtime-kernel':{},'@repo/platform-protocol':P,'../domain/errors':domain});\nconst serverSource=fs.readFileSync(root+'/packages/app-server/src/server.ts','utf8');\nconst server=load(serverSource.slice(serverSource.indexOf('export class AppServerOperationError'),serverSource.indexOf('/** Preserves the existing provider error contract')),{});\nconst id={userId:'11111111-1111-4111-8111-111111111111',workspaceId:'22222222-2222-4222-8222-222222222222',sessionId:'33333333-3333-4333-8333-333333333333',threadId:'thr_'+ 'a'.repeat(24),turnId:'trn_'+'b'.repeat(24),runAttemptId:'attempt_'+'c'.repeat(24),runId:'run_'+'d'.repeat(24)};\nconst sha=x=>crypto.createHash('sha256').update(x).digest('hex');let cases=0;\n// Actual shared delegated registration callback, with canonical acceptance/control spies.\nconst source=fs.readFileSync(root+'/apps/brain/src/runtime/DelegatedRunExecution.ts','utf8');\nconst callback=source.slice(source.indexOf('  input.threadInputs.register(turnId,'),source.indexOf('  prepared.checkoutLifecycle.beginRuntimeExecution'));\nlet accept,accepted=0,last;const sentinel=new Error('storage/control unknown');\nconst context={input:{threadInputs:{register(t,fn){assert.equal(t,id.turnId);accept=fn;}}},turnId:id.turnId,kernel:{acceptThreadInput(x){accepted++;last=x;return Promise.resolve(7);}},...delegated};\nvm.runInNewContext(ts.transpileModule(callback,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,context);\nconst base={turnId:id.turnId,inputId:'44444444-4444-4444-8444-444444444444',clientInputId:'client1',transcriptMessageId:'transcript1'};\n(async()=>{\nfor(const content of ['  alpha\\n beta  ',[{type:'text',text:'  alpha\\n'},{type:'text',text:' beta  '}]]){const n=accepted;assert.equal(await accept({...base,message:{role:'user',content}}),7);assert.equal(accepted,n+1);assert.equal(last.accepted.message.content,'  alpha\\n beta  ');assert.equal(last.accepted.inputId,base.inputId);assert.equal(last.clientInputId,base.clientInputId);assert.equal(last.transcriptMessageId,base.transcriptMessageId);cases++;}\nfor(const content of ['',[],[{type:'text',text:' \\n'}],[{type:'image',image:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=='}],[{type:'text',text:'yes'},{type:'image',image:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=='}]]){const n=accepted;assert.throws(()=>accept({...base,message:{role:'user',content}}),delegated.DelegatedThreadInputPreacceptError);assert.equal(accepted,n);cases++;}\ncontext.kernel.acceptThreadInput=()=>Promise.reject(sentinel);await assert.rejects(accept({...base,message:{role:'user',content:'valid'}}),e=>e===sentinel);cases++;\nasync function hosted(mode){const counts={lookup:0,enqueue:0,claim:0,models:0,media:0,rpc:0,receipt:0};\nconst image={dataUrl:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==',name:'image.png',mediaType:'image/png'};\nif(mode.includes('controlname'))image.name='im\\u0000age.png';if(mode.includes('spacesname'))image.name='  image.png  ';\nconst queued=mode.startsWith('queued');const invalid=mode.includes('image')||mode.includes('invalid');\nconst command=queued?{operation:'thread.input.steer',threadId:id.threadId,workspaceId:id.workspaceId,itemId:base.inputId,expectedVersion:1,expectedTurnId:id.turnId,expectedRunAttemptId:id.runAttemptId}:{operation:'turn.steer',threadId:id.threadId,workspaceId:id.workspaceId,clientInputId:'client1',expectedTurnId:id.turnId,expectedRunAttemptId:id.runAttemptId,content:{text:mode.includes('blank')?'  ':'text',images:invalid?(mode.includes('multi')?[image,{...image,dataUrl:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNg+M/wHwAEAQH/cetH5QAAAABJRU5ErkJggg==',name:'second.png'}]:[image]):[]}};\nlet item={itemId:base.inputId,clientInputId:'client1',order:0,version:1,state:mode.includes('consuming')?'consuming':'pending',delivery:queued&&!mode.includes('consuming')?'queue':'steer',targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId,text:mode.includes('blank')?'  ':'text',mediaRefs:(queued||mode.startsWith('prior'))&&invalid?[{type:'image_attachment',attachmentId:'in_'+sha('client1:0:'+image.dataUrl).slice(0,32),name:Media.normalizeAttachmentName(image.name),mediaType:'image/png',byteSize:70}]:[],configuration:{},receipt:null};\nif(invalid&&mode.includes('multi'))item.mediaRefs.push(P.ChatImageAttachmentRefSchema.parse({type:'image_attachment',attachmentId:'in_'+sha('client1:1:data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNg+M/wHwAEAQH/cetH5QAAAABJRU5ErkJggg==').slice(0,32),name:'second.png',mediaType:'image/png',byteSize:70}));item.mediaRefs=item.mediaRefs.map(ref=>P.ChatImageAttachmentRefSchema.parse(ref));\nitem.fingerprint=sha(JSON.stringify({operation:'turn.steer',text:item.text,mediaRefs:item.mediaRefs,targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId}));\nif(mode.includes('accepted'))item.receipt={status:'accepted',clientInputId:'client1',inputId:item.itemId,targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId,acceptedSequence:7};\nif(mode.includes('applied'))item.receipt={status:'applied',inputId:item.itemId,targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId,acceptedSequence:7,appliedSequence:8,modelStep:1,contextRevision:1};\nif(mode.includes('unconfirmed'))item.receipt={status:'unconfirmed',inputId:item.itemId,targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId,acceptedSequence:7,terminalSequence:8};\nif(mode.includes('conflict')){item.receipt={status:'conflict',code:mode.includes('superseded')?'target_superseded':'turn_not_active',message:'Original canonical conflict'};item.state='cancelled';}\nif(mode.includes('altered'))command.content.text='changed';\nif(mode.includes('changedimage'))image.dataUrl='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYPj/HwADAgH/5ncLrgAAAABJRU5ErkJggg==';\nif(mode.includes('swapimages'))command.content.images.reverse();if(mode.includes('changedname'))command.content.images[0].name='changed.png';if(mode.includes('changedtype'))command.content.images[0].mediaType='image/jpeg';\nif(mode.includes('target'))command.expectedTurnId='trn_'+'e'.repeat(24);\nawait pool.query('TRUNCATE thread_inputs,thread_input_state');\nconst real=new Repo.PostgresThreadInputRepository(sqlClient());\nconst lost=new Repo.PostgresThreadInputRepository(sqlClient(true));\nif(queued||mode.startsWith('prior')){\n const seeded=await real.enqueue({...id,delivery:item.delivery,targetTurnId:item.targetTurnId,targetRunAttemptId:item.targetRunAttemptId,clientInputId:item.clientInputId,fingerprint:item.fingerprint,text:item.text,mediaRefs:item.mediaRefs,configuration:item.configuration});\n await pool.query('UPDATE thread_inputs SET state=$2,receipt_json=$3::jsonb WHERE id=$1',[seeded.item.itemId,item.state,item.receipt?JSON.stringify(item.receipt.status==='conflict'?item.receipt:{...item.receipt,inputId:seeded.item.itemId}):null]);\n if(mode.includes('tamperbytesize'))await pool.query(\"UPDATE thread_inputs SET content_json=jsonb_set(content_json,'{mediaRefs,0,byteSize}','4'::jsonb) WHERE id=$1\",[seeded.item.itemId]);\n item=await real.getByClientInputId({...id,clientInputId:item.clientInputId});\n if(queued)command.itemId=item.itemId;\n}\nconst repo={async getByClientInputId(x){counts.lookup++;if(mode.includes('lookupfail'))throw sentinel;return real.getByClientInputId(x);},async getById(x){return real.getById(x);},async enqueue(x){counts.enqueue++;if(mode.includes('enqueueconflict'))throw new Repo.ThreadInputConflictError('changed','client_input_conflict');if(mode.includes('duplicate'))await real.enqueue(x);const out=await(mode.includes('enqueueunknown')?lost:real).enqueue(x);item=out.item;return out;},async claimForSteering(x){counts.claim++;if(mode.includes('claimconflict'))throw new Repo.ThreadInputConflictError('changed','queue_item_changed');return (mode.includes('claimunknown')?lost:real).claimForSteering(x);},async recordReceipt(x){counts.receipt++;return real.recordReceipt(x);}};\nconst mocks={'../../runtime/DelegatedRunExecution':delegated,'@repo/chat-media/validation':Media,'@repo/platform-protocol':P,'@repo/shared-types':P,'@repo/persistence':Repo,'@legioncode/app-server/server':server,'../../domain/errors':domain,\n '../../services/chat/ChatMediaStore':{ChatMediaStore:class{async putImage(){counts.media++;throw Error('media forbidden');}}},'../../services/chat/ChatImageSettings':{resolveChatImageSettings(){}},'../../services/chat/ChatImageModelPolicy':{assertChatImageModelSupport(){}},'../../services/chat/ChatModelMetadataResolution':{async resolveChatModelMetadata(){counts.models++;return {}; }},\n '../../services/runs/RunPersistenceFactory':{withRunRepository:async(e,fn)=>fn({getRun:async()=>({})})},'../../services/sessions/TranscriptPersistenceFactory':{withTranscriptRepository:async(e,fn)=>fn({listSessions:async()=>({sessions:[{id:id.sessionId,threadId:id.threadId,workspaceId:id.workspaceId}]})})},'../../services/thread-inputs/ThreadInputPersistenceFactory':{withThreadInputRepository:async(e,fn)=>fn(repo)},'../../services/thread-inputs/ThreadInputCommandService':{},'../../services/turn-admissions/TurnAdmissionPersistenceFactory':{withTurnAdmissionRepository:async(e,fn)=>fn({getByTurnId:async()=>({...id,state:'admitted',harnessSelection:mode.includes('native')?null:{selection:{harness:'codex'}}})})},'../../services/turn-admissions/ResumeTurnService':{ResumeTurnError:class extends Error{}},\n '../../controllers/chat-runtime-helpers':{resolveExecutionScope:async()=>id,fetchRunProviderModels:async()=>{counts.models++;throw Error('model forbidden');},fetchRunRuntimeRoute:async()=>{counts.rpc++;if(mode.includes('transport'))throw sentinel;if(mode.includes('runtime409'))return Response.json({code:'turn_not_active',error:'not active'},{status:409});if(mode.includes('runtime400'))return Response.json({code:delegated.DelegatedThreadInputPreacceptError.code},{status:400});return Response.json({acceptedSequence:7});}}\n};\nif(invalid)Object.assign(command,P.ThreadInputCommandSchema.parse(command));const beforeRows=await pool.query('SELECT id,fingerprint,content_json,receipt_json,state,version FROM thread_inputs ORDER BY id');\nconst hosted=load(fs.readFileSync(root+'/apps/brain/src/integration/app-server/HostedThreadInputOperations.ts','utf8'),mocks);\ntry{const out=await hosted.composeHostedThreadInputOperations(new Request('http://fixture'),{},id.userId).execute(command);const afterRows=await pool.query('SELECT id,fingerprint,content_json,receipt_json,state,version FROM thread_inputs ORDER BY id');if(mode.startsWith('prior'))assert.deepEqual(afterRows.rows,beforeRows.rows);return {status:out.statusCode,result:out.result,counts,storedRowsUnchanged:mode.startsWith('prior')};}catch(e){const afterRows=await pool.query('SELECT id,fingerprint,content_json,receipt_json,state,version FROM thread_inputs ORDER BY id');if(mode.startsWith('prior'))assert.deepEqual(afterRows.rows,beforeRows.rows);return {status:e.statusCode,code:e.code,counts,storedRowsUnchanged:mode.startsWith('prior')};}}\nconst expected={\n 'direct-image':400,'queued-image':400,'direct-blank':400,'queued-blank':400,'prior-blank':503,'prior-accepted-blank':200,'queued-consuming-image':503,'prior-consuming':503,\n 'prior-accepted':200,'prior-altered-accepted':409,'prior-accepted-image':200,'prior-accepted-image-controlname':200,'prior-accepted-image-changedimage':409,'prior-applied':200,'prior-unconfirmed':200,'prior-target-accepted':409,'direct-lookupfail':503,'direct-transport':503,'queued-transport':503,'direct-runtime400':503,'queued-runtime400':503,'direct-duplicate':503,'direct-enqueueunknown':503,'direct-enqueueconflict':409,'queued-claimunknown':503,'queued-claimconflict':409,'direct-runtime409':409,'queued-runtime409':409,'native-runtime409':409,'queued-native-runtime409':409,\n 'prior-accepted-image-spacesname':200,'prior-accepted-image-multi':200,'prior-accepted-image-multi-swapimages':409,'prior-applied-image':200,'prior-unconfirmed-image':200,'prior-conflict-image':409,'prior-conflict-superseded-image':409,'prior-image':503,'prior-consuming-image':503,'prior-accepted-image-changedname':409,'prior-accepted-image-changedtype':409,'prior-accepted-image-tamperbytesize':409\n};const outcomes={};for(const [mode,status]of Object.entries(expected)){const out=await hosted(mode);assert.equal(out.status,status,mode+JSON.stringify(out));if(mode.startsWith('prior')){assert.equal(out.counts.enqueue+out.counts.claim+out.counts.models+out.counts.media+out.counts.rpc+out.counts.receipt,0,mode);}\n if(['direct-image','queued-image','direct-blank','queued-blank'].includes(mode))assert.equal(out.counts.enqueue+out.counts.claim+out.counts.models+out.counts.media+out.counts.rpc,0,mode);\n if(mode.includes('conflict')&&mode.startsWith('prior'))assert.equal(out.result.message,'Original canonical conflict');outcomes[mode]=out;}\n await pool.end();fs.writeFileSync(dir+'/hosted-jsonb-result.json',JSON.stringify({ingressCases:cases,hostedCases:Object.keys(outcomes).length,outcomes,scope:'Actual Hosted and delegated ingress; actual PostgreSQL15.8+repository and JSONB nested mediaRef roundtrip. Existing receipt/status rows are fixtures, not newly produced native Applied evidence; runtime/admission/native ports explicit fixtures.'},null,2)+'\\n');console.log('ingress '+cases+' + hosted '+Object.keys(outcomes).length+' actual-source REALPG controls PASS');\n})().catch(async e=>{console.error(e.stack);await pool.end();process.exitCode=1});\n",
+    "before-c7.cjs": "const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),crypto=require('node:crypto');\nconst root='/workspace/LegionCode-R3-JSONB-REPAIR-20261114',dir='/tmp/r3-jsonb-repair-20261114';\nconst {Pool}=require(root+'/node_modules/.pnpm/pg@8.20.0/node_modules/pg'); const pool=new Pool({host:dir+'/socket',port:55473,user:'agent',database:'postgres',max:6});\nfunction sqlClient(lose=false){return {query:(s,p)=>pool.query(s,p),async transaction(fn){const c=await pool.connect();try{await c.query('BEGIN');const out=await fn({query:(s,p)=>c.query(s,p)});await c.query('COMMIT');if(lose)throw Error('injected durable COMMIT ACK loss');return out;}catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;}finally{c.release();}}};}\nconst ts=require(root+'/node_modules/typescript/lib/typescript.js'),P=require(dir+'/protocol.cjs'),Repo=require(dir+'/repository.cjs'),Media=require(dir+'/media-validation.cjs');\nfunction load(source,mocks){const module={exports:{}};vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module,exports:module.exports,require(n){if(n in mocks)return mocks[n];throw Error('unmocked '+n);},crypto:crypto.webcrypto,TextEncoder,Response,Request,URL,console});return module.exports;}\nconst domain=load(fs.readFileSync(root+'/apps/brain/src/domain/errors.ts','utf8'),{});\nconst delegated=load(fs.readFileSync(root+'/apps/brain/src/runtime/DelegatedRunExecution.ts','utf8'),{'@repo/runtime-kernel':{},'@repo/platform-protocol':P,'../domain/errors':domain});\nconst serverSource=fs.readFileSync(root+'/packages/app-server/src/server.ts','utf8');\nconst server=load(serverSource.slice(serverSource.indexOf('export class AppServerOperationError'),serverSource.indexOf('/** Preserves the existing provider error contract')),{});\nconst id={userId:'11111111-1111-4111-8111-111111111111',workspaceId:'22222222-2222-4222-8222-222222222222',sessionId:'33333333-3333-4333-8333-333333333333',threadId:'thr_'+ 'a'.repeat(24),turnId:'trn_'+'b'.repeat(24),runAttemptId:'attempt_'+'c'.repeat(24),runId:'run_'+'d'.repeat(24)};\nconst sha=x=>crypto.createHash('sha256').update(x).digest('hex');let cases=0;\n// Actual shared delegated registration callback, with canonical acceptance/control spies.\nconst source=fs.readFileSync(root+'/apps/brain/src/runtime/DelegatedRunExecution.ts','utf8');\nconst callback=source.slice(source.indexOf('  input.threadInputs.register(turnId,'),source.indexOf('  prepared.checkoutLifecycle.beginRuntimeExecution'));\nlet accept,accepted=0,last;const sentinel=new Error('storage/control unknown');\nconst context={input:{threadInputs:{register(t,fn){assert.equal(t,id.turnId);accept=fn;}}},turnId:id.turnId,kernel:{acceptThreadInput(x){accepted++;last=x;return Promise.resolve(7);}},...delegated};\nvm.runInNewContext(ts.transpileModule(callback,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,context);\nconst base={turnId:id.turnId,inputId:'44444444-4444-4444-8444-444444444444',clientInputId:'client1',transcriptMessageId:'transcript1'};\n(async()=>{\nfor(const content of ['  alpha\\n beta  ',[{type:'text',text:'  alpha\\n'},{type:'text',text:' beta  '}]]){const n=accepted;assert.equal(await accept({...base,message:{role:'user',content}}),7);assert.equal(accepted,n+1);assert.equal(last.accepted.message.content,'  alpha\\n beta  ');assert.equal(last.accepted.inputId,base.inputId);assert.equal(last.clientInputId,base.clientInputId);assert.equal(last.transcriptMessageId,base.transcriptMessageId);cases++;}\nfor(const content of ['',[],[{type:'text',text:' \\n'}],[{type:'image',image:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=='}],[{type:'text',text:'yes'},{type:'image',image:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=='}]]){const n=accepted;assert.throws(()=>accept({...base,message:{role:'user',content}}),delegated.DelegatedThreadInputPreacceptError);assert.equal(accepted,n);cases++;}\ncontext.kernel.acceptThreadInput=()=>Promise.reject(sentinel);await assert.rejects(accept({...base,message:{role:'user',content:'valid'}}),e=>e===sentinel);cases++;\nasync function hosted(mode){const counts={lookup:0,enqueue:0,claim:0,models:0,media:0,rpc:0,receipt:0};\nconst image={dataUrl:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==',name:'image.png',mediaType:'image/png'};\nif(mode.includes('controlname'))image.name='im\\u0000age.png';if(mode.includes('spacesname'))image.name='  image.png  ';\nconst queued=mode.startsWith('queued');const invalid=mode.includes('image')||mode.includes('invalid');\nconst command=queued?{operation:'thread.input.steer',threadId:id.threadId,workspaceId:id.workspaceId,itemId:base.inputId,expectedVersion:1,expectedTurnId:id.turnId,expectedRunAttemptId:id.runAttemptId}:{operation:'turn.steer',threadId:id.threadId,workspaceId:id.workspaceId,clientInputId:'client1',expectedTurnId:id.turnId,expectedRunAttemptId:id.runAttemptId,content:{text:mode.includes('blank')?'  ':'text',images:invalid?(mode.includes('multi')?[image,{...image,dataUrl:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNg+M/wHwAEAQH/cetH5QAAAABJRU5ErkJggg==',name:'second.png'}]:[image]):[]}};\nlet item={itemId:base.inputId,clientInputId:'client1',order:0,version:1,state:mode.includes('consuming')?'consuming':'pending',delivery:queued&&!mode.includes('consuming')?'queue':'steer',targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId,text:mode.includes('blank')?'  ':'text',mediaRefs:(queued||mode.startsWith('prior'))&&invalid?[{type:'image_attachment',attachmentId:'in_'+sha('client1:0:'+image.dataUrl).slice(0,32),name:Media.normalizeAttachmentName(image.name),mediaType:'image/png',byteSize:70}]:[],configuration:{},receipt:null};\nif(invalid&&mode.includes('multi'))item.mediaRefs.push(P.ChatImageAttachmentRefSchema.parse({type:'image_attachment',attachmentId:'in_'+sha('client1:1:data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNg+M/wHwAEAQH/cetH5QAAAABJRU5ErkJggg==').slice(0,32),name:'second.png',mediaType:'image/png',byteSize:70}));item.mediaRefs=item.mediaRefs.map(ref=>P.ChatImageAttachmentRefSchema.parse(ref));\nitem.fingerprint=sha(JSON.stringify({operation:'turn.steer',text:item.text,mediaRefs:item.mediaRefs,targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId}));\nif(mode.includes('accepted'))item.receipt={status:'accepted',clientInputId:'client1',inputId:item.itemId,targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId,acceptedSequence:7};\nif(mode.includes('applied'))item.receipt={status:'applied',inputId:item.itemId,targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId,acceptedSequence:7,appliedSequence:8,modelStep:1,contextRevision:1};\nif(mode.includes('unconfirmed'))item.receipt={status:'unconfirmed',inputId:item.itemId,targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId,acceptedSequence:7,terminalSequence:8};\nif(mode.includes('conflict')){item.receipt={status:'conflict',code:mode.includes('superseded')?'target_superseded':'turn_not_active',message:'Original canonical conflict'};item.state='cancelled';}\nif(mode.includes('altered'))command.content.text='changed';\nif(mode.includes('changedimage'))image.dataUrl='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYPj/HwADAgH/5ncLrgAAAABJRU5ErkJggg==';\nif(mode.includes('swapimages'))command.content.images.reverse();if(mode.includes('changedname'))command.content.images[0].name='changed.png';if(mode.includes('changedtype'))command.content.images[0].mediaType='image/jpeg';\nif(mode.includes('target'))command.expectedTurnId='trn_'+'e'.repeat(24);\nawait pool.query('TRUNCATE thread_inputs,thread_input_state');\nconst real=new Repo.PostgresThreadInputRepository(sqlClient());\nconst lost=new Repo.PostgresThreadInputRepository(sqlClient(true));\nif(queued||mode.startsWith('prior')){\n const seeded=await real.enqueue({...id,delivery:item.delivery,targetTurnId:item.targetTurnId,targetRunAttemptId:item.targetRunAttemptId,clientInputId:item.clientInputId,fingerprint:item.fingerprint,text:item.text,mediaRefs:item.mediaRefs,configuration:item.configuration});\n await pool.query('UPDATE thread_inputs SET state=$2,receipt_json=$3::jsonb WHERE id=$1',[seeded.item.itemId,item.state,item.receipt?JSON.stringify(item.receipt.status==='conflict'?item.receipt:{...item.receipt,inputId:seeded.item.itemId}):null]);\n if(mode.includes('tamperbytesize'))await pool.query(\"UPDATE thread_inputs SET content_json=jsonb_set(content_json,'{mediaRefs,0,byteSize}','4'::jsonb) WHERE id=$1\",[seeded.item.itemId]);\n item=await real.getByClientInputId({...id,clientInputId:item.clientInputId});\n if(queued)command.itemId=item.itemId;\n}\nconst repo={async getByClientInputId(x){counts.lookup++;if(mode.includes('lookupfail'))throw sentinel;return real.getByClientInputId(x);},async getById(x){return real.getById(x);},async enqueue(x){counts.enqueue++;if(mode.includes('enqueueconflict'))throw new Repo.ThreadInputConflictError('changed','client_input_conflict');if(mode.includes('duplicate'))await real.enqueue(x);const out=await(mode.includes('enqueueunknown')?lost:real).enqueue(x);item=out.item;return out;},async claimForSteering(x){counts.claim++;if(mode.includes('claimconflict'))throw new Repo.ThreadInputConflictError('changed','queue_item_changed');return (mode.includes('claimunknown')?lost:real).claimForSteering(x);},async recordReceipt(x){counts.receipt++;return real.recordReceipt(x);}};\nconst mocks={'../../runtime/DelegatedRunExecution':delegated,'@repo/chat-media/validation':Media,'@repo/platform-protocol':P,'@repo/shared-types':P,'@repo/persistence':Repo,'@legioncode/app-server/server':server,'../../domain/errors':domain,\n '../../services/chat/ChatMediaStore':{ChatMediaStore:class{async putImage(){counts.media++;throw Error('media forbidden');}}},'../../services/chat/ChatImageSettings':{resolveChatImageSettings(){}},'../../services/chat/ChatImageModelPolicy':{assertChatImageModelSupport(){}},'../../services/chat/ChatModelMetadataResolution':{async resolveChatModelMetadata(){counts.models++;return {}; }},\n '../../services/runs/RunPersistenceFactory':{withRunRepository:async(e,fn)=>fn({getRun:async()=>({})})},'../../services/sessions/TranscriptPersistenceFactory':{withTranscriptRepository:async(e,fn)=>fn({listSessions:async()=>({sessions:[{id:id.sessionId,threadId:id.threadId,workspaceId:id.workspaceId}]})})},'../../services/thread-inputs/ThreadInputPersistenceFactory':{withThreadInputRepository:async(e,fn)=>fn(repo)},'../../services/thread-inputs/ThreadInputCommandService':{},'../../services/turn-admissions/TurnAdmissionPersistenceFactory':{withTurnAdmissionRepository:async(e,fn)=>fn({getByTurnId:async()=>({...id,state:'admitted',harnessSelection:mode.includes('native')?null:{selection:{harness:'codex'}}})})},'../../services/turn-admissions/ResumeTurnService':{ResumeTurnError:class extends Error{}},\n '../../controllers/chat-runtime-helpers':{resolveExecutionScope:async()=>id,fetchRunProviderModels:async()=>{counts.models++;throw Error('model forbidden');},fetchRunRuntimeRoute:async()=>{counts.rpc++;if(mode.includes('transport'))throw sentinel;if(mode.includes('runtime409'))return Response.json({code:'turn_not_active',error:'not active'},{status:409});if(mode.includes('runtime400'))return Response.json({code:delegated.DelegatedThreadInputPreacceptError.code},{status:400});return Response.json({acceptedSequence:7});}}\n};\nif(invalid)Object.assign(command,P.ThreadInputCommandSchema.parse(command));const beforeRows=await pool.query('SELECT id,fingerprint,content_json,receipt_json,state,version FROM thread_inputs ORDER BY id');\nconst hosted=load(require('child_process').execFileSync('git',['show','c7ad58f8eae80a2e5817ccdb4f8689cd48557f94:apps/brain/src/integration/app-server/HostedThreadInputOperations.ts'],{cwd:root,encoding:'utf8'}),mocks);\ntry{const out=await hosted.composeHostedThreadInputOperations(new Request('http://fixture'),{},id.userId).execute(command);const afterRows=await pool.query('SELECT id,fingerprint,content_json,receipt_json,state,version FROM thread_inputs ORDER BY id');if(mode.startsWith('prior'))assert.deepEqual(afterRows.rows,beforeRows.rows);return {status:out.statusCode,result:out.result,counts,storedRowsUnchanged:mode.startsWith('prior')};}catch(e){const afterRows=await pool.query('SELECT id,fingerprint,content_json,receipt_json,state,version FROM thread_inputs ORDER BY id');if(mode.startsWith('prior'))assert.deepEqual(afterRows.rows,beforeRows.rows);return {status:e.statusCode,code:e.code,counts,storedRowsUnchanged:mode.startsWith('prior')};}}\nconst expected={'prior-accepted-image':409,'prior-accepted-image-controlname':409};const outcomes={};for(const [mode,status]of Object.entries(expected)){const out=await hosted(mode);assert.equal(out.status,status,mode+JSON.stringify(out));if(mode.startsWith('prior')){assert.equal(out.counts.enqueue+out.counts.claim+out.counts.models+out.counts.media+out.counts.rpc+out.counts.receipt,0,mode);}\n if(['direct-image','queued-image','direct-blank','queued-blank'].includes(mode))assert.equal(out.counts.enqueue+out.counts.claim+out.counts.models+out.counts.media+out.counts.rpc,0,mode);\n if(mode.includes('conflict')&&mode.startsWith('prior'))assert.equal(out.result.message,'Original canonical conflict');outcomes[mode]=out;}\n await pool.end();fs.writeFileSync(dir+'/before-c7-jsonb-result.json',JSON.stringify({ingressCases:cases,hostedCases:Object.keys(outcomes).length,outcomes,scope:'Actual Hosted and delegated ingress; actual PostgreSQL15.8+repository and JSONB nested mediaRef roundtrip. Existing receipt/status rows are fixtures, not newly produced native Applied evidence; runtime/admission/native ports explicit fixtures.'},null,2)+'\\n');console.log('ingress '+cases+' + hosted '+Object.keys(outcomes).length+' actual-source REALPG controls PASS');\n})().catch(async e=>{console.error(e.stack);await pool.end();process.exitCode=1});\n",
+    "jsonb-proof.cjs": "const fs=require('fs'),crypto=require('crypto'),assert=require('assert/strict');const root='/workspace/LegionCode-R3-JSONB-REPAIR-20261114',dir='/tmp/r3-jsonb-repair-20261114';const {Client}=require(root+'/node_modules/.pnpm/pg@8.20.0/node_modules/pg');const P=require(dir+'/protocol.cjs');const c=new Client({host:dir+'/socket',port:55473,user:'agent',database:'postgres'});const sha=s=>crypto.createHash('sha256').update(s).digest('hex');\n(async()=>{await c.connect();const original=P.ChatImageAttachmentRefSchema.parse({type:'image_attachment',attachmentId:'in_0123456789abcdef0123456789abcdef',name:'image.png',mediaType:'image/png',byteSize:3});const payload={operation:'turn.steer',text:'text',mediaRefs:[original],targetTurnId:'trn_'+'b'.repeat(24),targetRunAttemptId:'attempt_'+'c'.repeat(24)};const before=JSON.stringify(payload);const stored=(await c.query('SELECT $1::jsonb AS content',[JSON.stringify({mediaRefs:[original]})])).rows[0].content.mediaRefs;const after=JSON.stringify({...payload,mediaRefs:stored});const canonical=JSON.stringify({...payload,mediaRefs:stored.map(x=>P.ChatImageAttachmentRefSchema.parse(x))});assert.notEqual(before,after);assert.notEqual(sha(before),sha(after));assert.equal(before,canonical);const out={postgresVersion:(await c.query('SHOW server_version')).rows[0].server_version,query:'SELECT $1::jsonb AS content',originalKeys:Object.keys(original),storedKeys:Object.keys(stored[0]),originalSerialization:before,storedSerialization:after,canonicalSerialization:canonical,originalFingerprint:sha(before),storedOrderFingerprint:sha(after),reparsedFingerprint:sha(canonical),conclusion:'JSONB key ordering changes fingerprint; existing canonical ref schema projection restores original persistImages order.'};fs.writeFileSync(dir+'/jsonb-proof.json',JSON.stringify(out,null,2)+'\\n');console.log('Real PostgreSQL JSONB key-order/fingerprint divergence reproduced; schema projection restoresexacthash');await c.end();})().catch(async e=>{console.error(e.stack);await c.end();process.exitCode=1});\n",
+    "conflict-roundtrip.cjs": "const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),crypto=require('node:crypto');\nconst root='/workspace/LegionCode-R3-JSONB-REPAIR-20261114',dir='/tmp/r3-jsonb-repair-20261114';\nconst {Pool}=require(root+'/node_modules/.pnpm/pg@8.20.0/node_modules/pg'); const pool=new Pool({host:dir+'/socket',port:55473,user:'agent',database:'postgres',max:6});\nfunction sqlClient(lose=false){return {query:(s,p)=>pool.query(s,p),async transaction(fn){const c=await pool.connect();try{await c.query('BEGIN');const out=await fn({query:(s,p)=>c.query(s,p)});await c.query('COMMIT');if(lose)throw Error('injected durable COMMIT ACK loss');return out;}catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;}finally{c.release();}}};}\nconst ts=require(root+'/node_modules/typescript/lib/typescript.js'),P=require(dir+'/protocol.cjs'),Repo=require(dir+'/repository.cjs'),Media=require(dir+'/media-validation.cjs');\nfunction load(source,mocks){const module={exports:{}};vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module,exports:module.exports,require(n){if(n in mocks)return mocks[n];throw Error('unmocked '+n);},crypto:crypto.webcrypto,TextEncoder,Response,Request,URL,console});return module.exports;}\nconst domain=load(fs.readFileSync(root+'/apps/brain/src/domain/errors.ts','utf8'),{});\nconst delegated=load(fs.readFileSync(root+'/apps/brain/src/runtime/DelegatedRunExecution.ts','utf8'),{'@repo/runtime-kernel':{},'@repo/platform-protocol':P,'../domain/errors':domain});\nconst serverSource=fs.readFileSync(root+'/packages/app-server/src/server.ts','utf8');\nconst server=load(serverSource.slice(serverSource.indexOf('export class AppServerOperationError'),serverSource.indexOf('/** Preserves the existing provider error contract')),{});\nconst id={userId:'11111111-1111-4111-8111-111111111111',workspaceId:'22222222-2222-4222-8222-222222222222',sessionId:'33333333-3333-4333-8333-333333333333',threadId:'thr_'+ 'a'.repeat(24),turnId:'trn_'+'b'.repeat(24),runAttemptId:'attempt_'+'c'.repeat(24),runId:'run_'+'d'.repeat(24)};\nconst sha=x=>crypto.createHash('sha256').update(x).digest('hex');let cases=0;\n// Actual shared delegated registration callback, with canonical acceptance/control spies.\nconst source=fs.readFileSync(root+'/apps/brain/src/runtime/DelegatedRunExecution.ts','utf8');\nconst callback=source.slice(source.indexOf('  input.threadInputs.register(turnId,'),source.indexOf('  prepared.checkoutLifecycle.beginRuntimeExecution'));\nlet accept,accepted=0,last;const sentinel=new Error('storage/control unknown');\nconst context={input:{threadInputs:{register(t,fn){assert.equal(t,id.turnId);accept=fn;}}},turnId:id.turnId,kernel:{acceptThreadInput(x){accepted++;last=x;return Promise.resolve(7);}},...delegated};\nvm.runInNewContext(ts.transpileModule(callback,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,context);\nconst base={turnId:id.turnId,inputId:'44444444-4444-4444-8444-444444444444',clientInputId:'client1',transcriptMessageId:'transcript1'};\n(async()=>{\nfor(const content of ['  alpha\\n beta  ',[{type:'text',text:'  alpha\\n'},{type:'text',text:' beta  '}]]){const n=accepted;assert.equal(await accept({...base,message:{role:'user',content}}),7);assert.equal(accepted,n+1);assert.equal(last.accepted.message.content,'  alpha\\n beta  ');assert.equal(last.accepted.inputId,base.inputId);assert.equal(last.clientInputId,base.clientInputId);assert.equal(last.transcriptMessageId,base.transcriptMessageId);cases++;}\nfor(const content of ['',[],[{type:'text',text:' \\n'}],[{type:'image',image:'data:image/png;base64,AAAA'}],[{type:'text',text:'yes'},{type:'image',image:'data:image/png;base64,AAAA'}]]){const n=accepted;assert.throws(()=>accept({...base,message:{role:'user',content}}),delegated.DelegatedThreadInputPreacceptError);assert.equal(accepted,n);cases++;}\ncontext.kernel.acceptThreadInput=()=>Promise.reject(sentinel);await assert.rejects(accept({...base,message:{role:'user',content:'valid'}}),e=>e===sentinel);cases++;\nasync function hosted(mode){const counts={lookup:0,enqueue:0,claim:0,models:0,media:0,rpc:0,receipt:0};\nconst image={dataUrl:'data:image/png;base64,AAAA',name:'image.png',mediaType:'image/png'};\nif(mode.includes('controlname'))image.name='im\\u0000age.png';\nconst queued=mode.startsWith('queued');const invalid=mode.includes('image')||mode.includes('invalid');\nconst command=queued?{operation:'thread.input.steer',threadId:id.threadId,workspaceId:id.workspaceId,itemId:base.inputId,expectedVersion:1,expectedTurnId:id.turnId,expectedRunAttemptId:id.runAttemptId}:{operation:'turn.steer',threadId:id.threadId,workspaceId:id.workspaceId,clientInputId:'client1',expectedTurnId:id.turnId,expectedRunAttemptId:id.runAttemptId,content:{text:mode.includes('blank')?'  ':'text',images:invalid?[image]:[]}};\nlet item={itemId:base.inputId,clientInputId:'client1',order:0,version:1,state:mode.includes('consuming')?'consuming':'pending',delivery:queued&&!mode.includes('consuming')?'queue':'steer',targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId,text:mode.includes('blank')?'  ':'text',mediaRefs:(queued||mode.startsWith('prior'))&&invalid?[{type:'image_attachment',attachmentId:'in_'+sha('client1:0:'+image.dataUrl).slice(0,32),name:Media.normalizeAttachmentName(image.name),mediaType:'image/png',byteSize:3}]:[],configuration:{},receipt:null};\nitem.fingerprint=sha(JSON.stringify({operation:'turn.steer',text:item.text,mediaRefs:item.mediaRefs,targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId}));\nif(mode.includes('accepted'))item.receipt={status:'accepted',clientInputId:'client1',inputId:item.itemId,targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId,acceptedSequence:7};\nif(mode.includes('applied'))item.receipt={status:'applied',inputId:item.itemId,targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId,acceptedSequence:7,appliedSequence:8,modelStep:1,contextRevision:1};\nif(mode.includes('unconfirmed'))item.receipt={status:'unconfirmed',inputId:item.itemId,targetTurnId:id.turnId,targetRunAttemptId:id.runAttemptId,acceptedSequence:7,terminalSequence:8};\nif(mode.includes('altered'))command.content.text='changed';\nif(mode.includes('changedimage'))image.dataUrl='data:image/png;base64,BBBB';\nif(mode.includes('target'))command.expectedTurnId='trn_'+'e'.repeat(24);\nawait pool.query('TRUNCATE thread_inputs,thread_input_state');\nconst real=new Repo.PostgresThreadInputRepository(sqlClient());\nconst lost=new Repo.PostgresThreadInputRepository(sqlClient(true));\nif(queued||mode.startsWith('prior')){\n const seeded=await real.enqueue({...id,delivery:item.delivery,targetTurnId:item.targetTurnId,targetRunAttemptId:item.targetRunAttemptId,clientInputId:item.clientInputId,fingerprint:item.fingerprint,text:item.text,mediaRefs:item.mediaRefs,configuration:item.configuration});\n await pool.query('UPDATE thread_inputs SET state=$2,receipt_json=$3::jsonb WHERE id=$1',[seeded.item.itemId,item.state,item.receipt?JSON.stringify({...item.receipt,inputId:seeded.item.itemId}):null]);\n item=await real.getByClientInputId({...id,clientInputId:item.clientInputId});\n if(queued)command.itemId=item.itemId;\n}\nconst repo={async getByClientInputId(x){counts.lookup++;if(mode.includes('lookupfail'))throw sentinel;return real.getByClientInputId(x);},async getById(x){return real.getById(x);},async enqueue(x){counts.enqueue++;if(mode.includes('enqueueconflict'))throw new Repo.ThreadInputConflictError('changed','client_input_conflict');if(mode.includes('duplicate'))await real.enqueue(x);const out=await(mode.includes('enqueueunknown')?lost:real).enqueue(x);item=out.item;return out;},async claimForSteering(x){counts.claim++;if(mode.includes('claimconflict'))throw new Repo.ThreadInputConflictError('changed','queue_item_changed');return (mode.includes('claimunknown')?lost:real).claimForSteering(x);},async recordReceipt(x){counts.receipt++;return real.recordReceipt(x);}};\nconst mocks={'../../runtime/DelegatedRunExecution':delegated,'@repo/chat-media/validation':Media,'@repo/platform-protocol':P,'@repo/shared-types':P,'@repo/persistence':Repo,'@legioncode/app-server/server':server,'../../domain/errors':domain,\n '../../services/chat/ChatMediaStore':{ChatMediaStore:class{async putImage(){counts.media++;throw Error('media forbidden');}}},'../../services/chat/ChatImageSettings':{resolveChatImageSettings(){}},'../../services/chat/ChatImageModelPolicy':{assertChatImageModelSupport(){}},'../../services/chat/ChatModelMetadataResolution':{async resolveChatModelMetadata(){counts.models++;return {}; }},\n '../../services/runs/RunPersistenceFactory':{withRunRepository:async(e,fn)=>fn({getRun:async()=>({})})},'../../services/sessions/TranscriptPersistenceFactory':{withTranscriptRepository:async(e,fn)=>fn({listSessions:async()=>({sessions:[{id:id.sessionId,threadId:id.threadId,workspaceId:id.workspaceId}]})})},'../../services/thread-inputs/ThreadInputPersistenceFactory':{withThreadInputRepository:async(e,fn)=>fn(repo)},'../../services/thread-inputs/ThreadInputCommandService':{},'../../services/turn-admissions/TurnAdmissionPersistenceFactory':{withTurnAdmissionRepository:async(e,fn)=>fn({getByTurnId:async()=>({...id,state:'admitted',harnessSelection:mode.includes('native')?null:{selection:{harness:'codex'}}})})},'../../services/turn-admissions/ResumeTurnService':{ResumeTurnError:class extends Error{}},\n '../../controllers/chat-runtime-helpers':{resolveExecutionScope:async()=>id,fetchRunProviderModels:async()=>{counts.models++;throw Error('model forbidden');},fetchRunRuntimeRoute:async()=>{counts.rpc++;if(mode.includes('transport'))throw sentinel;if(mode.includes('runtime409'))return Response.json({code:'turn_not_active',error:'not active'},{status:409});if(mode.includes('runtime400'))return Response.json({code:delegated.DelegatedThreadInputPreacceptError.code},{status:400});return Response.json({acceptedSequence:7});}}\n};\nconst hosted=load(fs.readFileSync(root+'/apps/brain/src/integration/app-server/HostedThreadInputOperations.ts','utf8'),mocks);\ntry{const ops=hosted.composeHostedThreadInputOperations(new Request('http://fixture'),{},id.userId);const first=await ops.execute(command);assert.equal(first.statusCode,409);const before={...counts};const second=await ops.execute(command);assert.equal(second.statusCode,409);assert.deepEqual(second.result,first.result);assert.equal(counts.rpc,before.rpc);assert.equal(counts.receipt,before.receipt);assert.equal(counts.enqueue,before.enqueue);assert.equal(counts.claim,before.claim);return {first:first.result,second:second.result,status:second.statusCode,before,after:counts};}catch(e){throw e;}}\nconst outcomes={};for(const mode of ['direct-runtime409','queued-runtime409'])outcomes[mode]=await hosted(mode);fs.writeFileSync('/tmp/r3-jsonb-repair-20261114/conflict-roundtrip-result.json',JSON.stringify(outcomes,null,2)+'\\n');console.log(JSON.stringify(outcomes));await pool.end();})().catch(async e=>{console.error(e.stack);await pool.end();process.exitCode=1;});\n"
+  },
+  "publication": {
+    "parentReadOnlyReview": "exactce1ea6 cleared before ordinary push",
+    "fetch": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "push": {
+      "sha256": "25ded60b70fcc337e60f35fbffe97e4131d0bfc9b61415497ee91c266879489a",
+      "bytes": 378
+    },
+    "remoteVerified": "git ls-remote --heads origin refs/heads/codex/fix-r3-steering-jsonb-retry-20261114"
+  },
+  "cleanup": {
+    "ownedPGStopped": true,
+    "ownedSocketRemoved": true,
+    "sourceClean": true,
+    "otherWorkerClusterUntouched": true,
+    "physicalWipUntouched": true
+  },
+  "limits": [
+    "Real PostgreSQL15.8 actual repository + existing0033inbox table DDL and JSONB nested content/mediaRef roundtrip. Sessions/admissions/native/runtime/control ports explicitly identified fixtures; not deployed hosted application or full migration acceptance.",
+    "Existing accepted/applied/unconfirmed/conflict receipts are stored-row fixtures. No native provider Applied proof was generated; kernel controls produce zeroApplied events.",
+    "Valid deterministic1x1RGBA PNG fixture bytes are local synthetic images. Actual media storage upload/decoder/provider/native process not invoked; all prior-row controls assert zero media/model/enqueue/claim/RPC/receipt effects and full stored row equality.",
+    "Original stored SHA256 fingerprints/rows unchanged; only canonical existing schema projection reconstructs property order. Changed image bytes/order/name/type or stored byteSize remain409. Unknown noReceipt/consuming remain503, known conflicts return original409.",
+    "Separate OLD enqueue/mutation versus canonical lifecycle projection lock inversion remains pending independent owner proposal. No old writer/lifecycle/admission edits here; inherited new lookup lock correction remains intact.",
+    "No provider/account endpoints/credentials, Native/factory/P11/private controls, schema/lockfile/newtests/registrations, PR/deploy or physical acceptance."
+  ]
+}
