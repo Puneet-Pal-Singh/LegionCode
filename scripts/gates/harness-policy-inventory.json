@@ -373,6 +373,14 @@
       "gate": "corepack pnpm --filter @legioncode/execution-engine test"
     },
     {
+      "path": "packages/harness-codex/src/server/protocol/generated/v2/SandboxPolicy.ts",
+      "owner": "harness-codex-native-rpc-translation",
+      "category": "permission",
+      "disposition": "convert-typed-protocol-projector",
+      "purpose": "Pinned generated native RPC translation data consumed by TurnStartParams and CodexDriver. The union describes the native request representation; it does not resolve canonical permissions or attest confinement. Preserve generated vendor bytes.",
+      "gate": "corepack pnpm --filter @repo/harness-codex check-types"
+    },
+    {
       "path": "packages/harness-opencode/src/server/OpenCodePermissionPolicy.ts",
       "owner": "harness-opencode-native-permission-translation",
       "category": "permission",
