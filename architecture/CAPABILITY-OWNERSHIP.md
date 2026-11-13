@@ -1782,7 +1782,7 @@ Claude steering limitations and Codex acknowledgement-versus-applied semantics
 remain with their existing driver/runtime owners.
 
 The existing inbox repository supplies an owner-scoped point read by client input
-ID across all states, with read-only locking of existing queue state. Direct
+ID across all states, with read-only locking of the exact inbox row. Direct
 retries compare their original target, content fingerprint and deterministic
 media identity before returning prior receipts; unknown prior claims remain
 retained. A null read is a transaction ordering point, not a claim that a later
@@ -1798,3 +1798,9 @@ parts, rejecting unsupported message or part metadata before canonical input
 acceptance. The existing canonical ThreadInputContentSchema validates the full
 ordered text and its length without trimming or adding separators. Native rich
 messages and downstream storage/control error classification are unchanged.
+
+The client-input point lookup locks only its exact owner-scoped inbox row. It
+does not lock queue state ahead of canonical accepted/applied receipt projection,
+which owns input-then-state updates. Missing rows remain a read ordering point,
+not proof of future nonacceptance; legacy mutation-writer lock ordering is outside
+this narrow read-port correction.

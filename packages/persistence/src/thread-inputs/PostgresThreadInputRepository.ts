@@ -134,10 +134,8 @@ export class PostgresThreadInputRepository implements ThreadInputRepository {
       workspaceId: input.workspaceId, clientInputId: input.clientInputId};
     return await this.client.transaction(async (tx) => {
       await assertOwnedScope(tx, captured);
-      // Existing writers lock this state before looking up/inserting an input.
-      // Unlike lockState(), this read never inserts or updates a state row.
-      await tx.query("SELECT revision FROM thread_input_state WHERE session_id=$1 AND thread_id=$2 AND workspace_id=$3 FOR UPDATE",
-        [captured.sessionId, captured.threadId, captured.workspaceId]);
+      // Lock only the exact inbox row. Canonical receipt projection locks the
+      // input before queue state, so a state lock here would invert that order.
       const result = await tx.query<InputRow>(
         "SELECT * FROM thread_inputs WHERE session_id=$1 AND user_id=$2 AND thread_id=$3 AND workspace_id=$4 AND client_input_id=$5 FOR UPDATE",
         [captured.sessionId, captured.userId, captured.threadId, captured.workspaceId, captured.clientInputId]);
