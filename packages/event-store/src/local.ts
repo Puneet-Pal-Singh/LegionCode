@@ -1,3 +1,4 @@
+import { readLocalThreadUserHistory, type LocalThreadUserHistoryInput, type LocalThreadUserHistoryPage } from "./local-thread-user-history.js";
 import { platformFingerprint } from "./local-platform-fingerprint.js";
 import { LocalThreadInputRepository, type LocalQueuedInputStart } from "./thread-inputs/LocalThreadInputRepository.js";
 import { ThreadInputConflictError } from "./thread-inputs/errors.js";
@@ -108,6 +109,7 @@ export class LocalPersistence {
   readonly harnessBindings: HarnessBindingRepository;
   readonly readAttachmentRetirement: LocalHarnessBindingRepository["readAttachmentRetirement"];
   readonly retireHarnessAttachment: (input: Parameters<LocalHarnessBindingRepository["retireHarnessAttachment"]>[0]) => Promise<void>;
+  readonly readThreadUserHistory: (input: LocalThreadUserHistoryInput) => Promise<LocalThreadUserHistoryPage>;
   readonly turnArtifacts: ReturnType<typeof createLocalTurnArtifactStore>;
   readonly turnAdmissions: {
     admit(candidate: TurnAdmission): Promise<{ admission: TurnAdmission; newlyAdmitted: boolean }>;
@@ -117,7 +119,7 @@ export class LocalPersistence {
     listForRecovery(input: { afterCursor: EventCursor | null; limit: number }): Promise<{
       admissions: readonly TurnAdmission[]; nextCursor: EventCursor | null;
     }>;
-    listByThread(input: { threadId: string; afterCursor: EventCursor | null; limit: number; latest?: boolean }): Promise<{
+    listByThread(input: { threadId: string; afterCursor: EventCursor | null; limit: number; latest?: boolean; maxBytes?: number }): Promise<{
       admissions: readonly TurnAdmission[]; nextCursor: EventCursor | null; hasEarlier?: boolean;
     }>;
   };
@@ -201,6 +203,7 @@ export class LocalPersistence {
       const inputs = new LocalThreadInputRepository(this.database, admissions, (input) => this.appendPlatformWithin(input));
       inputs.initialize();
       this.inputQueue = inputs;
+      this.readThreadUserHistory = async (input) => this.guardStorage(() => readLocalThreadUserHistory(this.database, admissions, inputs, input));
       this.threadInputs = {
         enqueue: (input) => this.guardThreadInputStorage(() => inputs.enqueue(input)),
         list: (input) => this.guardThreadInputStorage(() => inputs.list(input)),

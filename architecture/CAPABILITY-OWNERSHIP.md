@@ -2469,3 +2469,30 @@ renderer-supplied host path and does not manufacture a Turn scope for steering.
 
 - Hosted update/remove known CAS conflict receipts retain their existing HTTP 200 wrapper. Direct Steer response denials retain the existing HTTP 502/THREAD_INPUT_NOT_CONFIRMED mapping through a private placement brand; queued-Steer and unknown Native delivery keep their existing 503 reconciliation path.
 - Shared policy still owns durable command/CAS/receipt decisions. Placement transport status does not become a second input state owner. No new tests.
+
+## Plan 057 — Canonical accepted-user history windows
+
+The existing local SQLite event connection projects initial admission user items
+and durable accepted input bodies into the shared ConversationHistoryMessage
+contract. The original append/lifecycle/inbox owners remain unchanged. Native
+accepted rows must match their exact durable acceptance receipt and immutable
+body/image references; pending queue rows and acknowledgement-only payloads do
+not become transcript messages. Opaque delegated admissions retain their own
+canonical producer without manufacturing a Native inbox.
+
+The existing thread/history endpoint preserves whole-Turn admission cursors and
+adds separately bounded user-message windows. A real canonical user-item cursor
+pins an immutable high-watermark over the authorized Turn set. Latest reads query
+the body tail directly; forward/backward continuation validates canonical anchors
+and never includes later appends. The response includes actual earlier/later
+bounds and the last canonical user-item ID per selected Turn at that snapshot, so
+thin clients place one workflow after its real last user without loading every
+older steering message. Root edit identity remains the admission's user item.
+
+Each page returns at most 100 messages within the complete one-MiB App Server
+frame, including admission and window metadata. Admission selection reuses its
+original cursor authority with a private byte budget when envelope overhead
+requires a smaller page. An initial empty message prefix explicitly continues;
+a continuation-only page must advance or fail explicitly for an oversized row.
+The SDK/renderer consumer owns cancellable bounded-window navigation; this source
+alone does not claim installed history/queue acceptance. No new tests or stores.
