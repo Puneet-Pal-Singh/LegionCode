@@ -1,0 +1,42 @@
+--- a/architecture/CAPABILITY-OWNERSHIP.md
++++ b/architecture/CAPABILITY-OWNERSHIP.md
+@@ -2288,6 +2288,14 @@
+ does not establish fence loss. No preparation label or new receipt substitutes
+ for the enforcing writer owner’s exact-child lifetime authority.
+ 
++
++Missing Native resource receipts remain explicit recovery requirements. Legacy
++pre-intent guardians closed the target writer descriptor before execution, so
++acquiring their old fence alone cannot exclude a surviving child. The landed
++child-intent ABI separately proves physical exclusion for its own launches; this
++receipt reader does not backfill missing canonical resource evidence from that
++acquisition, a preparation label or terminal history.
++
+ ## Plan 057 / 061 — Private physical admission candidates
+ 
+ The trusted Desktop composition supplies physical admission candidates through
+@@ -2510,3 +2518,24 @@
+ immutable image digest must agree. Server-derived runtime pins, lineage and
+ attachment identifiers do not change a saved request. The original Native
+ admission fingerprint and its checks remain unchanged.
++
++## Plans 048 / 061 — Private Node harness host foundation
++
++The private harness-core server facade composes pinned driver lookup, scoped
++sessions, host process ownership and an immutable delivery journal. RuntimeKernel
++remains the canonical lifecycle and approval writer; host observations are
++journaled before delivery and acknowledged only after canonical commit. Reply
++claims remain single-use even when external delivery is ambiguous.
++
++Host creation requires an injected launch policy to prove the real filesystem,
++Git, shell and descendant boundary. Path resolution and process-group cleanup
++alone do not establish that proof. Unknown launch or cleanup keeps the host fenced;
++physical quiescence and observation integrity remain distinct receipts. Instance
++auth/config and journal directories are separate from review/snapshot roots, and
++selected credentials never enter public client metadata.
++
++The existing App Server LocalHarnessComposition is the local constructor and
++consumer of this private server facade. Its client facade exports protocol types
++only; Node SDK and process services stay behind the server export. Physical
++admission candidate wiring and enforcing host proof remain unavailable gates; no
++Native provider fallback is introduced.
