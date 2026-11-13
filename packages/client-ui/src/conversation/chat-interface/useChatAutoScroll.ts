@@ -24,6 +24,7 @@ interface UseChatAutoScrollOptions {
   placeholderVisible: boolean;
   scopeKey: string;
   scrollRef: RefObject<HTMLDivElement | null>;
+  historyNavigation?: { readonly key: string; readonly intent: "earlier" | "newer" | "latest" };
 }
 
 /**
@@ -37,14 +38,16 @@ export function useChatAutoScroll({
   placeholderVisible,
   scopeKey,
   scrollRef,
+  historyNavigation,
 }: UseChatAutoScrollOptions): void {
   const followBottomRef = useRef(true);
   const previousMessageKeyRef = useRef<string | null>(null);
   const previousPlaceholderRef = useRef(true);
   const previousScopeKeyRef = useRef<string | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const previousNavigationKeyRef = useRef<string | null>(null);
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior) => {
+  const scrollToBottom = useCallback((behavior: ScrollBehavior, boundary: "start" | "end" = "end") => {
     const element = scrollRef.current;
     if (!element) return;
     if (animationFrameRef.current !== null) {
@@ -52,7 +55,7 @@ export function useChatAutoScroll({
     }
     animationFrameRef.current = requestAnimationFrame(() => {
       animationFrameRef.current = null;
-      element.scrollTo({ top: element.scrollHeight, behavior });
+      element.scrollTo({ top: boundary === "start" ? 0 : element.scrollHeight, behavior });
     });
   }, [scrollRef]);
 
@@ -93,6 +96,13 @@ export function useChatAutoScroll({
 
     if (placeholderVisible) return;
 
+    if (historyNavigation && previousNavigationKeyRef.current !== historyNavigation.key) {
+      previousNavigationKeyRef.current = historyNavigation.key;
+      followBottomRef.current = historyNavigation.intent === "latest";
+      scrollToBottom("auto", historyNavigation.intent === "newer" ? "start" : "end");
+      return;
+    }
+
     if (scopeChanged || loaderRevealed || messageChanged) {
       followBottomRef.current = true;
       scrollToBottom("auto");
@@ -109,6 +119,8 @@ export function useChatAutoScroll({
     placeholderVisible,
     scopeKey,
     scrollToBottom,
+    historyNavigation?.key,
+    historyNavigation?.intent,
   ]);
 
   useEffect(

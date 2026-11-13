@@ -3201,6 +3201,39 @@ yield, return or cancellation. Read cancellation fences late results and does
 not claim execution-resource closure. Desktop mounting remains separate from
 this SDK consumer and does not add another history watcher or persistence owner.
 
+The existing SDK conversation lifecycle projection retains the maximum sequence
+of canonical accepted/applied input events as body-free `inputSequence` read
+invalidation. Desktop's existing history owner can refresh a bounded tail from
+that fact; no additional subscription, acknowledgement-body reconstruction or
+input state owner is introduced.
+
+The existing shared chat auto-scroll hook also consumes explicit bounded-history
+navigation intent. Earlier/newer page replacements align to their adjoining end
+or start boundary and disable live bottom-follow; an explicit Latest restores
+bottom-follow. Hosts without navigation intent retain existing behavior. This
+keeps one scroll owner rather than layering Desktop-specific scroll effects.
+
+Desktop's existing `useDesktopConversation` remains the sole bounded history,
+replay and continuation read owner. Its focused reader separates whole-Turn
+admission paging from immutable body-window navigation, verifies the same
+admissions/attempts on continuation, and replaces the visible message window.
+It follows an explicit initial empty-body continuation once rather than draining
+history, and preserves its existing bounded latest-admission restoration and
+lookahead. Scope/generation cancellation fences late reads. Confirmed admission
+and canonical input invalidation reread the tail; neither acknowledgement nor
+queue metadata manufactures transcript rows. Public queue activation and installed
+acceptance remain separate runtime/product gates.
+
+Desktop mounts those canonical user records through the shared history converter
+and `buildChatEntries` with snapshot last-user IDs and admission root IDs. It no
+longer rebuilds the transcript from admission prompts alone. Accepted inputs retain
+their actual per-message immutable image references and Turn-authorized original
+reads; preview tokens include message identity, and page replacement revokes old
+URLs through the existing preview-cache lifetime. Existing history notices expose
+Earlier/Newer/Latest navigation; the shared scroll hook consumes only completed
+navigation intent. Web consumes the same shared presentation with its own unchanged
+hosted history/authentication owner.
+
 - Client-supplied history Turn sets that are missing, foreign, duplicated or
   malformed are invalid snapshot selections, not database-corruption evidence.
   The private reader returns its opaque cursor conflict; the public request

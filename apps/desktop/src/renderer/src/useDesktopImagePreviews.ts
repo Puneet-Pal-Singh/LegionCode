@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { readLocalChatImage, type AppServerClient } from "@legioncode/sdk";
+import { readLocalChatImage, type AppServerClient, type ConversationHistoryMessage } from "@legioncode/sdk";
 import {
   ChatImageAttachmentRefSchema,
   type ChatImageAttachmentRef,
-  type TurnAdmission,
+  TurnIdSchema,
   type TurnId,
 } from "@repo/platform-protocol";
 
@@ -17,46 +17,52 @@ const PREVIEW_CONCURRENCY = 2;
 export const desktopImageSource = (
   turnId: TurnId,
   attachmentId: string,
-): string => `local-image:${turnId}:${attachmentId}`;
+  messageId?: string,
+): string => `local-image:${turnId}:${attachmentId}${messageId ? `:${messageId}` : ""}`;
 
 /** Ephemeral view cache over authenticated immutable references. Bytes and identity remain server-owned. */
 export function useDesktopImagePreviews(
   client: MediaClient,
-  admissions: readonly TurnAdmission[],
+  messages: readonly ConversationHistoryMessage[],
 ) {
   const descriptor = useMemo(() => {
     const sources: Source[] = [];
-    const byTurn = new Map<string, ChatImageAttachmentRef[]>();
+    const byMessage = new Map<string, Source[]>();
     let invalid = false;
-    for (const admission of admissions) {
-      if (admission.userMessage.type !== "user_message") continue;
-      const images = admission.userMessage.content.images;
+    for (const message of messages) {
+      const metadata = message.data?.metadata;
+      const images = metadata?.imageAttachments;
       if (images === undefined) continue;
-      if (!Array.isArray(images) || images.length > 4) {
+      const identity = metadata?.canonicalIdentity;
+      const turn = identity && typeof identity === "object" && !Array.isArray(identity)
+        ? TurnIdSchema.safeParse((identity as Record<string, unknown>).turnId) : null;
+      if (!turn?.success || !Array.isArray(images) || images.length > 8) {
         invalid = true;
         continue;
       }
-      const references: ChatImageAttachmentRef[] = [];
+      const references: Source[] = [];
       for (const value of images) {
         const parsed = ChatImageAttachmentRefSchema.safeParse(value);
         if (!parsed.success) {
           invalid = true;
           continue;
         }
-        references.push(parsed.data);
-        sources.push({
-          turnId: admission.turn.id,
+        const source = {
+          turnId: turn.data,
           reference: parsed.data,
           token: desktopImageSource(
-            admission.turn.id,
+            turn.data,
             parsed.data.attachmentId,
+            message.id,
           ),
-        });
+        };
+        references.push(source);
+        sources.push(source);
       }
-      byTurn.set(admission.turn.id, references);
+      byMessage.set(message.id, references);
     }
-    return { sources, byTurn, invalid };
-  }, [admissions]);
+    return { sources, byMessage, invalid };
+  }, [messages]);
   const [revision, setRevision] = useState(0);
   const scope = useMemo(
     () => ({ client, descriptor, revision }),
@@ -172,7 +178,7 @@ export function useDesktopImagePreviews(
   );
   const retry = useCallback(() => setRevision((value) => value + 1), []);
   return {
-    referencesByTurn: descriptor.byTurn,
+    referencesByMessage: descriptor.byMessage,
     resolveSource,
     retry,
     error: descriptor.invalid
