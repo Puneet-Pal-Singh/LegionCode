@@ -2704,7 +2704,6 @@ deadline requests abort only; unknown binding cleanup retains the exact binding,
 service and slot and prevents positive SQLite/process closure. No timeout, client
 disconnect, empty active map or forced exit releases those physical obligations.
 
-<<<<<<< HEAD
 ## Plan 062 — Native agent directory listing
 
 The existing canonical `list_files` definition is now consumed by both local
@@ -2761,8 +2760,20 @@ child-intent ABI separately proves physical exclusion for its own launches; this
 receipt reader does not backfill missing canonical resource evidence from that
 acquisition, a preparation label or terminal history.
 
-=======
->>>>>>> origin/codex/feat-local-accepted-user-history
+### Accepted Native input lineage
+
+- Thread read summaries use the actual same-Turn canonical accepted user item as the active user leaf, requiring its exact input/transcript identity, scope, parent chain and accepted lifecycle sequence. A settled assistant becomes the leaf only when completed after the latest accepted input.
+- Runtime resource-release notification requires the actual Native settlement issuer/receipt path, binding closure and original owner deletion; a custom executor without that capability cannot trigger queue advancement. No new tests or sequence/state writer.
+
+### Queue admission physical boundary
+
+- Shared advancement selects only logically eligible queue intent. Physical idle is not represented as a separate boolean predicate: the actual Native start adapter must verify predecessor settlement under its already-held successor lease before atomic queue/admission publication. Unknown physical authority must pause and reject, preserving intent.
+
+- Saved known input conflicts/cancellations are terminal command receipts and are never re-delivered by the shared command owner. SQLite startup rejects conflicting queue/Steer target, receipt/state and pause representations.
+
+- Completion-triggered queue reconciliation is registered with the existing preparation tracker before its first await, because the released executor is already removed. Shutdown drains this original operation before persistence closes. Receipt retries check the canonical stored delivery before requiring a still-active executor. Native inbox startup applies the same opaque delegated-owner boundary as its lifecycle projection.
+
+- Canonical terminal projection pauses queued advancement for both accepted-but-unapplied inputs and targeted pending/claimed inputs with no authoritative delivery receipt. It preserves the exact inbox row and never invents an accepted sequence or silently retries unknown delivery.
 ## Plan 057 — Canonical lifecycle event byte transport
 
 The existing lifecycle event store remains the only event authority. Local replay
@@ -2922,7 +2933,6 @@ migrates its shared route and removes the old DTO; this foundation alone does no
 claim that client/runtime integration. Native capture, current byte paging and
 provider custody retain their existing owners and exports.
 
-<<<<<<< HEAD
 ## Plan 057 — Shared local execution details
 
 The existing local turn configuration handshake optionally describes command
@@ -2944,7 +2954,6 @@ window width and resize never open a closed card. Web and Desktop use the same
 provider and menu. This replaces automatic wide-window expansion without changing
 environment data, Git review or runtime ownership.
 
-=======
 ## Plan 057 — Native input safe-point prerequisite
 
 The existing Native executor exposes the published Desktop exact-attempt input
@@ -2993,7 +3002,6 @@ with the local queue adapter and retain one-record streaming memory.
 - Native queued starts reuse the existing LocalTurnService binding/model/image preparation and canonical admission path, substituting only the same-writer queue/admission CAS. Image promotion supplies the existing preparation token without data URL reconstruction.
 - Exact-attempt Steer forwards to the already published executor safe-point port; it does not write acceptance or application events itself. The existing resource owner invokes its completion callback only after physical release and binding closure, within the original tracked cleanup operation and behind the shutdown fence.
 - These are private caller seams. Native Queue remains unavailable until held successor-lease predecessor proof and complete transport/media/history composition are wired. No standalone idle boolean or missing-executor inference is introduced. No new tests.
->>>>>>> origin/codex/feat-local-accepted-user-history
 ## Plans 048 / 061 — Same-writer local harness persistence foundation
 
 The existing exclusive LocalPersistence SQLite connection owns durable local
@@ -3012,7 +3020,6 @@ field before any public delegated admission is enabled. Missing capture never se
 or reconstructs external ownership. Final constructor/driver wiring remains
 separate. Current Native admission/lineage, immutable artifacts, lifecycle byte
 paging and provider custody retain their existing source and exports.
-<<<<<<< HEAD
 
 ## Hosted workspace configuration presentation
 
@@ -3158,54 +3165,7 @@ No challenge/redeem service or duplicate identity persistence is added.
 This connects the actual Settings action, not Cloud task execution. Hosted SDK
 workspace/session/provider/task composition and exact installed OAuth/restart/
 revocation acceptance remain required before Cloud can be advertised as ready.
-=======
-## Plan 057 — Native predecessor resource settlement evidence
 
-The existing `LocalTurnResources` owner records Native resource settlement only
-after the original executor's combined terminal/capture/quiescence proof, the
-same writer owner's positive release and the original binding's successful close.
-The existing immutable Turn-artifact metadata authority stores the exact admission,
-terminal/publication digests, root and Git metadata identity, grant provenance and
-actual released namespace/writer-file identity. It creates no lifecycle event or
-public review artifact. Unknown write acknowledgements require an exact durable
-record read before the same owned entry is removed; unreadable or absent evidence
-retains that owner and prevents positive shutdown.
-
-The private Native predecessor reader validates those canonical references under
-the successor's already-held physical writer, using a metadata-only tracked loan
-that exposes no file descriptor or execution capability. It never acquires or
-releases a replacement fence. Missing legacy or crash-before-receipt evidence is
-explicit `native_predecessor_recovery_required`; terminal history, artifacts and
-an absent executor map never establish physical settlement. There is no automatic
-historical backfill from a freshly acquired fence.
-
-Unused prepared acquisitions have a separate positive cleanup path on the same
-writer entry. Sticky physical exposure prevents that path after any broad authority
-loan or tracked execution. The trusted first consumer must fence and await its
-original canonical publication before its exact absence read; unknown publication
-or cleanup retains the original binding and lease. This source does not activate
-delegated external execution or supply its missing physical process boundary.
-
-Crash-before-receipt recovery remains a concrete backend limitation: the Native
-process guardian retains the writer descriptor through normal exact-child reaping,
-but its target closes that descriptor before execution. An unexpectedly lost
-guardian therefore cannot be excluded solely by acquiring the old fence. No
-preparation label or new receipt is substituted for surviving-child exclusion.
-
-### Accepted Native input lineage
-
-- Thread read summaries use the actual same-Turn canonical accepted user item as the active user leaf, requiring its exact input/transcript identity, scope, parent chain and accepted lifecycle sequence. A settled assistant becomes the leaf only when completed after the latest accepted input.
-- Runtime resource-release notification requires the actual Native settlement issuer/receipt path, binding closure and original owner deletion; a custom executor without that capability cannot trigger queue advancement. No new tests or sequence/state writer.
-
-### Queue admission physical boundary
-
-- Shared advancement selects only logically eligible queue intent. Physical idle is not represented as a separate boolean predicate: the actual Native start adapter must verify predecessor settlement under its already-held successor lease before atomic queue/admission publication. Unknown physical authority must pause and reject, preserving intent.
-
-- Saved known input conflicts/cancellations are terminal command receipts and are never re-delivered by the shared command owner. SQLite startup rejects conflicting queue/Steer target, receipt/state and pause representations.
-
-- Completion-triggered queue reconciliation is registered with the existing preparation tracker before its first await, because the released executor is already removed. Shutdown drains this original operation before persistence closes. Receipt retries check the canonical stored delivery before requiring a still-active executor. Native inbox startup applies the same opaque delegated-owner boundary as its lifecycle projection.
-
-- Canonical terminal projection pauses queued advancement for both accepted-but-unapplied inputs and targeted pending/claimed inputs with no authoritative delivery receipt. It preserves the exact inbox row and never invents an accepted sequence or silently retries unknown delivery.
 ## Plan 057 — Queued input media ownership
 
 The existing LocalChatMediaStore owns queued original image bytes in the same
@@ -3302,4 +3262,3 @@ alone does not claim installed history/queue acceptance. No new tests or stores.
 - A workspace grant revoked or switched before the synchronous history read also
   invalidates that snapshot selection; it is not classified as corrupt storage.
   Malformed persisted grant content still fails through the storage guard.
->>>>>>> origin/codex/feat-local-accepted-user-history
