@@ -3,7 +3,6 @@ import type { LocalPersistence } from "@repo/event-store/local";
 import {
   GetTurnDiffRequestSchema,
   GetTurnDiffResponseSchema,
-  LifecycleEventSchema,
   TurnAdmissionSchema,
   TurnDiffPayloadSchema,
   type GetTurnDiffRequest,
@@ -14,6 +13,7 @@ import {
   type ArtifactId,
 } from "@repo/platform-protocol";
 import { AppServerOperationError } from "./server.js";
+import { readLocalTurnArtifactPublication } from "./local-turn-artifact-publication.js";
 
 /** Query adapter only. The existing turn owner authorizes the current grant/thread. */
 export class LocalTurnArtifactReads {
@@ -64,7 +64,7 @@ export class LocalTurnArtifactReads {
       await this.options.turns.getTurn(request.turnId),
     );
     if (admission.turn.id !== request.turnId) throw unavailable();
-    const published = await this.readPublishedDiff(admission);
+    const { diff: published } = await readLocalTurnArtifactPublication(this.options.persistence.lifecycleEvents, admission);
     const saved = published
       ? await this.options.persistence.turnArtifacts
           .forAttempt({
@@ -91,61 +91,6 @@ export class LocalTurnArtifactReads {
     );
     if (!isDeepStrictEqual(current, admission)) throw unavailable();
     return { admission, saved };
-  }
-
-  private async readPublishedDiff(
-    admission: TurnAdmission,
-  ): Promise<TurnDiffPayload | null> {
-    let afterSequence: number | null = null;
-    let sequence = 0;
-    let terminal = false;
-    let diff: TurnDiffPayload | null = null;
-    const starts = ["turn.queued", "turn.started", "run_attempt.started"];
-    do {
-      const page = await this.options.persistence.lifecycleEvents.replay({
-        turnId: admission.turn.id,
-        afterSequence,
-        limit: 1_000,
-      });
-      for (const raw of page.events) {
-        const event = LifecycleEventSchema.parse(raw);
-        if (
-          terminal ||
-          event.turnId !== admission.turn.id ||
-          event.threadId !== admission.run.threadId ||
-          event.runAttemptId !== admission.runAttemptId ||
-          event.producer.id !== admission.run.workerId ||
-          event.sequence !== sequence + 1 ||
-          (sequence < starts.length && event.type !== starts[sequence]) ||
-          (sequence >= starts.length && starts.includes(event.type))
-        )
-          throw unavailable();
-        sequence = event.sequence;
-        if (event.type === "turn.diff_updated") {
-          diff = TurnDiffPayloadSchema.parse(event.payload.diff);
-          if (diff.turnId !== admission.turn.id) throw unavailable();
-        }
-        if (event.type === "workspace.snapshot_unavailable") diff = null;
-        if (
-          event.type === "turn.completed" ||
-          event.type === "turn.failed" ||
-          event.type === "turn.interrupted"
-        ) {
-          terminal = true;
-        }
-      }
-      if (
-        page.nextSequence !== null &&
-        (page.events.length === 0 ||
-          page.nextSequence !== sequence ||
-          page.nextSequence <= (afterSequence ?? 0))
-      )
-        throw unavailable();
-      afterSequence = page.nextSequence;
-    } while (afterSequence !== null);
-    // Persisted bytes alone are not publication. In-progress, omitted or
-    // unavailable capture remains an honest null, without consulting live Git.
-    return terminal ? diff : null;
   }
 }
 

@@ -1,7 +1,7 @@
 export const PACKAGE_DEPENDENCY_POLICY = {
   "@repo/artifact-store": ["@repo/platform-protocol"],
   "@repo/chat-media": ["@repo/shared-types"],
-  "@repo/event-store": ["@repo/platform-protocol"],
+  "@repo/event-store": ["@repo/platform-protocol", "@repo/worker-protocol"],
   "@repo/git-service": ["@repo/platform-protocol"],
   "@repo/hook-protocol": ["@repo/platform-protocol"],
   "@repo/permission-policy": ["@repo/platform-protocol"],
@@ -22,6 +22,7 @@ export const PACKAGE_DEPENDENCY_POLICY = {
     "@repo/event-store",
     "@repo/platform-protocol",
     "@repo/workspace-core",
+    "@repo/worker-protocol",
   ],
   "@repo/worker-protocol": ["@repo/artifact-store", "@repo/platform-protocol"],
   "@repo/workspace-core": ["@repo/platform-protocol"],
