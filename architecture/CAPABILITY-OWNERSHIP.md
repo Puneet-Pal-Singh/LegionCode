@@ -2393,6 +2393,34 @@ consumer yet. Its client facade exports protocol types only; Node SDK and proces
 services stay behind the server export. Final driver/constructor wiring is the
 activation boundary, and no Native provider fallback is introduced.
 
+## Plans 048 / 061 — Private Codex RPC driver foundation
+
+The private harness-codex server adapter translates the pinned Codex app-server
+stdio protocol into worker observations and native request replies. The complete
+generated protocol, runtime manifest and generator remain one pinned unit; its
+SandboxPolicy union describes vendor request bytes and owns no canonical policy.
+RuntimeKernel retains lifecycle/approval truth, while harness-core owns journal
+ordering, scoped host processes and durable request-delivery boundaries.
+
+Experimental questions accept blocking requests only; a native nonblocking request
+is rejected before canonical emission rather than inventing a blocking condition.
+The package is not registered by an active product constructor here. Binary/schema
+pins are not OS confinement or installed-feature acceptance; both remain explicitly
+unaccepted in the runtime manifest. Whole-scope quiescence requires actual injected
+proof, and missing evidence stays unknown. Native provider execution is unchanged.
+
+### Original Native provider request settlement
+
+The same Native attempt factory retains every original protected-gateway request
+before invocation. Kernel cancellation polling can settle its observer first;
+that result is not provider-request closure. After the original executor result
+and worker proof settle, the factory fences new requests and awaits all retained
+adapter promises before writer release, binding close and immutable resource
+settlement. A request that ignores cancellation keeps that original obligation;
+no abort acknowledgement, deadline or empty executor map substitutes for it.
+This is buffered-request resource ownership only; it does not invent streaming
+phases, output/retry semantics or another canonical lifecycle producer.
+
 ## Plan 057 — Native input safe-point prerequisite
 
 The existing Native executor exposes the published Desktop exact-attempt input
@@ -2578,17 +2606,7 @@ and same-transaction predecessor guard; this port alone does not activate it.
 - Native Queue route activation still requires the reviewed held-writer and
   bounded history consumer join. No new protocol fields or tests are added.
 
-### Original Native provider request settlement
 
-The same Native attempt factory retains every original protected-gateway request
-before invocation. Kernel cancellation polling can settle its observer first;
-that result is not provider-request closure. After the original executor result
-and worker proof settle, the factory fences new requests and awaits all retained
-adapter promises before writer release, binding close and immutable resource
-settlement. A request that ignores cancellation keeps that original obligation;
-no abort acknowledgement, deadline or empty executor map substitutes for it.
-This is buffered-request resource ownership only; it does not invent streaming
-phases, output/retry semantics or another canonical lifecycle producer.
 ### Hosted shared-input compatibility
 
 - Hosted update/remove known CAS conflict receipts retain their existing HTTP 200 wrapper. Direct Steer response denials retain the existing HTTP 502/THREAD_INPUT_NOT_CONFIRMED mapping through a private placement brand; queued-Steer and unknown Native delivery keep their existing 503 reconciliation path.
