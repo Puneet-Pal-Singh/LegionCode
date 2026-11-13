@@ -1,9 +1,7 @@
 import { useChat as useVercelChat, type Message } from "@ai-sdk/react";
 import {
   TurnIdSchema,
-  APP_SERVER_PROTOCOL_VERSION,
-  freezeSubmissionWireBody,
-  observeSubmissionAcknowledgement,
+  dispatchHostedConversationSubmission,
   submitConversationMessage,
   interruptAndAwaitTerminal,
   type SubmissionAttempt,
@@ -582,8 +580,6 @@ export function useChatCore(
       requestBody: ChatRequestBody,
       attempt: SubmissionAttempt,
     ): Promise<void> => {
-      const controller = new AbortController();
-      attempt.transportAbortController = controller;
       logClientEvent("chat/submit", "dispatching", {
         runId,
         sessionId,
@@ -594,79 +590,32 @@ export function useChatCore(
         providerId: requestBody.providerId,
         modelId: requestBody.modelId,
       });
-      try {
-        const submissionParams = {
-          ...requestBody,
-          messages: [message],
-        };
-        const acknowledgement = await lifecycleClient.submitHostedChat(submissionParams, {
-          signal: controller.signal,
-          beforeSendHostedChatEnvelope: (serializedEnvelope) => {
-            const frozenEnvelope = freezeSubmissionWireBody(attempt, serializedEnvelope);
-            let envelope: unknown;
-            try {
-              envelope = JSON.parse(frozenEnvelope) as unknown;
-            } catch {
-              throw new Error("Frozen chat submission envelope is invalid.");
-            }
-            if (!envelope || typeof envelope !== "object" || Array.isArray(envelope)) {
-              throw new Error("Frozen chat submission envelope is invalid.");
-            }
-            const record = envelope as Record<string, unknown>;
-            const params = record.params;
-            if (
-              record.protocolVersion !== APP_SERVER_PROTOCOL_VERSION ||
-              record.method !== "turn/submit" ||
-              !params || typeof params !== "object" || Array.isArray(params)
-            ) {
-              throw new Error("Frozen chat submission envelope is invalid.");
-            }
-            const body = params as Record<string, unknown>;
-            const identity = body.identity as Record<string, unknown> | undefined;
-            const scope = attempt.scope;
-            if (
-              !scope ||
-              body.sessionId !== attempt.sessionId ||
-              body.runId !== scope.runId ||
-              body.clientMessageId !== attempt.clientMessageId ||
-              identity?.workspaceId !== scope.workspaceId ||
-              identity.threadId !== scope.threadId ||
-              identity.turnId !== scope.turnId ||
-              identity.runAttemptId !== scope.runAttemptId
-            ) {
-              throw new Error("Frozen chat submission envelope does not match its retained reservation.");
-            }
-            attempt.dispatched = true;
-            return frozenEnvelope;
-          },
-          onChatSubmissionResponse: (response) => {
-            observeSubmissionAcknowledgement(attempt, response);
-            if (response.httpStatus >= 200 && response.httpStatus < 300 && attempt.responseTupleMatches) {
-              dispatchRunSummaryRefresh(runId);
-              onServerProjectionAvailable?.();
-            }
-            logClientEvent("chat/submit", "response", {
-              runId,
-              sessionId,
-              scopeKey,
-              clientMessageId: message.id,
-              status: attempt.responseStatus,
-              tupleMatches: attempt.responseTupleMatches,
-            });
-          },
-        });
-        logClientEvent("chat/submit", "returned", {
-          runId,
-          sessionId,
-          scopeKey,
-          clientMessageId: message.id,
-          runtimeStatus: acknowledgement.runtimeStatus,
-        });
-      } finally {
-        if (attempt.transportAbortController === controller) {
-          attempt.transportAbortController = null;
-        }
-      }
+      const acknowledgement = await dispatchHostedConversationSubmission({
+        client: lifecycleClient,
+        attempt,
+        request: { ...requestBody, messages: [message] },
+        onAcknowledgement: (response) => {
+          if (response.httpStatus >= 200 && response.httpStatus < 300 && attempt.responseTupleMatches) {
+            dispatchRunSummaryRefresh(runId);
+            onServerProjectionAvailable?.();
+          }
+          logClientEvent("chat/submit", "response", {
+            runId,
+            sessionId,
+            scopeKey,
+            clientMessageId: message.id,
+            status: attempt.responseStatus,
+            tupleMatches: attempt.responseTupleMatches,
+          });
+        },
+      });
+      logClientEvent("chat/submit", "returned", {
+        runId,
+        sessionId,
+        scopeKey,
+        clientMessageId: message.id,
+        runtimeStatus: acknowledgement.runtimeStatus,
+      });
     },
     [lifecycleClient, onServerProjectionAvailable, runId, scopeKey, sessionId],
   );

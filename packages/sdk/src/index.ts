@@ -45,6 +45,10 @@ export {
   type ConversationSubmissionDispatch,
 } from "./platform/conversation-submission.js";
 export {
+  dispatchHostedConversationSubmission,
+  type HostedConversationSubmissionBindings,
+} from "./platform/hosted-conversation-submission.js";
+export {
   AppServerTransportError,
   createAppServerHttpTransport,
   type AppServerHttpTransportOptions,
