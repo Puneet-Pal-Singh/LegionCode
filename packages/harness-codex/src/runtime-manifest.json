@@ -1,0 +1,28 @@
+{
+  "version": "0.167.0",
+  "transport": "codex-app-server-stdio",
+  "schemaSha256": "021462a9bacd117f4cd40c256a4888619d059cec6a65b795198d521ba660e554",
+  "platforms": {
+    "linux-x64": {
+      "binarySha256": "cdcb45aaa01d0f14e298985e09465aebccd47f64ecd298aea44814af7b62bbda",
+      "npmPackage": "@openai/codex@0.167.0-linux-x64",
+      "npmIntegrity": "sha512-FNc7danfUng9Sp6w+Fh7kofNHHZpA6VMyNKWsWrS3OwHly69gywTWeiuwrUPXpJSho8Df4xqRsHfHRPzj7zYQg==",
+      "license": "Apache-2.0",
+      "binarySchemaProof": "cloud Linux x64, exact executable generation",
+      "osPolicyAccepted": false,
+      "installedFeatureAccepted": false
+    },
+    "darwin-arm64": {
+      "binarySha256": "030316ecfbb41f4e7946e584b0063ef333b7a36cd312ba349f2f6869e39b62cc",
+      "npmPackage": "@openai/codex@0.167.0-darwin-arm64",
+      "npmTarball": "https://registry.npmjs.org/@openai/codex/-/codex-0.167.0-darwin-arm64.tgz",
+      "npmIntegrity": "sha512-7YtMDZX/jbWH9+fCVQg7BVsov8WvBzu4iuedXJEDlUdZxaTrYX2bEQwHIn3p0gxgSMfm30HGK9+bZm1aGSZaHw==",
+      "archiveSha256": "6989512a93d5fc74cb221dd348c972bf3cd83592e471bfd9557bccb45eb6fffc",
+      "relativeExecutablePath": "vendor/aarch64-apple-darwin/bin/codex",
+      "license": "Apache-2.0",
+      "binarySchemaProof": "local L02, macOS 14.7 arm64, 2026-11-06: version and raw schema hash verified; 753162-byte bundle",
+      "osPolicyAccepted": false,
+      "installedFeatureAccepted": false
+    }
+  }
+}
