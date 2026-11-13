@@ -21,8 +21,8 @@ import {
 const MODEL_DEV_CATALOG_URL = "https://models.dev/api.json";
 const MODEL_DEV_CATALOG_TTL_MS = 60 * 60 * 1000;
 const MODEL_DEV_CATALOG_FAILURE_TTL_MS = 60 * 1000;
-const MODEL_DEV_REQUEST_TIMEOUT_MS = 10_000;
-const MODEL_DEV_REQUEST_ATTEMPTS = 3;
+// Optional metadata must fit inside the 15-second client budget alongside provider discovery.
+const MODEL_DEV_REQUEST_TIMEOUT_MS = 3_000;
 
 let sharedCatalogCache: {
   catalog: ModelDevCatalog | null;
@@ -261,43 +261,15 @@ async function getSharedCatalog(url: string): Promise<ModelDevCatalog | null> {
 }
 
 async function defaultFetchJson(url: string): Promise<unknown> {
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= MODEL_DEV_REQUEST_ATTEMPTS; attempt += 1) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(
-      () => controller.abort(),
-      MODEL_DEV_REQUEST_TIMEOUT_MS,
-    );
-    try {
-      const response = await fetch(url, { signal: controller.signal });
-      if (!response.ok) {
-        const error = new Error(
-          `models.dev catalog request failed with ${response.status}`,
-        );
-        if (!isRetryableCatalogStatus(response.status)) {
-          lastError = error;
-          break;
-        }
-        lastError = error;
-        continue;
-      }
-      return await response.json();
-    } catch (error) {
-      lastError = error;
-      if (attempt === MODEL_DEV_REQUEST_ATTEMPTS) {
-        break;
-      }
-    } finally {
-      clearTimeout(timeoutId);
-    }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), MODEL_DEV_REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error(`models.dev catalog request failed with ${response.status}`);
+    return await response.json();
+  } finally {
+    clearTimeout(timeout);
   }
-  throw lastError instanceof Error
-    ? lastError
-    : new Error("models.dev catalog request failed");
-}
-
-function isRetryableCatalogStatus(status: number): boolean {
-  return status === 408 || status === 429 || status >= 500;
 }
 
 /**

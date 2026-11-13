@@ -599,6 +599,7 @@ export function ModelPickerPopover({
   };
 
   const handleToggle = (): void => {
+    if (isLoading) return;
     if (!isOpen) {
       setPlacement(resolvePlacement());
     }
@@ -660,7 +661,8 @@ export function ModelPickerPopover({
           focus:outline-none focus:ring-1 focus:ring-zinc-400
         `}
         aria-label="Open model picker"
-        aria-expanded={isOpen}
+        aria-expanded={isOpen && !isLoading}
+        aria-busy={isLoading}
         title={triggerLabel}
       >
         <span className="truncate max-w-[14rem]">{triggerLabel}</span>
@@ -673,7 +675,7 @@ export function ModelPickerPopover({
       </button>
 
       {/* Popover Content */}
-      {isOpen && typeof document !== "undefined"
+      {isOpen && !isLoading && typeof document !== "undefined"
         ? createPortal(
             <div
               ref={popoverContentRef}
@@ -690,8 +692,6 @@ export function ModelPickerPopover({
             data-testid="model-picker-popover"
             className="ui-surface-popover flex max-h-96 flex-col overflow-hidden"
           >
-            {!isLoading && (
-              <>
                 <div className="border-b border-neutral-800 p-2">
                   <div className="relative flex-1">
                     <Search
@@ -711,14 +711,10 @@ export function ModelPickerPopover({
                     />
                   </div>
                 </div>
-              </>
-            )}
 
             {/* Provider Groups */}
             <div
-              className={`flex flex-1 flex-col overflow-hidden ${
-                isLoading ? "min-h-[12rem]" : ""
-              }`}
+              className="flex flex-1 flex-col overflow-hidden"
             >
               {isLoadingModelsInline && (
                 <div
@@ -732,20 +728,9 @@ export function ModelPickerPopover({
               <div
                 data-testid="model-picker-model-list"
                 onScroll={() => setHoveredModel(null)}
-                className={`overflow-y-auto flex-1 ${
-                  isLoading ? "flex items-center justify-center" : ""
-                }`}
+                className="overflow-y-auto flex-1"
               >
-                {isLoading ? (
-                  <div className="px-6 py-8 text-center">
-                    <p className="text-sm font-medium text-neutral-200">
-                      {modelLoadingLabel}
-                    </p>
-                    <p className="mt-1 text-xs text-neutral-500">
-                      Fetching available models from your providers.
-                    </p>
-                  </div>
-                ) : filteredGroups.length === 0 ? (
+                {filteredGroups.length === 0 ? (
                   <div className="p-6 text-center text-neutral-400 text-sm">
                     {searchQuery
                       ? "No models match your search"
@@ -946,7 +931,7 @@ export function ModelPickerPopover({
                         void handleLoadMore();
                       }}
                       disabled={
-                        isLoadingMoreSelectedProviderModels || isLoading
+                        isLoadingMoreSelectedProviderModels
                       }
                       className="w-full rounded-md border border-neutral-700 px-2 py-1.5 text-xs text-neutral-300 transition-colors hover:bg-neutral-800 disabled:opacity-50"
                     >
@@ -956,7 +941,6 @@ export function ModelPickerPopover({
                     </button>
                   </div>
                 )}
-              {!isLoading ? (
                 <div className="flex items-center justify-between border-t border-neutral-800 p-2">
                   <button
                     type="button"
@@ -983,7 +967,6 @@ export function ModelPickerPopover({
                     <Plus size={15} />
                   </button>
                 </div>
-              ) : null}
             </div>
           </div>
           {hoveredModel ? (
