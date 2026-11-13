@@ -2267,3 +2267,13 @@ lifecycle authority changes. Public HTTP byte paging remains inactive until the
 separately owned lossless event hydration and cursor-aware consumers are wired;
 this foundation alone does not make oversized public replay deliverable. Chunk
 bytes and their real wire digest remain read/transport responsibilities.
+
+### Plan 048/061 Codex accepted-input native correlation
+
+`CodexDriver` translates the existing canonical steer command's `accepted.inputId`
+into pinned Codex 0.167.0 `TurnSteerParams.clientUserMessageId`, preserving the
+existing native thread/turn and account/process-generation fences. The canonical
+kernel remains the input/lifecycle owner; the adapter adds no receipt store or
+Applied observation. Native RPC acceptance and later history correlation do not
+establish model-step/context-revision application, account entitlement, physical
+confinement, or installed acceptance.
