@@ -40,9 +40,10 @@ describe("ConnectProviderChooser", () => {
         }),
     );
 
-    render(<ConnectProviderChooser catalog={catalog} onConnect={onConnect} />);
+    const { rerender } = render(<ConnectProviderChooser catalog={catalog} onConnect={onConnect} />);
     fireEvent.click(screen.getByText("OpenAI"));
     const secretInput = await screen.findByLabelText("OpenAI API key");
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Connect OpenAI" }));
     fireEvent.change(secretInput, { target: { value: "sk-ephemeral-secret" } });
     fireEvent.click(screen.getByRole("button", { name: "Submit" }));
 
@@ -50,6 +51,8 @@ describe("ConnectProviderChooser", () => {
     expect((secretInput as HTMLInputElement).value).toBe("sk-ephemeral-secret");
     settleConnect();
     await waitFor(() => expect((secretInput as HTMLInputElement).value).toBe(""));
+    rerender(<ConnectProviderChooser catalog={catalog} onConnect={onConnect} success="Provider connected" />);
+    expect(screen.getByRole("status").textContent).toContain("Provider connected");
   });
 
   it("clears the secret after a failed connect settles", async () => {
@@ -57,13 +60,17 @@ describe("ConnectProviderChooser", () => {
       throw new Error("credential rejected");
     });
 
-    render(<ConnectProviderChooser catalog={catalog} onConnect={onConnect} />);
+    const { rerender } = render(<ConnectProviderChooser catalog={catalog} onConnect={onConnect} />);
     fireEvent.click(screen.getByText("OpenAI"));
     const secretInput = await screen.findByLabelText("OpenAI API key");
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Connect OpenAI" }));
     fireEvent.change(secretInput, { target: { value: "sk-ephemeral-secret" } });
     fireEvent.click(screen.getByRole("button", { name: "Submit" }));
 
     await waitFor(() => expect(onConnect).toHaveBeenCalledTimes(1));
     await waitFor(() => expect((secretInput as HTMLInputElement).value).toBe(""));
+    rerender(<ConnectProviderChooser catalog={catalog} onConnect={onConnect} error="Credential rejected"
+      errorRecovery={{ message: "Credential rejected", remediation: "Check the key and retry." }} />);
+    expect(screen.getByRole("alert").textContent).toContain("Check the key and retry.");
   });
 });

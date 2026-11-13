@@ -3344,3 +3344,19 @@ predecessor evidence retain their existing pause/reconciliation behavior. A busy
 writer owned by another Thread is described as workspace contention; this fix
 adds no cross-Thread dispatcher or automatic wake guarantee. Terminal history and
 logical idle never substitute for physical writer proof. No new tests or stores.
+## Shared immutable review after failed or interrupted turns
+
+The shared conversation review hook admits a settled repository turn only when
+its own canonical diff and captured snapshot state agree. Failed/interrupted
+terminal presentation now offers that same immutable review without inferring
+capture from terminal status or reading live Git. Missing or mismatched capture
+remains unavailable. Web and Desktop retain the same SDK projection and shared
+review selection owner; completed-response artifact presentation is unchanged.
+
+## Shared provider connection accessibility
+
+The shared provider chooser moves focus within its own view when selecting a
+provider replaces the search screen with credentials. Success and recovery
+messages expose status/alert semantics to assistive technology. Web and Desktop
+consume this same presentation; credential custody and modal focus restoration
+remain with their existing host and overlay owners.
