@@ -1,8 +1,9 @@
+import { readLocalOwnedThread } from "./local-thread-ownership.js";
 import { createHash } from "node:crypto";
 import { APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES, APP_SERVER_PROTOCOL_VERSION, appServerJsonByteLength } from "@repo/platform-protocol";
 import type Database from "better-sqlite3";
 import { EVENT_SCHEMA_VERSION, EventCursorSchema, type EventCursor, PlatformEventSchema, ThreadIdSchema, TurnIdSchema, UserIdSchema, WorkspaceIdSchema, type PlatformEvent } from "@repo/platform-protocol";
-import { TurnAdmissionSchema, type TurnAdmission, type Thread } from "@repo/platform-protocol/conversation";
+import { TurnAdmissionSchema, type TurnAdmission } from "@repo/platform-protocol/conversation";
 import { LifecycleEventSchema, type LifecycleEvent } from "@repo/platform-protocol/lifecycle";
 import { EventStoreError, LocalPersistenceError } from "./errors.js";
 import { createStableEventFingerprint } from "./fingerprint.js";
@@ -20,6 +21,7 @@ export class LocalTurnAdmissions {
   constructor(
     private readonly database: Database.Database,
     private readonly append: (input: AppendEventInput) => PlatformEvent,
+    private readonly onAdmitted?: (admission: TurnAdmission) => void,
   ) {}
 
   initialize(): void {
@@ -62,52 +64,60 @@ export class LocalTurnAdmissions {
   }
 
   admit(input: TurnAdmission): { admission: TurnAdmission; newlyAdmitted: boolean } {
+    return this.database.transaction(() => this.admitWithin(input)).immediate();
+  }
+
+  /** Same-writer synchronous composition seam; the caller owns the entire
+   * immediate transaction, including any queue/preparation compare-and-swap. */
+  admitWithin(input: TurnAdmission): { admission: TurnAdmission; newlyAdmitted: boolean } {
+    if (!this.database.inTransaction)
+      throw new LocalPersistenceError("unavailable", "Atomic local admission requires the existing SQLite writer transaction");
     const candidate = TurnAdmissionSchema.parse(input);
     const fingerprint = requestFingerprint(candidate);
-    return this.database.transaction(() => {
-      const existing = this.findRow(candidate.run.threadId, candidate.clientRequestId);
-      if (existing) {
-        if (existing.fingerprint !== fingerprint) throw new EventStoreError("idempotency_conflict", "Admission request key has different content or configuration");
-        return { admission: this.reconstruct(existing), newlyAdmitted: false };
+    const existing = this.findRow(candidate.run.threadId, candidate.clientRequestId);
+    if (existing) {
+      if (existing.fingerprint !== fingerprint) throw new EventStoreError("idempotency_conflict", "Admission request key has different content or configuration");
+      return { admission: this.reconstruct(existing), newlyAdmitted: false };
+    }
+    this.assertActiveOwnedThread(candidate);
+    const prior = this.database.prepare("SELECT * FROM turn_admissions WHERE thread_id = ?").all(candidate.run.threadId) as AdmissionRow[];
+    for (const row of prior) {
+      const last = this.database.prepare("SELECT event_json FROM events WHERE family = 'lifecycle' AND turn_id = ? ORDER BY sequence DESC LIMIT 1").get(row.turn_id) as { event_json: string } | undefined;
+      const event = last ? LifecycleEventSchema.parse(JSON.parse(last.event_json)) : null;
+      if (event) this.assertLifecycleIdentity(event);
+      if (!event || !["turn.completed", "turn.failed", "turn.interrupted"].includes(event.type)) {
+        throw new EventStoreError("idempotency_conflict", "Thread has an unsettled admitted Turn");
       }
-      this.assertActiveOwnedThread(candidate);
-      const prior = this.database.prepare("SELECT * FROM turn_admissions WHERE thread_id = ?").all(candidate.run.threadId) as AdmissionRow[];
-      for (const row of prior) {
-        const last = this.database.prepare("SELECT event_json FROM events WHERE family = 'lifecycle' AND turn_id = ? ORDER BY sequence DESC LIMIT 1").get(row.turn_id) as { event_json: string } | undefined;
-        const event = last ? LifecycleEventSchema.parse(JSON.parse(last.event_json)) : null;
-        if (event) this.assertLifecycleIdentity(event);
-        if (!event || !["turn.completed", "turn.failed", "turn.interrupted"].includes(event.type)) {
-          throw new EventStoreError("idempotency_conflict", "Thread has an unsettled admitted Turn");
-        }
-      }
-      const scope = { threadId: candidate.run.threadId, userId: candidate.run.userId, workspaceId: candidate.run.workspaceId };
-      const parents = readLocalThreadParents(this.database, scope, this.readThreadSummary(scope));
-      if (candidate.turn.parentTurnId !== parents.parentTurnId || candidate.userMessage.parentItemId !== parents.parentItemId) {
-        throw new EventStoreError("idempotency_conflict", "Local conversation changed before admission");
-      }
-      const duplicate = this.database.prepare(`SELECT 1 FROM turn_admissions WHERE run_id = ? OR turn_id = ? OR run_attempt_id = ? OR item_id = ?
-        UNION ALL SELECT 1 FROM events WHERE (family = 'platform' AND (
-          (stream_type = 'run' AND stream_id = ?) OR json_extract(event_json, '$.payload.turn.id') = ?
-          OR json_extract(event_json, '$.payload.item.id') = ?)) OR (family = 'lifecycle' AND turn_id = ?) LIMIT 1`)
-        .get(candidate.run.id, candidate.turn.id, candidate.runAttemptId, candidate.userMessage.id,
-          candidate.run.id, candidate.turn.id, candidate.userMessage.id, candidate.turn.id);
-      if (duplicate) throw new EventStoreError("event_id_conflict", "Admission identity already has canonical history");
-      const base = {
-        threadId: candidate.run.threadId, workspaceId: candidate.run.workspaceId, runId: candidate.run.id,
-        scopeType: "run" as const, scopeId: candidate.run.id,
-        producer: { kind: "runtime_kernel" as const, id: "local-admission" }, schemaVersion: EVENT_SCHEMA_VERSION as 1,
-      };
-      // These are envelopes for runtime-supplied canonical records, never lifecycle decisions.
-      const run = this.append({ ...base, type: "run.created", payload: { run: candidate.run }, idempotencyKey: `admission:${candidate.run.id}:run` });
-      const turn = this.append({ ...base, type: "turn.started", payload: { turn: candidate.turn }, idempotencyKey: `admission:${candidate.run.id}:turn` });
-      const prompt = this.append({ ...base, type: "item.completed", payload: { item: candidate.userMessage }, idempotencyKey: `admission:${candidate.run.id}:prompt` });
-      this.database.prepare(`INSERT INTO turn_admissions(thread_id,request_id,workspace_id,run_id,turn_id,run_attempt_id,item_id,fingerprint,run_event_id,turn_event_id,prompt_event_id)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(candidate.run.threadId, candidate.clientRequestId, candidate.run.workspaceId,
-          candidate.run.id, candidate.turn.id, candidate.runAttemptId, candidate.userMessage.id, fingerprint, run.eventId, turn.eventId, prompt.eventId);
-      const saved = this.findRow(candidate.run.threadId, candidate.clientRequestId);
-      if (!saved) throw corrupt("Admission receipt was not stored");
-      return { admission: this.reconstruct(saved), newlyAdmitted: true };
-    }).immediate();
+    }
+    const scope = { threadId: candidate.run.threadId, userId: candidate.run.userId, workspaceId: candidate.run.workspaceId };
+    const parents = readLocalThreadParents(this.database, scope, this.readThreadSummary(scope));
+    if (candidate.turn.parentTurnId !== parents.parentTurnId || candidate.userMessage.parentItemId !== parents.parentItemId) {
+      throw new EventStoreError("idempotency_conflict", "Local conversation changed before admission");
+    }
+    const duplicate = this.database.prepare(`SELECT 1 FROM turn_admissions WHERE run_id = ? OR turn_id = ? OR run_attempt_id = ? OR item_id = ?
+      UNION ALL SELECT 1 FROM events WHERE (family = 'platform' AND (
+        (stream_type = 'run' AND stream_id = ?) OR json_extract(event_json, '$.payload.turn.id') = ?
+        OR json_extract(event_json, '$.payload.item.id') = ?)) OR (family = 'lifecycle' AND turn_id = ?) LIMIT 1`)
+      .get(candidate.run.id, candidate.turn.id, candidate.runAttemptId, candidate.userMessage.id,
+        candidate.run.id, candidate.turn.id, candidate.userMessage.id, candidate.turn.id);
+    if (duplicate) throw new EventStoreError("event_id_conflict", "Admission identity already has canonical history");
+    const base = {
+      threadId: candidate.run.threadId, workspaceId: candidate.run.workspaceId, runId: candidate.run.id,
+      scopeType: "run" as const, scopeId: candidate.run.id,
+      producer: { kind: "runtime_kernel" as const, id: "local-admission" }, schemaVersion: EVENT_SCHEMA_VERSION as 1,
+    };
+    // These are envelopes for runtime-supplied canonical records, never lifecycle decisions.
+    const run = this.append({ ...base, type: "run.created", payload: { run: candidate.run }, idempotencyKey: `admission:${candidate.run.id}:run` });
+    const turn = this.append({ ...base, type: "turn.started", payload: { turn: candidate.turn }, idempotencyKey: `admission:${candidate.run.id}:turn` });
+    const prompt = this.append({ ...base, type: "item.completed", payload: { item: candidate.userMessage }, idempotencyKey: `admission:${candidate.run.id}:prompt` });
+    this.database.prepare(`INSERT INTO turn_admissions(thread_id,request_id,workspace_id,run_id,turn_id,run_attempt_id,item_id,fingerprint,run_event_id,turn_event_id,prompt_event_id)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(candidate.run.threadId, candidate.clientRequestId, candidate.run.workspaceId,
+        candidate.run.id, candidate.turn.id, candidate.runAttemptId, candidate.userMessage.id, fingerprint, run.eventId, turn.eventId, prompt.eventId);
+    const saved = this.findRow(candidate.run.threadId, candidate.clientRequestId);
+    if (!saved) throw corrupt("Admission receipt was not stored");
+    const admission = this.reconstruct(saved);
+    this.onAdmitted?.(admission);
+    return { admission, newlyAdmitted: true };
   }
 
   findByRequest(threadId: string, clientRequestId: string): TurnAdmission | null {
@@ -175,10 +185,13 @@ export class LocalTurnAdmissions {
     return { admissions, nextCursor };
   }
 
-  listByThread(input: { threadId: string; afterCursor: EventCursor | null; limit: number; latest?: boolean }): {
+  listByThread(input: { threadId: string; afterCursor: EventCursor | null; limit: number; latest?: boolean; maxBytes?: number }): {
     admissions: readonly TurnAdmission[]; nextCursor: EventCursor | null; hasEarlier?: boolean;
   } {
     ThreadIdSchema.parse(input.threadId);
+    const maxBytes = input.maxBytes ?? APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES;
+    if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES)
+      throw new EventStoreError("invalid_replay_byte_budget", "Admission history byte budget is invalid");
     if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 1_000) {
       throw new EventStoreError("invalid_replay_limit", "Admission history limit must be between 1 and 1000");
     }
@@ -212,7 +225,7 @@ export class LocalTurnAdmissions {
         result: { admissions: [], nextCursor, ...(input.latest ? { hasEarlier: false } : {}) },
       });
       const bytes = appServerJsonByteLength(admission) + (selected.length ? 1 : 0);
-      if (frameBytes + admissionBytes + bytes > APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES) {
+      if (frameBytes + admissionBytes + bytes > maxBytes) {
         if (!selected.length) {
           throw new EventStoreError("history_row_too_large", "The next history Turn exceeds the supported response byte budget");
         }
@@ -253,35 +266,7 @@ export class LocalTurnAdmissions {
   }
 
   private assertActiveOwnedThread(candidate: TurnAdmission): void {
-    // Read the canonical Thread stream under the same writer transaction as admission.
-    // Its latest full Thread record is authoritative; no admission-owned status is stored.
-    const rows = this.database.prepare(`SELECT event_json FROM events
-      WHERE family = 'platform' AND stream_type = 'thread' AND stream_id = ? ORDER BY sequence`)
-      .all(candidate.run.threadId) as { event_json: string }[];
-    let thread: Thread | null = null;
-    for (const [index, row] of rows.entries()) {
-      const event = PlatformEventSchema.parse(JSON.parse(row.event_json));
-      if (event.threadId !== candidate.run.threadId || event.scopeType !== "thread" || event.scopeId !== candidate.run.threadId
-        || event.sequence !== index + 1 || (index === 0 && event.type !== "thread.created")
-        || (index > 0 && event.type === "thread.created") || (thread && event.workspaceId !== thread.workspaceId)) {
-        throw corrupt("Admission Thread stream identity is inconsistent");
-      }
-      if (event.type === "thread.title.updated") continue;
-      if (event.type !== "thread.created" && event.type !== "thread.pinned" && event.type !== "thread.unpinned"
-        && event.type !== "thread.archived" && event.type !== "thread.unarchived") {
-        throw corrupt("Admission Thread stream contains a non-Thread record");
-      }
-      const record = event.payload.thread;
-      if (record.id !== candidate.run.threadId || event.workspaceId !== record.workspaceId
-        || (thread && (record.workspaceId !== thread.workspaceId || record.userId !== thread.userId))) {
-        throw corrupt("Canonical Thread ownership changed within its stream");
-      }
-      thread = record;
-    }
-    if (!thread || thread.status !== "active" || thread.id !== candidate.run.threadId
-      || thread.workspaceId !== candidate.run.workspaceId || thread.userId !== candidate.run.userId) {
-      throw new EventStoreError("idempotency_conflict", "New admission requires an active canonical Thread with matching owner and workspace");
-    }
+    readLocalOwnedThread(this.database, { threadId: candidate.run.threadId, userId: candidate.run.userId, workspaceId: candidate.run.workspaceId });
   }
 
   private findRow(threadId: string, requestId: string): AdmissionRow | undefined {

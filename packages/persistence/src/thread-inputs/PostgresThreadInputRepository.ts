@@ -1,3 +1,5 @@
+import { ThreadInputConflictError } from "@repo/event-store";
+export { ThreadInputConflictError } from "@repo/event-store";
 import {
   RunAttemptIdSchema,
   ThreadInputQueueSnapshotSchema,
@@ -71,9 +73,11 @@ export class PostgresThreadInputRepository implements ThreadInputRepository {
         input.delivery,
         input.targetTurnId ?? null,
         input.targetRunAttemptId ?? null,
-        JSON.stringify({ text: input.text, mediaRefs: input.mediaRefs }),
+        JSON.stringify({ text: input.text, mediaRefs: input.mediaRefs,
+          mediaFingerprint: input.mediaFingerprint ?? null, mediaRevision: input.mediaRevision ?? null }),
         JSON.stringify(input.configuration),
         order,
+        input.itemId ?? null,
       ]);
       const revision = await incrementRevision(tx, input.sessionId);
       return {
@@ -145,6 +149,8 @@ export class PostgresThreadInputRepository implements ThreadInputRepository {
       const content = {
         text: input.text,
         mediaRefs: input.mediaRefs ?? current.mediaRefs,
+        mediaFingerprint: input.mediaFingerprint === undefined ? current.mediaFingerprint ?? null : input.mediaFingerprint,
+        mediaRevision: input.mediaRevision === undefined ? current.mediaRevision ?? null : input.mediaRevision,
       };
       const result = await tx.query<InputRow>(UPDATE_INPUT_SQL, [
         input.sessionId,
@@ -236,13 +242,6 @@ export class PostgresThreadInputRepository implements ThreadInputRepository {
   }
 }
 
-export class ThreadInputConflictError extends Error {
-  constructor(message: string, readonly code: string) {
-    super(message);
-    this.name = "ThreadInputConflictError";
-  }
-}
-
 async function assertOwnedScope(client: SqlClient, scope: ThreadInputScope): Promise<void> {
   const result = await client.query<InputRow>(ASSERT_SCOPE_SQL, [scope.sessionId, scope.userId, scope.threadId, scope.workspaceId]);
   if (!result.rows[0]) throw new ThreadInputConflictError("Conversation, thread, or workspace scope does not match", "thread_scope_conflict");
@@ -279,6 +278,8 @@ function mapInput(row: InputRow): StoredThreadInput {
       : null,
     text: typeof content.text === "string" ? content.text : "",
     mediaRefs: Array.isArray(content.mediaRefs) ? content.mediaRefs as StoredThreadInput["mediaRefs"] : [],
+    mediaFingerprint: typeof content.mediaFingerprint === "string" ? content.mediaFingerprint : null,
+    mediaRevision: typeof content.mediaRevision === "number" ? content.mediaRevision : null,
     configuration: asRecord(row.configuration_json) as StoredThreadInput["configuration"],
     receipt: row.receipt_json == null ? null : ThreadInputReceiptSchema.parse(row.receipt_json),
     sessionId: requiredString(row.session_id, "session_id"),
@@ -320,7 +321,7 @@ const READ_LATEST_STARTED_SQL = `SELECT order_number, receipt_json FROM thread_i
 const READ_INPUTS_SQL = `SELECT * FROM thread_inputs WHERE session_id = $1 AND delivery IN ('queue','steer') AND state IN ('pending','consuming') ORDER BY order_number ASC`;
 const READ_CLIENT_INPUT_SQL = `SELECT * FROM thread_inputs WHERE thread_id = $1 AND workspace_id = $2 AND client_input_id = $3 FOR UPDATE`;
 const ALLOCATE_INPUT_ORDER_SQL = `UPDATE thread_input_state SET next_order = next_order + 1 WHERE session_id = $1 RETURNING next_order AS order_number`;
-const INSERT_INPUT_SQL = `INSERT INTO thread_inputs (session_id,user_id,thread_id,workspace_id,client_input_id,fingerprint,delivery,target_turn_id,target_run_attempt_id,content_json,configuration_json,order_number) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12) RETURNING *`;
+const INSERT_INPUT_SQL = `INSERT INTO thread_inputs (session_id,user_id,thread_id,workspace_id,client_input_id,fingerprint,delivery,target_turn_id,target_run_attempt_id,content_json,configuration_json,order_number,id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,COALESCE($13::uuid,gen_random_uuid())) RETURNING *`;
 const INCREMENT_REVISION_SQL = `UPDATE thread_input_state SET revision = revision + 1, updated_at = now() WHERE session_id = $1 RETURNING revision`;
 const READ_OWNED_INPUT_SQL = `SELECT * FROM thread_inputs WHERE session_id = $1 AND user_id = $2 AND thread_id = $3 AND workspace_id = $4 AND id = $5 FOR UPDATE`;
 const UPDATE_INPUT_SQL = `UPDATE thread_inputs SET content_json = $4::jsonb, configuration_json = COALESCE($5::jsonb, configuration_json), version = version + 1, updated_at = now() WHERE session_id = $1 AND id = $2 AND version = $3 AND state = 'pending' RETURNING *`;

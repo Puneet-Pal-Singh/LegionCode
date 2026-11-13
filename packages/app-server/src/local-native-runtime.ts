@@ -1,3 +1,5 @@
+import type { StoredThreadInput } from "@repo/event-store";
+import type { LocalQueuedInputMediaPort } from "./local-queued-input-media.js";
 import { lstat } from "node:fs/promises";
 import { isDeepStrictEqual } from "node:util";
 import { basename, isAbsolute } from "node:path";
@@ -62,13 +64,13 @@ export interface LocalNativeRuntimeOptions {
   readonly persistence: Pick<
     LocalPersistence,
     "turnAdmissions" | "lifecycleEvents" | "turnArtifacts"
-  >;
+  > & Partial<Pick<LocalPersistence, "threadInputs">>;
   readonly workerId: WorkerId;
   readonly permissionProfileId: PermissionProfileId;
   readonly resolvePermissionPolicy: (productMode: ProductMode) => Promise<PermissionPolicy>;
   readonly nativeFilesystemHelperPath: string;
   readonly resolveRuntimeCredential: ProtectedProviderGatewayOptions["resolveCredential"];
-  readonly media?: LocalTurnMediaPort;
+  readonly media?: LocalTurnMediaPort & Partial<LocalQueuedInputMediaPort>;
   readonly capability?: LocalTurnExecutionCapability<LocalWorkspaceExecutionBinding>;
   /** The same host writer owner releases only after this factory's combined proof. */
   readonly releaseExecution?: (
@@ -329,6 +331,8 @@ export function createLocalNativeRuntime(
           return executor.execute(admission);
         },
         interrupt: executor.interrupt.bind(executor),
+        acceptThreadInputAttempt: executor.acceptThreadInputAttempt.bind(executor),
+        supportsImageInput: modelSnapshot.capabilities?.supportsVision === true,
         resolveApproval: executor.resolveApproval,
         async awaitResourceRelease(turnId) {
           if (!(await proveRelease(turnId))) return false;
@@ -467,7 +471,7 @@ async function readConversation(
   persistence: LocalNativeRuntimeOptions["persistence"],
   current: TurnAdmission,
   signal: AbortSignal,
-  media?: LocalTurnMediaPort,
+  media?: LocalTurnMediaPort & Partial<LocalQueuedInputMediaPort>,
 ): Promise<NativeMessages> {
   const messages: NativeMessages = [];
   let afterCursor: EventCursor | null = null;
@@ -499,7 +503,21 @@ async function readConversation(
             : [],
         ),
       );
+      if (events.some((event) => event.threadId !== admission.run.threadId || event.turnId !== admission.turn.id ||
+          event.runAttemptId !== admission.runAttemptId || event.producer.id !== admission.run.workerId))
+        throw new Error("Native history lifecycle crosses canonical admission scope");
+      const nativeInputOwner = !("harnessSelection" in admission.run && admission.run.harnessSelection !== undefined) &&
+        admission.userMessage.type === "user_message" && admission.userMessage.content.harnessSelection === undefined;
+      const inputs = nativeInputOwner ? await persistence.threadInputs?.listAcceptedForTurn({ sessionId: admission.run.threadId,
+        threadId: admission.run.threadId, workspaceId: admission.run.workspaceId, userId: admission.run.userId,
+        turnId: admission.turn.id, runAttemptId: admission.runAttemptId }) : undefined;
       for (const event of events) {
+        if (nativeInputOwner && event.type === "turn.input.applied") {
+          const input = inputs?.find((item) => item.itemId === event.payload.inputId && item.receipt?.status === "applied" &&
+            item.receipt.acceptedSequence === event.payload.acceptedSequence && item.receipt.appliedSequence === event.sequence);
+          if (!input) throw new Error("Applied Native input has no canonical durable inbox owner");
+          messages.push(await queuedUserProviderMessage(input, media, signal));
+        }
         if (
           event.type === "item.completed" &&
           assistantIds.has(event.itemId) &&
@@ -517,6 +535,19 @@ async function readConversation(
   throw new Error(
     "Native admission is missing from canonical conversation history",
   );
+}
+
+async function queuedUserProviderMessage(item: StoredThreadInput,
+  media: (LocalTurnMediaPort & Partial<LocalQueuedInputMediaPort>) | undefined,
+  signal: AbortSignal): Promise<NativeMessages[number]> {
+  signal.throwIfAborted();
+  if (!item.mediaRefs.length) return { role: "user", content: item.text };
+  if (!media?.resolveQueuedForProvider || !item.mediaRevision || !item.mediaFingerprint)
+    throw new Error("Native input image history has no canonical media owner");
+  const parts = await media.resolveQueuedForProvider({ scope: { userId: item.userId, workspaceId: item.workspaceId,
+    threadId: item.threadId, inputId: item.itemId, mediaRevision: item.mediaRevision }, fingerprint: item.mediaFingerprint,
+    references: item.mediaRefs, signal });
+  return { role: "user", content: [{ type: "text", text: item.text }, ...parts] };
 }
 
 async function readLifecycle(

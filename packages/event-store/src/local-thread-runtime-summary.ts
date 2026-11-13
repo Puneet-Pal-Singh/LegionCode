@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 import {
   LifecycleEventSchema,
   PlatformEventSchema,
+  ThreadInputQueueItemSchema,
   type ItemId,
   type RunId,
   type ThreadId,
@@ -56,9 +57,14 @@ export function readLocalThreadRuntimeSummary(
     // All local runtimes bind canonical lifecycle to the admitted worker. This
     // read projection does not interpret driver selection or infer producer
     // ownership from the first event. Historical mismatches remain corrupt.
+    const nativeInputOwner = !("harnessSelection" in admission.run && admission.run.harnessSelection !== undefined) &&
+      admission.userMessage.content.harnessSelection === undefined;
     let sequence = 0;
     let settled = false;
     let assistantLeaf: ItemId | undefined;
+    let assistantSequence = 0;
+    let userLeaf = admission.userMessage.id;
+    let acceptedSequence = 0;
     let activity = admission.userMessage.createdAt;
     for (const row of lifecycle.iterate(admission.turn.id) as Iterable<StoredEvent>) {
       const event = parseLifecycle(row.event_json);
@@ -69,6 +75,20 @@ export function readLocalThreadRuntimeSummary(
         row.stream_id !== admission.turn.id || event.sequence !== ++sequence ||
         row.sequence !== event.sequence || settled) throw corrupt();
       activity = laterTimestamp(activity, event.createdAt);
+      if (nativeInputOwner && event.type === "turn.input.accepted") {
+        const inputId = ThreadInputQueueItemSchema.shape.itemId.parse(event.payload.inputId);
+        const savedRow = database.prepare(`SELECT * FROM events WHERE family='platform' AND stream_type='run'
+          AND stream_id=? AND idempotency_key=?`).get(admission.run.id, `thread-input:${inputId}`) as StoredEvent | undefined;
+        if (!savedRow) throw corrupt();
+        const saved = readPlatformItem(database, scope, savedRow);
+        if (saved.id !== `itm_input_${inputId.replaceAll("-", "")}` || saved.type !== "user_message" ||
+            saved.role !== "user" || saved.status !== "completed" || saved.turnId !== admission.turn.id ||
+            saved.runId !== admission.run.id || saved.parentItemId !== userLeaf ||
+            saved.content.inputId !== inputId || saved.content.acceptedSequence !== event.sequence ||
+            event.payload.transcriptMessageId !== `thread-input:${inputId}`) throw corrupt();
+        userLeaf = saved.id;
+        acceptedSequence = event.sequence;
+      }
       if (event.type === "item.completed") {
         const startRow = startForItem.get(admission.turn.id, event.sequence, event.itemId) as StoredEvent | undefined;
         if (!startRow) throw corrupt();
@@ -79,7 +99,10 @@ export function readLocalThreadRuntimeSummary(
           start.sequence !== startRow.sequence ||
           startRow.thread_id !== scope.threadId || startRow.turn_id !== admission.turn.id ||
           startRow.stream_type !== "turn" || startRow.stream_id !== admission.turn.id) throw corrupt();
-        if (start.payload.kind === "assistant_message") assistantLeaf = event.itemId;
+        if (start.payload.kind === "assistant_message") {
+          assistantLeaf = event.itemId;
+          assistantSequence = event.sequence;
+        }
       }
       if (event.type === "turn.completed" || event.type === "turn.failed" || event.type === "turn.interrupted") {
         settled = true;
@@ -91,7 +114,7 @@ export function readLocalThreadRuntimeSummary(
     }
     summary = {
       latestAdmissionRunId: admission.run.id,
-      activeLeafItemId: settled && assistantLeaf ? assistantLeaf : admission.userMessage.id,
+      activeLeafItemId: settled && assistantLeaf && assistantSequence > acceptedSequence ? assistantLeaf : userLeaf,
       lastTerminalTurnId,
       updatedAt: summary ? laterTimestamp(summary.updatedAt, activity) : activity,
     };
