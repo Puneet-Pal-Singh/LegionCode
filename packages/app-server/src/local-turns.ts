@@ -37,7 +37,7 @@ import { LocalApprovalService } from "./local-approvals.js";
 import type { LocalTurnMediaPort, LocalTurnPreparedMedia } from "./local-turn-media.js";
 import { localTurnImageReferences } from "./local-turn-images.js";
 import { captureLocalTurnModel } from "./local-turn-model.js";
-import { LocalTurnResources, type LocalTurnPreparation } from "./local-turn-resources.js";
+import { LocalTurnResources, type LocalTurnPreparation, type LocalTurnBindingClosure } from "./local-turn-resources.js";
 import {
   LocalInterruptionService,
   LocalInterruptionAttemptNotActiveError,
@@ -48,6 +48,8 @@ export type LocalTurnExecutor = {
   execute(admission: TurnAdmission): Promise<unknown>;
   /** True only after physical quiescence and canonical terminal/capture settlement. */
   awaitResourceRelease(turnId: TurnId): Promise<boolean>;
+  /** Native receipt capability. Absence certifies no predecessor settlement. */
+  prepareResourceSettlement?(admission: TurnAdmission): Promise<(closure: LocalTurnBindingClosure) => Promise<void>>;
   interrupt(turnId: TurnId, reason: string): Promise<void>;
   resolveApproval: ConstructorParameters<
     typeof LocalApprovalService

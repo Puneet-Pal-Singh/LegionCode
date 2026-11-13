@@ -1,3 +1,4 @@
+import { TurnWorkspaceSnapshotSchema } from "@repo/platform-protocol";
 import type {
   ArtifactChangedFile,
   Run,
@@ -41,6 +42,16 @@ export class TurnArtifactSettlementCoordinator {
   private settlement: Promise<TurnArtifactSettlementResult> | null = null;
 
   constructor(private readonly options: TurnArtifactSettlementOptions) {}
+
+  /** Restore the committed immutable baseline without touching live Git. */
+  restoreCommittedStart(input: { readonly snapshot: TurnWorkspaceSnapshot; readonly artifact: unknown }): void {
+    const snapshot = TurnWorkspaceSnapshotSchema.parse(input.snapshot);
+    if (this.startSnapshot || snapshot.phase !== "start" || snapshot.turnId !== this.options.turn.id || snapshot.snapshotKey !== this.options.turn.id) {
+      throw new RuntimeKernelError("invalid_turn_identity", "Recovery start snapshot does not match this canonical turn");
+    }
+    this.startSnapshot = snapshot;
+    this.startSnapshotArtifact = input.artifact;
+  }
 
   async begin(): Promise<{
     snapshot: TurnWorkspaceSnapshot;

@@ -1,4 +1,5 @@
 import { lstat } from "node:fs/promises";
+import { isDeepStrictEqual } from "node:util";
 import { basename, isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { LocalPersistence } from "@repo/event-store/local";
@@ -10,6 +11,7 @@ import {
 import {
   PermissionProfileIdSchema,
   LocalTurnConfigurationSchema,
+  TurnAdmissionSchema,
   PRODUCT_MODES,
   UserIdSchema,
   WorkerIdSchema,
@@ -47,6 +49,9 @@ import type { LocalWorkspaceExecutionBinding } from "./local-workspace.js";
 import type { LocalTurnMediaPort } from "./local-turn-media.js";
 import { attachPreparedLocalImages, localUserProviderMessage } from "./local-turn-images.js";
 import { captureLocalTurnModel } from "./local-turn-model.js";
+import { prepareLocalNativeSettlement } from "./local-native-settlement.js";
+import { LocalNativeProviderRequests } from "./local-native-provider-requests.js";
+import type { LocalWorkspaceWriterReleaseReceipt } from "./local-workspace-writer-lease.js";
 
 type LifecycleStore = LocalPersistence["lifecycleEvents"];
 type NativeMessages = Parameters<
@@ -56,7 +61,7 @@ type NativeMessages = Parameters<
 export interface LocalNativeRuntimeOptions {
   readonly persistence: Pick<
     LocalPersistence,
-    "turnAdmissions" | "lifecycleEvents"
+    "turnAdmissions" | "lifecycleEvents" | "turnArtifacts"
   >;
   readonly workerId: WorkerId;
   readonly permissionProfileId: PermissionProfileId;
@@ -69,6 +74,7 @@ export interface LocalNativeRuntimeOptions {
   readonly releaseExecution?: (
     attempt: LocalTurnAttemptIdentity,
     proof: LocalTurnExecutor<LocalWorkspaceExecutionBinding>["awaitResourceRelease"],
+    onReleased?: (receipt: LocalWorkspaceWriterReleaseReceipt) => void,
   ) => Promise<boolean>;
   /** Canonical Git owner. Success requires actual child/pipe closure; rejection is uncertain. */
   readonly createGitService: (
@@ -176,6 +182,7 @@ export function createLocalNativeRuntime(
         helperPath,
         rootDirectory: binding.rootDirectory,
       });
+      const providerRequests = new LocalNativeProviderRequests();
       let manifestGitClosureUnknown = false;
       let kernelPortsReturned = false;
       let attempt: LocalTurnAttemptIdentity | undefined;
@@ -255,12 +262,20 @@ export function createLocalNativeRuntime(
           );
           bound.assertCurrent();
           signal.throwIfAborted();
-          const gateway = createProtectedProviderGateway({
+          const protectedGateway = createProtectedProviderGateway({
             providerId: admission.run.providerId,
             modelId: admission.run.modelId,
             model: modelSnapshot,
             resolveCredential: options.resolveRuntimeCredential,
           });
+          const gateway = {
+            generateText: (request: Parameters<typeof protectedGateway.generateText>[0]) =>
+              providerRequests.track(() => {
+                signal.throwIfAborted();
+                request.signal?.throwIfAborted();
+                return protectedGateway.generateText(request);
+              }),
+          };
           const provider = createLocalNativeProviderPorts({
             admission,
             messages,
@@ -284,8 +299,15 @@ export function createLocalNativeRuntime(
       const proveRelease = async (turnId: TurnAdmission["turn"]["id"]) => {
         if (manifestGitClosureUnknown) return false;
         const releasable = await executor.awaitResourceRelease(turnId);
-        return releasable && !manifestGitClosureUnknown;
+        if (!releasable) return false;
+        // The provider cancellation poll races its observer with cancellation.
+        // Keep the original adapter promises until they actually settle before
+        // accepting writer release, closing this binding or publishing closure.
+        await providerRequests.drain();
+        return !manifestGitClosureUnknown;
       };
+      let releasedWriter: LocalWorkspaceWriterReleaseReceipt | undefined;
+      let positivelyReleased = false;
       return {
         execute(admission) {
           const identity: LocalTurnAttemptIdentity = {
@@ -312,10 +334,35 @@ export function createLocalNativeRuntime(
         resolveApproval: executor.resolveApproval,
         async awaitResourceRelease(turnId) {
           if (!(await proveRelease(turnId))) return false;
-          if (capability.artifactCapture === "omitted_read_only") return true;
+          if (capability.artifactCapture === "omitted_read_only") {
+            positivelyReleased = true;
+            return true;
+          }
           if (!attempt || attempt.turnId !== turnId || !releaseExecution)
             return false;
-          return releaseExecution(attempt, proveRelease);
+          const released = await releaseExecution(attempt, proveRelease, (receipt) => { releasedWriter = receipt; });
+          positivelyReleased = released === true;
+          return released;
+        },
+        async prepareResourceSettlement(savedAdmission) {
+          if (!positivelyReleased || !attempt ||
+              !isDeepStrictEqual(TurnAdmissionSchema.parse(preparedAdmission), TurnAdmissionSchema.parse(savedAdmission)) ||
+              attempt.workspaceId !== savedAdmission.run.workspaceId || attempt.threadId !== savedAdmission.run.threadId ||
+              attempt.runId !== savedAdmission.run.id || attempt.turnId !== savedAdmission.turn.id ||
+              attempt.runAttemptId !== savedAdmission.runAttemptId) {
+            throw new Error("Native resource settlement requires the original positive release");
+          }
+          const writerFence = capability.artifactCapture === "omitted_read_only"
+            ? { kind: "read_only" as const }
+            : releasedWriter ? { kind: "released" as const, identity: releasedWriter.writerFence }
+            : executor.hasPreparationResourceProof(savedAdmission.turn.id)
+              ? { kind: "not_acquired" as const }
+              : undefined;
+          if (!writerFence) throw new Error("Native writer release provenance is unavailable");
+          return prepareLocalNativeSettlement({
+            persistence: options.persistence, admission: savedAdmission, binding,
+            artifactCapture: capability.artifactCapture, writerFence, releasedWriter,
+          });
         },
       };
     },
