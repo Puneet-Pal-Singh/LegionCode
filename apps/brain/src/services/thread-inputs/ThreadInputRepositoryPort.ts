@@ -1,4 +1,4 @@
-import type { ThreadInputRepository } from "@repo/event-store";
+import type { ThreadInputRepository } from "@repo/persistence";
 import type { Env } from "../../types/ai";
 import { withThreadInputRepository } from "./ThreadInputPersistenceFactory";
 

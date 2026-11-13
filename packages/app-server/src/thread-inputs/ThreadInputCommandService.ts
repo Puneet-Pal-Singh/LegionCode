@@ -78,7 +78,14 @@ export class ThreadInputCommandService {
         mediaFingerprint: media.fingerprint, mediaRevision: media.mediaRevision,
       });
       const receipt = stored.item.receipt ?? pendingReceipt(stored.item, stored.revision);
-      if (stored.item.state === "pending") await this.tryAdvance(scope);
+      if (stored.item.state === "pending") {
+        try { await this.tryAdvance(scope); }
+        catch {
+          // Enqueue already durably saved the user's intent. Preserve its receipt;
+          // terminal observers separately retain their original failure handling.
+          console.error("Queued input remains pending after automatic start failure");
+        }
+      }
       return { statusCode: stored.duplicate ? 200 : 201, result: receipt };
     } finally { await discard(media); }
   }
@@ -89,7 +96,7 @@ export class ThreadInputCommandService {
     // Reconcile a saved receipt before consulting a potentially ended executor.
     // The original request fingerprint is still checked by enqueue below.
     if (!isDeliveryReceipt(previous?.receipt ?? null) && previous?.receipt?.status !== "conflict") {
-      const targetConflict = await this.ports.assertSteeringTarget(scope, command, command.content.images.length > 0);
+      const targetConflict = await this.ports.assertSteeringTarget(scope, command, command.content.images.length > 0, "turn.steer");
       if (targetConflict) return { statusCode: 409, result: targetConflict };
     }
     const media = await this.ports.prepareMedia({ scope, inputId, clientInputId: command.clientInputId, mediaRevision: 1, images: command.content.images });
@@ -113,7 +120,7 @@ export class ThreadInputCommandService {
       return conflict("target_superseded", "This input is already bound to a different turn attempt.");
     if (isDeliveryReceipt(item.receipt)) return { statusCode: 200, result: item.receipt };
     if (item.receipt?.status === "conflict") return { statusCode: 409, result: item.receipt };
-    const targetConflict = await this.ports.assertSteeringTarget(scope, command, item.mediaRefs.length > 0);
+    const targetConflict = await this.ports.assertSteeringTarget(scope, command, item.mediaRefs.length > 0, "thread.input.steer");
     if (targetConflict) return { statusCode: 409, result: targetConflict };
     await this.ports.authorize(command);
     if (item.delivery === "queue") {
@@ -209,11 +216,9 @@ export async function advanceThreadInputQueue(scope: ThreadInputScope,
   if (!next) return;
   // This is logical eligibility only. The actual start adapter verifies held
   // physical successor authority and predecessor closure before admission.
-  try {
-    await ports.startQueued({ scope, explicitStart: false,
-      command: StartQueuedThreadInputCommandSchema.parse({ operation: "thread.input.start", threadId: scope.threadId,
-        workspaceId: scope.workspaceId, itemId: next.itemId, expectedVersion: next.version, expectedThreadRevision: snapshot.revision }) });
-  } catch { /* The original adapter owns any ambiguous dispatch; never resend here. */ }
+  await ports.startQueued({ scope, explicitStart: false,
+    command: StartQueuedThreadInputCommandSchema.parse({ operation: "thread.input.start", threadId: scope.threadId,
+      workspaceId: scope.workspaceId, itemId: next.itemId, expectedVersion: next.version, expectedThreadRevision: snapshot.revision }) });
 }
 
 function pendingReceipt(item: StoredThreadInput, revision: number): ThreadInputReceipt {

@@ -32,7 +32,7 @@ export interface ThreadInputCommandPorts {
     readonly mediaRevision: number;
     readonly images: readonly z.infer<typeof ThreadInputImageSchema>[];
   }): Promise<PreparedThreadInputMedia>;
-  assertSteeringTarget(scope: ThreadInputScope, target: ThreadInputTarget, hasImages: boolean): Promise<void | Extract<ThreadInputReceipt, { status: "conflict" }>>;
+  assertSteeringTarget(scope: ThreadInputScope, target: ThreadInputTarget, hasImages: boolean, operation: "turn.steer" | "thread.input.steer"): Promise<void | Extract<ThreadInputReceipt, { status: "conflict" }>>;
   /** Only an explicit known pre-acceptance conflict returns a conflict receipt.
    * A throw can follow durable acceptance and must remain unknown. */
   deliverSteer(scope: ThreadInputScope, item: StoredThreadInput, operation: "turn.steer" | "thread.input.steer"): Promise<

@@ -3,6 +3,7 @@ import {
   ThreadInputReceiptSchema,
   ThreadIdSchema,
   WorkspaceScopeIdSchema,
+  type ThreadInputReceipt,
 } from "@repo/platform-protocol";
 import {
   ChatImageAttachmentRefSchema,
@@ -23,7 +24,7 @@ import { withTranscriptRepository } from "../../services/sessions/TranscriptPers
 import { hostedThreadInputRepository } from "../../services/thread-inputs/ThreadInputRepositoryPort";
 import { ThreadInputCommandService as HostedTurnAdmissionCommands } from "../../services/thread-inputs/ThreadInputCommandService";
 import { ThreadInputCommandService, ThreadInputCommandError, ThreadInputDeliveryResponseError } from "@legioncode/app-server/thread-inputs";
-import type { ThreadInputScope, StoredThreadInput } from "@repo/event-store";
+import type { ThreadInputScope, StoredThreadInput } from "@repo/persistence";
 import { withTurnAdmissionRepository } from "../../services/turn-admissions/TurnAdmissionPersistenceFactory";
 import { ResumeTurnError } from "../../services/turn-admissions/ResumeTurnService";
 import type { Env } from "../../types/ai";
@@ -53,7 +54,7 @@ export function composeHostedThreadInputOperations(request: Request, env: Env, u
         mediaRevision === 1 ? clientInputId : `${inputId}_${mediaRevision}`, images),
       fingerprint: null, mediaRevision: null, discardUnpublished: async () => undefined,
     }),
-    assertSteeringTarget: (scope, target, hasImages) => assertSteeringTarget({ request, env, scope, target, hasImages, correlationId }),
+    assertSteeringTarget: (scope, target, hasImages, operation) => assertSteeringTarget({ request, env, scope, target, hasImages, operation, correlationId }),
     deliverSteer: (scope, item, operation) => deliverSteer(env, scope, item, operation),
     startQueued: ({ scope, command, explicitStart }) => admissions.startQueuedInput({ request,
       executionContext, userId, sessionId: scope.sessionId, command, correlationId, explicitStart }),
@@ -86,17 +87,24 @@ export function composeHostedThreadInputOperations(request: Request, env: Env, u
 
 async function assertSteeringTarget(input: {
   request: Request; env: Env; scope: ThreadInputScope;
-  target: { expectedTurnId: string; expectedRunAttemptId: string }; hasImages: boolean; correlationId: string;
+  target: { expectedTurnId: string; expectedRunAttemptId: string }; hasImages: boolean;
+  operation: "turn.steer" | "thread.input.steer"; correlationId: string;
 }) {
-  const { request, env, scope, target, hasImages, correlationId } = input;
+  const { request, env, scope, target, hasImages, operation, correlationId } = input;
   const admission = await withTurnAdmissionRepository(env, (owner) => owner.getByTurnId(target.expectedTurnId));
   if (!admission || admission.state !== "admitted" || admission.userId !== scope.userId ||
       admission.sessionId !== scope.sessionId || admission.threadId !== scope.threadId ||
-      admission.workspaceId !== scope.workspaceId || admission.runAttemptId !== target.expectedRunAttemptId)
+      admission.workspaceId !== scope.workspaceId || admission.runAttemptId !== target.expectedRunAttemptId) {
+    if (operation === "thread.input.steer")
+      throw operationError(409, "conflict", "The selected turn is no longer active.", "TURN_NOT_ACTIVE");
     return ThreadInputReceiptSchema.parse({ status: "conflict", code: "turn_not_active", message: "The selected turn is no longer active." }) as Extract<import("@repo/platform-protocol").ThreadInputReceipt, { status: "conflict" }>;
+  }
   const runtimeScope = await resolveExecutionScope(request, env, admission.runId, correlationId);
-  if (runtimeScope.userId !== scope.userId || runtimeScope.workspaceId !== scope.workspaceId)
+  if (runtimeScope.userId !== scope.userId || runtimeScope.workspaceId !== scope.workspaceId) {
+    if (operation === "thread.input.steer")
+      throw operationError(409, "conflict", "The selected turn scope has changed.", "TARGET_SUPERSEDED");
     return ThreadInputReceiptSchema.parse({ status: "conflict", code: "target_superseded", message: "The selected turn scope has changed." }) as Extract<import("@repo/platform-protocol").ThreadInputReceipt, { status: "conflict" }>;
+  }
   if (hasImages) {
     const run = await withRunRepository(env, (owner) => owner.getRun(admission.runId, scope.userId));
     const modelMetadata = await resolveChatModelMetadata({ providerId: run?.providerId ?? undefined,
@@ -108,7 +116,9 @@ async function assertSteeringTarget(input: {
   }
 }
 
-async function deliverSteer(env: Env, scope: ThreadInputScope, item: StoredThreadInput, operation: "turn.steer" | "thread.input.steer") {
+async function deliverSteer(env: Env, scope: ThreadInputScope, item: StoredThreadInput, operation: "turn.steer" | "thread.input.steer"): Promise<
+  { acceptedSequence: number } | Extract<ThreadInputReceipt, { status: "conflict" }>
+> {
   const admission = await withTurnAdmissionRepository(env, (owner) => owner.getByTurnId(item.targetTurnId!));
   if (!admission || admission.state !== "admitted" || admission.userId !== scope.userId || admission.sessionId !== scope.sessionId ||
       admission.threadId !== scope.threadId || admission.workspaceId !== scope.workspaceId || admission.runAttemptId !== item.targetRunAttemptId)
