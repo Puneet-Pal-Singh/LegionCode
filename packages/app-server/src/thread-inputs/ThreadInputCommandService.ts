@@ -16,6 +16,11 @@ export class ThreadInputCommandError extends Error {
     this.name = "ThreadInputCommandError";
   }
 }
+/** Placement-classified response denial; preserves its original public mapping.
+ * Only trusted placement adapters construct this before confirmed acceptance. */
+export class ThreadInputDeliveryResponseError extends Error {
+  constructor(readonly failure: unknown) { super("Thread input response was rejected before confirmed acceptance"); }
+}
 export type ThreadInputCommandOutcome = {
   readonly statusCode: 200 | 201 | 202 | 409;
   readonly result: ThreadInputReceipt | ThreadInputQueueSnapshot | ResumeTurnReceipt;
@@ -98,7 +103,7 @@ export class ThreadInputCommandService {
         text: command.content.text, mediaRefs: [...media.references], configuration: {},
         mediaFingerprint: media.fingerprint, mediaRevision: media.mediaRevision,
       });
-      return await this.deliver(scope, stored.item, stored.duplicate ? 200 : 202);
+      return await this.deliver(scope, stored.item, stored.duplicate ? 200 : 202, "turn.steer");
     } finally { await discard(media); }
   }
 
@@ -117,17 +122,18 @@ export class ThreadInputCommandService {
       if (claimed.status === "conflict") return conflict(claimed.code, "Queue item changed or was already consumed.");
       item = claimed.item;
     }
-    return this.deliver(scope, item, 202);
+    return this.deliver(scope, item, 202, "thread.input.steer");
   }
 
-  private async deliver(scope: ThreadInputScope, item: StoredThreadInput, statusCode: 200 | 202): Promise<ThreadInputCommandOutcome> {
+  private async deliver(scope: ThreadInputScope, item: StoredThreadInput, statusCode: 200 | 202, operation: "turn.steer" | "thread.input.steer"): Promise<ThreadInputCommandOutcome> {
     if (isDeliveryReceipt(item.receipt)) return { statusCode: 200, result: item.receipt };
     if (item.receipt?.status === "conflict") return { statusCode: 409, result: item.receipt };
     if (item.delivery !== "steer" || (item.state !== "pending" && item.state !== "consuming"))
       return conflict("queue_item_consumed", "Queue item was already consumed or cancelled.");
     let delivered: Awaited<ReturnType<ThreadInputCommandPorts["deliverSteer"]>>;
-    try { delivered = await this.ports.deliverSteer(scope, item); }
-    catch {
+    try { delivered = await this.ports.deliverSteer(scope, item, operation); }
+    catch (error) {
+      if (error instanceof ThreadInputDeliveryResponseError) throw error.failure;
       await this.pauseUnknown(scope);
       throw unknownDelivery();
     }

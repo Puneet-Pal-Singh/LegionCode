@@ -22,7 +22,7 @@ import { withRunRepository } from "../../services/runs/RunPersistenceFactory";
 import { withTranscriptRepository } from "../../services/sessions/TranscriptPersistenceFactory";
 import { hostedThreadInputRepository } from "../../services/thread-inputs/ThreadInputRepositoryPort";
 import { ThreadInputCommandService as HostedTurnAdmissionCommands } from "../../services/thread-inputs/ThreadInputCommandService";
-import { ThreadInputCommandService, ThreadInputCommandError } from "@legioncode/app-server/thread-inputs";
+import { ThreadInputCommandService, ThreadInputCommandError, ThreadInputDeliveryResponseError } from "@legioncode/app-server/thread-inputs";
 import type { ThreadInputScope, StoredThreadInput } from "@repo/event-store";
 import { withTurnAdmissionRepository } from "../../services/turn-admissions/TurnAdmissionPersistenceFactory";
 import { ResumeTurnError } from "../../services/turn-admissions/ResumeTurnService";
@@ -54,7 +54,7 @@ export function composeHostedThreadInputOperations(request: Request, env: Env, u
       fingerprint: null, mediaRevision: null, discardUnpublished: async () => undefined,
     }),
     assertSteeringTarget: (scope, target, hasImages) => assertSteeringTarget({ request, env, scope, target, hasImages, correlationId }),
-    deliverSteer: (scope, item) => deliverSteer(env, scope, item),
+    deliverSteer: (scope, item, operation) => deliverSteer(env, scope, item, operation),
     startQueued: ({ scope, command, explicitStart }) => admissions.startQueuedInput({ request,
       executionContext, userId, sessionId: scope.sessionId, command, correlationId, explicitStart }),
     resume: (scope, command) => admissions.resume({ request, executionContext, userId,
@@ -62,8 +62,18 @@ export function composeHostedThreadInputOperations(request: Request, env: Env, u
   });
   return { execute: async (command) => {
     try {
+      // Preserve Hosted's existing update visibility: terminal inbox rows were
+      // absent from the original pending/consuming queue snapshot.
+      if (command.operation === "thread.input.update") {
+        const scope = await resolveThreadScope(env, userId, command);
+        const visible = await repository.list(scope);
+        if (!visible.items.some((item) => item.itemId === command.itemId))
+          throw operationError(404, "not_found", "Queue item not found", "QUEUE_ITEM_NOT_FOUND");
+      }
       const result = await service.execute(command);
-      return outcome(result.result, result.statusCode);
+      const statusCode = (command.operation === "thread.input.update" || command.operation === "thread.input.remove") && result.statusCode === 409
+        ? 200 : result.statusCode;
+      return outcome(result.result, statusCode);
     } catch (error) {
       if (error instanceof OutcomeError) return error.outcome;
       const mapped = mapThreadInputError(error);
@@ -98,7 +108,7 @@ async function assertSteeringTarget(input: {
   }
 }
 
-async function deliverSteer(env: Env, scope: ThreadInputScope, item: StoredThreadInput) {
+async function deliverSteer(env: Env, scope: ThreadInputScope, item: StoredThreadInput, operation: "turn.steer" | "thread.input.steer") {
   const admission = await withTurnAdmissionRepository(env, (owner) => owner.getByTurnId(item.targetTurnId!));
   if (!admission || admission.state !== "admitted" || admission.userId !== scope.userId || admission.sessionId !== scope.sessionId ||
       admission.threadId !== scope.threadId || admission.workspaceId !== scope.workspaceId || admission.runAttemptId !== item.targetRunAttemptId)
@@ -114,6 +124,8 @@ async function deliverSteer(env: Env, scope: ThreadInputScope, item: StoredThrea
   if (!response.ok) {
     if (response.status === 409 && (body?.code === "turn_not_active" || body?.code === "target_superseded"))
       return { status: "conflict" as const, code: body.code, message: typeof body.error === "string" ? body.error : "The selected turn no longer accepts input." };
+    if (operation === "turn.steer" && response.status < 500)
+      throw new ThreadInputDeliveryResponseError(operationError(502, "server_unavailable", "Steering was not confirmed. Retry with the same input ID.", "THREAD_INPUT_NOT_CONFIRMED"));
     throw operationError(503, "server_unavailable", "Steering outcome is being reconciled. Retry with the same input ID.", "THREAD_INPUT_OUTCOME_UNKNOWN");
   }
   const receipt = ThreadInputReceiptSchema.parse({ status: "accepted", clientInputId: item.clientInputId,

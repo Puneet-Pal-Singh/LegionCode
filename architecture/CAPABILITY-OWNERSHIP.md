@@ -2589,3 +2589,44 @@ settlement. A request that ignores cancellation keeps that original obligation;
 no abort acknowledgement, deadline or empty executor map substitutes for it.
 This is buffered-request resource ownership only; it does not invent streaming
 phases, output/retry semantics or another canonical lifecycle producer.
+### Hosted shared-input compatibility
+
+- Hosted update/remove known CAS conflict receipts retain their existing HTTP 200 wrapper. Direct Steer response denials retain the existing HTTP 502/THREAD_INPUT_NOT_CONFIRMED mapping through a private placement brand; queued-Steer and unknown Native delivery keep their existing 503 reconciliation path.
+- Shared policy still owns durable command/CAS/receipt decisions. Placement transport status does not become a second input state owner. No new tests.
+
+## Plan 057 — Canonical accepted-user history windows
+
+The existing local SQLite event connection projects initial admission user items
+and durable accepted input bodies into the shared ConversationHistoryMessage
+contract. The original append/lifecycle/inbox owners remain unchanged. Native
+accepted rows must match their exact durable acceptance receipt and immutable
+body/image references; pending queue rows and acknowledgement-only payloads do
+not become transcript messages. Opaque delegated admissions retain their own
+canonical producer without manufacturing a Native inbox.
+
+The existing thread/history endpoint preserves whole-Turn admission cursors and
+adds separately bounded user-message windows. A real canonical user-item cursor
+pins an immutable high-watermark over the authorized Turn set. Latest reads query
+the body tail directly; forward/backward continuation validates canonical anchors
+and never includes later appends. The response includes actual earlier/later
+bounds and the last canonical user-item ID per selected Turn at that snapshot, so
+thin clients place one workflow after its real last user without loading every
+older steering message. Root edit identity remains the admission's user item.
+
+Each page returns at most 100 messages within the complete one-MiB App Server
+frame, including admission and window metadata. Admission selection reuses its
+original cursor authority with a private byte budget when envelope overhead
+requires a smaller page. An initial empty message prefix explicitly continues;
+a continuation-only page must advance or fail explicitly for an oversized row.
+The SDK/renderer consumer owns cancellable bounded-window navigation; this source
+alone does not claim installed history/queue acceptance. No new tests or stores.
+
+- Client-supplied history Turn sets that are missing, foreign, duplicated or
+  malformed are invalid snapshot selections, not database-corruption evidence.
+  The private reader returns its opaque cursor conflict; the public request
+  schema continues to reject malformed IDs/duplicate sets before storage reads.
+  Actual mismatched canonical rows/fingerprints remain corruption failures.
+
+- A workspace grant revoked or switched before the synchronous history read also
+  invalidates that snapshot selection; it is not classified as corrupt storage.
+  Malformed persisted grant content still fails through the storage guard.

@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
+import { readLocalThreadHistory } from "./local-thread-history.js";
 import type { LocalTurnAttemptIdentity, LocalTurnAttemptInput } from "@legioncode/execution-engine/runtime/desktop/LocalReadOnlyTurnExecutor";
 import type { StoredThreadInput, ThreadInputScope } from "@repo/event-store";
 import type { InputCommand } from "./thread-inputs/ports.js";
@@ -68,7 +69,7 @@ export type LocalTurnExecutor = {
   >[0]["resolveApproval"];
 };
 export type LocalTurnServiceOptions = {
-  persistence: Pick<LocalPersistence, "turnAdmissions" | "lifecycleEvents">;
+  persistence: Pick<LocalPersistence, "turnAdmissions" | "lifecycleEvents" | "readThreadUserHistory">;
   workspaces: LocalWorkspaceService;
   threads: LocalThreadService;
   providers: LocalProviderService;
@@ -440,34 +441,8 @@ export class LocalTurnService {
     return admission;
   }
 
-  async readHistory(params: LocalThreadHistoryParams) {
-    const thread = await this.options.threads.get(params.threadId);
-    if (thread.workspaceId !== params.workspaceId) {
-      throw new AppServerOperationError(
-        404,
-        "not_found",
-        "Local thread was not found in the granted workspace",
-      );
-    }
-    const page = await this.options.persistence.turnAdmissions.listByThread({
-      threadId: thread.id,
-      afterCursor: params.afterCursor ?? null,
-      limit: params.limit ?? (params.latest ? 25 : 50),
-      latest: params.latest,
-    }).catch((error: unknown) => {
-      if (error instanceof EventStoreError && error.code === "history_row_too_large") {
-        throw new AppServerOperationError(503, "server_unavailable", "The next history Turn exceeds the supported response size", "history_row_too_large", false);
-      }
-      throw error;
-    });
-    const current = await this.options.threads.get(thread.id);
-    if (current.workspaceId !== params.workspaceId) {
-      throw new AppServerOperationError(404, "not_found", "Local thread was not found in the granted workspace");
-    }
-    return {
-      admissions: [...page.admissions], nextCursor: page.nextCursor,
-      ...(params.latest ? { hasEarlier: page.hasEarlier } : {}),
-    };
+  readHistory(params: LocalThreadHistoryParams) {
+    return readLocalThreadHistory({ persistence: this.options.persistence, threads: this.options.threads }, params);
   }
 
   async replayLifecycleEvents(params: ReplayLifecycleEventsRequest) {

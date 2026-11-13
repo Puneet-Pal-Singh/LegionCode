@@ -19,6 +19,8 @@ import {
   HostedChatSubmissionResultSchema,
   ConversationHistoryRequestSchema,
   ConversationHistoryResponseSchema,
+  ConversationHistoryMessageSchema,
+  ItemIdSchema,
   CodeArtifactContentRequestSchema,
   CodeArtifactContentResponseSchema,
   AppServerErrorSchema,
@@ -226,23 +228,65 @@ export const LocalTurnStartParamsSchema = z.object({
   }
 });
 export type LocalTurnStartParams = z.infer<typeof LocalTurnStartParamsSchema>;
+export const LocalThreadHistoryMessagesContinuationSchema = z.object({
+  turnIds: z.array(TurnIdSchema).min(1).max(100).refine((ids) => new Set(ids).size === ids.length, "History Turn IDs must be unique"),
+  throughCursor: EventCursorSchema,
+  direction: z.enum(["forward", "backward"]),
+  cursor: EventCursorSchema.nullable(),
+}).strict();
+export type LocalThreadHistoryMessagesContinuation = z.infer<typeof LocalThreadHistoryMessagesContinuationSchema>;
+export const LocalThreadHistoryMessagesWindowSchema = z.object({
+  turnIds: LocalThreadHistoryMessagesContinuationSchema.shape.turnIds,
+  throughCursor: EventCursorSchema,
+  firstCursor: EventCursorSchema.nullable(), lastCursor: EventCursorSchema.nullable(),
+  hasEarlier: z.boolean(), hasLater: z.boolean(),
+  lastUserByTurn: z.array(z.object({ turnId: TurnIdSchema, itemId: ItemIdSchema }).strict()).min(1).max(100),
+}).strict().superRefine((window, context) => {
+  if (window.lastUserByTurn.length !== window.turnIds.length || window.lastUserByTurn.some((last, index) => last.turnId !== window.turnIds[index]))
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Last-user identities must match the exact history Turn set" });
+  if ((window.firstCursor === null) !== (window.lastCursor === null))
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "History window cursor boundaries must agree" });
+});
+export type LocalThreadHistoryMessagesWindow = z.infer<typeof LocalThreadHistoryMessagesWindowSchema>;
 export const LocalThreadHistoryParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   threadId: ThreadIdSchema,
   afterCursor: EventCursorSchema.nullable().optional(),
   /** Explicit bounded tail; omitted keeps the existing forward cursor behavior. */
   latest: z.boolean().optional(),
+  messageLimit: z.number().int().min(1).max(100).optional(),
+  messagesContinuation: LocalThreadHistoryMessagesContinuationSchema.optional(),
   /** Maximum whole Turns; the response byte budget can return fewer rows. */
   limit: z.number().int().min(1).max(100).optional(),
 }).strict().refine((params) => !params.latest || params.afterCursor == null,
-  "Latest history cannot be combined with an after cursor");
+  "Latest history cannot be combined with an after cursor").refine((params) => !params.messagesContinuation ||
+    (params.latest === undefined && params.afterCursor === undefined && params.limit === undefined),
+  "User-message continuation cannot change the admission page");
 export type LocalThreadHistoryParams = z.infer<typeof LocalThreadHistoryParamsSchema>;
 export const LocalThreadHistoryResultSchema = z.object({
+  messages: z.array(ConversationHistoryMessageSchema).max(100),
+  messagesWindow: LocalThreadHistoryMessagesWindowSchema.optional(),
+  messagesContinuation: LocalThreadHistoryMessagesContinuationSchema.optional(),
   admissions: z.array(TurnAdmissionSchema),
   nextCursor: EventCursorSchema.nullable(),
   /** Present on latest requests, measured by a real one-row lookbehind. */
   hasEarlier: z.boolean().optional(),
-}).strict();
+}).strict().superRefine((result, context) => {
+  const window = result.messagesWindow;
+  const continuation = result.messagesContinuation;
+  if (!window) {
+    if (result.messages.length || continuation)
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "Saved user messages require their canonical window" });
+    return;
+  }
+  if ((window.firstCursor === null) !== (result.messages.length === 0))
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Saved message rows must match their window boundaries" });
+  if (continuation && (continuation.throughCursor !== window.throughCursor ||
+      continuation.turnIds.length !== window.turnIds.length || continuation.turnIds.some((turnId, index) => turnId !== window.turnIds[index]) ||
+      continuation.cursor !== (continuation.direction === "forward" ? window.lastCursor : window.firstCursor) ||
+      !(continuation.direction === "forward" ? window.hasLater : window.hasEarlier)))
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Saved message continuation must match the exact snapshot window" });
+});
 export type LocalThreadHistoryResult = z.infer<typeof LocalThreadHistoryResultSchema>;
 export const LocalTurnInterruptParamsSchema = z.object({
   // These hosted-only fields are never accepted on a local command.

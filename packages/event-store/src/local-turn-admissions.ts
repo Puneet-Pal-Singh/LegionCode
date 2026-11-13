@@ -185,10 +185,13 @@ export class LocalTurnAdmissions {
     return { admissions, nextCursor };
   }
 
-  listByThread(input: { threadId: string; afterCursor: EventCursor | null; limit: number; latest?: boolean }): {
+  listByThread(input: { threadId: string; afterCursor: EventCursor | null; limit: number; latest?: boolean; maxBytes?: number }): {
     admissions: readonly TurnAdmission[]; nextCursor: EventCursor | null; hasEarlier?: boolean;
   } {
     ThreadIdSchema.parse(input.threadId);
+    const maxBytes = input.maxBytes ?? APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES;
+    if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES)
+      throw new EventStoreError("invalid_replay_byte_budget", "Admission history byte budget is invalid");
     if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 1_000) {
       throw new EventStoreError("invalid_replay_limit", "Admission history limit must be between 1 and 1000");
     }
@@ -222,7 +225,7 @@ export class LocalTurnAdmissions {
         result: { admissions: [], nextCursor, ...(input.latest ? { hasEarlier: false } : {}) },
       });
       const bytes = appServerJsonByteLength(admission) + (selected.length ? 1 : 0);
-      if (frameBytes + admissionBytes + bytes > APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES) {
+      if (frameBytes + admissionBytes + bytes > maxBytes) {
         if (!selected.length) {
           throw new EventStoreError("history_row_too_large", "The next history Turn exceeds the supported response byte budget");
         }

@@ -145,6 +145,13 @@ export class LocalThreadInputRepository implements ThreadInputRepository {
   async readForMedia(input: ThreadInputScope & { itemId: string }) {
     return this.database.transaction(() => { readLocalOwnedThread(this.database, input, false); return this.get(input, input.itemId); })();
   }
+  readHistoryInputWithin(scope: ThreadInputScope, inputId: string): StoredThreadInput | null {
+    if (!this.database.inTransaction) throw corrupt("History input read requires the existing SQLite transaction");
+    const item = this.get(scope, inputId);
+    if (item) this.validateReceipt(item);
+    return item;
+  }
+
   async listAcceptedForTurn(input: ThreadInputScope & { turnId: string; runAttemptId: string }) {
     return this.database.transaction(() => {
       const admission = this.requireTarget(input, input.turnId, input.runAttemptId);
