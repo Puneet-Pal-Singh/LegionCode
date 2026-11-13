@@ -3198,8 +3198,8 @@ Opaque cursors are never numerically or lexically ordered. A maximum 1,000-page
 iteration bounds cycle tracking; callers may resume from the last yielded
 continuation. It retains no transcript accumulator and never prefetches after
 yield, return or cancellation. Read cancellation fences late results and does
-not claim execution-resource closure. Desktop mounting remains separate from
-this SDK consumer and does not add another history watcher or persistence owner.
+not claim execution-resource closure. Desktop consumes this SDK iterator through its existing conversation read owner;
+there is no additional history watcher or persistence owner.
 
 The existing SDK conversation lifecycle projection retains the maximum sequence
 of canonical accepted/applied input events as body-free `inputSequence` read
@@ -3360,3 +3360,25 @@ provider replaces the search screen with credentials. Success and recovery
 messages expose status/alert semantics to assistive technology. Web and Desktop
 consume this same presentation; credential custody and modal focus restoration
 remain with their existing host and overlay owners.
+## Desktop hosted App Server session binding
+
+Desktop main's `DesktopHostedAccount` owns the private persistent Electron
+session. Its scope-checked `run` loan registers the original operation before
+invocation, validates production/account/generation before and after the request,
+and drains those operations before logout or quit. Neither detach nor shutdown
+issues a cloud Turn interrupt. The existing hosted server remains the only
+authentication, admission, lifecycle, credential and artifact authority.
+
+`DesktopHostedAppServer` adapts validated, explicitly allowlisted hosted App
+Server envelopes to the existing SDK HTTP transport and that private session's
+`fetch`. The renderer never receives a cookie, bearer token or arbitrary URL
+operation. Local grants, local Threads, local Turn start/history and OS-vault
+commands cannot cross this route. Method-derived ingress hints retain existing
+hosted large-body handling under a bounded IPC ceiling; responses use the SDK's
+existing one-MiB body limit.
+
+Only status and the four admission acknowledgement headers cross early metadata
+notifications. The same bounded receipt is retained in failure results when body
+parsing fails. Callback notification errors do not abandon the original SDK body
+read. Public Desktop hosted task mounting and installed Native Cloud acceptance
+remain separate consumers; this transport does not advertise execution readiness.

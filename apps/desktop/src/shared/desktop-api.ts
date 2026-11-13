@@ -4,6 +4,7 @@ import type { AppServerRequest } from "@legioncode/app-server/protocol";
 import type { LocalAppServerMessage } from "@legioncode/app-server/local-process";
 import type { AppServerEnvironmentSnapshot } from "@repo/platform-protocol";
 import type { HostedAccountCommand, HostedAccountSnapshot } from "./hosted-account";
+import type { HostedRequest, HostedRequestResult, HostedResponseMetadata } from "./hosted-request";
 
 export const APP_SERVER_REQUEST_CHANNEL = "desktop:app-server-request";
 export const BUILD_INFO_CHANNEL = "desktop:get-build-info";
@@ -61,6 +62,7 @@ export type DesktopApi = {
   pickWorkspace(): Promise<WorkspaceSelection | null>;
   credential(command: DesktopCredentialCommand): Promise<DesktopCredentialResult>;
   hostedAccount(command: HostedAccountCommand): Promise<HostedAccountSnapshot>;
+  hostedRequest(request: HostedRequest, onResponse?: (metadata: HostedResponseMetadata) => void): Promise<HostedRequestResult>;
 };
 
 export type DesktopEnvironmentConfig = AppServerEnvironmentSnapshot;

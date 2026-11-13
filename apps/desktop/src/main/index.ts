@@ -28,6 +28,8 @@ import { installDesktopApplicationMenu } from "./application-menu";
 import { LocalAppServerSupervisor } from "./local-app-server-supervisor";
 import { DesktopCredentialVault } from "./desktop-credential-vault";
 import { DesktopHostedAccount } from "./hosted-account";
+import { DesktopHostedAppServer } from "./hosted-app-server";
+import { HOSTED_REQUEST_CHANNEL, HOSTED_RESPONSE_CHANNEL } from "../shared/hosted-request";
 import { HOSTED_ACCOUNT_CHANNEL, HostedAccountCommandSchema } from "../shared/hosted-account";
 import {
   assertTrustedDesktopFrame as assertTrustedFrameFacts,
@@ -42,6 +44,7 @@ const isPrimaryInstance = app.requestSingleInstanceLock();
 if (!isPrimaryInstance) app.quit();
 let credentialVault: DesktopCredentialVault | null = null;
 let hostedAccount: DesktopHostedAccount | null = null;
+let hostedAppServer: DesktopHostedAppServer | null = null;
 const localAppServer = new LocalAppServerSupervisor(
   (request) => providerRequestHeaders(request),
   async (providerId) => credentialVault?.acquireRuntimeCredentialLease(providerId) ?? null,
@@ -110,6 +113,17 @@ function handleNativeInvoke<T>(
 handleNativeInvoke(ENVIRONMENT_SNAPSHOT_CHANNEL, () =>
   localAppServer.getEnvironment(),
 );
+handleNativeInvoke(HOSTED_REQUEST_CHANNEL, async (event, value) => {
+  if (!hostedAppServer || isQuitting || shutdownPromise) throw new Error("Hosted connection is unavailable");
+  try {
+    return await hostedAppServer.request(value, (metadata) => {
+      assertTrustedDesktopFrame(event);
+      event.sender.send(HOSTED_RESPONSE_CHANNEL, metadata);
+    });
+  } catch {
+    throw new Error("Desktop hosted request was rejected");
+  }
+});
 handleNativeInvoke(HOSTED_ACCOUNT_CHANNEL, async (event, value) => {
   const command = HostedAccountCommandSchema.parse(value);
   if (!hostedAccount || isQuitting || shutdownPromise) throw new Error("Hosted account is unavailable");
@@ -242,6 +256,7 @@ handleNativeInvoke(BUILD_INFO_CHANNEL, () => ({
 void app.whenReady().then(() => {
   if (!isPrimaryInstance) return;
   hostedAccount = new DesktopHostedAccount();
+  hostedAppServer = new DesktopHostedAppServer(hostedAccount);
   credentialVault = new DesktopCredentialVault(app.getPath("userData"), {
     isEncryptionAvailable: () =>
       safeStorage.isEncryptionAvailable() &&
