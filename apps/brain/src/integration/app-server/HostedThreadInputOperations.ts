@@ -23,7 +23,7 @@ import { withTranscriptRepository } from "../../services/sessions/TranscriptPers
 import { hostedThreadInputRepository } from "../../services/thread-inputs/ThreadInputRepositoryPort";
 import { ThreadInputCommandService as HostedTurnAdmissionCommands } from "../../services/thread-inputs/ThreadInputCommandService";
 import { ThreadInputCommandService, ThreadInputCommandError, ThreadInputDeliveryResponseError } from "@legioncode/app-server/thread-inputs";
-import type { ThreadInputScope, StoredThreadInput } from "@repo/event-store";
+import type { ThreadInputScope, StoredThreadInput } from "@repo/persistence";
 import { withTurnAdmissionRepository } from "../../services/turn-admissions/TurnAdmissionPersistenceFactory";
 import { ResumeTurnError } from "../../services/turn-admissions/ResumeTurnService";
 import type { Env } from "../../types/ai";
