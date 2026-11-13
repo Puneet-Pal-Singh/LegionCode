@@ -3253,6 +3253,16 @@ a continuation-only page must advance or fail explicitly for an oversized row.
 The SDK/renderer consumer owns cancellable bounded-window navigation; this source
 alone does not claim installed history/queue acceptance. No new tests or stores.
 
+The SDK `iterateLocalThreadHistory` consumer yields one canonical bounded page
+per caller request. It validates admission/message scope, immutable snapshot
+facts, typed message identities, cursor endpoints and continuation direction.
+Opaque cursors are never numerically or lexically ordered. A maximum 1,000-page
+iteration bounds cycle tracking; callers may resume from the last yielded
+continuation. It retains no transcript accumulator and never prefetches after
+yield, return or cancellation. Read cancellation fences late results and does
+not claim execution-resource closure. Desktop mounting remains separate from
+this SDK consumer and does not add another history watcher or persistence owner.
+
 - Client-supplied history Turn sets that are missing, foreign, duplicated or
   malformed are invalid snapshot selections, not database-corruption evidence.
   The private reader returns its opaque cursor conflict; the public request

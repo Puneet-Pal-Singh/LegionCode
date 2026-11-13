@@ -357,6 +357,7 @@ export {
 } from "./platform/read-file-output.js";
 
 export * from "./platform/conversation-history.js";
+export * from "./platform/local-thread-history.js";
 
 export {
   createLifecycleProjection,
@@ -413,6 +414,8 @@ export type {
   LocalTurnInterruptParams,
   LocalThreadHistoryParams,
   LocalThreadHistoryResult,
+  LocalThreadHistoryMessagesContinuation,
+  LocalThreadHistoryMessagesWindow,
 } from "@legioncode/app-server/protocol";
 export { TurnAdmissionSchema, type TurnAdmission } from "@repo/platform-protocol";
 
