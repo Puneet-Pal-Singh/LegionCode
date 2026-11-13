@@ -133,7 +133,7 @@ describe("buildChatEntries", () => {
     ]);
     expect(bounded[0]).toMatchObject({ editUnavailable: true });
     expect(bounded[1]?.projection).toBe(projection);
-    const missingLast = { [turnId]: { ...bounds[turnId], lastUserMessageId: "outside-window" } };
+    const missingLast = { [turnId]: { rootUserMessageId: user.id, lastUserMessageId: "outside-window" } };
     const withoutAggregate = buildChatEntries(tail, { [turnId]: projection }, turnId, missingLast);
     expect(withoutAggregate.map((entry) => entry.kind === "message" ? entry.message.id : entry.key)).toEqual([
       "steering-user", "assistant-1",
