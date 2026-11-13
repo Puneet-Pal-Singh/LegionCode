@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updated": "2026-07-18",
+  "updated": "2026-11-11",
   "purpose": "Machine-readable inventory for LegionCode harness policy files. New *Policy.ts files must be classified here before they can enter apps/ or packages/.",
   "entries": [
     {
@@ -371,6 +371,14 @@
       "disposition": "keep-pure-policy",
       "purpose": "Classify retryable failures and calculate retry budget timing.",
       "gate": "corepack pnpm --filter @legioncode/execution-engine test"
+    },
+    {
+      "path": "packages/harness-codex/src/server/protocol/generated/v2/SandboxPolicy.ts",
+      "owner": "harness-codex-native-rpc-translation",
+      "category": "permission",
+      "disposition": "convert-typed-protocol-projector",
+      "purpose": "Pinned generated native RPC translation data consumed by TurnStartParams and CodexDriver. The union describes the native request representation; it does not resolve canonical permissions or attest confinement. Preserve generated vendor bytes.",
+      "gate": "corepack pnpm --filter @repo/harness-codex check-types"
     }
   ]
 }

@@ -22,6 +22,7 @@
     "./local-capture-git": "./src/local-capture-git.ts",
     "./local-artifact-git": "./src/local-artifact-git.ts",
     "./local-artifact-commit-composition": "./src/local-artifact-commit-composition.ts",
+    "./local-native-settlement": "./src/local-native-settlement.ts",
     "./local-readonly-git": "./src/local-readonly-git.ts"
   },
   "scripts": {

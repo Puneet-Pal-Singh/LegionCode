@@ -2726,6 +2726,39 @@ narrower directory rather than fabricating resumability or restarting a stale
 cursor. Errors, revocation and cancellation propagate through the existing
 worker and canonical terminal settlement. Packaged Mac acceptance remains a
 separate delivery check.
+## Plan 057 — Native predecessor resource settlement evidence
+
+The existing `LocalTurnResources` owner records Native resource settlement only
+after the original executor's combined terminal/capture/quiescence proof, the
+same writer owner's positive release and the original binding's successful close.
+The existing immutable Turn-artifact metadata authority stores the exact admission,
+terminal/publication digests, root and Git metadata identity, grant provenance and
+actual released namespace/writer-file identity. It creates no lifecycle event or
+public review artifact. Unknown write acknowledgements require an exact durable
+record read before the same owned entry is removed; unreadable or absent evidence
+retains that owner and prevents positive shutdown.
+
+The private Native predecessor reader validates those canonical references under
+the successor's already-held physical writer, using a metadata-only tracked loan
+that exposes no file descriptor or execution capability. It never acquires or
+releases a replacement fence. Missing legacy or crash-before-receipt evidence is
+explicit `native_predecessor_recovery_required`; terminal history, artifacts and
+an absent executor map never establish physical settlement. There is no automatic
+historical backfill from a freshly acquired fence.
+
+Unused prepared acquisitions have a separate positive cleanup path on the same
+writer entry. Sticky physical exposure prevents that path after any broad authority
+loan or tracked execution. The trusted first consumer must fence and await its
+original canonical publication before its exact absence read; unknown publication
+or cleanup retains the original binding and lease. This source does not activate
+delegated external execution or supply its missing physical process boundary.
+
+Missing Native resource receipts remain explicit recovery requirements. Legacy
+pre-intent guardians closed the target writer descriptor before execution, so
+acquiring their old fence alone cannot exclude a surviving child. The landed
+child-intent ABI separately proves physical exclusion for its own launches; this
+receipt reader does not backfill missing canonical resource evidence from that
+acquisition, a preparation label or terminal history.
 
 ## Plan 057 — Canonical lifecycle event byte transport
 
@@ -3035,3 +3068,18 @@ Desktop can consume this same dispatch boundary with its environment-bound
 client. Hosted Desktop authentication, workspace/session mounting and installed
 Native Cloud acceptance remain unwired; extracting dispatch does not advertise
 Cloud readiness or transfer local credentials.
+## Plans 048 / 061 — Private Codex RPC driver foundation
+
+The private harness-codex server adapter translates the pinned Codex app-server
+stdio protocol into worker observations and native request replies. The complete
+generated protocol, runtime manifest and generator remain one pinned unit; its
+SandboxPolicy union describes vendor request bytes and owns no canonical policy.
+RuntimeKernel retains lifecycle/approval truth, while harness-core owns journal
+ordering, scoped host processes and durable request-delivery boundaries.
+
+Experimental questions accept blocking requests only; a native nonblocking request
+is rejected before canonical emission rather than inventing a blocking condition.
+The package is not registered by an active product constructor here. Binary/schema
+pins are not OS confinement or installed-feature acceptance; both remain explicitly
+unaccepted in the runtime manifest. Whole-scope quiescence requires actual injected
+proof, and missing evidence stays unknown. Native provider execution is unchanged.

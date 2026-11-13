@@ -109,7 +109,7 @@ export async function createDesktopNativeComposition(
           inspectMetadataLayout: binding.inspectMetadataLayout,
         }),
       }) : undefined,
-      releaseExecution: leases ? (attempt, proof) => leases.releaseAttempt(attempt, proof) : undefined,
+      releaseExecution: leases ? (attempt, proof, onReleased) => leases.releaseAttempt(attempt, proof, onReleased) : undefined,
       workerId: WorkerIdSchema.parse("worker_localdesktop"),
       permissionProfileId: PermissionProfileIdSchema.parse("perm_localdesktop"),
       resolvePermissionPolicy: (productMode) => new NativePermissionPolicyResolver(productMode).resolve(),
