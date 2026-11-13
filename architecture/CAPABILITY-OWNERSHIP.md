@@ -2496,3 +2496,9 @@ requires a smaller page. An initial empty message prefix explicitly continues;
 a continuation-only page must advance or fail explicitly for an oversized row.
 The SDK/renderer consumer owns cancellable bounded-window navigation; this source
 alone does not claim installed history/queue acceptance. No new tests or stores.
+
+- Client-supplied history Turn sets that are missing, foreign, duplicated or
+  malformed are invalid snapshot selections, not database-corruption evidence.
+  The private reader returns its opaque cursor conflict; the public request
+  schema continues to reject malformed IDs/duplicate sets before storage reads.
+  Actual mismatched canonical rows/fingerprints remain corruption failures.

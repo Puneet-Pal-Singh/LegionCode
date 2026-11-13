@@ -47,13 +47,15 @@ export function readLocalThreadUserHistory(database: Database.Database, admissio
     readLocalOwnedThread(database, input, false);
     const grant = database.prepare("SELECT value_json FROM workspace_grant WHERE id=1").get() as { value_json: string } | undefined;
     if (!grant || parseStoredGrant(JSON.parse(grant.value_json)).grant.workspaceId !== input.workspaceId) throw corrupt();
-    const turnIds = input.turnIds.map((id) => TurnIdSchema.parse(id));
-    if (!turnIds.length || turnIds.length > 100 || new Set(turnIds).size !== turnIds.length) throw corrupt();
+    const parsedTurnIds = TurnIdSchema.array().min(1).max(100)
+      .refine((ids) => new Set(ids).size === ids.length).safeParse(input.turnIds);
+    if (!parsedTurnIds.success) throw cursorConflict();
+    const turnIds = parsedTurnIds.data;
     const owned = new Map<string, TurnAdmission>();
     for (const turnId of turnIds) {
       const admission = admissions.getByTurn(turnId);
       if (!admission || admission.run.userId !== input.userId || admission.run.workspaceId !== input.workspaceId || admission.run.threadId !== input.threadId)
-        throw corrupt();
+        throw cursorConflict();
       owned.set(admission.run.id, admission);
     }
     const select = `SELECT * FROM events WHERE family='platform' AND thread_id=? AND stream_type='run'
