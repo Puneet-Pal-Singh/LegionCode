@@ -2577,3 +2577,15 @@ and same-transaction predecessor guard; this port alone does not activate it.
   not infer policy from current UI state or introduce another queue writer.
 - Native Queue route activation still requires the reviewed held-writer and
   bounded history consumer join. No new protocol fields or tests are added.
+
+### Original Native provider request settlement
+
+The same Native attempt factory retains every original protected-gateway request
+before invocation. Kernel cancellation polling can settle its observer first;
+that result is not provider-request closure. After the original executor result
+and worker proof settle, the factory fences new requests and awaits all retained
+adapter promises before writer release, binding close and immutable resource
+settlement. A request that ignores cancellation keeps that original obligation;
+no abort acknowledgement, deadline or empty executor map substitutes for it.
+This is buffered-request resource ownership only; it does not invent streaming
+phases, output/retry semantics or another canonical lifecycle producer.

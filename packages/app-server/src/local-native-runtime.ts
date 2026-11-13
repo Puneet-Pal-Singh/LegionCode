@@ -54,6 +54,7 @@ import type { LocalTurnMediaPort } from "./local-turn-media.js";
 import { attachPreparedLocalImages, localUserProviderMessage } from "./local-turn-images.js";
 import { captureLocalTurnModel } from "./local-turn-model.js";
 import { prepareLocalNativeSettlement } from "./local-native-settlement.js";
+import { LocalNativeProviderRequests } from "./local-native-provider-requests.js";
 import type { LocalWorkspaceWriterReleaseReceipt } from "./local-workspace-writer-lease.js";
 
 type LifecycleStore = LocalPersistence["lifecycleEvents"];
@@ -163,6 +164,7 @@ export function createLocalNativeRuntime(
         helperPath,
         rootDirectory: binding.rootDirectory,
       });
+      const providerRequests = new LocalNativeProviderRequests();
       let manifestGitClosureUnknown = false;
       let kernelPortsReturned = false;
       let attempt: LocalTurnAttemptIdentity | undefined;
@@ -242,12 +244,20 @@ export function createLocalNativeRuntime(
           );
           bound.assertCurrent();
           signal.throwIfAborted();
-          const gateway = createProtectedProviderGateway({
+          const protectedGateway = createProtectedProviderGateway({
             providerId: admission.run.providerId,
             modelId: admission.run.modelId,
             model: modelSnapshot,
             resolveCredential: options.resolveRuntimeCredential,
           });
+          const gateway = {
+            generateText: (request: Parameters<typeof protectedGateway.generateText>[0]) =>
+              providerRequests.track(() => {
+                signal.throwIfAborted();
+                request.signal?.throwIfAborted();
+                return protectedGateway.generateText(request);
+              }),
+          };
           const provider = createLocalNativeProviderPorts({
             admission,
             messages,
@@ -271,7 +281,12 @@ export function createLocalNativeRuntime(
       const proveRelease = async (turnId: TurnAdmission["turn"]["id"]) => {
         if (manifestGitClosureUnknown) return false;
         const releasable = await executor.awaitResourceRelease(turnId);
-        return releasable && !manifestGitClosureUnknown;
+        if (!releasable) return false;
+        // The provider cancellation poll races its observer with cancellation.
+        // Keep the original adapter promises until they actually settle before
+        // accepting writer release, closing this binding or publishing closure.
+        await providerRequests.drain();
+        return !manifestGitClosureUnknown;
       };
       let releasedWriter: LocalWorkspaceWriterReleaseReceipt | undefined;
       let positivelyReleased = false;
