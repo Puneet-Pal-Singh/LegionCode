@@ -378,6 +378,8 @@ Do not add low-value tests for trivial pass-through code.
 
 ### Test Restraint And Pruning
 
+- Prioritize implementation and packaging for Desktop delivery. Do not write new
+  tests or expand existing cases unless the user explicitly requests test work.
 - Do not add test files or test registrations. The root lint command enforces
   this against the PR base; test titles are the registration identities.
 - Existing tests may be edited to fix failures or improve assertions, and
