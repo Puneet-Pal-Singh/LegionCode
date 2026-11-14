@@ -8,6 +8,8 @@ import {
   workspaceIdFromExternalId,
 } from "@repo/platform-protocol";
 import type { Env } from "../types/ai";
+import { parseNativeProviderBindingForAdmission } from "@repo/persistence";
+import type { NativeProviderCredentialContext } from "../services/providers/NativeProviderCredentialResolver";
 import { DomainError } from "../domain/errors";
 import { withTranscriptRepository } from "../services/sessions/TranscriptPersistenceFactory";
 import { createEditArtifactCoordinator } from "../services/edit-artifacts/EditArtifactCaptureService";
@@ -37,6 +39,7 @@ export async function prepareRuntimeExecutionResources(
   ctx: unknown,
   env: Env,
   payload: ExecuteRunPayload,
+  nativeCredentials?: NativeProviderCredentialContext,
 ): Promise<RuntimeExecutionResources> {
   const { identity, userId, workspaceId, sessionId, runId } = payload;
   if (!identity || !userId || !workspaceId)
@@ -47,6 +50,16 @@ export async function prepareRuntimeExecutionResources(
       false,
       payload.correlationId,
     );
+  if (workspaceIdFromExternalId(identity.workspaceId) !== workspaceIdFromExternalId(workspaceId)) {
+    throw new DomainError("RUN_SCOPE_MISMATCH", "The turn workspace does not match its execution workspace.", 409, false, payload.correlationId);
+  }
+  if (!nativeCredentials) throw new Error("Native execution requires its claimed provider binding");
+  const expectedScope = { userId, workspaceId, sessionId, runId,
+    threadId: identity.threadId, turnId: identity.turnId, runAttemptId: identity.runAttemptId };
+  // Validate the stored binding against the actual execution tuple, then ensure
+  // its private context names that same tuple. Context echoes grant no authority.
+  parseNativeProviderBindingForAdmission(nativeCredentials.binding, expectedScope);
+  parseNativeProviderBindingForAdmission(nativeCredentials.binding, nativeCredentials.scope);
   const session = await withTranscriptRepository(
     env,
     async (repository) =>
@@ -80,6 +93,7 @@ export async function prepareRuntimeExecutionResources(
       ...buildRuntimeDependencies(ctx, env, payload, {
         strict: true,
         issuedTaskCheckout: null,
+        nativeProviderCredentials: nativeCredentials,
       }),
       workspace: null,
     };
@@ -126,6 +140,7 @@ export async function prepareRuntimeExecutionResources(
     const dependencies = buildRuntimeDependencies(ctx, env, payload, {
       strict: true,
       issuedTaskCheckout: { ...issued, checkout },
+      nativeProviderCredentials: nativeCredentials,
     });
     const artifacts = createEditArtifactCoordinator({
       env,

@@ -14,27 +14,22 @@ import {
   mapProviderIdToRuntimeProvider,
   getRuntimeProviderFromAdapter,
   type GenerateTextResult,
-  getSDKModelConfig,
   type SDKModelConfig,
   type GenerateStructuredResult,
   buildStructuredGenerationUsage,
   getStructuredGenerationMode,
 } from "./ai";
-import { resolveSelectionWithPreferences } from "./ai/preference-selection";
+import { resolveNativeProviderSelection, resolveSelectionWithPreferences } from "./ai/preference-selection";
+import { resolveStructuredGenerationConfiguration } from "./ai/AIStructuredGenerationCoordinator";
 import { DefaultAdapterService } from "./ai/DefaultAdapterService";
-import { consumeAxisQuotaIfNeeded } from "./ai/axis-quota";
-import { AXIS_PROVIDER_ID } from "./providers/axis";
 import {
   createChatStreamWithSelection,
   generateTextWithSelection,
 } from "./ai/AITextGenerationCoordinator";
-import {
-  resolveStructuredBaseURLOverride,
-  resolveStructuredRuntimeProvider,
-} from "./ai/ProviderRouteMetadata";
 import type { StructuredGenerationInput } from "./ai/StructuredGenerationInput";
 import type { ChatStreamInput } from "./ai/ChatStreamInput";
 import { PROVIDER_SDK_MAX_RETRIES } from "@legioncode/execution-engine/runtime/provider/ProviderRequestPolicy";
+import { createStructuredProviderInferenceAdapter } from "@legioncode/execution-engine/runtime/provider/ProviderInferenceFactory";
 
 export class AIService {
   private adapter: ProviderAdapter;
@@ -50,9 +45,13 @@ export class AIService {
   }
 
   getProvider(): string {
+    const native = this.providerConfigService?.getNativeProviderSelection?.();
+    if (native) return native.providerId;
     return this.adapter.provider;
   }
   getDefaultModel(): string {
+    const native = this.providerConfigService?.getNativeProviderSelection?.();
+    if (native) return native.modelId;
     return this.defaultModel;
   }
 
@@ -61,10 +60,11 @@ export class AIService {
     modelId?: string,
     isByokOverride = false,
   ) {
+    const native = resolveNativeProviderSelection(this.providerConfigService, providerId, modelId);
     const options = isByokOverride ? { isByokOverride } : undefined;
     return resolveModelSelection(
-      providerId,
-      modelId,
+      native ? native.providerId : providerId,
+      native ? native.modelId : modelId,
       this.adapter.provider,
       this.defaultModel,
       mapProviderIdToRuntimeProvider,
@@ -145,36 +145,18 @@ export class AIService {
       resolveSelection: (selectedProviderId, selectedModelId) =>
         this.resolveModelSelection(selectedProviderId, selectedModelId),
     });
-    await consumeAxisQuotaIfNeeded(
-      selection.providerId,
-      this.providerConfigService,
-    );
-
-    const overrideApiKey =
-      selection.providerId && selection.providerId !== AXIS_PROVIDER_ID
-        ? ((await this.providerConfigService?.getApiKey(
-            selection.providerId,
-          )) ?? undefined)
-        : undefined;
-
-    const structuredRuntimeProvider = resolveStructuredRuntimeProvider(
-      selection.runtimeProvider,
-      providerTransport,
-    );
-    const structuredBaseURLOverride = resolveStructuredBaseURLOverride(
-      providerTransport,
-      providerEndpoint,
-    );
-    const structuredModel = runtimeModelId ?? selection.model;
-    const sdkModelConfig = getSDKModelConfig(
-      structuredModel,
-      structuredRuntimeProvider,
-      this.env,
-      overrideApiKey,
-      selection.providerId,
-      structuredBaseURLOverride,
-    );
-
+    const configuration = await resolveStructuredGenerationConfiguration({
+      selection, env: this.env, providerConfigService: this.providerConfigService,
+      runtimeModelId, providerTransport, providerEndpoint,
+    });
+    if (configuration.kind === "responses") {
+      return createStructuredProviderInferenceAdapter(configuration.config).generate({
+        messages, schema, model: configuration.model, temperature,
+        ...(maxTokens !== undefined ? { maxOutputTokens: maxTokens } : {}),
+        ...(abortSignal ? { signal: abortSignal } : {}),
+      });
+    }
+    const { config: sdkModelConfig, nativeStructured } = configuration;
     const sdkModel = this.createSDKModel(sdkModelConfig);
 
     const result = await generateObject({
@@ -184,17 +166,17 @@ export class AIService {
       temperature,
       ...(maxTokens !== undefined ? { maxTokens } : {}),
       ...(abortSignal ? { abortSignal } : {}),
-      mode: getStructuredGenerationMode(selection.runtimeProvider),
+      mode: getStructuredGenerationMode(nativeStructured ? sdkModelConfig.provider : selection.runtimeProvider),
       maxRetries: PROVIDER_SDK_MAX_RETRIES,
     });
 
     return {
       object: result.object,
       usage: buildStructuredGenerationUsage({
-        provider: selection.runtimeProvider,
+        provider: nativeStructured ? sdkModelConfig.provider : selection.runtimeProvider,
         providerId: selection.providerId,
         baseURL: sdkModelConfig.baseURL,
-        model: structuredModel,
+        model: sdkModelConfig.model,
         usage: result.usage,
       }),
     };

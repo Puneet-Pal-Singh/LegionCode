@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { OpenAIResponsesAdapter } from "@legioncode/execution-engine/runtime/provider/adapters/OpenAIResponsesAdapter";
+import { createStructuredProviderInferenceAdapter } from "@legioncode/execution-engine/runtime/provider/ProviderInferenceFactory";
 import {
   builtinProviderRegistry,
   resolveProviderRuntimeRoute,
@@ -62,6 +63,52 @@ describe("OpenAIResponsesAdapter", () => {
         }),
       }),
     );
+
+    const structuredFetch = vi.mocked(globalThis.fetch);
+    const structuredPayload = (text: string) => ({
+      status: "completed",
+      output: [{ type: "message", role: "assistant", status: "completed",
+        content: [{ type: "output_text", text }] }],
+      usage: { input_tokens: 11, output_tokens: 3 },
+    });
+    const structuredSchema = z.object({ answer: z.string(), note: z.string().optional() })
+      .refine(async (value) => value.answer === "Done");
+    structuredFetch.mockResolvedValueOnce(new Response(JSON.stringify(structuredPayload('{"answer":"Done"}'))));
+    const structured = createStructuredProviderInferenceAdapter({
+      providerId: "openai", transport: "openai-responses", apiKey: "fixture-structured-key",
+      endpoint: "https://api.openai.com/v1/responses", defaultModel: "fixture-model",
+    });
+    await expect(structured.generate({ messages: [{ role: "user", content: "Return an answer" }],
+      schema: structuredSchema, maxOutputTokens: 42 })).resolves.toEqual({
+      object: { answer: "Done" },
+      usage: { provider: "openai", model: "fixture-model", promptTokens: 11, completionTokens: 3, totalTokens: 14,
+        raw: { input_tokens: 11, output_tokens: 3 } },
+    });
+    const structuredBody = JSON.parse(String(structuredFetch.mock.lastCall?.[1]?.body));
+    expect(structuredBody).toMatchObject({ model: "fixture-model", max_output_tokens: 42,
+      text: { format: { type: "json_schema", name: "legioncode_response", strict: false,
+        schema: { type: "object", properties: { answer: { type: "string" }, note: { type: "string" } }, required: ["answer"] } } } });
+    expect(structuredBody).not.toHaveProperty("tools");
+    expect(structuredBody.text.format.schema).not.toHaveProperty("$schema");
+    for (const invalid of [
+      structuredPayload('{"answer":'),
+      structuredPayload('{"answer":"fixture-response-secret"}'),
+      { ...structuredPayload('{"answer":"Done"}'), status: "incomplete" },
+      { ...structuredPayload('{"answer":"Done"}'), output: [{ type: "message",
+        content: [{ type: "refusal", refusal: "fixture-response-secret" }] }] },
+      { ...structuredPayload('{"answer":"Done"}'), output: [{ type: "function_call", name: "unexpected_tool", arguments: "{}" }] },
+    ]) {
+      structuredFetch.mockResolvedValueOnce(new Response(JSON.stringify(invalid)));
+      const failure = await adapter.generateStructured({ messages: [], model: "fixture-model" }, structuredSchema)
+        .catch((error: unknown) => error);
+      expect(failure).toMatchObject({ code: "INVALID_RESPONSE_CONTRACT", statusCode: 502, retryable: false });
+      expect(failure).toHaveProperty("cause", undefined);
+      expect(String(failure)).not.toContain("fixture-response-secret");
+    }
+    const structuredReads = structuredFetch.mock.calls.length;
+    await expect(adapter.generateStructured({ messages: [], model: "fixture-model" }, z.array(z.string())))
+      .rejects.toMatchObject({ code: "INVALID_PROVIDER_CONFIGURATION", retryable: false });
+    expect(structuredFetch).toHaveBeenCalledTimes(structuredReads);
 
     const modelId = builtinProviderRegistry.listModels("openai")[0]?.modelId;
     if (!modelId)

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { PGlite } from "@electric-sql/pglite";
 import { providerConnectionCustodyMigration } from "./0037-provider-connection-custody.js";
 import { workspaceConfigurationVersionMigration } from "./0041-workspace-configuration-version.js";
+import { nativeProviderAdmissionBindingMigration } from "./0042-native-provider-admission-binding.js";
 
 import { PostgresMigrationRunner } from "./PostgresMigrationRunner.js";
 import { projectlessSessionRepositoryMigration } from "./0034-projectless-session-repository.js";
@@ -87,6 +89,7 @@ describe("PostgresMigrationRunner", () => {
       projectlessSessionRepositoryMigration,
       providerConnectionCustodyMigration,
       workspaceConfigurationVersionMigration,
+      nativeProviderAdmissionBindingMigration,
     ]);
 
     expect(result).toEqual({
@@ -96,6 +99,7 @@ describe("PostgresMigrationRunner", () => {
         "0034_projectless_session_repository",
         "0037_provider_connection_custody",
         "0041_workspace_configuration_version",
+        "0042_native_provider_admission_binding",
       ],
       skipped: ["0001_done"],
     });
@@ -106,6 +110,7 @@ describe("PostgresMigrationRunner", () => {
       ...projectlessSessionRepositoryMigration.statements,
       ...providerConnectionCustodyMigration.statements,
       ...workspaceConfigurationVersionMigration.statements,
+      ...nativeProviderAdmissionBindingMigration.statements,
 
     ]);
     expect(ledger.recorded).toEqual([
@@ -114,6 +119,7 @@ describe("PostgresMigrationRunner", () => {
       "0034_projectless_session_repository",
       "0037_provider_connection_custody",
       "0041_workspace_configuration_version",
+      "0042_native_provider_admission_binding",
     ]);
     expect(legacyHistoryImportReceiptsMigration.statements[1]).toContain(
       "FOREIGN KEY (session_id, user_id) REFERENCES sessions (id, user_id) ON DELETE RESTRICT",
@@ -140,6 +146,7 @@ describe("PostgresMigrationRunner", () => {
         projectlessSessionRepositoryMigration,
         providerConnectionCustodyMigration,
         workspaceConfigurationVersionMigration,
+        nativeProviderAdmissionBindingMigration,
       ]),
     ).toEqual({
       applied: [],
@@ -147,8 +154,21 @@ describe("PostgresMigrationRunner", () => {
         "0034_projectless_session_repository",
         "0037_provider_connection_custody",
         "0041_workspace_configuration_version",
+        "0042_native_provider_admission_binding",
       ],
     });
+
+    // The additive private column keeps historical rows unbound; migration must
+    // never choose today's credential or rewrite an existing admission payload.
+    const legacy = new PGlite();
+    try {
+      await legacy.exec("CREATE TABLE canonical_turn_admissions (turn_id TEXT PRIMARY KEY, request_fingerprint TEXT NOT NULL); INSERT INTO canonical_turn_admissions VALUES ('trn_legacy', 'original-fingerprint')");
+      for (const statement of nativeProviderAdmissionBindingMigration.statements) await legacy.exec(statement);
+      expect((await legacy.query("SELECT turn_id, request_fingerprint, native_provider_binding_json FROM canonical_turn_admissions")).rows)
+        .toEqual([{ turn_id: "trn_legacy", request_fingerprint: "original-fingerprint", native_provider_binding_json: null }]);
+      expect((await legacy.query("SELECT is_nullable, column_default FROM information_schema.columns WHERE table_name = 'canonical_turn_admissions' AND column_name = 'native_provider_binding_json'")).rows)
+        .toEqual([{ is_nullable: "YES", column_default: null }]);
+    } finally { await legacy.close(); }
 
   });
 
