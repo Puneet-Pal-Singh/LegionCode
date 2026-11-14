@@ -113,6 +113,8 @@ typedef struct {
   uid_t actor; unsigned char scope[32];
   lc_host_scan_phase phase; bool present, unsettled;
   lc_host_scope_record found; char name[80];
+  bool (*observe)(int state, const char *name, void *context);
+  void *observation;
 } lc_host_record_scan;
 static inline bool lc_host_scan_snapshot(const struct stat *a, const struct stat *b) {
   return a->st_dev == b->st_dev && a->st_ino == b->st_ino &&
@@ -148,9 +150,16 @@ static inline void lc_host_scan_step(int state, lc_host_record_scan *scan) {
     if (!okay) { scan->phase = LC_HOST_SCAN_UNKNOWN; return; }
     if (!stable) {
       unsigned char original_scope[32]; memcpy(original_scope, scan->scope, 32); uid_t actor = scan->actor;
-      (void)lc_host_scan_begin(state, actor, original_scope, scan); return;
+      bool (*observe)(int, const char *, void *) = scan->observe; void *observation = scan->observation;
+      (void)lc_host_scan_begin(state, actor, original_scope, scan);
+      scan->observe = observe; scan->observation = observation;
+      if (observe && !observe(state, NULL, observation)) scan->phase = LC_HOST_SCAN_UNKNOWN;
+      return;
     }
     scan->phase = LC_HOST_SCAN_COMPLETE; return;
+  }
+  if (scan->observe && !scan->observe(state, entry->d_name, scan->observation)) {
+    scan->phase = LC_HOST_SCAN_UNKNOWN; (void)lc_host_scan_close(scan); return;
   }
   if (strncmp(entry->d_name, "resource.", 9)) return;
   char owner[80]; bool access = strlen(entry->d_name) == 80 && !strcmp(entry->d_name + 73, ".access");

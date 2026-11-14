@@ -77,19 +77,13 @@ static inline void lc_qualification_unknown(int state, lc_host_qualification *jo
   /* No FD close/reopen, access repair, UID release, permit retry, or receipt
    * promotion on ambiguity. The original service retains physical custody. */
 }
-typedef struct {
-  uint32_t version, bytes, purpose, actor;
-  char boot[40], generation[65], permit[65], qualification_id[65];
-  lc_host_file_identity namespace;
-  unsigned char manifest_sha256[32], bridge_nonce[32];
-  _Alignas(8) unsigned char digest[32];
-} lc_host_setup_permit_consumption;
 static inline bool lc_qualification_consume(int state, const lc_host_approval *approval, lc_host_qualification *job) {
   lc_host_setup_permit_consumption record; memset(&record, 0, sizeof(record));
-  record.version = 1; record.bytes = sizeof(record); record.purpose = LC_HOST_RESOURCE_SETUP_QUALIFICATION; record.actor = approval->actor;
+  record.version = 2; record.bytes = sizeof(record); record.purpose = LC_HOST_RESOURCE_SETUP_QUALIFICATION; record.actor = approval->actor;
   strcpy(record.generation, approval->generation); strcpy(record.permit, approval->setup_permit_id); strcpy(record.qualification_id, job->id);
   if (!lc_host_boot(record.boot) || !lc_host_unhex(job->bridge_nonce, record.bridge_nonce, 32)) return false;
   record.namespace = approval->writer_namespace; memcpy(record.manifest_sha256, approval->manifest_sha256, 32);
+  memcpy(record.resource_capability_sha256, job->resource->record.binding.capability_sha256, 32);
   CC_SHA256(&record, (CC_LONG)offsetof(lc_host_setup_permit_consumption, digest), record.digest);
   char name[96]; snprintf(name, sizeof(name), "setup-permit.%s", approval->setup_permit_id);
   int fd = openat(state, name, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
@@ -99,9 +93,8 @@ static inline bool lc_qualification_consume(int state, const lc_host_approval *a
   bool okay = lc_host_io(fd, &record, sizeof(record), true) && lc_host_sync(fd) && lc_host_sync(state);
   if (close(fd)) okay = false; return okay;
 }
-static inline bool lc_qualification_make_resource(int state, const lc_host_approval *approval, lc_host_qualification *job) {
-  lc_host_scope *scope = job->resource; struct passwd actor, *found = NULL; char account[16384];
-  if (getpwuid_r(approval->actor, &actor, account, sizeof(account), &found) || !found) return false;
+static inline bool lc_qualification_plan_resource(int state, const lc_host_approval *approval, lc_host_qualification *job) {
+  lc_host_scope *scope = job->resource;
   memset(scope, 0, sizeof(*scope)); scope->used = true; scope->owner_disconnected = job->original_peer_disconnected; scope->approval = approval; scope->state_directory = state;
   scope->root = scope->fence = scope->namespace = scope->work = scope->journal = scope->stdout_fd = scope->stderr_fd = -1;
   for (size_t i = 0; i < LC_HOST_METADATA_PATHS; i++) scope->metadata_pins.fd[i] = -1;
@@ -116,6 +109,11 @@ static inline bool lc_qualification_make_resource(int state, const lc_host_appro
   snprintf(scope->name, sizeof(scope->name), "resource.%s", digest);
   if (!lc_host_boot(scope->record.boot) || !lc_host_unhex(approval->policy, scope->record.binding.policy_sha256, 32) ||
       !lc_host_unhex(approval->policy_generation, scope->record.binding.approved_policy_generation, 32)) return false;
+  return true;
+}
+static inline bool lc_qualification_make_resource(int state, const lc_host_approval *approval, lc_host_qualification *job) {
+  lc_host_scope *scope = job->resource; struct passwd actor, *found = NULL; char account[16384];
+  if (getpwuid_r(approval->actor, &actor, account, sizeof(account), &found) || !found) return false;
   job->fd[LC_QUAL_PARENT] = lc_host_open_protected(LC_HOST_WORK, true); struct stat parent;
   if (job->fd[LC_QUAL_PARENT] < 0 || fstat(job->fd[LC_QUAL_PARENT], &parent) || !(parent.st_mode & S_IXOTH) || !lc_qualification_no_acl(job->fd[LC_QUAL_PARENT]) ||
       !lc_host_identity(job->fd[LC_QUAL_PARENT], true, &job->parent_identity)) return false;
@@ -408,6 +406,40 @@ static inline bool lc_qualification_receipt_validate(int state, const lc_host_ap
     !fstat(state, &held) && !lstat(LC_HOST_STATE, &named) && held.st_dev == named.st_dev && held.st_ino == named.st_ino &&
     lc_host_installed_broker_valid(approval) && lc_host_bundle_valid((lc_host_approval *)approval);
 }
+/* Historical qualification bytes are validation input ONLY for explicit
+ * reauthorization. They never revive Native readiness in a new daemon/boot. */
+static inline bool lc_host_reauthorization_qualification_entry(int state, const lc_host_approval *approval,
+    const char *name, unsigned char out[32]) {
+  char path[PATH_MAX], resource[80], key[65], permit[96]; unsigned char id[32], digest[32]; struct stat st;
+  if (strlen(name) != 78 || !lc_host_unhex(name + 14, id, 32) ||
+      snprintf(path, sizeof(path), "%s/%s", LC_HOST_STATE, name) >= (int)sizeof(path)) return false;
+  int fd = lc_host_open_protected(path, false); if (fd < 0) return false;
+  lc_host_qualification_receipt receipt; memset(&receipt, 0, sizeof(receipt));
+  bool okay = !fstat(fd, &st) && st.st_nlink == 1 && (st.st_mode & 07777) == 0600 &&
+    st.st_size == sizeof(receipt) && lc_host_io(fd, &receipt, sizeof(receipt), false);
+  if (close(fd)) okay = false;
+  CC_SHA256(&receipt, (CC_LONG)offsetof(lc_host_qualification_receipt, digest), digest);
+  if (!okay || receipt.version != 2 || receipt.bytes != sizeof(receipt) || receipt.recipe != LC_HOST_TOOLCHAIN_RECIPE || receipt.reserved ||
+      receipt.purpose != LC_HOST_RESOURCE_SETUP_QUALIFICATION || receipt.actor != approval->actor ||
+      receipt.scenario_bits != 511 || receipt.original_closure_bits != 0xfff || !lc_host_boot_field(receipt.boot) ||
+      memcmp(receipt.digest, digest, 32) || !memchr(receipt.qualification_id, 0, sizeof(receipt.qualification_id)) ||
+      strcmp(receipt.qualification_id, name + 14) || !memchr(receipt.generation, 0, sizeof(receipt.generation)) ||
+      !lc_host_unhex(receipt.generation, id, 32) || !memchr(receipt.permit, 0, sizeof(receipt.permit)) ||
+      !lc_host_unhex(receipt.permit, id, 32)) return false;
+  lc_host_hex(receipt.binding.capability_sha256, 32, key, sizeof(key)); snprintf(resource, sizeof(resource), "resource.%s", key);
+  lc_host_scope_record record;
+  if (!lc_host_record_read(state, resource, &record) || !lc_host_reauthorization_retired(approval, &record) ||
+      record.purpose != LC_HOST_RESOURCE_SETUP_QUALIFICATION || memcmp(&receipt.binding, &record.binding, sizeof(receipt.binding)) ||
+      receipt.slot_generation != record.uid_slot_generation || strcmp(receipt.generation, record.origin_generation) ||
+      memcmp(receipt.boot, record.boot, 40) || memcmp(receipt.manifest_sha256, record.setup_manifest_sha256, 32) ||
+      memcmp(receipt.cleanup_receipt, record.cleanup_receipt, 32) || memcmp(receipt.retirement_receipt, record.retirement_receipt, 32)) return false;
+  snprintf(permit, sizeof(permit), "setup-permit.%s", receipt.permit);
+  unsigned char resource_key[32];
+  if (!lc_host_reauthorization_permit(state, approval, permit, digest, resource_key) ||
+      memcmp(resource_key, record.binding.capability_sha256, 32)) return false;
+  memcpy(out, receipt.digest, 32); return true;
+}
+
 static inline bool lc_qualification_publish(int state, lc_host_approval *approval, lc_host_qualification *job) {
   lc_host_scope *scope = job->resource;
   if (!job->bridge_confirmed || !scope || !scope->owner_disconnected || !job->socket_positive || !job->package_test || !job->package_build ||
@@ -586,7 +618,7 @@ static inline void lc_host_qualification_tick(int state, lc_host_approval *appro
     if (job->history.phase == LC_HOST_SCAN_PENDING) return;
     if (job->history.phase != LC_HOST_SCAN_COMPLETE || job->history.unsettled ||
         !lc_host_qualification_toolchain_current(approval, &job->tools) || !lc_host_monotonic(&job->deadline) ||
-        !lc_qualification_consume(state, approval, job) || !lc_qualification_make_resource(state, approval, job)) {
+        !lc_qualification_plan_resource(state, approval, job) || !lc_qualification_consume(state, approval, job) || !lc_qualification_make_resource(state, approval, job)) {
       lc_qualification_unknown(state, job); return;
     }
     job->deadline += 120000; job->phase = LC_QUAL_ACQUIRE; return;
@@ -688,8 +720,8 @@ static inline xpc_object_t lc_host_setup_request(int state, lc_host_approval *ap
   if (!strcmp(operation, "setupQualificationDescribe")) {
     static const char *const fields[] = { "version", "operation" };
     if (!lc_host_fields(request, fields, 2)) return lc_host_reply("unavailable", "invalidRequest");
-    xpc_object_t reply = lc_host_reply(approval->setup_authorized && approval->platform_matches ? "setupReady" : "setupBlocked",
-      !approval->setup_authorized ? "setupAuthorizationRequired" : !approval->platform_matches ? "setupPlatformMismatch" : "okay");
+    xpc_object_t reply = lc_host_reply(approval->setup_authorized && approval->platform_matches && !approval->reauthorization_sealed ? "setupReady" : "setupBlocked",
+      approval->reauthorization_sealed ? "reauthorizationSealed" : !approval->setup_authorized ? "setupAuthorizationRequired" : !approval->platform_matches ? "setupPlatformMismatch" : "okay");
     lc_host_put(reply, "generation", approval->generation); lc_host_put(reply, "policy", approval->policy); lc_host_put(reply, "policyGeneration", approval->policy_generation);
     char digest[65]; lc_host_hex(approval->manifest_sha256, 32, digest, sizeof(digest)); lc_host_put(reply, "configurationSHA256", digest); return reply;
   }
@@ -697,6 +729,7 @@ static inline xpc_object_t lc_host_setup_request(int state, lc_host_approval *ap
   if (!approval->setup_authorized || !approval->platform_matches || !lc_host_installed_broker_valid(approval) ||
       !lc_host_get(request, "generation", generation, sizeof(generation)) || strcmp(generation, approval->generation)) return lc_host_reply("unavailable", "setupAuthorizationRequired");
   if (!strcmp(operation, "setupQualificationStart")) {
+    if (approval->reauthorization_sealed) return lc_host_reply("unavailable", "reauthorizationSealed");
     static const char *const fields[] = { "version", "operation", "generation", "setupPermitId", "namespaceFd" };
     char permit[65];
     if (!lc_host_fields(request, fields, 5) || !lc_host_get(request, "setupPermitId", permit, sizeof(permit)) ||
@@ -735,5 +768,29 @@ static inline xpc_object_t lc_host_setup_request(int state, lc_host_approval *ap
     return reply;
   }
   return lc_host_reply("unavailable", "unknownOperation");
+}
+
+static inline xpc_object_t lc_host_reauthorization_request(int state, lc_host_approval *approval, xpc_object_t request,
+    lc_host_reauthorization *query, lc_host_qualification *job, lc_host_scope *scopes) {
+  static const char *const fields[] = { "version", "operation", "generation", "configurationSHA256" };
+  char generation[65], configuration[65]; unsigned char decoded[32];
+  if (!lc_host_fields(request, fields, 4) || !lc_host_get(request, "generation", generation, sizeof(generation)) ||
+      strcmp(generation, approval->generation) || !lc_host_get(request, "configurationSHA256", configuration, sizeof(configuration)) ||
+      !lc_host_unhex(configuration, decoded, 32) || memcmp(decoded, approval->manifest_sha256, 32))
+    return lc_host_reply("unavailable", "reauthorizationIdentityChanged");
+  (void)lc_host_reauthorization_begin(state, approval, query, lc_host_reauthorization_qualification_entry);
+  if (job->used && job->phase != LC_QUAL_PASSED && job->phase != LC_QUAL_CANCELLED) {
+    job->cancel_requested = true;
+    if (job->phase == LC_QUAL_UNKNOWN) query->blocked = true;
+  }
+  for (size_t i = 0; i < LC_HOST_MAX_SCOPES; i++) {
+    if (!scopes[i].used || scopes[i].record.purpose != LC_HOST_RESOURCE_NATIVE || scopes[i].released) continue;
+    if (scopes[i].record.phase == LC_HOST_UNKNOWN || (!scopes[i].sealed && !lc_host_scope_seal(state, &scopes[i]))) query->blocked = true;
+  }
+  const char *phase = query->blocked ? "reauthorizationBlocked" : query->ready ? "reauthorizationReady" : "reauthorizationPending";
+  xpc_object_t reply = lc_host_reply(phase, query->blocked ? "reauthorizationRecoveryRequired" : "okay");
+  lc_host_put(reply, "generation", approval->generation); lc_host_put(reply, "configurationSHA256", configuration);
+  char digest[65]; lc_host_hex(query->receipt.digest, 32, digest, sizeof(digest)); lc_host_put(reply, "sealSHA256", digest);
+  return reply;
 }
 #endif
