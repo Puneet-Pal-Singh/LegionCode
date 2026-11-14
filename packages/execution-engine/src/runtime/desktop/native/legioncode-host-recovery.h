@@ -57,12 +57,17 @@ static inline xpc_object_t lc_host_recovery(int state, const lc_host_approval *a
       !lc_host_recovery_number(request, "namespaceInode", record.binding.namespace.inode) ||
       !lc_host_recovery_number(request, "fenceDevice", record.binding.fence.device) ||
       !lc_host_recovery_number(request, "fenceInode", record.binding.fence.inode)) return lc_host_reply("unknown", "resourceIdentityConflict");
-  char requested[65], expected[65];
+  char expected[65];
   for (size_t i = 0; i < 2; i++) {
     const char *key = i ? "resourceGeneration" : "resourceId";
     lc_host_hex(i ? record.binding.broker_resource_generation : record.binding.resource_id, 32, expected, sizeof(expected));
-    if (!lc_host_get(request, key, requested, sizeof(requested)) ||
-        (seal ? strcmp(requested, expected) != 0 : requested[0] && strcmp(requested, expected))) return lc_host_reply("unknown", "resourceIdentityConflict");
+    xpc_object_t value = xpc_dictionary_get_value(request, key);
+    if (!value || xpc_get_type(value) != XPC_TYPE_DATA) return lc_host_reply("unavailable", "invalidRequest");
+    size_t bytes = xpc_data_get_length(value);
+    /* Discovery explicitly permits an EMPTY expected resource. The ordinary
+     * nonempty text decoder intentionally cannot express this case. */
+    if ((!bytes && seal) || (bytes && (bytes != 64 || memcmp(xpc_data_get_bytes_ptr(value), expected, 64))))
+      return lc_host_reply("unknown", "resourceIdentityConflict");
   }
   lc_host_scope *live = NULL;
   for (size_t i = 0; i < LC_HOST_MAX_SCOPES; i++) {
@@ -76,6 +81,12 @@ static inline xpc_object_t lc_host_recovery(int state, const lc_host_approval *a
     /* Read the durable record, never infer a receipt from an in-memory phase. */
     if (!lc_host_record_read(state, name, &record)) return lc_host_reply("unknown", "protectedResourceRecordInvalid");
   }
+  /* A readable rename after a failed fsync is not a durable acknowledgement.
+   * An unknown live owner must never be overridden by older visible disk bytes. */
+  if (live && (live->record.phase == LC_HOST_UNKNOWN || (record.cleanup_closed &&
+      (!live->released || !live->record.cleanup_closed || live->record.phase != LC_HOST_CLOSED ||
+       memcmp(live->record.cleanup_receipt, record.cleanup_receipt, 32)))))
+    return lc_host_reply("unknown", "cleanupPersistenceUnconfirmed");
   return lc_host_recovery_reply(approval, &record, live != NULL);
 }
 #endif
