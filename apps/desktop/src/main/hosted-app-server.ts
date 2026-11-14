@@ -23,6 +23,7 @@ export class DesktopHostedAppServer {
   async request(value: unknown, onResponse: (event: HostedResponseEvent) => void): Promise<HostedRequestResult> {
     const input = HostedRequestSchema.parse(value);
     const request = parseHostedEnvelope(input.serializedEnvelope);
+    const expectedWorkspaceId = input.scope.expectedWorkspaceId;
     let metadata: HostedResponseMetadata | null = null;
     let invalidMetadata = false;
     if (this.pending.has(input.requestId) || this.pending.size >= 64) throw new Error("Hosted request is already pending or unavailable");
@@ -32,7 +33,10 @@ export class DesktopHostedAppServer {
         const transport = createAppServerHttpTransport({
           baseUrl: BRAIN, credentials: "include", timeoutMs: null,
           acceptThreadInputConflict: true,
-          requestHeaders: (envelope) => hostedRequestHeaders(envelope.method),
+          requestHeaders: (envelope) => ({
+            ...hostedRequestHeaders(envelope.method),
+            ...(expectedWorkspaceId ? { "X-Workspace-Id": expectedWorkspaceId } : {}),
+          }),
           fetchImpl: (url, options) => {
             if (url !== `${BRAIN}/app-server/request`) throw new Error("Hosted endpoint is unavailable");
             return session.fetch(url, options);

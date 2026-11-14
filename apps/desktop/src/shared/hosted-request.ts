@@ -15,6 +15,7 @@ export const HostedRequestScopeSchema = z.object({
   target: z.literal("production"),
   accountId: z.string().min(1).max(256),
   generation: z.number().int().safe().nonnegative(),
+  expectedWorkspaceId: z.string().min(1).max(200).regex(/^[A-Za-z0-9_-]+$/).optional(),
 }).strict();
 export type HostedRequestScope = z.infer<typeof HostedRequestScopeSchema>;
 
@@ -107,5 +108,6 @@ export function parseHostedEnvelope(serializedEnvelope: string): AppServerReques
 }
 
 export function sameHostedScope(left: HostedRequestScope, right: HostedRequestScope): boolean {
-  return left.target === right.target && left.accountId === right.accountId && left.generation === right.generation;
+  return left.target === right.target && left.accountId === right.accountId && left.generation === right.generation &&
+    left.expectedWorkspaceId === right.expectedWorkspaceId;
 }

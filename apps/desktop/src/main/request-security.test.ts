@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { DesktopHostedAccount } from "./hosted-account";
 import { DesktopHostedAppServer } from "./hosted-app-server";
-import { HostedRequestSchema, parseHostedEnvelope, type HostedResponseEvent } from "../shared/hosted-request";
+import { HostedRequestSchema, parseHostedEnvelope, sameHostedScope, type HostedResponseEvent } from "../shared/hosted-request";
 
 import {
   assertTrustedDesktopFrame,
@@ -39,7 +39,7 @@ describe("Desktop App Server request security", () => {
         selections,
       ),
     ).toThrow();
-    const scope = { target: "production" as const, accountId: "account-fixture", generation: 3 };
+    const scope = { target: "production" as const, accountId: "account-fixture", generation: 3, expectedWorkspaceId: "workspace-fixture" };
     const input = {
       requestId: crypto.randomUUID(), scope,
       serializedEnvelope: JSON.stringify({ protocolVersion: "1.0.0", method: "initialize", params: {
@@ -48,6 +48,8 @@ describe("Desktop App Server request security", () => {
     };
     expect(() => HostedRequestSchema.parse({ ...input, url: "https://untrusted.example" })).toThrow();
     expect(() => HostedRequestSchema.parse({ ...input, scope: { ...scope, target: "arbitrary" } })).toThrow();
+    expect(() => HostedRequestSchema.parse({ ...input, scope: { ...scope, expectedWorkspaceId: "workspace\nforeign" } })).toThrow();
+    expect(sameHostedScope(scope, { ...scope, expectedWorkspaceId: "workspace-other" })).toBe(false);
     for (const method of ["workspace/current", "thread/list", "provider/current"]) {
       expect(() => parseHostedEnvelope(JSON.stringify({ protocolVersion: "1.0.0", method, params: {} }))).toThrow();
     }
@@ -66,6 +68,7 @@ describe("Desktop App Server request security", () => {
             expect(options.credentials).toBe("include");
             expect(new Headers(options.headers).has("Authorization")).toBe(false);
             expect(new Headers(options.headers).has("Cookie")).toBe(false);
+            expect(new Headers(options.headers).get("X-Workspace-Id")).toBe(scope.expectedWorkspaceId);
             return new Response(new ReadableStream({
               async start(controller) {
                 controller.enqueue(new TextEncoder().encode("{broken"));
