@@ -18,15 +18,10 @@ export async function createLocalReadOnlyGitService(
   const macExecution = await createVerifiedMacGitExecution({
     ...options,
     purpose: "repo_probe",
+    // The grant owner must check cancellation before lending its descriptor.
+    // A cancelled operation that never dispatched cannot quarantine the root.
     withRootAuthority: (cwd, operation) =>
-      options.withRootAuthority(cwd, (authority) =>
-        operation({
-          ...authority,
-          signal: turnSignal
-            ? AbortSignal.any([authority.signal, turnSignal])
-            : authority.signal,
-        }),
-      ),
+      options.withRootAuthority(cwd, operation, turnSignal),
   });
   const canonical = createNodeGitExecutor({ macExecution });
   const executor: GitCommandExecutor = {

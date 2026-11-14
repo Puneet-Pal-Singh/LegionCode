@@ -49,6 +49,7 @@ export type VerifiedMacGitOptions = {
   withRootAuthority<T>(
     cwd: string,
     operation: (authority: MacGitAuthority) => Promise<T>,
+    turnSignal?: AbortSignal,
   ): Promise<T>;
 };
 
