@@ -59,6 +59,8 @@ export interface ChatInputBarProps {
   imageDraft?: ChatImageAttachmentDraftBinding;
   composerPreferences?: ComposerPreferences;
   isHidden?: boolean;
+  /** False only when this entire host view is inactive, not while an approval is shown. */
+  viewActive?: boolean;
   submissionUnavailableReason?: string;
   showSubmissionUnavailableNotice?: boolean;
   attachmentsAvailable?: boolean;
@@ -139,6 +141,7 @@ function ChatInputBarView({
   canResume = false,
   onResume,
   isHidden = false,
+  viewActive = true,
   submissionUnavailableReason,
   showSubmissionUnavailableNotice = true,
   attachmentsAvailable = true,
@@ -174,8 +177,8 @@ function ChatInputBarView({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [isFocused, setIsFocused] = useState(false);
   const unavailableDescriptionId = useId();
-  useLayoutEffect(() => imageDraft.bindCapture(!isHidden && attachmentsAvailable),
-    [imageDraft.bindCapture, isHidden, attachmentsAvailable]);
+  useLayoutEffect(() => imageDraft.bindCapture(!isHidden && attachmentsAvailable, viewActive),
+    [imageDraft.bindCapture, isHidden, attachmentsAvailable, viewActive]);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [highlightedFileIndex, setHighlightedFileIndex] = useState(0);
   const [switchWarningMessage, setSwitchWarningMessage] = useState<

@@ -13,7 +13,7 @@ export function useChatImageAttachmentDraft(
 ) {
   const active = useRef(true);
   const enabledRef = useRef(enabled);
-  const captureLease = useRef<{ enabled: boolean } | null>(null);
+  const captureLease = useRef<{ enabled: boolean; viewActive: boolean } | null>(null);
   enabledRef.current = enabled;
   const attachmentsRef = useRef<ChatImageAttachment[]>(initialAttachments);
   const detachedAttachmentsRef = useRef(new Map<string, ChatImageAttachment>());
@@ -185,17 +185,16 @@ export function useChatImageAttachmentDraft(
 
   useEffect(() => {
     const handleWindowDragOver = (event: DragEvent) => {
-      if (!event.dataTransfer?.types.includes("Files")) return;
+      if (!event.dataTransfer?.types.includes("Files") || captureLease.current?.viewActive === false) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = "copy";
       if (captureLease.current?.enabled ?? enabledRef.current) setIsDraggingImages(true);
     };
     const handleWindowDrop = (event: DragEvent) => {
-      if (!event.dataTransfer?.types.includes("Files")) return;
+      if (!event.dataTransfer?.types.includes("Files") || captureLease.current?.viewActive === false) return;
       const alreadyHandled = event.defaultPrevented;
-      // Always prevent the browser from opening dropped files. When the
-      // composer is hidden, the approval dock owns the visible footer and
-      // dropped files must not be captured into the hidden draft.
+      // A visible disabled/approval surface still prevents file navigation.
+      // An inactive retained view yields ownership to the visible composer.
       event.preventDefault();
       setIsDraggingImages(false);
       if (!(captureLease.current?.enabled ?? enabledRef.current)) return;
@@ -204,7 +203,9 @@ export function useChatImageAttachmentDraft(
       if (alreadyHandled) return;
       void addFiles(Array.from(event.dataTransfer.files), "upload");
     };
-    const clearWindowDragState = () => setIsDraggingImages(false);
+    const clearWindowDragState = () => {
+      if (captureLease.current?.viewActive !== false) setIsDraggingImages(false);
+    };
     const handleWindowDragLeave = (event: DragEvent) => {
       if (event.relatedTarget === null) clearWindowDragState();
     };
@@ -238,12 +239,12 @@ export function useChatImageAttachmentDraft(
     };
   }, []);
 
-  // An injected view leases capture eligibility without moving attachment
-  // ownership. A removed view cannot disable a newer view's lease.
-  const bindCapture = useCallback((enabled: boolean) => {
-    const lease = { enabled };
+  // An injected view leases capture eligibility and global event ownership
+  // separately. A removed view cannot disable a newer view's lease.
+  const bindCapture = useCallback((enabled: boolean, viewActive = true) => {
+    const lease = { enabled, viewActive };
     captureLease.current = lease;
-    if (!enabled && active.current) setIsDraggingImages(false);
+    if ((!enabled || !viewActive) && active.current) setIsDraggingImages(false);
     return () => {
       if (captureLease.current !== lease) return;
       captureLease.current = null;

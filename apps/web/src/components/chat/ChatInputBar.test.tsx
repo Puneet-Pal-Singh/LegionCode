@@ -5,6 +5,7 @@ import {
   screen,
   fireEvent,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { useState } from "react";
 import { WebChatInputBar as ChatInputBar } from "./WebChatInputBar.js";
@@ -868,23 +869,70 @@ describe("ChatInputBar", () => {
     expect(screen.getByText("Drop files to attach")).toBeInTheDocument();
   });
 
-  it("keeps the composer drop affordance active while dragging over the chat surface", () => {
-    render(
-      <ChatInputBar
-        input=""
-        onChange={vi.fn()}
-        onSubmit={vi.fn()}
-        sessionId="session-1"
-      />,
+  it("keeps the composer drop affordance active while dragging over the chat surface", async () => {
+    const composers = (localHidden: boolean, cloudHidden: boolean,
+      localViewActive: boolean | null = !localHidden, attachmentsAvailable = true) => (
+      <>
+        <section data-testid="local-draft">
+          <ChatInputBar input="" onChange={vi.fn()} onSubmit={vi.fn()}
+            sessionId="local-session" isHidden={localHidden} attachmentsAvailable={attachmentsAvailable}
+            {...(localViewActive === null ? {} : { viewActive: localViewActive })} />
+        </section>
+        <section data-testid="cloud-draft">
+          <ChatInputBar input="" onChange={vi.fn()} onSubmit={vi.fn()}
+            sessionId="cloud-session" isHidden={cloudHidden} viewActive={!cloudHidden} />
+        </section>
+      </>
     );
-
-    fireEvent.dragOver(window, {
+    const { rerender } = render(composers(false, true));
+    const local = within(screen.getByTestId("local-draft"));
+    const cloud = within(screen.getByTestId("cloud-draft"));
+    const drag = () => fireEvent.dragOver(window, {
       dataTransfer: { types: ["Files"], dropEffect: "none" },
     });
+    const drop = (name: string) => fireEvent.drop(window, {
+      dataTransfer: { types: ["Files"], files: [new File([name], name, { type: "image/png" })] },
+    });
 
-    expect(
-      screen.getByTestId("chat-composer-drop-overlay"),
-    ).toBeInTheDocument();
+    expect(drag()).toBe(false);
+    expect(local.getByTestId("chat-composer-drop-overlay")).toBeInTheDocument();
+    drop("local.png");
+    expect(await local.findByAltText(/local\.png/)).toBeInTheDocument();
+
+    rerender(composers(true, true));
+    expect(drag()).toBe(true);
+    expect(drop("inactive.png")).toBe(true);
+    expect(local.queryByAltText(/inactive\.png/)).not.toBeInTheDocument();
+    expect(cloud.queryByAltText(/inactive\.png/)).not.toBeInTheDocument();
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+
+    rerender(composers(true, false));
+    expect(drag()).toBe(false);
+    expect(local.queryByTestId("chat-composer-drop-overlay")).not.toBeInTheDocument();
+    expect(cloud.getByTestId("chat-composer-drop-overlay")).toBeInTheDocument();
+    drop("cloud.png");
+    expect(await cloud.findByAltText(/cloud\.png/)).toBeInTheDocument();
+    expect(local.queryByAltText(/cloud\.png/)).not.toBeInTheDocument();
+    expect(local.getByAltText(/local\.png/)).toBeInTheDocument();
+
+    // Default Web visibility still blocks navigation when images cannot be
+    // accepted, including when an approval hides the composer itself.
+    rerender(composers(false, true, null, false));
+    expect(drag()).toBe(false);
+    expect(drop("unsupported.png")).toBe(false);
+    expect(local.queryByAltText(/unsupported\.png/)).not.toBeInTheDocument();
+    expect(local.queryByTestId("chat-composer-drop-overlay")).not.toBeInTheDocument();
+    rerender(composers(true, true, null));
+    expect(drag()).toBe(false);
+    expect(drop("approval.png")).toBe(false);
+    expect(local.queryByAltText(/approval\.png/)).not.toBeInTheDocument();
+
+    rerender(composers(false, true));
+    expect(drag()).toBe(false);
+    expect(local.getByTestId("chat-composer-drop-overlay")).toBeInTheDocument();
+    expect(cloud.queryByTestId("chat-composer-drop-overlay")).not.toBeInTheDocument();
+    expect(local.getByAltText(/local\.png/)).toBeInTheDocument();
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
   });
 
   it("allows sending selected review comments without freeform text", () => {
