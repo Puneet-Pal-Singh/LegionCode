@@ -26,7 +26,7 @@ const resourceCommandPids = 128
 // The protected server caller must authorize the complete persisted physical
 // owner audit and creator freeze before invoking this fixed operation. Digests
 // identify that frozen authority; they are not bearer credentials or proof that
-// the caller owns a path. Shared session admission is intentionally not wired.
+// the caller owns a path. Conversation admission is not supported by this binding.
 type resourceSetupBinding struct {
 	Purpose                string `json:"purpose"`
 	OperatorAccountID      string `json:"operatorAccountId"`
@@ -201,7 +201,7 @@ func validateResourceSetup(input resourceProvisionRequest) error {
 	return validateResourceSetupBinding(input.Binding)
 }
 func validateResourceSetupBinding(value resourceSetupBinding) error {
-	if value.Purpose != "native_boundary_qualification" || value.Generation < 0 || len(value.OperatorAccountID) != 32 ||
+	if value.Purpose != "native_boundary_qualification" || value.Generation != 0 || len(value.OperatorAccountID) != 32 ||
 		!hexadecimal.MatchString(value.AuthorityDigest) || !hexadecimal.MatchString(value.ParentAuthorityDigest) ||
 		!hexadecimal.MatchString(value.PhysicalOwnerAuditHash) || !opaqueID.MatchString(value.OperationID) {
 		return errors.New("invalid_resource_setup")
@@ -429,7 +429,7 @@ func resourceDirectoryNames(parent *os.File) ([]string, error) {
 		if openErr == syscall.ENOTDIR {
 			// Interface files are expected, but disappearing/unexpected/symlink
 			// entries must not be mistaken for an ignorable controller file.
-			leaf, leafErr := syscall.Openat(int(parent.Fd()), name, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+			leaf, leafErr := syscall.Openat(int(parent.Fd()), name, 0x200000 /* O_PATH */ |syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
 			if leafErr != nil {
 				return nil, errors.New("resource_entry_changed")
 			}
@@ -551,7 +551,9 @@ func resourceHelperHash() (string, error) {
 	}
 	digest := sha256.New()
 	count, err := io.Copy(digest, io.LimitReader(file, 32*1024*1024+1))
-	if err != nil || count != before.Size || syscall.Fstat(int(file.Fd()), &after) != nil || before != after {
+	if err != nil || count != before.Size || syscall.Fstat(int(file.Fd()), &after) != nil || before.Dev != after.Dev ||
+		before.Ino != after.Ino || before.Mode != after.Mode || before.Uid != after.Uid || before.Gid != after.Gid ||
+		before.Size != after.Size || before.Mtim != after.Mtim || before.Ctim != after.Ctim {
 		return "", errors.New("installed_helper_identity_changed")
 	}
 	return hex.EncodeToString(digest.Sum(nil)), nil
