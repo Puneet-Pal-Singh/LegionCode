@@ -1,7 +1,7 @@
 /* Privileged Native command resource service and its unprivileged XPC bridge.
  * Build only; packaging/setup owns installation, approval and launchd. Never
  * setid this binary. Missing setup, writer ABI or qualification fails closed. */
-#include "legioncode-host-scope.h"
+#include "legioncode-host-recovery.h"
 #include <stdatomic.h>
 
 static lc_host_approval approval;
@@ -28,6 +28,7 @@ static xpc_object_t scope_reply(lc_host_scope *scope) {
   lc_host_put_number(reply, "fenceDevice", scope->record.binding.fence.device); lc_host_put_number(reply, "fenceInode", scope->record.binding.fence.inode);
   lc_host_hex(scope->record.binding.resource_id, 32, digest, sizeof(digest)); lc_host_put(reply, "resourceId", digest);
   lc_host_hex(scope->record.binding.broker_resource_generation, 32, digest, sizeof(digest)); lc_host_put(reply, "resourceGeneration", digest);
+  lc_host_hex(scope->record.metadata.digest, 32, digest, sizeof(digest)); lc_host_put(reply, "metadataSHA256", digest);
   lc_host_put(reply, "commandId", scope->command_id); lc_host_put(reply, "commandDigest", scope->command_digest);
   lc_host_put(reply, "quiescent", scope->released ? "true" : "false");
   lc_host_put(reply, "commandClosed", scope->record.phase == LC_HOST_IDLE && scope->child && scope->reaped ? "true" : "false");
@@ -54,6 +55,8 @@ static xpc_object_t serve_request(xpc_connection_t peer, xpc_object_t request) {
   }
   if (!approval.qualified || !lc_host_writer_supported() ||
       !lc_host_get(request, "generation", generation, sizeof(generation)) || strcmp(generation, approval.generation)) return lc_host_reply("unavailable", "serviceGenerationChanged");
+  if (!strcmp(operation, "recoveryDescribe") || !strcmp(operation, "recoverySeal"))
+    return lc_host_recovery(state_directory, &approval, request, scopes, !strcmp(operation, "recoverySeal"));
   if (!strcmp(operation, "prepareScope")) {
     for (size_t i = 0; i < LC_HOST_MAX_SCOPES; i++) {
       if (scopes[i].used) continue;

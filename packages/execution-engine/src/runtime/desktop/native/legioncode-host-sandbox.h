@@ -1,6 +1,7 @@
 #ifndef LEGIONCODE_HOST_SANDBOX_H
 #define LEGIONCODE_HOST_SANDBOX_H
 #include "legioncode-host-approval.h"
+#include "legioncode-host-metadata.h"
 #include <stdarg.h>
 
 typedef struct { char bytes[65536]; size_t used; bool okay; } lc_host_policy_buffer;
@@ -22,7 +23,7 @@ static inline void lc_host_policy_path(lc_host_policy_buffer *out, const char *o
   lc_host_policy_add(out, "\"))\n");
 }
 static inline bool lc_host_build_policy(const lc_host_approval *approval, const char *root,
-                                        const char *work, lc_host_policy_buffer *out) {
+                                        const char *work, const lc_host_metadata *metadata_layout, lc_host_policy_buffer *out) {
   memset(out, 0, sizeof(*out)); out->okay = true;
   if (!lc_host_absolute(root) || !lc_host_absolute(work) || lc_host_beneath(root, LC_HOST_STATE) ||
       lc_host_beneath(LC_HOST_STATE, root) || lc_host_beneath(root, approval->bundle) ||
@@ -64,6 +65,18 @@ static inline bool lc_host_build_policy(const lc_host_approval *approval, const 
   char metadata[PATH_MAX];
   if (snprintf(metadata, sizeof(metadata), "%s/.git", root) >= (int)sizeof(metadata)) return false;
   lc_host_policy_path(out, "deny file-write*", "subpath", metadata);
+  for (size_t i = 0; i < LC_HOST_METADATA_PATHS; i++) {
+    const char *path = metadata_layout->paths[i]; if (!path[0]) continue;
+    lc_host_policy_path(out, "deny file-write* process-exec", "subpath", path);
+    /* Renaming/deleting an ancestor must not move metadata out of its deny
+     * prefix. Deny unlink of each ancestor, preserving ordinary child writes. */
+    char ancestor[PATH_MAX]; strcpy(ancestor, path);
+    while (lc_host_beneath(root, ancestor)) {
+      lc_host_policy_path(out, "deny file-write-unlink", "literal", ancestor);
+      if (!strcmp(root, ancestor)) break;
+      char *slash = strrchr(ancestor, '/'); if (!slash) return false; *slash = 0;
+    }
+  }
   lc_host_policy_path(out, "deny file-read* file-write*", "subpath", LC_HOST_STATE);
   lc_host_policy_path(out, "deny file-read* file-write*", "subpath", approval->bundle);
   for (CFIndex i = 0; i < CFArrayGetCount(approval->protected_roots); i++) {

@@ -4,15 +4,8 @@
 #include "legioncode-host-sandbox.h"
 #include "legioncode-host-wire.h"
 
-typedef enum { LC_HOST_IDLE = 1, LC_HOST_PREPARED, LC_HOST_RUNNING, LC_HOST_CLOSING,
-               LC_HOST_CLOSED, LC_HOST_UNKNOWN } lc_host_phase;
-typedef struct {
-  uint32_t version, phase, command_count;
-  lc_host_writer_binding binding;
-  lc_host_principal principal;
-  char root_path[PATH_MAX], namespace_path[PATH_MAX], work_path[PATH_MAX];
-  unsigned char command_ids[256][32];
-} lc_host_scope_record;
+#include "legioncode-host-record.h"
+
 typedef struct {
   bool used, sealed, released, stdout_closed, stderr_closed, access_ready;
   lc_host_scope_record record;
@@ -25,10 +18,13 @@ typedef struct {
   size_t stdout_size, stderr_size;
   lc_host_bootstrap bootstrap;
   lc_host_access access;
+  lc_host_metadata_pins metadata_pins;
 } lc_host_scope;
 
 static inline bool lc_host_scope_save(int state, lc_host_scope *scope) {
   char temporary[96]; snprintf(temporary, sizeof(temporary), "%s.next", scope->name);
+  scope->record.bytes = sizeof(scope->record);
+  if (!lc_host_record_digest(&scope->record, false)) return false;
   int fd = openat(state, temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
   if (fd < 0) return false;
   bool okay = lc_host_io(fd, &scope->record, sizeof(scope->record), true) && lc_host_sync(fd);
@@ -53,6 +49,7 @@ static inline bool lc_host_scope_path_current(lc_host_scope *scope) {
     realpath(scope->record.root_path, canonical) && !strcmp(canonical, scope->record.root_path);
 }
 static inline void lc_host_scope_unknown(int state, lc_host_scope *scope) {
+  scope->record.cleanup_closed = 0; memset(scope->record.cleanup_receipt, 0, sizeof(scope->record.cleanup_receipt));
   scope->sealed = true; scope->record.phase = LC_HOST_UNKNOWN; (void)lc_host_scope_save(state, scope);
   /* Keep all real FDs and the original writer. No timeout/transport error is
    * evidence that the UID, pipes or changed access disappeared. */
@@ -72,13 +69,14 @@ static inline bool lc_host_command_seen(lc_host_scope *scope, const char *id) {
 static inline bool lc_host_scope_open(int state, const lc_host_approval *approval, xpc_object_t request,
                                      lc_host_scope *scope) {
   static const char *const fields[] = { "version", "operation", "generation", "workspaceId", "threadId", "runId",
-    "turnId", "runAttemptId", "policy", "policyGeneration", "rootFd", "fenceFd", "namespaceFd" };
+    "turnId", "runAttemptId", "policy", "policyGeneration", "rootFd", "fenceFd", "namespaceFd", LC_HOST_METADATA_FIELDS };
   if (!lc_host_fields(request, fields, sizeof(fields) / sizeof(fields[0])) || !lc_host_writer_supported()) return false;
   char policy[65]; if (!lc_host_get(request, "policy", policy, sizeof(policy)) || strcmp(policy, approval->policy)) return false;
   char policy_generation[65];
   if (!lc_host_get(request, "policyGeneration", policy_generation, sizeof(policy_generation)) || strcmp(policy_generation, approval->policy_generation)) return false;
   memset(scope, 0, sizeof(*scope)); scope->root = scope->namespace = scope->fence = scope->work = scope->journal = -1;
   scope->stdout_fd = scope->stderr_fd = -1;
+  for (size_t i = 0; i < LC_HOST_METADATA_PATHS; i++) scope->metadata_pins.fd[i] = -1;
   scope->root = xpc_fd_dup(xpc_dictionary_get_value(request, "rootFd"));
   scope->fence = xpc_fd_dup(xpc_dictionary_get_value(request, "fenceFd"));
   scope->namespace = xpc_fd_dup(xpc_dictionary_get_value(request, "namespaceFd"));
@@ -92,21 +90,23 @@ static inline bool lc_host_scope_open(int state, const lc_host_approval *approva
       fcntl(scope->namespace, F_GETPATH, scope->record.namespace_path) || !lc_host_absolute(scope->record.namespace_path) ||
       lc_host_beneath(scope->record.root_path, scope->record.namespace_path) ||
       lc_host_beneath(scope->record.namespace_path, scope->record.root_path)) goto unused;
-  CC_SHA256_CTX digest; CC_SHA256_Init(&digest);
-  for (const char **field = (const char *[]){ "workspaceId", "threadId", "runId", "turnId", "runAttemptId", NULL }; *field; field++) {
-    char id[257]; if (!lc_host_get(request, *field, id, sizeof(id))) goto unused;
-    for (const unsigned char *p = (const unsigned char *)id; *p; p++) if (*p < 33 || *p > 126) goto unused;
-    CC_SHA256_Update(&digest, id, (CC_LONG)strlen(id) + 1);
-  }
-  CC_SHA256_Final(scope->record.binding.scope_sha256, &digest);
+  if (!lc_host_metadata_read(request, &scope->record.metadata) ||
+      !lc_host_metadata_open(&scope->record.metadata, &scope->metadata_pins, scope->record.root_path, scope->root)) goto unused;
+  lc_host_scope_record previous; char previous_name[80]; bool present, reserved;
+  if (!lc_host_request_scope(request, scope->record.binding.scope_sha256) ||
+      !lc_host_record_find(state, approval->actor, scope->record.binding.scope_sha256, &previous, previous_name, &present) || present ||
+      !lc_host_reservation_seen(state, approval, scope->record.binding.scope_sha256, &reserved) || reserved) goto unused;
   unsigned char capability[32]; arc4random_buf(capability, sizeof(capability));
   lc_host_hex(capability, sizeof(capability), scope->capability, sizeof(scope->capability));
   CC_SHA256(capability, sizeof(capability), scope->record.binding.capability_sha256);
   arc4random_buf(scope->record.binding.resource_id, 32); arc4random_buf(scope->record.binding.broker_resource_generation, 32);
+  scope->record.binding.abi = LC_HOST_ABI; scope->record.binding.actor_uid = approval->actor;
   if (!lc_host_unhex(policy, scope->record.binding.policy_sha256, 32) ||
       !lc_host_unhex(policy_generation, scope->record.binding.approved_policy_generation, 32) ||
-      !lc_host_reserve_principal(state, approval, scope->record.binding.resource_id, &scope->record.principal)) goto unused;
-  scope->record.version = 1; scope->record.phase = LC_HOST_IDLE;
+      !lc_host_reserve_principal(state, approval, &scope->record.binding, &scope->record.principal)) goto unused;
+  scope->record.version = 3; scope->record.phase = LC_HOST_IDLE;
+  if (!lc_host_boot(scope->record.boot)) goto unused;
+  strcpy(scope->record.origin_generation, approval->generation);
   scope->record.binding.abi = LC_HOST_ABI; scope->record.binding.actor_uid = approval->actor;
   scope->record.binding.execution_uid = scope->record.principal.uid;
   memcpy(scope->record.binding.principal_guid, scope->record.principal.guid, 16);
@@ -140,25 +140,30 @@ static inline bool lc_host_scope_open(int state, const lc_host_approval *approva
   scope->access.principal = scope->record.principal; scope->access.journal = scope->journal;
   scope->access.root_path = scope->record.root_path; scope->access.executables = approval->executables;
   scope->access.root_device = scope->record.binding.root.device;
+  scope->access.metadata = &scope->record.metadata; scope->access.metadata_pins = &scope->metadata_pins;
   return true;
 unused:
+  for (size_t i = 0; i < LC_HOST_METADATA_PATHS; i++) if (scope->metadata_pins.fd[i] >= 0) close(scope->metadata_pins.fd[i]);
   if (scope->root >= 0) close(scope->root); if (scope->fence >= 0) close(scope->fence); if (scope->namespace >= 0) close(scope->namespace);
   scope->root = scope->fence = scope->namespace = -1; return false;
 }
 
 static inline bool lc_host_prepare_command(int state, const lc_host_approval *approval,
                                           lc_host_scope *scope, xpc_object_t request) {
-  static const char *const fields[] = { "version", "operation", "generation", "capability", "commandId", "command", "cwd" };
-  char id[257], command[501], cwd[512];
+  static const char *const fields[] = { "version", "operation", "generation", "capability", "commandId", "command", "cwd", LC_HOST_METADATA_FIELDS };
+  char id[257], command[501], cwd[512]; lc_host_metadata metadata;
   if (!lc_host_fields(request, fields, sizeof(fields) / sizeof(fields[0])) || scope->sealed ||
       scope->record.phase != LC_HOST_IDLE || scope->record.command_count >= 256 || !lc_host_scope_current(scope) || !lc_host_scope_path_current(scope) ||
       !lc_host_uid_zero(scope->record.principal.uid) || !lc_host_get(request, "commandId", id, sizeof(id)) ||
       lc_host_command_seen(scope, id) || !lc_host_get(request, "command", command, sizeof(command)) ||
-      !lc_host_get(request, "cwd", cwd, sizeof(cwd))) return false;
+      !lc_host_get(request, "cwd", cwd, sizeof(cwd)) || !lc_host_metadata_read(request, &metadata) ||
+      memcmp(metadata.digest, scope->record.metadata.digest, 32) ||
+      !lc_host_metadata_current(&scope->record.metadata, &scope->metadata_pins) ||
+      !lc_host_metadata_receipt_matches(&scope->record.metadata, &scope->metadata_pins, scope->root)) return false;
   /* Validate disjoint protected namespaces and the actual policy before the
    * first ACE is changed, not only immediately before target execution. */
   lc_host_policy_buffer policy;
-  if (!lc_host_build_policy(approval, scope->record.root_path, scope->record.work_path, &policy)) return false;
+  if (!lc_host_build_policy(approval, scope->record.root_path, scope->record.work_path, &scope->record.metadata, &policy)) return false;
   lc_host_bootstrap *bootstrap = &scope->bootstrap; memset(bootstrap, 0, sizeof(*bootstrap));
   bootstrap->magic = LC_HOST_BOOTSTRAP_MAGIC; bootstrap->uid = scope->record.principal.uid;
   bootstrap->gid = scope->record.principal.gid; bootstrap->root = scope->record.binding.root; bootstrap->fence = scope->record.binding.fence;
@@ -193,11 +198,13 @@ static inline bool lc_host_pipe(int pair[2]) {
   return true;
 }
 static inline bool lc_host_release_command(int state, const lc_host_approval *approval, lc_host_scope *scope) {
-  if (scope->sealed || scope->record.phase != LC_HOST_PREPARED || !scope->access_ready || !lc_host_scope_current(scope) || !lc_host_scope_path_current(scope)) return false;
+  if (scope->sealed || scope->record.phase != LC_HOST_PREPARED || !scope->access_ready || !lc_host_scope_current(scope) || !lc_host_scope_path_current(scope) ||
+      !lc_host_metadata_current(&scope->record.metadata, &scope->metadata_pins) ||
+      !lc_host_metadata_receipt_matches(&scope->record.metadata, &scope->metadata_pins, scope->root)) return false;
   lc_host_policy_buffer policy;
   CFArrayRef verified_executables;
   if (!lc_host_installed_broker_valid(approval) || !lc_host_paths(approval->executables, &verified_executables, true) ||
-      !lc_host_build_policy(approval, scope->record.root_path, scope->record.work_path, &policy)) return false;
+      !lc_host_build_policy(approval, scope->record.root_path, scope->record.work_path, &scope->record.metadata, &policy)) return false;
   int output[2] = {-1,-1}, error[2] = {-1,-1}, payload[2] = {-1,-1};
   if (!lc_host_pipe(output) || !lc_host_pipe(error) || !lc_host_pipe(payload)) goto failed;
   int root = fcntl(scope->root, F_DUPFD_CLOEXEC, 20), fence = fcntl(scope->fence, F_DUPFD_CLOEXEC, 20);
@@ -305,6 +312,8 @@ static inline void lc_host_scope_tick(int state, lc_host_scope *scope) {
   }
   size_t count = 0;
   if (!lc_host_restore_created(&scope->access, scope->work, 0, &count) ||
+      !lc_host_metadata_current(&scope->record.metadata, &scope->metadata_pins) ||
+      !lc_host_metadata_receipt_matches(&scope->record.metadata, &scope->metadata_pins, scope->root) ||
       !lc_host_scope_current(scope) || !lc_writer_host_resource_complete(scope->fence, scope->root, scope->namespace, &scope->record.binding)) {
     lc_host_scope_unknown(state, scope); return;
   }
@@ -318,6 +327,15 @@ static inline void lc_host_scope_tick(int state, lc_host_scope *scope) {
     if (close(*descriptors[i])) closed = false; else *descriptors[i] = -1;
   }
   if (!closed) { lc_host_scope_unknown(state, scope); return; }
+  for (size_t i = 0; i < LC_HOST_METADATA_PATHS; i++) if (scope->metadata_pins.fd[i] >= 0) {
+    if (close(scope->metadata_pins.fd[i])) closed = false;
+    scope->metadata_pins.fd[i] = -1;
+  }
+  if (!closed) { lc_host_scope_unknown(state, scope); return; }
+  /* A CLOSED phase alone is not proof: receipt follows actual FD close. */
+  scope->record.cleanup_closed = 1;
+  arc4random_buf(scope->record.cleanup_receipt, sizeof(scope->record.cleanup_receipt));
+  if (!lc_host_scope_save(state, scope)) { lc_host_scope_unknown(state, scope); return; }
   scope->released = true;
 }
 #endif

@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { parseNativeGitMetadataIdentity, type NativeGitMetadataLayout } from "./NativeFilesystemBridge.js";
+import { isAbsolute } from "node:path";
 import type { LocalTurnAttemptIdentity } from "./LocalReadOnlyTurnExecutor.js";
 
 /** Private native bridge framing. No renderer, provider credentials or public SDK. */
@@ -80,4 +82,30 @@ export function macHostScopeDigest(attempt: LocalTurnAttemptIdentity): string {
 }
 export function macHostCommandDigest(command: string, cwd: string): string {
   return createHash("sha256").update(command).update("\0").update(cwd).update("\0").digest("hex");
+}
+
+/** Frozen canonical inspector receipt; never constructed from tool/renderer fields. */
+export function macHostMetadataFields(layout: NativeGitMetadataLayout): Readonly<Record<string, string>> {
+  const storage = layout.storage;
+  if (!storage || storage.alternates !== "absent_or_empty" || storage.grafts !== "absent_or_empty" ||
+      !/^gitstorage-v1(?::[0-9a-f]{1,16}){20}$/u.test(storage.identity)) throw new MacHostBrokerError("metadata_storage_unavailable", false);
+  const fields = {
+    metadataIdentity: parseNativeGitMetadataIdentity(layout.identity), storageIdentity: storage.identity,
+    gitDirectory: layout.gitDirectory, commonDirectory: layout.commonDirectory, backlinkPath: layout.backlinkPath ?? "",
+    objectsDirectory: storage.objectsDirectory, packDirectory: storage.packDirectory, infoDirectory: storage.infoDirectory,
+    refsDirectory: storage.refsDirectory, commonLogsDirectory: storage.commonLogsDirectory,
+    worktreeLogsDirectory: storage.worktreeLogsDirectory, repositoryInfoDirectory: storage.repositoryInfoDirectory,
+  };
+  if ((layout.kind === "linked") !== layout.identity.startsWith("gitdir-v2:") ||
+      (layout.kind === "ordinary" && (layout.gitDirectory !== layout.commonDirectory || layout.backlinkPath !== null)) ||
+      Object.entries(fields).some(([key, value]) => key !== "metadataIdentity" && key !== "storageIdentity" &&
+        !(key === "backlinkPath" && value === "") && (!isAbsolute(value) || Buffer.byteLength(value) > 500 || /[\0\r\n]/u.test(value)))) {
+    throw new MacHostBrokerError("invalid_metadata_layout", false);
+  }
+  return Object.freeze(fields);
+}
+export function macHostMetadataDigest(fields: Readonly<Record<string, string>>): string {
+  const hash = createHash("sha256");
+  for (const [key, value] of Object.entries(fields)) hash.update(key).update("\0").update(value).update("\0");
+  return hash.digest("hex");
 }
