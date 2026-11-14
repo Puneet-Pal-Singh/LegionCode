@@ -17,7 +17,8 @@
     "./protocol": "./src/protocol.ts",
     "./workspaces": "./src/workspaces.ts",
     "./private/execution-domain": "./src/private/execution-domain.ts",
-    "./private/native-checkout-bootstrap": "./src/private/native-checkout-bootstrap.ts"
+    "./private/native-checkout-bootstrap": "./src/private/native-checkout-bootstrap.ts",
+    "./private/native-sandbox-binding": "./src/private/native-sandbox-binding.ts"
   },
   "scripts": {
     "build": "tsc",
