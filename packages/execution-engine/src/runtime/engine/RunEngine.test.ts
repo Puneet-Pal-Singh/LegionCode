@@ -7,7 +7,7 @@ import {
 } from "@repo/shared-types";
 import { MemoryLifecycleEventStore } from "../../../../event-store/src/MemoryLifecycleEventStore.js";
 import { TurnIdSchema, RunAttemptIdSchema, ThreadIdSchema, WorkspaceIdSchema } from "@repo/platform-protocol";
-import { RuntimeKernelNativeRunner } from "./RuntimeKernelNativeRunner.js";
+import { RuntimeKernelNativeRunner, type RuntimeKernelNativeRunnerInput } from "./RuntimeKernelNativeRunner.js";
 import { RunEngine, type RunEngineDependencies } from "./RunEngine.js";
 import { redactUserFacingOutput } from "./RunOutputRedactor.js";
 import type {
@@ -418,6 +418,14 @@ describe("RunEngine", () => {
       phase: "synthesis",
       runStatus: "COMPLETED",
     });
+
+    const native = createNativePlanFixture("invalid", { llmGateway: adaptLegacyTestGateway(llmGateway) });
+    await native.execute();
+    const replay = await native.events.replay({ turnId: native.turnId, afterSequence: 0, limit: 100 });
+    expect(replay.events.at(-1)?.type).toBe("turn.failed");
+    expect(replay.events.filter((event) => event.type === "turn.completed" || event.type === "assistant_message.delta")).toEqual([]);
+    expect(replay.events.filter((event) => event.type === "turn.failed")).toHaveLength(1);
+    expect((await new RunRepository(native.state).getById(native.runId))?.metadata.planArtifact).toBeUndefined();
   });
 
   it("completes with recoverable guidance when task execution times out in build mode", async () => {
@@ -1702,6 +1710,69 @@ describe("RunEngine", () => {
         executionKind: "mutating",
       }),
     ]);
+
+    const bootstrap = { bootstrap: vi.fn(async () => { throw new Error("Plan must not bootstrap"); }) };
+    const prepareMutationCapture = vi.fn(async () => { throw new Error("Plan must not capture mutations"); });
+    const hooks = {
+      runSessionStart: vi.fn(async () => { throw new Error("Plan must not run hooks"); }),
+      runUserPromptSubmit: vi.fn(async () => { throw new Error("Plan must not run hooks"); }),
+    };
+    const native = createNativePlanFixture("handoff", { planner, workspaceBootstrapper: bootstrap, prepareMutationCapture });
+    const nativeResponse = await native.execute({ hookOrchestration: hooks });
+    const nativeOutput = await nativeResponse.text();
+    const nativeRun = await new RunRepository(native.state).getById(native.runId);
+    const replay = await native.events.replay({ turnId: native.turnId, afterSequence: 0, limit: 100 });
+    expect(replay.events.slice(0, 3).map((event) => event.type)).toEqual(["turn.queued", "turn.started", "run_attempt.started"]);
+    expect(replay.events.at(-1)?.type).toBe("turn.completed");
+    expect(replay.events.filter((event) => ["turn.completed", "turn.failed", "turn.interrupted"].includes(event.type))).toHaveLength(1);
+    expect(replay.events.filter((event) => event.type.startsWith("workspace.") || event.type.startsWith("tool_call.") ||
+      event.type.startsWith("hook.") || event.type.startsWith("approval.") || event.type === "artifact.created")).toEqual([]);
+    const canonicalOutput = replay.events.flatMap((event) => event.type === "assistant_message.delta" ? [event.payload.delta] : []).join("");
+    expect(canonicalOutput).toContain("Refresh the README copy before validating the update.");
+    expect(nativeOutput).toBe(canonicalOutput);
+    expect(nativeRun?.status).toBe("COMPLETED");
+    expect(nativeRun?.metadata.planArtifact?.tasks).toEqual(persisted?.metadata.planArtifact?.tasks);
+    expect(nativeRun?.metadata.planArtifact?.handoff.targetMode).toBe("build");
+    expect(bootstrap.bootstrap).not.toHaveBeenCalled();
+    expect(prepareMutationCapture).not.toHaveBeenCalled();
+    expect(hooks.runSessionStart).not.toHaveBeenCalled();
+    expect(hooks.runUserPromptSubmit).not.toHaveBeenCalled();
+
+    let markStarted!: () => void;
+    let releasePlan!: () => void;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    const stoppedPlanner = { plan: vi.fn(async () => {
+      markStarted();
+      await new Promise<void>((resolve) => { releasePlan = resolve; });
+      return { tasks: [], metadata: { estimatedSteps: 1, reasoning: "Late stopped plan" } };
+    }) } as unknown as RunEngineDependencies["planner"];
+    const stopped = createNativePlanFixture("stopped", { planner: stoppedPlanner });
+    let settled = false;
+    const pendingPlan = stopped.execute().then((response) => { settled = true; return response; });
+    await started;
+    const interruption = stopped.runner.interrupt(stopped.turnId, "Stop planning");
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    releasePlan();
+    await interruption;
+    expect(await (await pendingPlan).text()).toBe("");
+    const stoppedReplay = await stopped.events.replay({ turnId: stopped.turnId, afterSequence: 0, limit: 100 });
+    expect(stoppedReplay.events.at(-1)?.type).toBe("turn.interrupted");
+    expect(stoppedReplay.events.filter((event) => event.type === "turn.completed" || event.type === "assistant_message.delta")).toEqual([]);
+    const stoppedRun = await new RunRepository(stopped.state).getById(stopped.runId);
+    expect(stoppedRun?.metadata.planArtifact).toBeUndefined();
+    expect(stoppedRun?.status).toBe("CANCELLED");
+    expect(stoppedRun?.output?.content).toBe("");
+
+    const mismatched = createNativePlanFixture("mismatched", { planner });
+    const readActual = mismatched.events.replay.bind(mismatched.events);
+    mismatched.events.replay = async (query) => {
+      const page = await readActual(query);
+      return { ...page, events: page.events.map((event) => event.type === "assistant_message.delta"
+        ? { ...event, payload: { ...event.payload, delta: `${event.payload.delta}not the saved plan` } } : event) };
+    };
+    await expect(mismatched.execute()).rejects.toThrow("completion evidence");
+    expect((await new RunRepository(mismatched.state).getById(mismatched.runId))?.status).toBe("PLANNING");
   });
 
   it("skips build-only approval and bootstrap gates in explicit plan mode", async () => {
@@ -5065,6 +5136,28 @@ describe("RunEngine", () => {
     expect(persisted?.status).toBe("COMPLETED");
   });
 });
+
+function createNativePlanFixture(label: string, dependencies: Partial<RunEngineDependencies>) {
+  const state = new MockRuntimeState();
+  const events = new MemoryLifecycleEventStore();
+  const runId = `run_native_plan_${label}`;
+  const sessionId = `session-native-plan-${label}`;
+  const turnId = TurnIdSchema.parse(`trn_native_plan_${label}`);
+  const runner = new RuntimeKernelNativeRunner(state, {
+    env: { NODE_ENV: "test" }, runId, sessionId,
+  }, undefined, { llmGateway: adaptLegacyTestGateway(createMockLLMGateway()), ...dependencies });
+  return {
+    state, events, runId, turnId, runner,
+    execute: (overrides: Partial<RuntimeKernelNativeRunnerInput> = {}) => runner.execute({
+      input: { agentType: "coding", mode: "plan", prompt: "refresh the README intro", sessionId,
+        repositoryContext: { owner: "legioncode", repo: "legioncode", branch: "dev" } },
+      messages: [{ role: "user", content: "refresh the README intro" }], tools: {}, lifecycleEvents: events,
+      turnId, runAttemptId: `attempt_native_plan_${label}`, threadId: `thr_native_plan_${label}`, workspaceId: `wrk_native_plan_${label}`,
+      workspace: { filesystemRoot: `/home/sandbox/checkouts/${runId}`, workingBranch: "legion/plan", startTreeId: "a".repeat(40), artifactNamespace: runId },
+      ...overrides,
+    }),
+  };
+}
 
 function createRunEngine(
   dependencies: Partial<RunEngineDependencies> = {},
