@@ -109,6 +109,15 @@ describe("ChatController DO runtime migration", () => {
     const duplicate = await ChatController.handle(await createChatRequest(env, { identity }), env);
     expect(duplicate.status).toBe(409);
     expect(releaseCalls()).toHaveLength(0);
+    runtime.fetch.mockResolvedValueOnce(Response.json({ code: "TURN_EXECUTION_NOT_CLAIMABLE", metadata: { executionRejection: {
+      state: "settled", scope: { userId: TEST_USER_ID, workspaceId: TEST_WORKSPACE_ID, sessionId: "session-1", runId: VALID_RUN_ID,
+        threadId: identity.threadId, turnId: identity.turnId, runAttemptId: identity.runAttemptId },
+    } } }, { status: 409 }));
+    expect((await ChatController.handle(await createChatRequest(env, { identity }), env)).status).toBe(409);
+    expect(releaseCalls()).toHaveLength(1);
+    const releaseBody = JSON.parse(String((releaseCalls()[0]![1] as RequestInit).body));
+    expect(releaseBody).toMatchObject({ expectedGeneration: "generation-controller", expectedClaimId: null });
+
     runtime.fetch.mockResolvedValueOnce(new Response(JSON.stringify({ accepted: true }), {
       status: 202, headers: { "Content-Type": "application/json", "X-Turn-Id": identity.turnId,
         "X-Thread-Id": identity.threadId, "X-Run-Attempt-Id": identity.runAttemptId },
@@ -116,7 +125,7 @@ describe("ChatController DO runtime migration", () => {
     const accepted = await ChatController.handle(await createChatRequest(env, { identity }), env);
     expect(accepted.status).toBe(202);
     expect(accepted.headers.get("X-Run-Attempt-Id")).toBe(identity.runAttemptId);
-    expect(releaseCalls()).toHaveLength(0);
+    expect(releaseCalls()).toHaveLength(1);
 
   });
 
@@ -774,6 +783,7 @@ function createMockRunAdmissionLimiterNamespace(): Env["RUN_ADMISSION_LIMITER"] 
       JSON.stringify({
         allowed: true,
         retryAfterSeconds: 0,
+        generation: "generation-controller", created: true,
       }),
       {
         status: 200,

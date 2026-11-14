@@ -4,6 +4,8 @@ import type { TurnAdmissionRecord } from "@repo/persistence";
 export interface ClaimedNativeAttempt {
   readonly admission: Readonly<TurnAdmissionRecord>;
   readonly correlationId: string;
+  readonly claimId: string;
+  readonly admissionLease?: import("./RunAdmissionLimiterClient").RunAdmissionLease;
 }
 
 export interface NativeAttemptObserver {

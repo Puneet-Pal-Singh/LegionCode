@@ -27,6 +27,27 @@ describe("RunAdmissionLimiter", () => {
 
     expect(first).toMatchObject({ allowed: true, leaseId: "attempt-1" });
     expect(second).toMatchObject({ allowed: true, leaseId: "attempt-2" });
+    expect(first.created).toBe(true);
+    expect(first.generation).toEqual(expect.any(String));
+    expect(second.generation).not.toBe(first.generation);
+    expect(await acquire(limiter, "attempt-1", "thread-1", "workspace-1", 2)).toMatchObject({ generation: first.generation, created: false });
+    expect(await claim(limiter, "attempt-1", first.generation, "claim-1")).toEqual({ claimed: true });
+    expect(await release(limiter, "attempt-1", first.generation)).toEqual({ released: false });
+    expect(await release(limiter, "attempt-1", first.generation, "other-claim")).toEqual({ released: false });
+    expect(await claim(limiter, "attempt-1", first.generation, "claim-1")).toEqual({ claimed: true });
+    expect(await release(limiter, "attempt-1", first.generation, "claim-1")).toEqual({ released: true });
+    const recreated = await acquire(limiter, "attempt-1", "thread-1", "workspace-1", 2);
+    expect(recreated).toMatchObject({ created: true });
+    expect(recreated.generation).not.toBe(first.generation);
+    expect(await release(limiter, "attempt-1", first.generation, "claim-1")).toEqual({ released: false });
+    expect(await release(limiter, "attempt-1", recreated.generation)).toEqual({ released: true });
+
+    const legacyState = new MockDurableObjectState();
+    await legacyState.storage.put("launch:concurrency:lease:v1:legacy", JSON.stringify({ expiresAt: Date.now() + 60_000, bucketKeys: [] }));
+    const legacy = new RunAdmissionLimiter(legacyState as unknown as DurableObjectState, {} as Env);
+    expect(await acquire(legacy, "legacy", "legacy", "legacy", 2)).toMatchObject({ allowed: true, created: false });
+    expect(await release(legacy, "legacy", "fabricated")).toEqual({ released: false });
+    expect(await claim(legacy, "legacy", "fabricated", "claim-legacy")).toEqual({ claimed: false });
   });
 
   it("blocks a sibling in a constrained workspace and frees only its released lease", async () => {
@@ -60,7 +81,7 @@ describe("RunAdmissionLimiter", () => {
       blockedBucket: "concurrent_expensive_run_workspace",
     });
 
-    expect(await release(limiter, "attempt-1")).toEqual({ released: true });
+    expect(await release(limiter, "attempt-1", first.generation)).toEqual({ released: true });
     expect(
       await acquire(limiter, "attempt-3", "thread-3", "workspace-1", 1),
     ).toMatchObject({
@@ -113,11 +134,18 @@ async function acquire(
 async function release(
   limiter: RunAdmissionLimiter,
   leaseId: string,
+  expectedGeneration?: unknown,
+  expectedClaimId: string | null = null,
 ): Promise<Record<string, unknown>> {
   const response = await limiter.fetch(
-    request("/release-concurrency", { leaseId }),
+    request("/release-concurrency", { leaseId, expectedGeneration, expectedClaimId }),
   );
   return (await response.json()) as Record<string, unknown>;
+}
+
+async function claim(limiter: RunAdmissionLimiter, leaseId: string, expectedGeneration: unknown, claimId: string) {
+  const response = await limiter.fetch(request("/claim-concurrency", { leaseId, expectedGeneration, claimId }));
+  return await response.json();
 }
 
 function request(path: string, body: Record<string, unknown>): Request {

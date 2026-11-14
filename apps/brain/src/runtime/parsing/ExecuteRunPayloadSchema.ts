@@ -79,6 +79,7 @@ export const SerializableToolDefinitionSchema = z.object({
  */
 export const ExecuteRunPayloadSchema = z.object({
   runId: RunIdSchema,
+  admissionLease: z.object({ leaseId: z.string().min(1), generation: z.string().min(1).max(256).optional(), created: z.boolean().optional() }).strict().optional(),
   identity: TurnScopeBootstrapSchema.optional(),
   resumeSnapshotRef: ResumeWorkspaceSnapshotRefSchema.optional(),
   userId: z.string().trim().min(1).optional(),

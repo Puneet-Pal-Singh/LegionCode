@@ -18,7 +18,6 @@ import {
   summarizeCoreMessages,
 } from "../../services/chat/SubmittedClientMessagePolicy";
 import { formatDiagnosticLogLine } from "../../lib/diagnostic-log";
-import { ThreadInputCommandService } from "../../services/thread-inputs/ThreadInputCommandService";
 import type { AuthenticatedChatRequest } from "../../controllers/ChatRequestBoundary";
 import type { BackgroundTaskOwner } from "../../services/thread-titles";
 import type { HostedChatSubmissionResult } from "@repo/platform-protocol";
@@ -193,24 +192,20 @@ export async function submitHostedChat(
       }),
     );
     // Transfer before transport: a lost ACK can still leave a claimed attempt.
-    nativeOwnershipTransferred = useCaseResult.executionPayload.input.harnessMode === "platform_owned";
+    nativeOwnershipTransferred = true;
     const doResponse = await executeViaRunEngineDurableObject(
       env,
       runId,
-      useCaseResult.executionPayload,
+      { ...useCaseResult.executionPayload, admissionLease: admissionGrant.lease },
     );
-    if (!nativeOwnershipTransferred) new ThreadInputCommandService(env).scheduleTerminalReconciliation({
-      response: doResponse,
-      request: req,
-      executionContext,
-      runId,
-      turnId: identity.turnId,
-      userId,
-      sessionId,
-      threadId: identity.threadId,
-      workspaceId,
-      correlationId,
-    });
+    try {
+      await admissionService.releaseFreshRejectedAttempt(admissionGrant, doResponse, {
+        userId, workspaceId, sessionId, runId, threadId: identity.threadId,
+        turnId: identity.turnId, runAttemptId: identity.runAttemptId,
+      }, correlationId);
+    } catch {
+      console.warn("[run/admission] Rejected attempt lease release remains unresolved");
+    }
     const runtimeTarget = resolveRuntimeTarget(
       env,
       useCaseResult.executionPayload.input.orchestratorBackend,

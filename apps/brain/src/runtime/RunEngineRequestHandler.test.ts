@@ -1294,6 +1294,9 @@ describe("RunEngineRequestHandler", () => {
     await assertOriginalProviderDrain("fulfilled", "prepare");
     await assertOriginalProviderDrain("fulfilled", "prepare_closed");
     await assertOriginalProviderDrain("fulfilled", "unretained");
+    await assertOriginalProviderDrain("fulfilled", "handoff");
+    await assertOriginalProviderDrain("fulfilled", "handoff_lost");
+    await assertOriginalProviderDrain("fulfilled", "legacy");
   });
 
   it("projects a typed activity feed snapshot", async () => {
@@ -1830,7 +1833,7 @@ describe("RunEngineRequestHandler", () => {
   });
 });
 
-async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", failure?: "release" | "ack" | "prepare" | "prepare_closed" | "unretained") {
+async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", failure?: "release" | "ack" | "prepare" | "prepare_closed" | "unretained" | "handoff" | "handoff_lost" | "legacy") {
   const ctx = new MockDurableObjectState();
   const scope = RunInterruptIdentitySchema.parse({
     runId: "run_123e4567e89b42d3a456426614174212",
@@ -1862,6 +1865,7 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", fa
     return { ...await prepare(...args),
       checkoutLifecycle: { isSettled: false, settle, release } as unknown as NonNullable<Awaited<ReturnType<typeof prepare>>["checkoutLifecycle"]> };
   });
+  const quotaClaims: Record<string, unknown>[] = [];
   let lockHeld = false;
   const lock: RunEngineRequestLock = Object.assign(async <T>(_run: string, operation: () => Promise<T>) => {
     lockHeld = true;
@@ -1895,6 +1899,11 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", fa
     const handler = new RunEngineRequestHandler(ctx as unknown as DurableObjectState, {
       HYPERDRIVE: { connectionString: "postgres://fixture:fixture@127.0.0.1:1/fixture" },
       BYOK_CREDENTIAL_ENCRYPTION_KEY: "test-only-credential-encryption-key",
+      RUN_ADMISSION_LIMITER: { idFromName: () => ({}), get: () => ({ fetch: async (_url: unknown, init?: RequestInit) => {
+        quotaClaims.push(JSON.parse(String(init?.body)));
+        if (failure === "handoff_lost") throw new Error("Runtime ownership response was lost");
+        return Response.json({ claimed: failure !== "handoff" });
+      } }) },
       AUTH_TRANSCRIPT_REPOSITORY: {
         listSessions: async () => ({ sessions: [{ id: scope.sessionId, workspaceId: scope.workspaceId, repository: null }] }),
         getCanonicalAssistantMessageId: async () => null,
@@ -1921,6 +1930,7 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", fa
     const request = new Request("https://brain.local/execute", {
       method: "POST", body: JSON.stringify({
         ...scope, identity: scope, userId: "user-1", correlationId: "drain-fixture",
+        admissionLease: { leaseId: `run-attempt:${scope.runAttemptId}`, ...(failure === "legacy" ? {} : { generation: "generation-fixture", created: true }) },
         input: { mode: "build", agentType: "coding", prompt: "inspect", sessionId: scope.sessionId,
           providerId: "openai", modelId: "gpt-4o-mini", orchestratorBackend: "execution-engine-v1",
           executionBackend: "cloudflare_sandbox", harnessMode: "platform_owned", authMode: "api_key" },
@@ -1940,12 +1950,23 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", fa
         expect(registry.hasActiveOwner(scope.turnId)).toBe(true);
         expect(Object.isFrozen(attempt.admission)).toBe(true);
         expect(attempt.admission).toMatchObject(scope);
+        expect(quotaClaims).toHaveLength(1);
+        expect(quotaClaims[0]).toMatchObject({ expectedGeneration: "generation-fixture", claimId: attempt.claimId });
         if (failure === "ack") throw new Error("ACK construction failed");
         return Response.json({ accepted: true }, { status: 202 });
       },
       settled: physicallySettled,
       reportError: error => { throw error; },
     });
+    if (["handoff", "handoff_lost", "legacy"].includes(failure ?? "")) {
+      expect((await acknowledgement).status).toBe(failure === "handoff_lost" ? 500 : 409);
+      await retained[0];
+      expect(provider).not.toHaveBeenCalled();
+      expect(runner).not.toHaveBeenCalled();
+      expect(physicallySettled).not.toHaveBeenCalled();
+      expect(quotaClaims).toHaveLength(failure === "legacy" ? 0 : 1);
+      return;
+    }
     if (failure === "unretained") {
       await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(1));
       await observer;

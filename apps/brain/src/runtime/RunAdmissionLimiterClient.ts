@@ -13,6 +13,8 @@ const AdmissionDecisionSchema = z.object({
 });
 const AcquireDecisionSchema = AdmissionDecisionSchema.extend({
   leaseId: z.string().min(1).optional(),
+  generation: z.string().min(1).max(256).optional(),
+  created: z.boolean().optional(),
   blockedBucket: z
     .enum([
       "concurrent_expensive_run_session",
@@ -23,9 +25,12 @@ const AcquireDecisionSchema = AdmissionDecisionSchema.extend({
     .optional(),
 });
 const ReleaseDecisionSchema = z.object({ released: z.boolean() });
+const ClaimDecisionSchema = z.object({ claimed: z.boolean() });
 
 export interface RunAdmissionLease {
-  leaseId: string;
+  readonly leaseId: string;
+  readonly generation?: string;
+  readonly created?: boolean;
 }
 
 export function runAdmissionLeaseForAttempt(runAttemptId: string): RunAdmissionLease {
@@ -106,18 +111,33 @@ export class RunAdmissionLimiterClient {
         },
       );
     }
-    return { leaseId: decision.leaseId ?? leaseId };
+    if (decision.leaseId !== undefined && decision.leaseId !== leaseId) {
+      throw new DomainError("RUN_ADMISSION_LEASE_SCOPE_MISMATCH", "The limiter returned a different attempt lease.", 503, false, correlationId);
+    }
+    return Object.freeze({ leaseId, generation: decision.generation, created: decision.created });
+  }
+
+  async transferToRuntime(lease: RunAdmissionLease, claimId: string, correlationId: string): Promise<void> {
+    if (!lease.generation) throw new DomainError("RUN_ADMISSION_LEASE_OWNERSHIP_UNKNOWN", "Admission ownership is unknown.", 409, false, correlationId);
+    const result = parseResponse(ClaimDecisionSchema, await this.post("/claim-concurrency", {
+      leaseId: lease.leaseId, expectedGeneration: lease.generation, claimId,
+    }, correlationId), correlationId);
+    if (!result.claimed) throw new DomainError("RUN_ADMISSION_LEASE_HANDOFF_FAILED", "Admission ownership could not be transferred to this execution claim.", 409, false, correlationId);
   }
 
   async release(
     lease: RunAdmissionLease,
     correlationId: string,
+    claimId: string | null = null,
   ): Promise<void> {
+    if (!lease.generation) {
+      throw new DomainError("RUN_ADMISSION_LEASE_OWNERSHIP_UNKNOWN", "The admission lease has no confirmed ownership generation.", 409, false, correlationId);
+    }
     const decision = parseResponse(
       ReleaseDecisionSchema,
       await this.post(
         "/release-concurrency",
-        { leaseId: lease.leaseId },
+        { leaseId: lease.leaseId, expectedGeneration: lease.generation, expectedClaimId: claimId },
         correlationId,
       ),
       correlationId,
@@ -135,7 +155,7 @@ export class RunAdmissionLimiterClient {
   }
 
   private async post(
-    path: "/enforce" | "/acquire-concurrency" | "/release-concurrency",
+    path: "/enforce" | "/acquire-concurrency" | "/claim-concurrency" | "/release-concurrency",
     body: Record<string, unknown>,
     correlationId: string,
   ): Promise<unknown> {

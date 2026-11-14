@@ -59,7 +59,7 @@ export class ThreadInputCommandService {
       threadId: admitted.threadId, runAttemptId: admitted.runAttemptId,
     });
     if (!type) throw new Error("Settled Native attempt has no canonical terminal receipt");
-    await new RunAdmissionService(this.env).releaseAttempt(admitted.runAttemptId, attempt.correlationId);
+    await new RunAdmissionService(this.env).releaseAttempt(admitted.runAttemptId, attempt.admissionLease, attempt.claimId, attempt.correlationId);
     await this.onTurnTerminal({ type, request,
       userId: admitted.userId, sessionId: admitted.sessionId, threadId: admitted.threadId,
       workspaceId: admitted.workspaceId, correlationId: attempt.correlationId });
@@ -218,6 +218,7 @@ export class ThreadInputCommandService {
           workspaceId: command.workspaceId,
           correlationId: input.correlationId,
           identity: turnIdentity,
+          admissionLease: grant.lease,
           prompt: resumed.prompt.text,
           promptMessageId: resumed.originalPromptId,
           configuration: resumed.configuration,
@@ -500,6 +501,7 @@ export class ThreadInputCommandService {
           workspaceId: command.workspaceId,
           correlationId: input.correlationId,
           identity: turnIdentity,
+          admissionLease: grant.lease,
           prompt: item.text,
           promptMessageId: result.promptMessageId,
           configuration: item.configuration,

@@ -9,6 +9,8 @@ import {
 } from "@repo/platform-protocol";
 import { HandleChatRequest } from "../../application/chat/HandleChatRequest";
 import type { Env } from "../../types/ai";
+import { RunAdmissionService } from "../../runtime/RunAdmissionService";
+import type { RunAdmissionLease } from "../../runtime/RunAdmissionLimiterClient";
 import {
   executeViaRunEngineDurableObject,
   fetchRunProviderModels,
@@ -36,6 +38,7 @@ export interface AdmittedTurnExecution {
   readonly workspaceId: string;
   readonly correlationId: string;
   readonly identity: TurnScopeBootstrap;
+  readonly admissionLease: RunAdmissionLease;
   readonly prompt: string;
   readonly promptMessageId: string;
   readonly configuration: {
@@ -158,8 +161,16 @@ export async function dispatchAdmittedTurn(
     const response = await executeViaRunEngineDurableObject(
       input.env,
       input.run.id,
-      executionPayload,
+      { ...executionPayload, admissionLease: input.admissionLease },
     );
+    try {
+      await new RunAdmissionService(input.env).releaseFreshRejectedAttempt({ lease: input.admissionLease }, response, {
+        userId: input.userId, workspaceId: input.workspaceId, sessionId: input.sessionId, runId: input.run.id,
+        threadId: input.identity.threadId, turnId: input.identity.turnId, runAttemptId: input.identity.runAttemptId,
+      }, input.correlationId);
+    } catch {
+      console.warn("[run/admission] Rejected admitted-turn lease release remains unresolved");
+    }
     await response.arrayBuffer();
     // The DO owns physical completion, capacity release and queue advancement.
     // Neither this ACK body nor a terminal projection proves original cleanup.

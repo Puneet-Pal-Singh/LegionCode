@@ -49,6 +49,7 @@ import {
   type ExecuteRunPayload,
 } from "./parsing/ExecuteRunPayloadSchema";
 import { prepareRuntimeExecutionResources } from "./RuntimeExecutionResources";
+import { RunAdmissionService, settledAdmissionRejection } from "./RunAdmissionService";
 import type { NativeAttemptObserver, NativePreparationCleanupReceipt } from "./RetainedNativeAttempt";
 import {
   DomainError,
@@ -1253,7 +1254,7 @@ export class RunEngineRequestHandler {
       return runEngineErrorResponse(request, this.env, message, 400);
     }
 
-    const nativeObserver = payload.input.harnessMode === "platform_owned" ? observer : undefined;
+    const nativeObserver = observer; // This continuation is the actual Native execution owner.
     const workspaceId = BrainWorkspaceIdSchema.safeParse(payload.workspaceId);
     if (!workspaceId.success) {
       return runEngineErrorResponse(
@@ -1363,6 +1364,11 @@ export class RunEngineRequestHandler {
             }),
         );
         if (claimResult.status !== "claimed") {
+          const rejected = claimResult.status === "settled" && claimResult.admission?.workspaceId
+            ? settledAdmissionRejection({ userId: claimResult.admission.userId, workspaceId: claimResult.admission.workspaceId,
+                sessionId: claimResult.admission.sessionId, runId: claimResult.admission.runId,
+                threadId: claimResult.admission.threadId, turnId: claimResult.admission.turnId,
+                runAttemptId: claimResult.admission.runAttemptId }) : undefined;
           const recovery =
             claimResult.status === "already_claimed" ||
             claimResult.status === "recovery_required";
@@ -1376,6 +1382,7 @@ export class RunEngineRequestHandler {
             recovery
               ? "TURN_EXECUTION_ALREADY_CLAIMED"
               : "TURN_EXECUTION_NOT_CLAIMABLE",
+            rejected ? { executionRejection: rejected } : undefined,
           );
         }
         executionClaim = { turnId, claimId };
@@ -1385,8 +1392,10 @@ export class RunEngineRequestHandler {
         }
         // Preserve the exact canonical receipt, including forthcoming binding fields.
         const claimedAdmission = Object.freeze({ ...claimResult.admission });
+        await new RunAdmissionService(this.env).claimAttempt(runAttemptId, payload.admissionLease, claimId, payload.correlationId);
         nativeObserver?.claimed(Object.freeze({
-          admission: claimedAdmission, correlationId: payload.correlationId,
+          admission: claimedAdmission, correlationId: payload.correlationId, claimId,
+          admissionLease: payload.admissionLease ? Object.freeze({ ...payload.admissionLease }) : undefined,
         }));
         const runtimeState = this.createRuntimeState();
         const resources = await prepareRuntimeExecutionResources(this.ctx, this.env, payload, receipt => { preparationCleanup = receipt; });

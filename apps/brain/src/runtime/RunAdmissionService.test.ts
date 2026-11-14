@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "../types/ai";
-import { RunAdmissionService } from "./RunAdmissionService";
+import { RunAdmissionService, settledAdmissionRejection } from "./RunAdmissionService";
 import { ThreadInputCommandService } from "../services/thread-inputs/ThreadInputCommandService";
 
 describe("RunAdmissionService", () => {
@@ -40,7 +40,7 @@ describe("RunAdmissionService", () => {
       RUN_ADMISSION_LIMITER: createLimiterNamespace((url, body) => {
         calls.push(`${url.pathname}:${body.leaseId ?? ""}`);
         if (url.pathname === "/acquire-concurrency") {
-          return { allowed: true, retryAfterSeconds: 0, leaseId: body.leaseId };
+          return { allowed: true, retryAfterSeconds: 0, leaseId: body.leaseId, generation: "generation-1", created: true };
         }
         return url.pathname === "/release-concurrency"
           ? { released: true }
@@ -58,12 +58,12 @@ describe("RunAdmissionService", () => {
     expect(calls).toContain(
       "/release-concurrency:run-attempt:run-attempt-1",
     );
-    await service.releaseAttempt(canonicalInput().runAttemptId, "corr-3");
+    await service.releaseAttempt(canonicalInput().runAttemptId, grant.lease, "claim-1", "corr-3");
     expect(calls.filter(call => call === "/release-concurrency:run-attempt:run-attempt-1")).toHaveLength(2);
     const failedRelease = new RunAdmissionService(createEnv({
       RUN_ADMISSION_LIMITER: createLimiterNamespace(() => ({ released: false })),
     }));
-    await expect(failedRelease.releaseAttempt(canonicalInput().runAttemptId, "corr-3")).rejects.toMatchObject({
+    await expect(failedRelease.releaseAttempt(canonicalInput().runAttemptId, grant.lease, "claim-1", "corr-3")).rejects.toMatchObject({
       code: "RUN_ADMISSION_LEASE_NOT_FOUND",
     });
     const admission = Object.freeze({ userId: "user-1", sessionId: "session-1", workspaceId: "workspace-1",
@@ -73,7 +73,8 @@ describe("RunAdmissionService", () => {
       requestFingerprint: null, admissionOrder: 1, createdAt: "2026-11-14T00:00:00Z", admittedAt: "2026-11-14T00:00:00Z" });
     const order: string[] = [];
     const terminalQueue = vi.spyOn(ThreadInputCommandService.prototype, "onTurnTerminal").mockImplementation(async () => { order.push("queue"); });
-    const original = { admission, correlationId: "corr-original" };
+    const original = { admission, correlationId: "corr-original", claimId: "claim-owned",
+      admissionLease: { leaseId: `run-attempt:${admission.runAttemptId}`, generation: "generation-owned", created: true } };
     const ownedEnv = { ...env,
       AUTH_TURN_ADMISSION_REPOSITORY: { getByTurnId: async () => admission },
       RUN_ENGINE_RUNTIME: { idFromName: () => ({}), get: () => ({ fetch: async () => Response.json({
@@ -91,6 +92,14 @@ describe("RunAdmissionService", () => {
       await expect(new ThreadInputCommandService({ ...ownedEnv,
         RUN_ADMISSION_LIMITER: createLimiterNamespace(() => ({ released: false })),
       }).onNativeAttemptSettled(new Request("https://run-engine/execute"), original)).rejects.toMatchObject({ code: "RUN_ADMISSION_LEASE_NOT_FOUND" });
+      expect(terminalQueue).not.toHaveBeenCalled();
+      const scope = { userId: admission.userId, workspaceId: admission.workspaceId, sessionId: admission.sessionId,
+        runId: admission.runId, threadId: admission.threadId, turnId: admission.turnId, runAttemptId: admission.runAttemptId };
+      const rejected = Response.json({ code: "TURN_EXECUTION_NOT_CLAIMABLE", metadata: { executionRejection: settledAdmissionRejection(scope) } }, { status: 409 });
+      const ownedService = new RunAdmissionService(ownedEnv);
+      expect(await ownedService.releaseFreshRejectedAttempt({ lease: original.admissionLease }, rejected, scope, "corr-retry")).toBe(true);
+      expect(await ownedService.releaseFreshRejectedAttempt({ lease: { ...original.admissionLease, created: false } }, rejected, scope, "corr-reused")).toBe(false);
+      expect(await ownedService.releaseFreshRejectedAttempt({ lease: original.admissionLease }, Response.json({ code: "TURN_EXECUTION_ALREADY_CLAIMED" }, { status: 409 }), scope, "corr-running")).toBe(false);
       expect(terminalQueue).not.toHaveBeenCalled();
     } finally { terminalQueue.mockRestore(); }
 
