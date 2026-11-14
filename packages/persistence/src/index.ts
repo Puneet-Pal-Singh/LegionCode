@@ -72,6 +72,17 @@ export type {
   LegacyHistoryImportResult,
 } from "./sessions/types.js";
 export { PostgresTurnAdmissionRepository, TurnAdmissionConflictError } from "./turn-admissions/PostgresTurnAdmissionRepository.js";
+export {
+  NativeProviderBindingScopeSchema,
+  NativeProviderBindingSchema,
+  NativeProviderAdmissionRouteSchema,
+  parseNativeProviderBindingForAdmission,
+  type NativeProviderBindingScope,
+  type NativeProviderBinding,
+  type NativeProviderAdmissionRoute,
+  type NativeProviderAdmissionCaptureInput,
+  type NativeProviderAdmissionCapture,
+} from "./turn-admissions/native-provider-binding.js";
 export type {
   AdmitContinuationInput,
   AdmitTurnWithPromptInput,
@@ -85,6 +96,7 @@ export type {
 } from "./turn-admissions/types.js";
 export { MemoryRunRepository } from "./runs/MemoryRunRepository.js";
 export { PostgresRunRepository } from "./runs/PostgresRunRepository.js";
+export { buildThreadTitlePreview, sanitizePromptForTitle } from "./thread-titles/ThreadTitlePreview.js";
 export { MemoryThreadTitleRepository } from "./thread-titles/MemoryThreadTitleRepository.js";
 export { PostgresThreadTitleRepository } from "./thread-titles/PostgresThreadTitleRepository.js";
 export type {

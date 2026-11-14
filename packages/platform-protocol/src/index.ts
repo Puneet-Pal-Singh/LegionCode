@@ -137,6 +137,7 @@ export {
   ReadLifecycleEventChunkResponseSchema,
   ReplayLifecycleEventsRequestSchema,
   ReplayLifecycleEventsResponseSchema,
+  NativeExecutionRecoveryProjectionSchema,
   SubmitLifecycleApprovalRequestSchema,
   type FollowLifecycleRequest,
   type GetTurnDiffRequest,
@@ -147,6 +148,7 @@ export {
   type ReadLifecycleEventChunkResponse,
   type ReplayLifecycleEventsRequest,
   type ReplayLifecycleEventsResponse,
+  type NativeExecutionRecoveryProjection,
   type SubmitLifecycleApprovalRequest,
 } from "./lifecycle-operations.js";
 export {
@@ -565,12 +567,16 @@ export {
   LocalWorkspaceCapabilitySchema,
   LocalWorkspaceGrantPathSchema,
   LocalWorkspaceGrantResponseSchema,
+  LocalWorkspaceProjectSchema,
+  LocalWorkspaceProjectsResponseSchema,
   LocalWorkspaceGrantSchema,
   LocalWorkspaceReadinessSchema,
   type GrantLocalWorkspaceRequest,
   type LocalWorkspaceCapability,
   type LocalWorkspaceGrant,
   type LocalWorkspaceGrantResponse,
+  type LocalWorkspaceProject,
+  type LocalWorkspaceProjectsResponse,
   type LocalWorkspaceReadiness,
 } from "./workspace-grants.js";
 export {

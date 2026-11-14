@@ -14,6 +14,7 @@ import type { Env } from "../../types/ai";
 import type {
   BYOKConnectRequest,
   BYOKConnectResponse,
+  BYOKDiscoveredProviderModel,
   BYOKDiscoveredProviderModelsQuery,
   BYOKDiscoveredProviderModelsRefreshResponse,
   BYOKDiscoveredProviderModelsResponse,
@@ -46,6 +47,8 @@ import {
   type ProviderModelCacheStore,
 } from "@repo/provider-core/discovery";
 import { isDomainError } from "../../domain/errors";
+import type { NativeProviderCredentialResolver } from "./NativeProviderCredentialResolver";
+import type { NativeAxisCredentialMaterial } from "./NativeAxisCredentialMaterial";
 
 export interface ProviderConfigServiceOptions {
   env: Env;
@@ -57,9 +60,11 @@ export interface ProviderConfigServiceOptions {
   auditLog: ProviderAuditLog;
   quotaStore: ProviderQuotaStore;
   ensureReady?: () => Promise<void>;
+  nativeCredentialResolver?: NativeProviderCredentialResolver;
 }
 
 export class ProviderConfigService {
+  private readonly nativeCredentialResolver: NativeProviderCredentialResolver | undefined;
   private credentialVault: CloudCredentialVault;
   private credentialService: ProviderCredentialService;
   private registryService: ProviderRegistryService;
@@ -70,6 +75,7 @@ export class ProviderConfigService {
   private storageReadyPromise: Promise<void> | null = null;
 
   constructor(private options: ProviderConfigServiceOptions) {
+    this.nativeCredentialResolver = options.nativeCredentialResolver;
     this.registryService = new ProviderRegistryService();
     this.credentialVault = new CloudCredentialVault(
       options.credentialStore,
@@ -98,6 +104,17 @@ export class ProviderConfigService {
   async getCatalog(): Promise<ProviderCatalogResponse> {
     await this.ensureStorageReady();
     return this.getCatalogService().getCatalog();
+  }
+
+  /** Submission metadata lookup: no provider API, credentials or catalog enrichment. */
+  async getCachedModel(providerId: string, modelId: string): Promise<BYOKDiscoveredProviderModel | null> {
+    await this.ensureStorageReady();
+    const selected = ProviderIdSchema.parse(providerId);
+    if (selected === AXIS_PROVIDER_ID)
+      return getAxisDiscoveredModels().find(model => model.id === modelId) ?? null;
+    const cached = await this.options.modelCacheStore.getModelCache(selected);
+    if (!cached || cached.providerId !== selected || Date.parse(cached.expiresAt) <= Date.now() || !Number.isFinite(Date.parse(cached.expiresAt))) return null;
+    return cached.models.find(model => model.id === modelId) ?? null;
   }
 
   async getConnections(): Promise<ProviderConnectionsResponse> {
@@ -260,11 +277,17 @@ export class ProviderConfigService {
     connectionConfig?: ProviderConnectionConfig;
   } | null> {
     await this.ensureStorageReady();
+    if (this.nativeCredentialResolver) {
+      return this.nativeCredentialResolver.resolveCredential(providerId);
+    }
     return this.credentialService.resolveCredential(providerId);
   }
 
   async getApiKey(providerId: ProviderId): Promise<string | null> {
     await this.ensureStorageReady();
+    if (this.nativeCredentialResolver) {
+      return (await this.nativeCredentialResolver.resolveCredential(providerId)).apiKey;
+    }
     return this.credentialVault.getApiKey(providerId);
   }
 
@@ -272,7 +295,24 @@ export class ProviderConfigService {
     providerId: ProviderId,
   ): Promise<ProviderConnectionConfig | undefined> {
     await this.ensureStorageReady();
+    if (this.nativeCredentialResolver) {
+      return (await this.nativeCredentialResolver.resolveCredential(providerId)).connectionConfig;
+    }
     return this.credentialVault.getConnectionConfig(providerId);
+  }
+
+  getNativeProviderSelection(): Readonly<{ providerId: ProviderId; modelId: string }> | null {
+    const resolver = this.nativeCredentialResolver;
+    return resolver ? Object.freeze({ providerId: resolver.providerId, modelId: resolver.modelId }) : null;
+  }
+
+  assertNativeProviderSelection(providerId: string, modelId: string): void {
+    this.nativeCredentialResolver?.assertSelection(providerId, modelId);
+  }
+
+  async resolveManagedAxisMaterial(providerId: ProviderId): Promise<NativeAxisCredentialMaterial | null> {
+    await this.ensureStorageReady();
+    return this.nativeCredentialResolver?.resolveManagedAxisMaterial(providerId) ?? null;
   }
 
   async isConnected(providerId: ProviderId): Promise<boolean> {

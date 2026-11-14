@@ -3,7 +3,7 @@ import { TurnDiffPayloadSchema, type TurnDiffPayload } from "./artifacts.js";
 import { EventSequenceSchema, type EventSequence } from "./common.js";
 import { ApprovalDecisionSchema } from "./events.js";
 import { LifecycleEventSchema, LifecycleOperationBackendSchema, type LifecycleEvent } from "./lifecycle.js";
-import { ApprovalIdSchema, EventIdSchema, TurnIdSchema, UserIdSchema } from "./ids.js";
+import { ApprovalIdSchema, EventIdSchema, TurnIdSchema, UserIdSchema, WorkspaceIdSchema, RunIdSchema, ThreadIdSchema, RunAttemptIdSchema } from "./ids.js";
 
 const MAX_LIFECYCLE_REPLAY_LIMIT = 1_000;
 
@@ -63,13 +63,24 @@ export const ReplayLifecycleEventsRequestSchema = z.object({
 }).strict();
 export type ReplayLifecycleEventsRequest = z.infer<typeof ReplayLifecycleEventsRequestSchema>;
 
+/** Authenticated admission projection, not a terminal event or cleanup receipt. */
+export const NativeExecutionRecoveryProjectionSchema = z.object({
+  state: z.literal("recovery_required"),
+  reason: z.literal("execution_owner_lost"),
+  userId: UserIdSchema, workspaceId: WorkspaceIdSchema, sessionId: z.string().min(1).max(200),
+  runId: RunIdSchema, threadId: ThreadIdSchema, turnId: TurnIdSchema, runAttemptId: RunAttemptIdSchema,
+}).strict();
+export type NativeExecutionRecoveryProjection = z.infer<typeof NativeExecutionRecoveryProjectionSchema>;
+
 export const ReplayLifecycleEventsResponseSchema = z.object({
   events: z.array(LifecycleEventSchema),
   nextSequence: EventSequenceSchema.nullable(),
+  recovery: NativeExecutionRecoveryProjectionSchema.optional(),
 }).strict();
 export interface ReplayLifecycleEventsResponse {
   readonly events: readonly LifecycleEvent[];
   readonly nextSequence: EventSequence | null;
+  readonly recovery?: NativeExecutionRecoveryProjection;
 }
 
 export const FollowLifecycleRequestSchema = ReplayLifecycleEventsRequestSchema.omit({ limit: true, backend: true })

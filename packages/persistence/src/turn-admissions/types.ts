@@ -1,8 +1,11 @@
+import type { NativeProviderBinding, NativeProviderAdmissionRoute } from "./native-provider-binding.js";
 import type { JsonValue } from "@repo/shared-types";
 import type { RunRecord, RunStatus } from "../runs/types.js";
 import type { TranscriptMessagePartType } from "../sessions/types.js";
 
 export interface TurnAdmissionRecord {
+  /** Private immutable attempt binding; legacy/unbound records remain null. */
+  nativeProviderBinding: NativeProviderBinding | null;
   userId: string;
   sessionId: string;
   clientMessageId: string;
@@ -39,6 +42,7 @@ export interface ReserveTurnAdmissionInput {
 }
 
 export interface AdmitTurnWithPromptInput {
+  executionRoute: NativeProviderAdmissionRoute;
   sessionId: string;
   clientMessageId: string;
   turnId: string;
@@ -69,6 +73,7 @@ export interface AdmitContinuationInput extends Omit<AdmitTurnWithPromptInput, "
 }
 
 export interface ReserveQueuedStartInput extends Omit<ReserveTurnAdmissionInput, "clientMessageId" | "continuationOfTurnId" | "originalPromptId" | "continuationTerminalSequence"> {
+  readonly executionRoute: NativeProviderAdmissionRoute;
   readonly expectedRevision: number;
   readonly itemId: string;
   readonly expectedVersion: number;
@@ -151,4 +156,9 @@ export interface TurnAdmissionRepository {
     claimId: string;
   }): Promise<{ status: "claimed" | "already_claimed" | "recovery_required" | "settled" | "conflict"; admission: TurnAdmissionRecord | null }>;
   markRecoveryRequired(input: { turnId: string; claimId: string }): Promise<boolean>;
+  /** Retains an exact unowned Stop without retiring or replacing its claim. */
+  markRecoveryRequiredForUnownedStop(input: {
+    userId: string; sessionId: string; workspaceId: string; runId: string;
+    threadId: string; turnId: string; runAttemptId: string;
+  }): Promise<boolean>;
 }

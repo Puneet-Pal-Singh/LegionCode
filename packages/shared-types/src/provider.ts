@@ -1,7 +1,10 @@
 import { z } from "zod";
+import {
+  RUNTIME_CREDENTIAL_PROVIDER_ID_PATTERN,
+  RuntimeCredentialProviderIdSchema,
+} from "@repo/platform-protocol/private/runtime-credential-reference";
 
-export const PROVIDER_ID_PATTERN = "^[a-z0-9]+(?:-[a-z0-9]+)*$";
-const PROVIDER_ID_REGEX = new RegExp(PROVIDER_ID_PATTERN);
+export const PROVIDER_ID_PATTERN = RUNTIME_CREDENTIAL_PROVIDER_ID_PATTERN;
 
 /**
  * Seed providers for bootstrap/fixtures.
@@ -25,11 +28,7 @@ export const PROVIDER_IDS = [
   "cloudflare-ai-gateway",
 ] as const;
 
-export const ProviderIdSchema = z
-  .string()
-  .min(1)
-  .max(64)
-  .regex(PROVIDER_ID_REGEX);
+export const ProviderIdSchema = RuntimeCredentialProviderIdSchema;
 declare const providerIdBrand: unique symbol;
 export type ProviderId = z.infer<typeof ProviderIdSchema> & {
   readonly [providerIdBrand]?: true;

@@ -1,4 +1,4 @@
-import { RuntimeCredentialClient, type RuntimeCredentialRequest } from "./runtime-credentials";
+import { RuntimeCredentialClient, type RuntimeCredentialRequest, type RuntimeCredentialCancel } from "./runtime-credentials";
 import { createDesktopNativeComposition } from "./native-runtime-composition";
 import {
   runLocalAppServerProcess,
@@ -14,7 +14,7 @@ const parentPort = (
         event: "message",
         listener: (event: { data: unknown }) => void,
       ): void;
-      postMessage(message: LocalAppServerMessage | RuntimeCredentialRequest): void;
+      postMessage(message: LocalAppServerMessage | RuntimeCredentialRequest | RuntimeCredentialCancel): void;
     };
   }
 ).parentPort;

@@ -8,6 +8,8 @@ import {
   workspaceIdFromExternalId,
 } from "@repo/platform-protocol";
 import type { Env } from "../types/ai";
+import { parseNativeProviderBindingForAdmission } from "@repo/persistence";
+import type { NativeProviderCredentialContext } from "../services/providers/NativeProviderCredentialResolver";
 import { DomainError } from "../domain/errors";
 import { withTranscriptRepository } from "../services/sessions/TranscriptPersistenceFactory";
 import { createEditArtifactCoordinator } from "../services/edit-artifacts/EditArtifactCaptureService";
@@ -20,6 +22,7 @@ import type { ExecuteRunPayload } from "./parsing/ExecuteRunPayloadSchema";
 import { TaskCheckoutIssuer } from "./task-workspaces/TaskCheckoutIssuer";
 import { TaskCheckoutExecutionOrchestrator } from "./task-workspaces/TaskCheckoutExecutionOrchestrator";
 import { TaskCheckoutRunLifecycle } from "./task-workspaces/TaskCheckoutRunLifecycle";
+import type { NativePreparationCleanupReceipt } from "./RetainedNativeAttempt";
 
 interface RuntimeExecutionResources {
   readonly agent: IAgent | undefined;
@@ -37,6 +40,24 @@ export async function prepareRuntimeExecutionResources(
   ctx: unknown,
   env: Env,
   payload: ExecuteRunPayload,
+  nativeCredentials?: NativeProviderCredentialContext,
+  failureCleanup?: (receipt: NativePreparationCleanupReceipt) => void,
+): Promise<RuntimeExecutionResources> {
+  let exposurePossible = false;
+  try {
+    return await prepareOwnedRuntimeResources(ctx, env, payload, nativeCredentials, {
+      expose: () => { exposurePossible = true; }, closed: receipt => failureCleanup?.(receipt),
+    });
+  } catch (error) {
+    if (!exposurePossible) failureCleanup?.({ kind: "no_exposure" });
+    throw error;
+  }
+}
+
+async function prepareOwnedRuntimeResources(
+  ctx: unknown, env: Env, payload: ExecuteRunPayload,
+  nativeCredentials: NativeProviderCredentialContext | undefined,
+  ownership: { expose(): void; closed(receipt: NativePreparationCleanupReceipt): void },
 ): Promise<RuntimeExecutionResources> {
   const { identity, userId, workspaceId, sessionId, runId } = payload;
   if (!identity || !userId || !workspaceId)
@@ -47,6 +68,16 @@ export async function prepareRuntimeExecutionResources(
       false,
       payload.correlationId,
     );
+  if (workspaceIdFromExternalId(identity.workspaceId) !== workspaceIdFromExternalId(workspaceId)) {
+    throw new DomainError("RUN_SCOPE_MISMATCH", "The turn workspace does not match its execution workspace.", 409, false, payload.correlationId);
+  }
+  if (!nativeCredentials) throw new Error("Native execution requires its claimed provider binding");
+  const expectedScope = { userId, workspaceId, sessionId, runId,
+    threadId: identity.threadId, turnId: identity.turnId, runAttemptId: identity.runAttemptId };
+  // Validate the stored binding against the actual execution tuple, then ensure
+  // its private context names that same tuple. Context echoes grant no authority.
+  parseNativeProviderBindingForAdmission(nativeCredentials.binding, expectedScope);
+  parseNativeProviderBindingForAdmission(nativeCredentials.binding, nativeCredentials.scope);
   const session = await withTranscriptRepository(
     env,
     async (repository) =>
@@ -80,6 +111,7 @@ export async function prepareRuntimeExecutionResources(
       ...buildRuntimeDependencies(ctx, env, payload, {
         strict: true,
         issuedTaskCheckout: null,
+        nativeProviderCredentials: nativeCredentials,
       }),
       workspace: null,
     };
@@ -99,8 +131,10 @@ export async function prepareRuntimeExecutionResources(
     );
   }
   const orchestrator = new TaskCheckoutExecutionOrchestrator(env);
+  ownership.expose();
   const issued = await new TaskCheckoutIssuer(env).issue(payload, {
     resumeSnapshot: payload.resumeSnapshotRef,
+    failureCleanup: ownership.closed,
   });
   let checkout;
   try {
@@ -115,6 +149,8 @@ export async function prepareRuntimeExecutionResources(
     );
   } catch (error) {
     await issued.executionSession.release();
+    // The claim response may have been lost after activation; without a
+    // checkout settlement receipt this preparation remains unknown.
     throw error;
   }
   const checkoutLifecycle = new TaskCheckoutRunLifecycle(
@@ -126,6 +162,7 @@ export async function prepareRuntimeExecutionResources(
     const dependencies = buildRuntimeDependencies(ctx, env, payload, {
       strict: true,
       issuedTaskCheckout: { ...issued, checkout },
+      nativeProviderCredentials: nativeCredentials,
     });
     const artifacts = createEditArtifactCoordinator({
       env,
@@ -204,6 +241,8 @@ export async function prepareRuntimeExecutionResources(
     } finally {
       await checkoutLifecycle.release();
     }
+    // A void secure release can include a missing-session response. Without
+    // an exact physical closure receipt, failed exposed preparation stays unknown.
     throw error;
   }
 }

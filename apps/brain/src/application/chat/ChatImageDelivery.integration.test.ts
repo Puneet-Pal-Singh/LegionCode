@@ -9,6 +9,7 @@ import type { R2Bucket } from "@cloudflare/workers-types";
 import {
   MemoryTranscriptRepository,
   MemoryRunRepository,
+  NativeProviderBindingSchema,
   type RunRepository,
   type TranscriptRepository,
 } from "@repo/persistence";
@@ -115,21 +116,35 @@ describe("authenticated image submission through native provider delivery", () =
   it("delivers stored pixels on submission, later recall, and text-only revision after reload", async () => {
     const first = await submit(env, imageMessage, identity);
     await expectProviderImage(first.executionPayload);
+    const admitted = await vi.mocked(admissionFixture.admitWithPrompt).mock.results[0]!.value;
+    const binding = NativeProviderBindingSchema.parse(admitted.admission.nativeProviderBinding);
+    const nativeCredentials = { binding, scope: binding.scope };
     const resources = await prepareRuntimeExecutionResources(
       { storage: new TestRuntimeStorage() }, {
         ...env, HYPERDRIVE: { connectionString: "postgres://fixture:fixture@127.0.0.1:1/fixture" },
         BYOK_CREDENTIAL_ENCRYPTION_KEY: "test-only-credential-encryption-key",
-      } as Env, first.executionPayload,
+      } as Env, first.executionPayload, nativeCredentials,
     );
     expect(resources.workspace).toBeNull();
     expect(resources.agent).toBeUndefined();
     expect(resources.runEngineDeps.workspaceBootstrapper).toBeUndefined();
     expect(resources.artifacts).toBeUndefined();
     expect(await resolveSessionRepositoryContext({ env, sessionId, userId, workspaceId: identity.workspaceId })).toBeNull();
+    const preparationCleanup = vi.fn();
     await expect(prepareRuntimeExecutionResources({}, env, {
       ...first.executionPayload, input: { ...first.executionPayload.input, repositoryContext: { owner: "other", repo: "repo" } },
+    }, nativeCredentials, preparationCleanup)).rejects.toMatchObject({ code: "RUN_SCOPE_MISMATCH" });
+    expect(preparationCleanup).toHaveBeenCalledTimes(1);
+    expect(preparationCleanup).toHaveBeenCalledWith({ kind: "no_exposure" });
+    // Give this negative request its own consistent admission so the existing
+    // transcript ownership check, rather than binding validation, rejects it.
+    const otherOwnerBinding = NativeProviderBindingSchema.parse({
+      ...binding, scope: { ...binding.scope, userId: "different-owner" },
+      ...(binding.kind === "byok" ? { credential: { ...binding.credential, userId: "different-owner" } } : {}),
+    });
+    await expect(prepareRuntimeExecutionResources({}, env, { ...first.executionPayload, userId: "different-owner" }, {
+      binding: otherOwnerBinding, scope: otherOwnerBinding.scope,
     })).rejects.toMatchObject({ code: "RUN_SCOPE_MISMATCH" });
-    await expect(prepareRuntimeExecutionResources({}, env, { ...first.executionPayload, userId: "different-owner" })).rejects.toMatchObject({ code: "RUN_SCOPE_MISMATCH" });
     const projectlessRuntime = createRuntime(first.executionPayload, false, true);
     await projectlessRuntime.execute();
     expect(providerImages(projectlessRuntime.requests[0]!)).toContainEqual(image);
@@ -137,7 +152,6 @@ describe("authenticated image submission through native provider delivery", () =
     expect(projectlessReplay.events.at(-1)?.type).toBe("turn.completed");
     expect(projectlessReplay.events.some((event) => event.type === "workspace.snapshot_captured")).toBe(false);
     await createRuntime({ ...first.executionPayload, input: { ...first.executionPayload.input, mode: "plan" } }, false, true).execute();
-    const admitted = await vi.mocked(admissionFixture.admitWithPrompt).mock.results[0]!.value;
     const admitContinuation = vi.fn(async () => ({ admission: admitted.admission, run: admitted.run }));
     const resumed = await new ResumeTurnService({
       ...env, EDIT_ARTIFACTS: undefined,
@@ -489,6 +503,13 @@ function createAdmissionFixture(
         mode: input.mode,
         status: "running",
       });
+      const binding = NativeProviderBindingSchema.parse({
+        v: 1, kind: "byok", providerId: input.providerId ?? "openai", modelId: input.modelId ?? "gpt-4o-mini",
+        scope: { userId: input.userId, workspaceId: input.workspaceId, sessionId: input.sessionId,
+          threadId: session.threadId, turnId: input.turnId, runId: input.runId, runAttemptId: input.runAttemptId },
+        credential: { connectionId: "123e4567-e89b-42d3-a456-426614174005", userId: input.userId,
+          providerId: "openai", ownerGeneration: 1, tokenMaterialVersion: 1 },
+      });
       const run = await runs.ensureRun({
         id: input.runId,
         userId: input.userId,
@@ -497,8 +518,8 @@ function createAdmissionFixture(
         taskId: input.taskId,
         status: input.runStatus ?? "running",
         mode: input.mode,
-        providerId: input.providerId,
-        modelId: input.modelId,
+        providerId: binding.providerId,
+        modelId: binding.modelId,
         branch: input.branch,
       });
       const prompt = await transcripts.appendMessage({
@@ -518,6 +539,10 @@ function createAdmissionFixture(
       });
       return {
         admission: {
+          nativeProviderBinding: binding,
+          userId: input.userId,
+          workspaceId: input.workspaceId,
+          threadId: session.threadId,
           sessionId: input.sessionId,
           clientMessageId: input.clientMessageId,
           turnId: input.turnId,

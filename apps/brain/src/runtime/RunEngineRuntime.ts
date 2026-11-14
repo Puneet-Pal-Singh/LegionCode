@@ -46,6 +46,9 @@ import { InMemoryRunApprovalResolutionRegistry } from "./RunApprovalResolutionRe
 import { InMemoryRunContextCompactionRegistry } from "./RunContextCompactionRegistry";
 import { InMemoryRunThreadInputRegistry } from "./RunThreadInputRegistry";
 import { RunExecutionLock } from "./RunExecutionLock";
+import { retainNativeAttempt } from "./RetainedNativeAttempt";
+import { runEngineJsonResponse, withRunEngineHeaders } from "./RunEngineHttpResponse";
+import { ThreadInputCommandService } from "../services/thread-inputs/ThreadInputCommandService";
 import { reportBrainError } from "../core/observability/BrainErrorReporter";
 
 const ScopeIdSchema = z
@@ -78,17 +81,40 @@ export class RunEngineRuntime extends DurableObject {
     new InMemoryRunContextCompactionRegistry();
   private readonly threadInputRegistry = new InMemoryRunThreadInputRegistry();
 
+  private readonly requestHandler: RunEngineRequestHandler;
+  private readonly ready: Promise<void>;
+
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    // One handler owns the existing durable scope codec throughout this DO
+    // activation, including interleaved Stop and execute requests.
+    this.requestHandler = this.createRequestHandler();
+    this.ready = ctx.blockConcurrencyWhile(() => this.requestHandler.reconcileRuntimeClaims());
   }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const env = this.env as Env;
-    const requestHandler = this.createRequestHandler();
+    await this.ready;
+    const requestHandler = this.requestHandler;
+    // Retry an exact reconciliation if an older PG request committed after
+    // the initial wake read. Live owners are fenced out by their registry.
+    await requestHandler.reconcileRuntimeClaims();
 
     if (url.pathname === "/execute" && request.method === "POST") {
-      return requestHandler.handleExecuteRequest(request);
+      return retainNativeAttempt({
+        owner: this.ctx,
+        execute: observer => requestHandler.handleExecuteRequest(request, observer),
+        accepted: ({ admission }) => withRunEngineHeaders(request, env,
+          runEngineJsonResponse(request, env, { accepted: true, runId: admission.runId,
+            sessionId: admission.sessionId, workspaceId: admission.workspaceId,
+            threadId: admission.threadId, turnId: admission.turnId, runAttemptId: admission.runAttemptId }, 202), {
+              "X-Run-Id": admission.runId, "X-Thread-Id": admission.threadId,
+              "X-Turn-Id": admission.turnId, "X-Run-Attempt-Id": admission.runAttemptId,
+          }),
+        settled: attempt => new ThreadInputCommandService(env).onNativeAttemptSettled(request, attempt),
+        reportError: error => reportBrainError(env, { request, operation: "run.engine.retained-attempt", error }),
+      });
     }
 
     if (url.pathname === "/turn/start" && request.method === "POST") {

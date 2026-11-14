@@ -6,11 +6,10 @@ import { mapAgentIdToType } from "../../controllers/chat-request-helpers";
 import {
   executeViaRunEngineDurableObject,
   extractPromptFromMessages,
-  fetchRunProviderModels,
   resolveRuntimeTarget,
 } from "../../controllers/chat-runtime-helpers";
 import { RunAdmissionService } from "../../runtime/RunAdmissionService";
-import { resolveChatModelMetadata } from "../../services/chat/ChatModelMetadataResolution";
+import { resolveAdmissionChatModelMetadata } from "../../services/chat/ChatModelMetadataResolution";
 import type { ChatModelMetadata } from "../../services/chat/ChatModelMetadataResolver";
 import { validateChatReasoningEffort } from "../../services/chat/ChatReasoningEffortPolicy";
 import {
@@ -18,7 +17,6 @@ import {
   summarizeCoreMessages,
 } from "../../services/chat/SubmittedClientMessagePolicy";
 import { formatDiagnosticLogLine } from "../../lib/diagnostic-log";
-import { ThreadInputCommandService } from "../../services/thread-inputs/ThreadInputCommandService";
 import type { AuthenticatedChatRequest } from "../../controllers/ChatRequestBoundary";
 import type { BackgroundTaskOwner } from "../../services/thread-titles";
 import type { HostedChatSubmissionResult } from "@repo/platform-protocol";
@@ -78,6 +76,7 @@ export async function submitHostedChat(
     identity,
   } = chatRequest;
   const admissionService = new RunAdmissionService(env);
+  let nativeOwnershipTransferred = false;
   let admissionGrant:
     | Awaited<ReturnType<RunAdmissionService["enforce"]>>
     | undefined;
@@ -110,19 +109,9 @@ export async function submitHostedChat(
     const executionStartedAt = Date.now();
     const useCase = new HandleChatRequest(env);
     const trustedModelMetadata: ChatModelMetadata =
-      await resolveChatModelMetadata({
+      await resolveAdmissionChatModelMetadata(env, { userId, workspaceId, runId }, {
         providerId: body.providerId,
         modelId: body.modelId,
-        fetchModels: (_providerId, query) =>
-          fetchRunProviderModels(env, {
-            runId,
-            userId,
-            workspaceId,
-            providerId: _providerId,
-            query,
-            requestedBackend:
-              body.orchestratorBackend ?? "execution-engine-v1",
-          }),
       });
 
     const reasoningEffortError = validateChatReasoningEffort(
@@ -191,23 +180,21 @@ export async function submitHostedChat(
         clientMessageId: body.clientMessageId ?? null,
       }),
     );
+    // Transfer before transport: a lost ACK can still leave a claimed attempt.
+    nativeOwnershipTransferred = true;
     const doResponse = await executeViaRunEngineDurableObject(
       env,
       runId,
-      useCaseResult.executionPayload,
+      { ...useCaseResult.executionPayload, admissionLease: admissionGrant.lease },
     );
-    new ThreadInputCommandService(env).scheduleTerminalReconciliation({
-      response: doResponse,
-      request: req,
-      executionContext,
-      runId,
-      turnId: identity.turnId,
-      userId,
-      sessionId,
-      threadId: identity.threadId,
-      workspaceId,
-      correlationId,
-    });
+    try {
+      await admissionService.releaseFreshRejectedAttempt(admissionGrant, doResponse, {
+        userId, workspaceId, sessionId, runId, threadId: identity.threadId,
+        turnId: identity.turnId, runAttemptId: identity.runAttemptId,
+      }, correlationId);
+    } catch {
+      console.warn("[run/admission] Rejected attempt lease release remains unresolved");
+    }
     const runtimeTarget = resolveRuntimeTarget(
       env,
       useCaseResult.executionPayload.input.orchestratorBackend,
@@ -247,7 +234,7 @@ export async function submitHostedChat(
     );
     throw error;
   } finally {
-    if (admissionGrant) {
+    if (admissionGrant && !nativeOwnershipTransferred) {
       await admissionService.release(admissionGrant, correlationId);
     }
   }

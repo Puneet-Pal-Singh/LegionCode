@@ -1,3 +1,9 @@
+import {
+  NativeProviderBindingScopeSchema, NativeProviderAdmissionRouteSchema,
+  parseNativeProviderBindingForAdmission,
+  type NativeProviderAdmissionCapture, type NativeProviderAdmissionCaptureInput,
+  type NativeProviderBinding, type NativeProviderBindingScope,
+} from "./native-provider-binding.js";
 import type { SqlClient, SqlRow } from "../sql.js";
 import { PostgresRunRepository } from "../runs/PostgresRunRepository.js";
 import { PostgresTranscriptRepository } from "../sessions/PostgresTranscriptRepository.js";
@@ -18,6 +24,7 @@ import {
 } from "@repo/platform-protocol";
 
 interface AdmissionRow extends SqlRow {
+  native_provider_binding_json?: unknown;
   task_id?: string | null;
   task_user_id?: string | null;
   task_workspace_id?: string | null;
@@ -108,7 +115,8 @@ function resolveEstablishedWorkspace(session: AdmissionRow): string | null {
 }
 
 export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository {
-  constructor(private readonly client: SqlClient) {}
+  constructor(private readonly client: SqlClient,
+    private readonly nativeProviderCapture?: NativeProviderAdmissionCapture) {}
 
   async reserve(input: ReserveTurnAdmissionInput): Promise<TurnAdmissionRecord> {
     return await this.client.transaction(async (tx) => {
@@ -229,6 +237,7 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
   }
 
   async reserveQueuedStart(input: ReserveQueuedStartInput): Promise<ReserveQueuedStartResult> {
+    input = structuredClone(input);
     return await this.client.transaction(async (tx) => {
       const clientMessageId = `thread-input:${input.itemId}`;
       const dedupeKey = clientMessageId;
@@ -309,86 +318,95 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
         const item = queued ? mapQueuedStart(queued) : null;
         return { status: "conflict", admission: null, revision: currentRevision, acceptedInput: null, promptMessageId: null, run: null, item, code };
       }
-      const startedReceipt = {
-        status: "started",
-        itemId: input.itemId,
-        turnId: input.turnId,
-        runAttemptId: input.runAttemptId,
-        runId: input.runId,
-      };
-      const claimed = await tx.query<AdmissionRow>(CLAIM_QUEUED_START_SQL, [
-        input.sessionId,
-        input.itemId,
-        input.expectedVersion,
-        JSON.stringify(startedReceipt),
-      ]);
-      if (!claimed.rows[0]) {
-        return { status: "conflict", admission: null, revision: currentRevision, acceptedInput: null, promptMessageId: null, run: null, item: null, code: "queue_item_changed" };
-      }
-      if (input.explicitStart === true && state.paused === true) {
-        await tx.query(CLEAR_THREAD_INPUT_PAUSE_SQL, [input.sessionId]);
-      }
-      const inserted = await tx.query<AdmissionRow>(INSERT_RESERVED_SQL, [
-        input.sessionId,
-        clientMessageId,
-        input.threadId,
-        input.turnId,
-        input.runAttemptId,
-        input.runId,
-        input.workspaceId,
-        null,
-        null,
-        null,
-        null,
-      ]);
-      const orderResult = await tx.query<AdmissionRow>(ALLOCATE_ADMISSION_ORDER_SQL, [input.sessionId]);
-      const admissionOrder = numberValue(orderResult.rows[0]?.admission_order, "admission_order");
-      const run = await new PostgresRunRepository(tx).ensureRun({
-        id: input.runId,
-        userId: input.userId,
-        workspaceId: input.workspaceId,
-        sessionId: input.sessionId,
-        taskId: input.taskId,
-        status: "running",
-        mode: input.mode,
-        providerId: input.providerId,
-        modelId: input.modelId,
-        branch: input.branch,
+      const workspaceId = input.workspaceId;
+      if (typeof workspaceId !== "string" || !workspaceId) throw new TurnAdmissionConflictError(
+        "New queued admission requires an owned workspace", "workspace_conflict");
+      return this.withProviderBinding<ReserveQueuedStartResult>(tx, {
+        userId: input.userId, workspaceId, sessionId: input.sessionId,
+        threadId: input.threadId, runId: input.runId, turnId: input.turnId, runAttemptId: input.runAttemptId,
+      }, input, async (tx, binding) => {
+        const startedReceipt = {
+          status: "started",
+          itemId: input.itemId,
+          turnId: input.turnId,
+          runAttemptId: input.runAttemptId,
+          runId: input.runId,
+        };
+        const claimed = await tx.query<AdmissionRow>(CLAIM_QUEUED_START_SQL, [
+          input.sessionId,
+          input.itemId,
+          input.expectedVersion,
+          JSON.stringify(startedReceipt),
+        ]);
+        if (!claimed.rows[0]) {
+          return { status: "conflict", admission: null, revision: currentRevision, acceptedInput: null, promptMessageId: null, run: null, item: null, code: "queue_item_changed" };
+        }
+        if (input.explicitStart === true && state.paused === true) {
+          await tx.query(CLEAR_THREAD_INPUT_PAUSE_SQL, [input.sessionId]);
+        }
+        const inserted = await tx.query<AdmissionRow>(INSERT_RESERVED_SQL, [
+          input.sessionId,
+          clientMessageId,
+          input.threadId,
+          input.turnId,
+          input.runAttemptId,
+          input.runId,
+          input.workspaceId,
+          null,
+          null,
+          null,
+          null,
+        ]);
+        const orderResult = await tx.query<AdmissionRow>(ALLOCATE_ADMISSION_ORDER_SQL, [input.sessionId]);
+        const admissionOrder = numberValue(orderResult.rows[0]?.admission_order, "admission_order");
+        const run = await new PostgresRunRepository(tx).ensureRun({
+          id: input.runId,
+          userId: input.userId,
+          workspaceId: input.workspaceId,
+          sessionId: input.sessionId,
+          taskId: input.taskId,
+          status: "running",
+          mode: input.mode,
+          providerId: binding?.providerId ?? input.providerId,
+          modelId: binding?.modelId ?? input.modelId,
+          branch: input.branch,
+        });
+        const prompt = await new PostgresTranscriptRepository(tx, undefined, true).appendMessage({
+          sessionId: input.sessionId,
+          userId: input.userId,
+          workspaceId: input.workspaceId,
+          threadId: input.threadId,
+          taskId: input.taskId,
+          activeRunId: input.runId,
+          mode: input.mode,
+          status: "running",
+          runId: input.runId,
+          role: "user",
+          clientMessageId,
+          dedupeKey,
+          parts: input.promptMessage.parts,
+        });
+        await tx.query(BIND_PROMPT_TURN_IDENTITY_SQL, [input.sessionId, prompt.id, input.turnId, input.runAttemptId]);
+        const activated = await tx.query<AdmissionRow>(ACTIVATE_QUEUED_SESSION_SQL, [input.sessionId, input.runId, input.turnId]);
+        if (!activated.rows[0]) throw new TurnAdmissionConflictError("Conversation became active before queued admission", "session_active_conflict");
+        const promoted = await tx.query<AdmissionRow>(PROMOTE_ADMISSION_SQL, [input.sessionId, clientMessageId, input.requestFingerprint, admissionOrder, binding === null ? null : JSON.stringify(binding)]);
+        const revisionResult = await tx.query<AdmissionRow>(READ_THREAD_INPUT_REVISION_SQL, [input.sessionId]);
+        const item = mapQueuedStart(claimed.rows[0]);
+        return {
+          status: "admitted",
+          admission: mapAdmission(requiredRow(promoted.rows[0])),
+          revision: numberValue(revisionResult.rows[0]?.revision, "thread_input_revision"),
+          acceptedInput: { inputId: item.itemId, clientInputId: item.clientInputId },
+          promptMessageId: prompt.id,
+          run,
+          item,
+        };
       });
-      const prompt = await new PostgresTranscriptRepository(tx, undefined, true).appendMessage({
-        sessionId: input.sessionId,
-        userId: input.userId,
-        workspaceId: input.workspaceId,
-        threadId: input.threadId,
-        taskId: input.taskId,
-        activeRunId: input.runId,
-        mode: input.mode,
-        status: "running",
-        runId: input.runId,
-        role: "user",
-        clientMessageId,
-        dedupeKey,
-        parts: input.promptMessage.parts,
-      });
-      await tx.query(BIND_PROMPT_TURN_IDENTITY_SQL, [input.sessionId, prompt.id, input.turnId, input.runAttemptId]);
-      const activated = await tx.query<AdmissionRow>(ACTIVATE_QUEUED_SESSION_SQL, [input.sessionId, input.runId, input.turnId]);
-      if (!activated.rows[0]) throw new TurnAdmissionConflictError("Conversation became active before queued admission", "session_active_conflict");
-      const promoted = await tx.query<AdmissionRow>(PROMOTE_ADMISSION_SQL, [input.sessionId, clientMessageId, input.requestFingerprint, admissionOrder]);
-      const revisionResult = await tx.query<AdmissionRow>(READ_THREAD_INPUT_REVISION_SQL, [input.sessionId]);
-      const item = mapQueuedStart(claimed.rows[0]);
-      return {
-        status: "admitted",
-        admission: mapAdmission(requiredRow(promoted.rows[0])),
-        revision: numberValue(revisionResult.rows[0]?.revision, "thread_input_revision"),
-        acceptedInput: { inputId: item.itemId, clientInputId: item.clientInputId },
-        promptMessageId: prompt.id,
-        run,
-        item,
-      };
     });
   }
 
   async admitContinuation(input: AdmitContinuationInput): Promise<{ admission: TurnAdmissionRecord; run: import("../runs/types.js").RunRecord }> {
+    input = structuredClone(input);
     return await this.client.transaction(async (tx) => {
       const sessionResult = await tx.query<AdmissionRow>(LOCK_OWNED_SESSION_SQL, [input.sessionId, input.userId, input.runId]);
       const session = sessionResult.rows[0];
@@ -441,24 +459,26 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
         if (!run) throw new TurnAdmissionConflictError("Admitted run projection is missing", "run_projection_missing");
         return { admission: existing, run };
       }
-      const orderResult = await tx.query<AdmissionRow>(ALLOCATE_ADMISSION_ORDER_SQL, [input.sessionId]);
-      const admissionOrder = numberValue(orderResult.rows[0]?.admission_order, "admission_order");
-      const run = await new PostgresRunRepository(tx).ensureRun({
-        id: input.runId,
-        userId: input.userId,
-        workspaceId: input.workspaceId,
-        sessionId: input.sessionId,
-        taskId: input.taskId,
-        status: input.runStatus ?? "running",
-        mode: input.mode,
-        providerId: input.providerId,
-        modelId: input.modelId,
-        branch: input.branch,
+      return this.withProviderBinding(tx, admissionBindingScope(existing), input, async (tx, binding) => {
+        const orderResult = await tx.query<AdmissionRow>(ALLOCATE_ADMISSION_ORDER_SQL, [input.sessionId]);
+        const admissionOrder = numberValue(orderResult.rows[0]?.admission_order, "admission_order");
+        const run = await new PostgresRunRepository(tx).ensureRun({
+          id: input.runId,
+          userId: input.userId,
+          workspaceId: input.workspaceId,
+          sessionId: input.sessionId,
+          taskId: input.taskId,
+          status: input.runStatus ?? "running",
+          mode: input.mode,
+          providerId: binding?.providerId ?? input.providerId,
+          modelId: binding?.modelId ?? input.modelId,
+          branch: input.branch,
+        });
+        const activated = await tx.query<AdmissionRow>(ACTIVATE_CONTINUATION_SESSION_SQL, [input.sessionId, input.runId, input.turnId, input.continuationOfTurnId]);
+        if (!activated.rows[0]) throw new TurnAdmissionConflictError("Conversation has an active or different current turn", "continuation_target_conflict");
+        const updated = await tx.query<AdmissionRow>(PROMOTE_ADMISSION_SQL, [input.sessionId, input.clientMessageId, input.requestFingerprint, admissionOrder, binding === null ? null : JSON.stringify(binding)]);
+        return { admission: mapAdmission(requiredRow(updated.rows[0])), run };
       });
-      const activated = await tx.query<AdmissionRow>(ACTIVATE_CONTINUATION_SESSION_SQL, [input.sessionId, input.runId, input.turnId, input.continuationOfTurnId]);
-      if (!activated.rows[0]) throw new TurnAdmissionConflictError("Conversation has an active or different current turn", "continuation_target_conflict");
-      const updated = await tx.query<AdmissionRow>(PROMOTE_ADMISSION_SQL, [input.sessionId, input.clientMessageId, input.requestFingerprint, admissionOrder]);
-      return { admission: mapAdmission(requiredRow(updated.rows[0])), run };
     });
   }
 
@@ -492,6 +512,7 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
   async admitWithPrompt(
     input: AdmitTurnWithPromptInput,
   ): Promise<{ admission: TurnAdmissionRecord; promptMessageId: string; run: import("../runs/types.js").RunRecord }> {
+    input = structuredClone(input);
     return await this.client.transaction(async (tx) => {
       const sessionResult = await tx.query<AdmissionRow>(LOCK_OWNED_SESSION_SQL, [
         input.sessionId,
@@ -544,54 +565,97 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
         }
       }
 
-      const orderResult = await tx.query<AdmissionRow>(ALLOCATE_ADMISSION_ORDER_SQL, [input.sessionId]);
-      const admissionOrderValue = orderResult.rows[0]?.admission_order;
-      if (admissionOrderValue === undefined || admissionOrderValue === null) {
-        throw new TurnAdmissionConflictError("Unable to allocate admission order", "admission_order_unavailable");
-      }
-      const admissionOrder = Number(admissionOrderValue);
+      return this.withProviderBinding(tx, admissionBindingScope(existing), input, async (tx, binding) => {
+        const orderResult = await tx.query<AdmissionRow>(ALLOCATE_ADMISSION_ORDER_SQL, [input.sessionId]);
+        const admissionOrderValue = orderResult.rows[0]?.admission_order;
+        if (admissionOrderValue === undefined || admissionOrderValue === null) {
+          throw new TurnAdmissionConflictError("Unable to allocate admission order", "admission_order_unavailable");
+        }
+        const admissionOrder = Number(admissionOrderValue);
 
-      const run = await new PostgresRunRepository(tx).ensureRun({
-        id: input.runId,
-        userId: input.userId,
-        workspaceId: input.workspaceId,
-        sessionId: input.sessionId,
-        taskId: input.taskId,
-        status: input.runStatus ?? "running",
-        mode: input.mode,
-        providerId: input.providerId,
-        modelId: input.modelId,
-        branch: input.branch,
+        const run = await new PostgresRunRepository(tx).ensureRun({
+          id: input.runId,
+          userId: input.userId,
+          workspaceId: input.workspaceId,
+          sessionId: input.sessionId,
+          taskId: input.taskId,
+          status: input.runStatus ?? "running",
+          mode: input.mode,
+          providerId: binding?.providerId ?? input.providerId,
+          modelId: binding?.modelId ?? input.modelId,
+          branch: input.branch,
+        });
+        const prompt = await new PostgresTranscriptRepository(tx, undefined, true).appendMessage({
+          sessionId: input.sessionId,
+          userId: input.userId,
+          workspaceId: input.workspaceId,
+          threadId: existing.threadId,
+          taskId: input.taskId,
+          activeRunId: input.runId,
+          mode: input.mode,
+          status: "running",
+          runId: input.runId,
+          role: input.promptMessage.role,
+          clientMessageId: input.promptMessage.clientMessageId,
+          dedupeKey: input.promptMessage.dedupeKey,
+          parts: input.promptMessage.parts,
+        });
+        await tx.query(BIND_PROMPT_TURN_IDENTITY_SQL, [
+          input.sessionId,
+          prompt.id,
+          input.turnId,
+          input.runAttemptId,
+        ]);
+        await tx.query(SET_CURRENT_SESSION_TURN_SQL, [input.sessionId, input.runId, input.turnId]);
+        const updated = await tx.query<AdmissionRow>(PROMOTE_ADMISSION_SQL, [
+          input.sessionId,
+          input.clientMessageId,
+          input.requestFingerprint,
+          admissionOrder,
+          binding === null ? null : JSON.stringify(binding),
+        ]);
+        return { admission: mapAdmission(requiredRow(updated.rows[0])), promptMessageId: prompt.id, run };
       });
-      const prompt = await new PostgresTranscriptRepository(tx, undefined, true).appendMessage({
-        sessionId: input.sessionId,
-        userId: input.userId,
-        workspaceId: input.workspaceId,
-        threadId: existing.threadId,
-        taskId: input.taskId,
-        activeRunId: input.runId,
-        mode: input.mode,
-        status: "running",
-        runId: input.runId,
-        role: input.promptMessage.role,
-        clientMessageId: input.promptMessage.clientMessageId,
-        dedupeKey: input.promptMessage.dedupeKey,
-        parts: input.promptMessage.parts,
-      });
-      await tx.query(BIND_PROMPT_TURN_IDENTITY_SQL, [
-        input.sessionId,
-        prompt.id,
-        input.turnId,
-        input.runAttemptId,
-      ]);
-      await tx.query(SET_CURRENT_SESSION_TURN_SQL, [input.sessionId, input.runId, input.turnId]);
-      const updated = await tx.query<AdmissionRow>(PROMOTE_ADMISSION_SQL, [
-        input.sessionId,
-        input.clientMessageId,
-        input.requestFingerprint,
-        admissionOrder,
-      ]);
-      return { admission: mapAdmission(requiredRow(updated.rows[0])), promptMessageId: prompt.id, run };
+    });
+  }
+
+  private withProviderBinding<T>(
+    client: SqlClient,
+    scope: NativeProviderBindingScope,
+    input: Pick<NativeProviderAdmissionCaptureInput, "executionRoute" | "providerId" | "modelId">,
+    commit: (client: SqlClient, binding: NativeProviderBinding | null) => Promise<T>,
+  ): Promise<T> {
+    scope = Object.freeze(NativeProviderBindingScopeSchema.parse(scope));
+    const route = NativeProviderAdmissionRouteSchema.safeParse(input.executionRoute);
+    if (!route.success) throw new TurnAdmissionConflictError(
+      "New admission requires an explicit execution route", "native_provider_binding_required");
+    const explicitProvider = input.providerId !== undefined && input.providerId !== null;
+    const explicitModel = input.modelId !== undefined && input.modelId !== null;
+    if (route.data === "native" && explicitProvider !== explicitModel) {
+      throw new TurnAdmissionConflictError(
+        "Native provider and model must be selected together", "native_provider_binding_conflict");
+    }
+    if (!this.nativeProviderCapture) {
+      if (route.data === "delegated") return commit(client, null);
+      throw new TurnAdmissionConflictError(
+        "Native credential capture is unavailable", "native_provider_binding_required");
+    }
+    const captured: NativeProviderAdmissionCaptureInput = Object.freeze({ scope, executionRoute: route.data,
+      providerId: input.providerId, modelId: input.modelId });
+    return this.nativeProviderCapture.withBinding(client, captured, async (boundClient, candidate) => {
+      if (boundClient !== client) throw new TurnAdmissionConflictError(
+        "Native capture changed the admission transaction", "native_provider_binding_conflict");
+      if (route.data === "delegated") {
+        if (candidate !== null) throw new TurnAdmissionConflictError(
+          "Delegated admission cannot select Native credentials", "native_provider_binding_conflict");
+        return commit(boundClient, null);
+      }
+      const binding = parseNativeProviderBindingForAdmission(candidate, scope);
+      if (explicitProvider && (binding.providerId !== input.providerId || binding.modelId !== input.modelId)) {
+        throw new TurnAdmissionConflictError(
+          "Native binding differs from the admitted provider or model", "native_provider_binding_conflict");
+      }
+      return commit(boundClient, binding);
     });
   }
 
@@ -657,10 +721,24 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
     const result = await this.client.query<AdmissionRow>(MARK_RECOVERY_REQUIRED_SQL, [input.turnId, input.claimId]);
     return result.rows.length > 0;
   }
+
+  async markRecoveryRequiredForUnownedStop(input: {
+    userId: string; sessionId: string; workspaceId: string; runId: string;
+    threadId: string; turnId: string; runAttemptId: string;
+  }): Promise<boolean> {
+    // One guarded UPDATE takes the existing admission row lock. This records
+    // uncertainty, never new execution authority or positive resource closure.
+    const result = await this.client.query(MARK_UNOWNED_STOP_RECOVERY_SQL, [
+      input.userId, input.sessionId, input.workspaceId, input.runId,
+      input.threadId, input.turnId, input.runAttemptId,
+    ]);
+    return result.rows.length > 0;
+  }
 }
 
 function mapAdmission(row: AdmissionRow): TurnAdmissionRecord {
-  return {
+  const admission: TurnAdmissionRecord = {
+    nativeProviderBinding: null,
     userId: requiredString(row.owner_user_id, "owner_user_id"),
     sessionId: requiredString(row.session_id, "session_id"),
     clientMessageId: requiredString(row.client_message_id, "client_message_id"),
@@ -682,6 +760,19 @@ function mapAdmission(row: AdmissionRow): TurnAdmissionRecord {
     createdAt: iso(row.created_at),
     admittedAt: row.admitted_at ? iso(row.admitted_at) : null,
   };
+  if (row.native_provider_binding_json !== null && row.native_provider_binding_json !== undefined) {
+    admission.nativeProviderBinding = parseNativeProviderBindingForAdmission(
+      jsonValue(row.native_provider_binding_json), admissionBindingScope(admission),
+    );
+  }
+  return admission;
+}
+
+function admissionBindingScope(admission: TurnAdmissionRecord): NativeProviderBindingScope {
+  return NativeProviderBindingScopeSchema.parse({
+    userId: admission.userId, workspaceId: admission.workspaceId, sessionId: admission.sessionId,
+    threadId: admission.threadId, runId: admission.runId, turnId: admission.turnId, runAttemptId: admission.runAttemptId,
+  });
 }
 
 function requiredRow(row: AdmissionRow | undefined): AdmissionRow {
@@ -783,7 +874,7 @@ const CLAIM_QUEUED_START_SQL = `UPDATE thread_inputs SET state = 'consumed', rec
 const CLEAR_THREAD_INPUT_PAUSE_SQL = `UPDATE thread_input_state SET paused = FALSE, pause_reason = NULL, revision = revision + 1, updated_at = now() WHERE session_id = $1 AND paused = TRUE`;
 const READ_INTERRUPTED_TARGET_SQL = `SELECT a.*, s.user_id AS owner_user_id, root.prompt_id AS canonical_prompt_id, root.prompt_text, root.prompt_parts, root.source_run_id, terminal.event_json AS terminal_event_json, snapshot.event_json AS snapshot_event_json, artifact.event_json AS resume_artifact_event_json FROM canonical_turn_admissions a JOIN sessions s ON s.id = a.session_id JOIN canonical_lifecycle_events terminal ON terminal.turn_id = a.turn_id AND terminal.run_attempt_id = a.run_attempt_id AND terminal.event_type = 'turn.interrupted' AND terminal.sequence = $7 JOIN LATERAL (SELECT COALESCE(a.original_prompt_id, prompt.client_message_id, prompt.id::text) AS prompt_id, COALESCE(string_agg(part.content_json->>'text', '' ORDER BY part.session_sequence), '') AS prompt_text, COALESCE(json_agg(json_build_object('type', part.part_type, 'content', part.content_json) ORDER BY part.session_sequence) FILTER (WHERE part.id IS NOT NULL), '[]'::json) AS prompt_parts, root_admission.run_id AS source_run_id FROM messages prompt JOIN message_parts part ON part.message_id = prompt.id LEFT JOIN canonical_turn_admissions root_admission ON root_admission.turn_id = prompt.canonical_turn_id AND root_admission.session_id = prompt.session_id WHERE prompt.session_id = a.session_id AND prompt.role = 'user' AND ((a.original_prompt_id IS NOT NULL AND (prompt.id::text = a.original_prompt_id OR prompt.client_message_id = a.original_prompt_id)) OR (a.original_prompt_id IS NULL AND prompt.canonical_turn_id = a.turn_id)) GROUP BY prompt.id, root_admission.run_id ORDER BY prompt.created_at, prompt.id LIMIT 1) root ON TRUE LEFT JOIN LATERAL (SELECT e.event_json FROM canonical_lifecycle_events e WHERE e.turn_id = a.turn_id AND e.run_attempt_id = a.run_attempt_id AND e.event_type = 'workspace.snapshot_captured' AND e.sequence < terminal.sequence AND e.event_json->'payload'->'snapshot'->'snapshot'->>'phase' = 'terminal' AND e.event_json->'payload'->'snapshot'->'snapshot'->>'turnId' = a.turn_id AND e.event_json->'payload'->'snapshot'->'snapshot'->'resumeSnapshotRef'->>'artifactId' IS NOT NULL ORDER BY e.sequence DESC LIMIT 1) snapshot ON TRUE LEFT JOIN LATERAL (SELECT e.event_json FROM canonical_lifecycle_events e WHERE e.turn_id = a.turn_id AND e.run_attempt_id = a.run_attempt_id AND e.event_type = 'artifact.created' AND e.sequence < terminal.sequence AND e.event_json->'payload'->'artifact'->>'artifactId' = snapshot.event_json->'payload'->'snapshot'->'snapshot'->'resumeSnapshotRef'->>'artifactId' AND e.event_json->'payload'->'artifact'->'metadata'->>'role' = 'resume_workspace_progress' AND e.event_json->'payload'->'artifact'->'metadata'->>'sourceUserId' = $9 AND e.event_json->'payload'->'artifact'->'metadata'->>'sourceRunId' = a.run_id AND e.event_json->'payload'->'artifact'->'metadata'->>'sourceTurnId' = a.turn_id AND e.event_json->'payload'->'artifact'->'metadata'->>'sourceRunAttemptId' = a.run_attempt_id ORDER BY e.sequence DESC LIMIT 1) artifact ON TRUE WHERE (s.repository IS NULL OR (snapshot.event_json IS NOT NULL AND artifact.event_json IS NOT NULL)) AND a.session_id = $1 AND s.user_id = $2 AND s.workspace_id = $3 AND s.thread_id = $4 AND a.turn_id = $5 AND a.run_attempt_id = $6 AND a.admission_state = 'admitted' AND ((s.current_turn_id = a.turn_id AND NOT EXISTS (SELECT 1 FROM canonical_turn_admissions child WHERE child.session_id = a.session_id AND child.continuation_of_turn_id = a.turn_id AND child.admission_state = 'admitted')) OR EXISTS (SELECT 1 FROM canonical_turn_admissions child WHERE child.session_id = a.session_id AND child.continuation_of_turn_id = a.turn_id AND child.client_message_id = $8 AND child.original_prompt_id = root.prompt_id AND child.continuation_terminal_sequence = $7 AND child.admission_state = 'admitted'))`;
 const LOCK_ADMISSION_SQL = `SELECT a.*, s.user_id AS owner_user_id FROM canonical_turn_admissions a JOIN sessions s ON s.id = a.session_id WHERE a.session_id = $1 AND a.client_message_id = $2 FOR UPDATE OF a`;
-const PROMOTE_ADMISSION_SQL = `UPDATE canonical_turn_admissions a SET admission_state = 'admitted', execution_state = 'pending', request_fingerprint = $3, admission_order = $4, admitted_at = now() WHERE a.session_id = $1 AND a.client_message_id = $2 AND a.admission_state = 'reserved' RETURNING a.*, (SELECT user_id FROM sessions WHERE id = a.session_id) AS owner_user_id`;
+const PROMOTE_ADMISSION_SQL = `UPDATE canonical_turn_admissions a SET admission_state = 'admitted', execution_state = 'pending', request_fingerprint = $3, admission_order = $4, native_provider_binding_json = $5::jsonb, admitted_at = now() WHERE a.session_id = $1 AND a.client_message_id = $2 AND a.admission_state = 'reserved' RETURNING a.*, (SELECT user_id FROM sessions WHERE id = a.session_id) AS owner_user_id`;
 const ALLOCATE_ADMISSION_ORDER_SQL = `UPDATE sessions SET admission_sequence = admission_sequence + 1 WHERE id = $1 RETURNING admission_sequence AS admission_order`;
 const READ_BY_TURN_SQL = `SELECT a.*, s.user_id AS owner_user_id FROM canonical_turn_admissions a JOIN sessions s ON s.id = a.session_id WHERE a.turn_id = $1`;
 const READ_SESSION_RUN_SQL = `SELECT a.*, s.user_id AS owner_user_id FROM canonical_turn_admissions a JOIN sessions s ON s.id = a.session_id WHERE a.session_id = $1 AND a.run_id = $2 ORDER BY a.admission_order DESC NULLS LAST, a.created_at DESC LIMIT 1`;
@@ -791,6 +882,7 @@ const READ_PROMPT_BY_DEDUPE_SQL = `SELECT id AS prompt_message_id FROM messages 
 const LOCK_ADMISSION_BY_TURN_SQL = `SELECT a.*, s.user_id AS owner_user_id FROM canonical_turn_admissions a JOIN sessions s ON s.id = a.session_id WHERE a.turn_id = $1 FOR UPDATE OF a`;
 const CLAIM_EXECUTION_SQL = `UPDATE canonical_turn_admissions SET execution_state = 'running', execution_claim_id = $2, execution_claimed_at = now() WHERE turn_id = $1 AND admission_state = 'admitted' AND execution_state = 'pending' RETURNING *, (SELECT user_id FROM sessions WHERE id = canonical_turn_admissions.session_id) AS owner_user_id`;
 const MARK_RECOVERY_REQUIRED_SQL = `UPDATE canonical_turn_admissions SET execution_state = 'recovery_required' WHERE turn_id = $1 AND execution_claim_id = $2 AND execution_state = 'running' RETURNING turn_id`;
+const MARK_UNOWNED_STOP_RECOVERY_SQL = `UPDATE canonical_turn_admissions a SET execution_state = 'recovery_required' WHERE a.session_id = $2 AND a.workspace_id = $3 AND a.run_id = $4 AND a.thread_id = $5 AND a.turn_id = $6 AND a.run_attempt_id = $7 AND a.admission_state = 'admitted' AND a.execution_state IN ('pending', 'running', 'recovery_required') AND EXISTS (SELECT 1 FROM sessions s WHERE s.id = a.session_id AND s.user_id = $1) RETURNING a.turn_id`;
 const SET_CURRENT_SESSION_TURN_SQL = `UPDATE sessions SET current_turn_id = $3, updated_at = now() WHERE id = $1 AND active_run_id = $2`;
 const BIND_PROMPT_TURN_IDENTITY_SQL = `UPDATE messages SET canonical_turn_id = $3, canonical_run_attempt_id = $4 WHERE session_id = $1 AND id = $2 AND role = 'user'`;
 const ACTIVATE_CONTINUATION_SESSION_SQL = `UPDATE sessions SET active_run_id = $2, current_turn_id = $3, status = 'running', updated_at = now() WHERE id = $1 AND current_turn_id = $4 AND (active_run_id IS NULL OR active_run_id = $2) RETURNING id`;

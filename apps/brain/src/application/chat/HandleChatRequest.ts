@@ -46,7 +46,7 @@ import {
   type ResolvedProviderRuntimeRoute,
 } from "@repo/provider-core";
 
-import type { RunRecord } from "@repo/persistence";
+import type { RunRecord, TurnAdmissionRecord } from "@repo/persistence";
 import { scheduleInitialThreadTitle } from "../../services/thread-titles/InitialThreadTitleScheduler";
 
 type RuntimeHarnessId = "cloudflare-sandbox" | "local-sandbox";
@@ -201,6 +201,7 @@ export class HandleChatRequest {
         normalizeProviderRuntimeRoute(providerRuntimeRoute);
 
       let persistedRun: RunRecord | undefined;
+      let persistedAdmission: TurnAdmissionRecord | undefined;
       if (!userId) {
         throw new ValidationError(
           "Authenticated ownership is required before turn admission.",
@@ -237,6 +238,7 @@ export class HandleChatRequest {
           branch: repositoryBranch ?? null,
         });
         persistedRun = admittedTurn.run;
+        persistedAdmission = admittedTurn.admission;
         persistedUserMessageId = admittedTurn.id;
       }
       console.log(
@@ -256,9 +258,11 @@ export class HandleChatRequest {
           prompt,
           persistedUserMessageId,
           persistedRun,
+          persistedAdmission,
           providerRuntimeRoute: input.providerRuntimeRoute,
           modelCapabilities: input.modelCapabilities,
-          backgroundTaskOwner: input.backgroundTaskOwner,
+          // Paid title inference belongs to the actual claimed Native owner.
+          // Submission persists only its deterministic first-message preview.
         });
       }
 
@@ -302,6 +306,7 @@ export class HandleChatRequest {
           metadata: {
             ...(contextWindowTokens ? { contextWindowTokens } : {}),
             ...(input.pricing ? { pricing: input.pricing } : {}),
+            ...(input.modelCapabilities ? { modelCapabilities: input.modelCapabilities } : {}),
             ...(input.reasoningEffort
               ? { reasoningEffort: input.reasoningEffort }
               : {}),

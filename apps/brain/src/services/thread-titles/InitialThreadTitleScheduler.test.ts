@@ -35,15 +35,34 @@ const input: Parameters<typeof scheduleInitialThreadTitle>[2] = {
     createdAt: "2026-10-01T00:00:00Z",
     updatedAt: "2026-10-01T00:00:00Z",
   },
+  persistedAdmission: {
+    userId: "user", workspaceId: "workspace", sessionId: "session", threadId: "thr_title",
+    runId: "run_first", turnId: "trn_title", runAttemptId: "attempt_title", clientMessageId: "first",
+    revisionOfTurnId: null, continuationOfTurnId: null, originalPromptId: null, continuationTerminalSequence: null,
+    state: "admitted", executionState: "running", requestFingerprint: "fixture-fingerprint", admissionOrder: 1,
+    createdAt: "2026-10-01T00:00:00Z", admittedAt: "2026-10-01T00:00:00Z",
+    nativeProviderBinding: {
+      v: 1, kind: "byok", providerId: "openai", modelId: "gpt-4o",
+      scope: { userId: "user", workspaceId: "workspace", sessionId: "session", threadId: "thr_title",
+        runId: "run_first", turnId: "trn_title", runAttemptId: "attempt_title" },
+      credential: { connectionId: "123e4567-e89b-42d3-a456-426614174005", userId: "user",
+        providerId: "openai", ownerGeneration: 1, tokenMaterialVersion: 1 },
+    },
+  },
   providerRuntimeRoute: {
     providerId: "openai",
     modelId: "gpt-4o",
-    transport: "openai-chat-completions" as const,
-    endpoint: "https://api.openai.com/v1/chat/completions",
+    transport: "openai-responses" as const,
+    endpoint: "https://api.openai.com/v1/responses",
   },
   modelCapabilities: {
     supportsStructuredOutputs: true,
     supportsReasoning: false,
+  },
+  nativeExecution: {
+    service: { generateText: vi.fn(), generateStructured: vi.fn() }, signal: new AbortController().signal,
+    scope: { userId: "user", workspaceId: "workspace", sessionId: "session", threadId: "thr_title",
+      runId: "run_first", turnId: "trn_title", runAttemptId: "attempt_title" },
   },
   backgroundTaskOwner: { waitUntil: vi.fn() },
 };

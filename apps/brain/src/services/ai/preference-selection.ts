@@ -1,10 +1,14 @@
 import type { ProviderConfigService } from "../providers";
 import type { ModelSelection } from "./ModelSelectionPolicy";
+import { ValidationError } from "../../domain/errors";
+
+type SelectionProviderConfig = Pick<ProviderConfigService, "getPreferences" | "isConnected"> &
+  Partial<Pick<ProviderConfigService, "getNativeProviderSelection" | "assertNativeProviderSelection">>;
 
 interface SelectionResolutionInput {
   providerId?: string;
   modelId?: string;
-  providerConfigService?: ProviderConfigService;
+  providerConfigService?: SelectionProviderConfig;
   resolveSelection: (providerId?: string, modelId?: string) => ModelSelection;
 }
 
@@ -16,6 +20,8 @@ interface PreferenceOverride {
 export async function resolveSelectionWithPreferences(
   input: SelectionResolutionInput,
 ): Promise<ModelSelection> {
+  const native = resolveNativeProviderSelection(input.providerConfigService, input.providerId, input.modelId);
+  if (native) return input.resolveSelection(native.providerId, native.modelId);
   if (input.providerId !== undefined || input.modelId !== undefined) {
     return input.resolveSelection(input.providerId, input.modelId);
   }
@@ -33,8 +39,24 @@ export async function resolveSelectionWithPreferences(
   );
 }
 
+/** Native admission pins precede request overrides and mutable preferences. */
+export function resolveNativeProviderSelection(
+  providerConfigService: Pick<SelectionProviderConfig, "getNativeProviderSelection" | "assertNativeProviderSelection"> | undefined,
+  providerId?: string,
+  modelId?: string,
+): Readonly<PreferenceOverride> | null {
+  const native = providerConfigService?.getNativeProviderSelection?.();
+  if (!native) return null;
+  if ((providerId !== undefined && providerId !== native.providerId) ||
+      (modelId !== undefined && modelId !== native.modelId)) {
+    throw new ValidationError("Native inference must retain its admitted provider and model.", "INVALID_PROVIDER_SELECTION");
+  }
+  providerConfigService?.assertNativeProviderSelection?.(native.providerId, native.modelId);
+  return native;
+}
+
 async function readPreferenceOverride(
-  providerConfigService?: ProviderConfigService,
+  providerConfigService?: SelectionProviderConfig,
 ): Promise<PreferenceOverride | null> {
   if (!providerConfigService) {
     return null;

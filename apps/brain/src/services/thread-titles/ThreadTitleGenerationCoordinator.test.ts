@@ -89,9 +89,9 @@ describe("title generation budget", () => {
     expect(generateText.mock.calls[0]?.[0].signal.aborted).toBe(true);
     resolveLate({ text: "Wrong late title" });
     await Promise.resolve();
-    expect(run.persist).toHaveBeenCalledOnce();
-    expect(run.persist).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "Fix login timeout" }),
+    expect(run.persistFailure).toHaveBeenCalledOnce();
+    expect(run.persistFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: input.prompt }),
     );
   });
 
@@ -114,8 +114,8 @@ describe("title generation budget", () => {
     const run = schedule({ generateText }, { generateText: fallback });
     await vi.advanceTimersByTimeAsync(20000);
     await run.pending;
-    expect(generateText).toHaveBeenCalledTimes(2);
-    expect(fallback).toHaveBeenCalledOnce();
+    expect(generateText).toHaveBeenCalledTimes(1);
+    expect(fallback).not.toHaveBeenCalled();
     expect(run.persist).not.toHaveBeenCalled();
     expect(run.persistFailure).toHaveBeenCalledOnce();
     expect(vi.getTimerCount()).toBe(0);

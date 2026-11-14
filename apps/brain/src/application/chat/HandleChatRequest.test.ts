@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../../types/ai";
 import { ValidationError } from "../../domain/errors";
 import { PersistenceService } from "../../services/PersistenceService";
+import { NativeProviderBindingSchema } from "@repo/persistence";
 import { DurableConversationContextAssembler } from "../../services/chat/DurableConversationContextAssembler";
 import {
   ThreadTitleGenerationCoordinator,
@@ -17,6 +18,23 @@ describe("HandleChatRequest", () => {
     vi.spyOn(PersistenceService.prototype, "admitUserTurn").mockImplementation(
       async (input) => ({
         id: "message-admitted",
+        admission: {
+          userId: input.userId, workspaceId: input.workspaceId, sessionId: input.sessionId,
+          threadId: input.identity.threadId, turnId: input.identity.turnId, runAttemptId: input.identity.runAttemptId,
+          runId: input.runId, clientMessageId: "fixture-admission", requestFingerprint: "fixture-fingerprint",
+          revisionOfTurnId: input.identity.revisionOfTurnId ?? null, continuationOfTurnId: null,
+          originalPromptId: null, continuationTerminalSequence: null,
+          state: "admitted", executionState: "pending", admissionOrder: 1,
+          createdAt: "2026-10-01T00:00:00Z", admittedAt: "2026-10-01T00:00:00Z",
+          nativeProviderBinding: NativeProviderBindingSchema.parse({
+            v: 1, kind: "byok", providerId: input.providerId ?? "openai", modelId: input.modelId ?? "gpt-4o",
+            scope: { userId: input.userId, workspaceId: input.workspaceId, sessionId: input.sessionId,
+              threadId: input.identity.threadId, turnId: input.identity.turnId, runAttemptId: input.identity.runAttemptId,
+              runId: input.runId },
+            credential: { connectionId: "123e4567-e89b-42d3-a456-426614174005", userId: input.userId,
+              providerId: input.providerId ?? "openai", ownerGeneration: 1, tokenMaterialVersion: 1 },
+          }),
+        },
         run: {
           id: input.runId,
           providerId: input.providerId ?? null,
@@ -259,8 +277,28 @@ describe("HandleChatRequest", () => {
       "admitUserTurn",
     ).mockImplementation(async (input) => ({
       id: "message-first",
+      admission: {
+        userId: input.userId, workspaceId: input.workspaceId, sessionId: input.sessionId,
+        threadId: input.identity.threadId, turnId: input.identity.turnId, runAttemptId: input.identity.runAttemptId,
+        runId: input.runId, clientMessageId: "fixture-admission", requestFingerprint: "fixture-fingerprint",
+        revisionOfTurnId: input.identity.revisionOfTurnId ?? null, continuationOfTurnId: null,
+        originalPromptId: null, continuationTerminalSequence: null,
+        state: "admitted", executionState: "pending", admissionOrder: 1,
+        createdAt: "2026-10-01T00:00:00Z", admittedAt: "2026-10-01T00:00:00Z",
+        nativeProviderBinding: NativeProviderBindingSchema.parse({
+          v: 1, kind: "byok", providerId: input.providerId ?? "openai", modelId: input.modelId ?? "gpt-4o",
+          scope: { userId: input.userId, workspaceId: input.workspaceId, sessionId: input.sessionId,
+            threadId: input.identity.threadId, turnId: input.identity.turnId, runAttemptId: input.identity.runAttemptId,
+            runId: input.runId },
+          credential: { connectionId: "123e4567-e89b-42d3-a456-426614174005", userId: input.userId,
+            providerId: input.providerId ?? "openai", ownerGeneration: 1, tokenMaterialVersion: 1 },
+        }),
+      },
       run: {
         id: input.runId,
+        userId: input.userId,
+        workspaceId: input.workspaceId,
+        sessionId: input.sessionId,
         providerId: input.providerId ?? null,
         modelId: input.modelId ?? null,
       } as never,
@@ -310,18 +348,8 @@ describe("HandleChatRequest", () => {
     });
 
     expect(previewSpy).toHaveBeenCalledOnce();
-    expect(scheduleSpy).toHaveBeenCalledWith(
-      { waitUntil },
-      expect.objectContaining({
-        prompt: "edit the readme",
-        previewVersion: 1,
-        providerId: "openrouter",
-        modelId: "poolside/laguna-s-2.1:free",
-        runtimeModelId: "poolside/laguna-s-2.1:free",
-        providerTransport: "openai-chat-completions",
-        providerEndpoint: "https://openrouter.ai/api/v1/chat/completions",
-      }),
-    );
+    // Paid title inference is deferred to the actual claimed Native owner.
+    expect(scheduleSpy).not.toHaveBeenCalled();
   });
 
   it("honors explicit runtime selection overrides in execution payload", async () => {

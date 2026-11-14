@@ -13,6 +13,7 @@ import type {
 } from "@legioncode/execution-engine/runtime";
 import type { Env } from "../../types/ai";
 import { buildLLMGateway } from "./LLMRuntimeFactory";
+import type { NativeProviderCredentialContext } from "../../services/providers/NativeProviderCredentialResolver";
 import { buildPricingAndBudgeting } from "./BudgetingFactory";
 import { resolveAgent } from "./AgentFactory";
 import { buildSessionMemoryClient } from "./SessionMemoryFactory";
@@ -44,12 +45,16 @@ export function buildRuntimeDependencies(
   options: {
     strict?: boolean;
     issuedTaskCheckout: IssuedTaskCheckout | null;
+    nativeProviderCredentials?: NativeProviderCredentialContext;
   },
 ): {
   agent: IAgent | undefined;
   runEngineDeps: RunEngineDependencies;
   drainProviderRequests: () => Promise<void>;
 } {
+  if (!options.nativeProviderCredentials) {
+    throw new Error("Native runtime dependencies require the claimed provider binding");
+  }
   // Build pricing/budgeting first
   const budgetingComponents = buildPricingAndBudgeting(ctx, env);
 
@@ -63,6 +68,8 @@ export function buildRuntimeDependencies(
     },
     payload.input.providerId,
     budgetingComponents,
+    options.nativeProviderCredentials,
+    payload.input.modelId,
   );
 
   // Destructure pricing/budgeting components for return object
