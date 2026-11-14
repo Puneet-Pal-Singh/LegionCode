@@ -7,6 +7,8 @@ import {
   type TurnAdmission,
 } from "@repo/platform-protocol";
 import { LocalGuardedFileWorker } from "@legioncode/execution-engine/runtime/desktop/LocalGuardedFileWorker";
+import { LocalHostCommandWorker } from "@legioncode/execution-engine/runtime/desktop/LocalHostCommandWorker";
+import type { MacHostBrokerClient } from "@legioncode/execution-engine/runtime/desktop/MacHostBrokerClient";
 import { LocalSingleExecutableWorker } from "@legioncode/execution-engine/runtime/desktop/LocalSingleExecutableWorker";
 import { LocalReadOnlyToolWorker } from "@legioncode/execution-engine/runtime/desktop/LocalReadOnlyToolWorker";
 import { createNativeReadExecutionService } from "@legioncode/execution-engine/runtime/desktop/LocalNativeReadExecutionService";
@@ -60,6 +62,8 @@ export interface LocalCapturedExecutionOptions {
   readonly storageDirectory: string;
   readonly filesystemHelperPath: string;
   readonly processHelperPath: string;
+  /** Qualified authenticated service client from trusted host composition only. */
+  readonly hostBroker?: MacHostBrokerClient;
   /** Real Git owner, using this lease's settlement authority and physical tracking.
    * The read-only Mac readiness adapter is insufficient for private-index capture.
    */
@@ -76,10 +80,16 @@ export function createLocalCapturedExecutionCapability(
   LocalTurnExecutionCapability<LocalWorkspaceExecutionBinding>,
   { artifactCapture: "required" }
 > {
+  // Snapshot this trusted backend once. A supplied broker's failures never
+  // select the restricted executable worker as a substitute for bash.
+  const hostBroker = options.hostBroker;
+  const availableToolIds = hostBroker ? [...AVAILABLE_TOOL_IDS, "bash"] as const : AVAILABLE_TOOL_IDS;
+  const backendCapabilities = hostBroker ? [...BACKEND_CAPABILITIES, "shell"] as const : BACKEND_CAPABILITIES;
   const reserved = options.reservedLease ? Object.freeze({ ...options.reservedLease,
     admission: TurnAdmissionSchema.parse(options.reservedLease.admission) }) : undefined;
   return {
     artifactCapture: "required",
+    commandExecution: hostBroker ? "native_host_sandbox" : "single_executable_nofork",
     async createExecutionPorts(
       input: TurnAdmission,
       binding: LocalWorkspaceExecutionBinding,
@@ -249,6 +259,11 @@ export function createLocalCapturedExecutionCapability(
           lifecycleEvents: options.persistence.lifecycleEvents,
           assertMutationReady,
         });
+        const hostCommands = hostBroker ? new LocalHostCommandWorker({
+          admission, lease, broker: hostBroker,
+          lifecycleEvents: options.persistence.lifecycleEvents,
+          assertMutationReady,
+        }) : undefined;
         const worker: LocalQuiescentWorker = {
           // The existing executor's tracked wrapper forwards provider results;
           // these adapters never add a second tracker or lifecycle producer.
@@ -263,6 +278,9 @@ export function createLocalCapturedExecutionCapability(
                 return files.executeTool(tool);
               case "run_executable":
                 return executable.executeTool(tool);
+              case "bash":
+                if (hostCommands) return hostCommands.executeTool(tool);
+                return Promise.reject(new Error("Native host command backend is unavailable"));
               default:
                 return Promise.reject(
                   new Error("Tool is outside the captured backend"),
@@ -277,6 +295,7 @@ export function createLocalCapturedExecutionCapability(
               reader.awaitQuiescence(request),
               files.awaitQuiescence(request),
               executable.awaitQuiescence(request),
+              hostCommands?.awaitQuiescence(request) ?? Promise.resolve(true),
             ]);
             return results.every(Boolean);
           },
@@ -290,9 +309,9 @@ export function createLocalCapturedExecutionCapability(
           scope,
           git,
         });
-        const registry = getCodingCoreToolRegistry(BACKEND_CAPABILITIES);
+        const registry = getCodingCoreToolRegistry(backendCapabilities);
         const tools = Object.fromEntries(
-          AVAILABLE_TOOL_IDS.map((id) => {
+          availableToolIds.map((id) => {
             const tool = registry[id];
             if (!tool)
               throw new Error(
@@ -306,8 +325,8 @@ export function createLocalCapturedExecutionCapability(
           gitSnapshots,
           turnArtifacts: artifacts,
           mutationLease: lease,
-          availableToolIds: AVAILABLE_TOOL_IDS,
-          backendCapabilities: BACKEND_CAPABILITIES,
+          availableToolIds,
+          backendCapabilities,
           tools,
         };
       } catch (error) {

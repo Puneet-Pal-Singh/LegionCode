@@ -5,7 +5,7 @@ import type { TurnAdmission, WorkspaceId } from "@repo/platform-protocol";
 import type { LocalNativeFileIdentity, LocalNativeReleasedFence } from "@repo/event-store";
 import { acquireNativeWriterFence } from "@legioncode/execution-engine/runtime/desktop/NativeWriterFence";
 import type { SingleProcessMacExecution } from "@legioncode/execution-engine/runtime/desktop/SingleExecutableProcess";
-import type { NativeFilesystemExecution } from "@legioncode/execution-engine/runtime/desktop/NativeFilesystemBridge";
+import type { NativeFilesystemExecution, NativeGitMetadataLayout } from "@legioncode/execution-engine/runtime/desktop/NativeFilesystemBridge";
 import type { MacHostCommandResource } from "@legioncode/execution-engine/runtime/desktop/MacHostBrokerClient";
 import type { LocalMutationLease } from "@legioncode/execution-engine/runtime/desktop/LocalTurnExecutionCapability";
 import type {
@@ -17,6 +17,8 @@ import type { LocalWorkspaceExecutionBinding } from "./local-workspace.js";
 export interface LocalWorkspaceWriterAuthority extends LocalMutationLease {
   assertCurrent(): Promise<void>;
   assertSettlementCurrent(): Promise<void>;
+  /** Canonical metadata inspector; available only inside an active mutation loan. */
+  readMetadataLayout(input: { readonly signal: AbortSignal; readonly purpose: "mutation" }): Promise<NativeGitMetadataLayout>;
   readonly rootDirectory: FileHandle;
   readonly writerLease: FileHandle;
   /** Original host-owned namespace handle, borrowed only with this authority. */
@@ -257,6 +259,7 @@ export class LocalWorkspaceWriterLeaseOwner {
     const writerLease = entry.file!;
     const namespaceDirectory = entry.namespaceDirectory!;
     const markUnknown = () => this.markUnknown(entry);
+    let mutationLoans = 0;
     const track = (
       execution: Resource["execution"],
       proof: Promise<unknown>,
@@ -289,6 +292,34 @@ export class LocalWorkspaceWriterLeaseOwner {
       settlementSignal: entry.retained.signal,
       assertCurrent: () => this.assertEntry(entry, false),
       assertSettlementCurrent: () => this.assertEntry(entry, true),
+      readMetadataLayout: async (input: { readonly signal: AbortSignal; readonly purpose: "mutation" }) => {
+        const signal = AbortSignal.any([input.signal, entry.binding.signal, entry.active.signal]);
+        const assertLoan = () => {
+          signal.throwIfAborted();
+          if (input.purpose !== "mutation" || mutationLoans === 0 || entry.unknown ||
+              entry.executionSealed || entry.releasing || entry.released) {
+            throw new LocalWorkspaceWriterLeaseError("workspace_writer_unavailable");
+          }
+        };
+        assertLoan();
+        await this.assertEntry(entry, false);
+        assertLoan();
+        const layout = await entry.binding.inspectMetadataLayout({
+          signal, purpose: "mutation",
+          observeExecution: (execution: NativeFilesystemExecution) => {
+            // Register the ORIGINAL helper lifetime immediately, even if a late
+            // callback has already crossed a seal/release boundary.
+            track(execution, execution.closed);
+            if (entry.unknown || entry.executionSealed || mutationLoans === 0) {
+              markUnknown();
+              throw new LocalWorkspaceWriterLeaseError("workspace_writer_unavailable");
+            }
+          },
+        });
+        await this.assertEntry(entry, false);
+        assertLoan();
+        return layout;
+      },
       trackProcess: (execution: SingleProcessMacExecution) =>
         track(execution, execution.result),
       trackFilesystem: (execution: NativeFilesystemExecution) =>
@@ -319,7 +350,9 @@ export class LocalWorkspaceWriterLeaseOwner {
             "workspace_writer_unavailable",
           );
         await this.assertEntry(entry, settlement);
-        return await operation(authority);
+        if (!settlement) mutationLoans += 1;
+        try { return await operation(authority); }
+        finally { if (!settlement) mutationLoans -= 1; }
       })();
       entry.loans.add(loan);
       return loan.finally(() => {
