@@ -6,6 +6,7 @@ import {
 } from "./NativeRuntimeContext.js";
 import {
   JsonRecordSchema,
+  ItemIdSchema,
   PermissionProfileIdSchema,
   RunAttemptIdSchema,
   RunSchema,
@@ -24,6 +25,7 @@ import {
 import type {
   ApprovalResolution,
   ApprovalWaitPort,
+  ProviderPort,
   RuntimeGitSnapshotPort,
   RuntimeKernelDependencies,
   RuntimeLifecycleEventStore,
@@ -80,6 +82,7 @@ import { getNativeToolCallSafetyLimit } from "./NativeProviderStepBudget.js";
 import { createRunManifest, ensureManifestMatch } from "./RunManifestPolicy.js";
 import {
   createStreamResponse,
+  finalizeCanonicalPlanTurn,
   finalizeRunWithAssistantMessage,
   type RunCompletionDependencies,
 } from "./RunCompletionPolicy.js";
@@ -92,10 +95,7 @@ import {
 } from "./RunMetadataPolicy.js";
 import { recordInitialTurnActivity } from "./RunInitialActivityPolicy.js";
 import { isTerminalToolFailure } from "./ToolFailureTerminalPolicy.js";
-import {
-  buildPlanModeResponse,
-  persistPlanArtifact,
-} from "./RunPlanModePolicy.js";
+import { capturePlanCompletion, type CapturedPlanCompletion } from "./CanonicalPlanCompletion.js";
 import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
 import { NativePermissionPolicyResolver } from "./NativePermissionPolicyResolver.js";
 import { describeWorkspaceBootstrapSummary } from "./RunWorkspaceBootstrapSummaryPolicy.js";
@@ -307,32 +307,27 @@ export class RuntimeKernelNativeRunner {
     await this.budgetManager.loadSessionCosts();
     const run = await this.getOrCreateRun(input.input);
     await this.prepareRun(run, input);
-    if (input.workspace && run.metadata.manifest?.mode !== "build") {
-      return await this.executePlanMode(run, input.input);
+    const planMode = input.workspace !== null && run.metadata.manifest?.mode === "plan";
+    if (!planMode) {
+      const bootstrapResponse = await this.prepareBuildWorkspace(run, input.input);
+      if (bootstrapResponse) return bootstrapResponse;
+      await this.prepareMutationCapture?.();
+      await this.activateBuildRun(run);
     }
-    const bootstrapResponse = await this.prepareBuildWorkspace(
-      run,
-      input.input,
-    );
-    if (bootstrapResponse) {
-      return bootstrapResponse;
-    }
-    await this.prepareMutationCapture?.();
-    await this.activateBuildRun(run);
-    const runtimeTools = input.workspace ? enforceCodingToolFloor(
+    const runtimeTools = input.workspace && !planMode ? enforceCodingToolFloor(
       { ...getCodingCoreToolRegistry(), ...input.tools }, input.input.metadata,
     ) : {};
     recordTurnModeDecision(run, {
-      mode: input.workspace ? "action" : "chat",
+      mode: input.workspace && !planMode ? "action" : "chat",
       source: "runtime-kernel",
       rationale: "Repository and conversation turns use the canonical runtime kernel path.",
       confidence: 1,
     });
-    recordPhaseSelectionSnapshot(run, "execution");
+    if (!planMode) recordPhaseSelectionSnapshot(run, "execution");
     console.log(
       formatRuntimeDiagnosticLogLine(
         "runtime-kernel/native",
-        "build-path-selected",
+        planMode ? "plan-path-selected" : "build-path-selected",
         {
           runId: this.options.runId,
           sessionId: this.options.sessionId,
@@ -360,7 +355,7 @@ export class RuntimeKernelNativeRunner {
       workspace: input.workspace,
     });
     const maxSteps = getAgenticLoopMaxSteps(input.input.metadata);
-    const provider = new KernelAgenticProvider({
+    const agenticProvider = planMode ? null : new KernelAgenticProvider({
       runId: run.id, conversationId: run.sessionId, agentType: run.agentType,
       workspaceHints: run.metadata,
       input: input.input,
@@ -377,25 +372,45 @@ export class RuntimeKernelNativeRunner {
       maxSteps,
       rootPromptId: input.originalPromptId,
     });
-    const worker = protocol.manifest
-      ? this.createRepositoryWorker(protocol.manifest, protocol.runAttemptId, protocol.turn, provider, runtimeTools, input.input)
+    let capturedPlan: CapturedPlanCompletion | null = null;
+    const provider: ProviderPort = agenticProvider ?? {
+      generateNext: async ({ signal }) => {
+        capturedPlan = await this.executePlanMode(run, input.input, signal);
+        return {
+          kind: "complete",
+          itemId: ItemIdSchema.parse(`itm_${protocol.turn.id.slice(4)}_plan`),
+          output: capturedPlan.output,
+        };
+      },
+    };
+    const worker: WorkerProtocolPort = planMode
+      ? { executionCapability: "read_only", awaitQuiescence: async () => true,
+          executeTool: async () => failed("policy_denied", "Plan mode does not execute repository tools.", false, "terminal") }
+      : protocol.manifest && agenticProvider
+      ? this.createRepositoryWorker(protocol.manifest, protocol.runAttemptId, protocol.turn, agenticProvider, runtimeTools, input.input)
       : { executeTool: async (): Promise<WorkerToolResult> => failed("policy_denied", "Select a project before using repository tools.", false, "terminal"), awaitQuiescence: async () => true };
     const kernel = new RuntimeKernel({
       lifecycleEvents: input.lifecycleEvents,
       workspaceManifests: protocol.manifest ? createWorkspaceManifestRepository(protocol.manifest) : undefined,
       gitSnapshots:
-        protocol.manifest ? this.gitSnapshots ?? createUnavailableSnapshotPort(protocol.manifest) : undefined,
-      turnArtifacts: createTurnArtifactPort(),
-      contextAssembly: createNativeContextAssembly(
+        protocol.manifest && !planMode ? this.gitSnapshots ?? createUnavailableSnapshotPort(protocol.manifest) : undefined,
+      turnArtifacts: planMode ? undefined : createTurnArtifactPort(),
+      ...(planMode ? { artifactCapture: "omitted_read_only" as const } : {}),
+      contextAssembly: agenticProvider ? createNativeContextAssembly(
         input.input,
-        provider.readContextMessages.bind(provider),
+        agenticProvider.readContextMessages.bind(agenticProvider),
         runtimeTools,
-      ),
-      contextCompaction: createNativeContextCompaction(
+      ) : {
+        // The structured planner owns its real request and gateway preflight.
+        // It does not consume conversation history, so an agentic transcript
+        // budget/automatic-compaction threshold would misrepresent that request.
+        assemble: async () => ({ instructions: input.input.prompt, metadata: { phase: "planning" } }),
+      },
+      contextCompaction: agenticProvider ? createNativeContextCompaction(
         input.input,
-        provider.readContextMessages.bind(provider),
-        provider.readTaskContextProjection.bind(provider),
-      ),
+        agenticProvider.readContextMessages.bind(agenticProvider),
+        agenticProvider.readTaskContextProjection.bind(agenticProvider),
+      ) : undefined,
       provider,
       worker,
       toolAuthorization: new RegistryToolAuthorization(
@@ -416,27 +431,38 @@ export class RuntimeKernelNativeRunner {
         runEventRecorder: this.runEventRecorder,
         permissionApprovalStore: this.permissionApprovalStore,
       }),
-      hooks: input.hookOrchestration,
+      hooks: planMode ? undefined : input.hookOrchestration,
       producerId: "runtime-kernel-native",
       maxToolCalls: getNativeToolCallSafetyLimit(maxSteps),
       clock: { now },
       signal: this.activeTurn?.abortController.signal,
     });
     this.resolveActiveKernel(protocol.turn.id, kernel);
-    const result = await this.startKernelTurn(kernel, protocol, run, provider);
-    if (this.interruptedTurns.delete(protocol.turn.id)) {
+    const result = await this.startKernelTurn(kernel, protocol, run, agenticProvider ?? undefined);
+    const interrupted = this.interruptedTurns.delete(protocol.turn.id);
+    if (planMode) {
+      return await finalizeCanonicalPlanTurn({
+        run, deps: this.getRunCompletionDependencies(),
+        canonicalPlanCompletion: {
+          lifecycleEvents: input.lifecycleEvents, run: protocol.run, turn: protocol.turn,
+          runAttemptId: protocol.runAttemptId, captured: capturedPlan,
+        },
+      });
+    }
+    if (interrupted) {
       return createStreamResponse("");
     }
     if (result instanceof Response) {
       return result;
     }
     if (await this.isRunCancelled()) {
-      provider.recordCancelled();
-      recordAgenticLoopMetadata(run, provider.buildResult());
+      agenticProvider?.recordCancelled();
+      if (agenticProvider) recordAgenticLoopMetadata(run, agenticProvider.buildResult());
       return createStreamResponse("");
     }
-    const finalMessage = buildAgenticLoopFinalMessage(provider.buildResult());
-    recordAgenticLoopMetadata(run, provider.buildResult());
+    if (!agenticProvider) throw new Error("Native build provider is unavailable");
+    const finalMessage = buildAgenticLoopFinalMessage(agenticProvider.buildResult());
+    recordAgenticLoopMetadata(run, agenticProvider.buildResult());
     const modelParts =
       finalMessage.source === "model" ? finalMessage.parts : undefined;
     const response = await finalizeRunWithAssistantMessage({
@@ -570,7 +596,9 @@ export class RuntimeKernelNativeRunner {
     }
   }
 
-  private async executePlanMode(run: Run, input: RunInput): Promise<Response> {
+  private async executePlanMode(run: Run, input: RunInput, signal?: AbortSignal): Promise<CapturedPlanCompletion> {
+    assertSignalNotAborted(signal);
+    await assertNativeRunNotCancelled(this.isRunCancelled.bind(this));
     const previousStatus = run.status;
     if (run.status === "CREATED") {
       run.transition("PLANNING");
@@ -582,16 +610,18 @@ export class RuntimeKernelNativeRunner {
       RUN_WORKFLOW_STEPS.PLANNING,
     );
     await this.runRepo.update(run);
+    // The planner has no abort contract. Keep its exposed request owned until
+    // it returns, then reject late output before persisting a plan after Stop.
+    assertSignalNotAborted(signal);
     const plan = this.agent
       ? await this.agent.plan({ run, prompt: input.prompt, history: undefined })
       : await this.planner.plan(run, input.prompt, undefined);
-    const planArtifact = persistPlanArtifact(run, plan);
+    assertSignalNotAborted(signal);
+    await assertNativeRunNotCancelled(this.isRunCancelled.bind(this));
+    assertSignalNotAborted(signal);
+    const completion = capturePlanCompletion(run, plan);
     recordLifecycleStep(run, "PLAN_VALIDATED");
-    return await finalizeRunWithAssistantMessage({
-      run,
-      runtimeFinal: createRuntimeFinalText(buildPlanModeResponse(planArtifact)),
-      deps: this.getRunCompletionDependencies(),
-    });
+    return completion;
   }
 
   private async startKernelTurn(
@@ -602,7 +632,7 @@ export class RuntimeKernelNativeRunner {
       runAttemptId: RunAttemptId;
     },
     run: Run,
-    provider: KernelAgenticProvider,
+    provider?: KernelAgenticProvider,
   ) {
     try {
       const activeTurn = this.activeTurn;
@@ -648,12 +678,13 @@ export class RuntimeKernelNativeRunner {
           ),
         );
         await kernel.interruptTurn(protocol.turn.id, "Run cancelled by user.");
-        provider.recordCancelled();
-        recordAgenticLoopMetadata(run, provider.buildResult());
+        provider?.recordCancelled();
+        if (provider) recordAgenticLoopMetadata(run, provider.buildResult());
         return createStreamResponse("");
       }
-      provider.recordTerminalError(error);
-      recordAgenticLoopMetadata(run, provider.buildResult());
+      if (!provider) return createStreamResponse("");
+      provider?.recordTerminalError(error);
+      if (provider) recordAgenticLoopMetadata(run, provider.buildResult());
       const terminalState = resolveNativeKernelTerminalState(error);
       const message = buildNativeKernelTerminalMessage(error, terminalState);
       console.error(
