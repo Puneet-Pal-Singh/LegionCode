@@ -192,8 +192,14 @@ function committedBlob(path, bytes) {
   if (hash(committed) !== hash(bytes)) throw unavailable("WORKSPACE_SOURCE_DIFFERS_FROM_REVIEWED_BLOB");
   return oid;
 }
-function sourceGraph(metadata, map, base, identity) {
+function sourceGraph(metadata, map, base, identity, mapDirectory) {
   if (!object(metadata.inputs) || !Array.isArray(map.sources) || !Array.isArray(map.sourcesContent) || map.sources.length !== map.sourcesContent.length) throw unavailable("BUILD_RESOLVED_GRAPH_UNAVAILABLE");
+  // Esbuild's metadata paths are relative to the config directory, but its
+  // source-map paths are relative to the emitted map's sourceRoot. Comparing
+  // their raw strings rejects the same reviewed input at different depths.
+  if (typeof map.sourceRoot !== "string" || map.sourceRoot !== mapDirectory || map.sources.some(path => typeof path !== "string")) throw unavailable("BUILD_SOURCE_MAP_ROOT_UNAVAILABLE");
+  const sourcePaths = map.sources.map(path => resolve(mapDirectory, path));
+  if (new Set(sourcePaths).size !== sourcePaths.length) throw unavailable("BUILD_SOURCE_MAP_INPUT_AMBIGUOUS");
   const storeMarker = `${sep}node_modules${sep}.pnpm${sep}`;
   const index = realpathSync(identity.entry).indexOf(storeMarker);
   if (index < 0) throw unavailable("REVIEWED_DEPENDENCY_STORE_UNAVAILABLE");
@@ -214,7 +220,7 @@ function sourceGraph(metadata, map, base, identity) {
     const path = resolve(base, input);
     const virtual = /^_virtual_unenv_global_polyfill-@cloudflare-unenv-preset-node-(console|process)$/.test(basename(path)) && dirname(path) === resolve(dirname(realpathSync(identity.entry)), "..");
     if (virtual) {
-      const position = map.sources.indexOf(input);
+      const position = sourcePaths.indexOf(path);
       if (position < 0 || typeof map.sourcesContent[position] !== "string") throw unavailable("BUILDER_VIRTUAL_INPUT_CONTENT_UNAVAILABLE");
       graph.set(path, { path, kind: "wrangler-virtual", sha256: hash(map.sourcesContent[position]) });
       continue;
@@ -222,7 +228,7 @@ function sourceGraph(metadata, map, base, identity) {
     const record = add(path);
     if (record.kind === "workspace") {
       const used = Object.values(metadata.outputs).some(output => output.inputs?.[input]?.bytesInOutput > 0);
-      const position = map.sources.indexOf(input);
+      const position = sourcePaths.indexOf(path);
       if (used && (position < 0 || typeof map.sourcesContent[position] !== "string" || hash(map.sourcesContent[position]) !== record.sha256)) throw unavailable("COMPILED_WORKSPACE_SOURCE_MAP_MISMATCH");
     }
     let directory = dirname(record.physical);
@@ -300,7 +306,7 @@ async function buildPinned(config, configPath, identity, registerIntent) {
   const entry = resolve(dirname(configPath), entries[0][0]);
   if (!beneath(build, entry) || !entry.endsWith(".js")) throw unavailable("BUILD_ENTRYPOINT_OUTSIDE_PRIVATE_OUTPUT");
   const map = JSON.parse(filePin(`${entry}.map`).bytes.toString("utf8"));
-  const graph = sourceGraph(metadata, map, dirname(configPath), identity);
+  const graph = sourceGraph(metadata, map, dirname(configPath), identity, dirname(entry));
   for (const output of Object.values(metadata.outputs)) for (const imported of output.imports ?? []) {
     if (!imported.external || /^(node|cloudflare):/.test(imported.path)) continue;
     if (!beneath(build, resolve(dirname(entry), imported.path))) throw unavailable("BUILD_EXTERNAL_IMPORT_OUTSIDE_PINNED_MODULES");
