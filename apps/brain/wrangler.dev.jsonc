@@ -3,7 +3,7 @@
   "name": "legioncode-brain-dev",
   "main": "src/index.ts",
   "compatibility_date": "2025-05-06",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": ["nodejs_compat", "durable_object_io_tasks_prevent_eviction"],
   "limits": {
     "cpu_ms": 20000,
   },
