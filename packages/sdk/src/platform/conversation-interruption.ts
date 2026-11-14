@@ -43,7 +43,13 @@ export async function interruptAndAwaitTerminal(
     if (terminalAlreadySettled) return;
     const events = lifecycleClient.followTurnLifecycle(
       { turnId: TurnIdSchema.parse(scope.turnId) },
-      { signal: settlementAbort.signal },
+      {
+        signal: settlementAbort.signal,
+        expectedLifecycleAttempt: {
+          threadId: ThreadIdSchema.parse(scope.threadId),
+          runAttemptId: RunAttemptIdSchema.parse(scope.runAttemptId),
+        },
+      },
     );
     iterator = events[Symbol.asyncIterator]();
     while (true) {

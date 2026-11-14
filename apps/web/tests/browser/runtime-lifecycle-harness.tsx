@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- Playwright loads this harness as a self-mounting page, not as a hot-refresh module. */
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { AuthProvider } from "../../src/contexts/AuthContext";
 import { useTurnLifecycleProjection } from "../../src/hooks/useTurnLifecycleProjection";
 
 const TURN_ID = "trn_run_browsergolden1";
@@ -46,6 +47,8 @@ function RuntimeLifecycleHarness() {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <RuntimeLifecycleHarness />
+    <AuthProvider>
+      <RuntimeLifecycleHarness />
+    </AuthProvider>
   </StrictMode>,
 );
