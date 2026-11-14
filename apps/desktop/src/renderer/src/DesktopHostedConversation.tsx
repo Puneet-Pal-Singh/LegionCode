@@ -15,6 +15,7 @@ import type { GetTurnDiffResponse, HostedSession } from "@repo/platform-protocol
 import type { ApprovalDecisionKind, DiffContent, FileStatus } from "@repo/shared-types";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useDesktopHostedInputQueue, type DesktopHostedInputQueueControls, type DesktopHostedInputQueueCustody } from "./DesktopHostedInputQueue";
+import { useDesktopHostedImagePreviews } from "./useDesktopHostedImagePreviews";
 
 export type DesktopHostedConversationController = ReturnType<typeof useHostedNativeConversation>;
 export interface DesktopHostedReviewTurn {
@@ -53,6 +54,7 @@ export function DesktopHostedConversation({
   renderComposer, onReviewTurn, onControllerReady, onAcceptedDraft, onSessionRefresh, inputQueueCustody,
 }: DesktopHostedConversationProps) {
   const controller = useHostedNativeConversation({ client, binding, session, runId, enabled });
+  const imagePreviews = useDesktopHostedImagePreviews(client, session.id, { messages: controller.canonicalMessages });
   const queue = useDesktopHostedInputQueue({ custody: inputQueueCustody, client, session, controller, active,
     bindingKey: JSON.stringify([binding.target, binding.accountId, binding.generation,
       session.workspaceId, session.id]),
@@ -180,11 +182,14 @@ export function DesktopHostedConversation({
       /> : null}
       {renderComposer({ layout, controller, approvalVisible, ...queue })}
     </>}
-    debugPanel={controller.historicalReplayError ? <ChatErrorNotice
+    debugPanel={<>{controller.historicalReplayError ? <ChatErrorNotice
       message={controller.historicalReplayError}
       remediation="An earlier saved workflow could not be loaded."
       actionLabel="Reload saved history" onOpen={controller.reload} /> : null}
-    resolveHydratedImageSource={undefined}
+      {imagePreviews.error ? <ChatErrorNotice message={imagePreviews.error}
+        remediation="Load the saved image again from this hosted conversation."
+        actionLabel="Retry image previews" onOpen={imagePreviews.retry} /> : null}</>}
+    resolveHydratedImageSource={imagePreviews.resolveSource}
     loadArtifactContent={undefined}
     chatEntries={entries}
     hydrationStatus={controller.loading ? "loading" : controller.historyError ? "failed" : entries.length ? "readable" : "empty"}

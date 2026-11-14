@@ -1,12 +1,13 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
 import {
   ChatErrorNotice, ThreadInputQueuePanel, updateComposerPreferences,
-  useComposerPreferences, useThreadInputQueue, type HostedNativeDraft,
+  captureHostedNativeDraft, useComposerPreferences, useThreadInputQueue, type HostedNativeDraft,
 } from "@legioncode/client-ui";
 import { createChatThreadInputConfiguration, createConversationInputCommands, readCanonicalTurnId, type AppServerClient, type ConversationScope } from "@legioncode/sdk";
 import type { HostedSession, ThreadInputConfiguration } from "@repo/platform-protocol";
 import type { BYOKResolution } from "@repo/shared-types";
 import type { DesktopHostedConversationController } from "./DesktopHostedConversation";
+import { useDesktopHostedImagePreviews } from "./useDesktopHostedImagePreviews";
 
 type Delivery = "queue" | "steer";
 type CapturedInput = {
@@ -128,6 +129,8 @@ export function useDesktopHostedInputQueue(options: DesktopHostedInputQueueOptio
   const invalidation = JSON.stringify([scope?.turnId, scope?.runAttemptId, projection?.lastSequence,
     session.activeRunId, session.latestRunId]);
   const queue = useThreadInputQueue(readScope, target, invalidation, client);
+  const imageReferences = useMemo(() => queue.snapshot?.items.flatMap((item) => item.mediaRefs) ?? [], [queue.snapshot]);
+  const imagePreviews = useDesktopHostedImagePreviews(client, session.id, { references: imageReferences });
   const queueRef = useRef(queue);
   queueRef.current = queue;
   const refreshed = useRef<{ owner: object; key: string } | null>(null);
@@ -160,7 +163,8 @@ export function useDesktopHostedInputQueue(options: DesktopHostedInputQueueOptio
       try {
         const receipt = await owner.commands.submitFollowUp(capture.client, {
           fingerprint: capture.fingerprint, scope: capture.scope, delivery: capture.delivery,
-          content: { text: capture.draft.prompt, images: [] },
+          content: { text: capture.draft.prompt, images: (capture.draft.imageAttachments ?? [])
+            .map((image) => ({ dataUrl: image.dataUrl, name: image.name, mediaType: image.mediaType })) },
           configuration: capture.configuration,
         });
         const targetMatches = !("targetTurnId" in receipt) || (receipt.targetTurnId === capture.scope.turnId &&
@@ -200,12 +204,12 @@ export function useDesktopHostedInputQueue(options: DesktopHostedInputQueueOptio
   };
 
   const onFollowUpSubmit: DesktopHostedInputQueueControls["onFollowUpSubmit"] = async (draft, selection, delivery) => {
-    if (!canAct() || owner.pending || !running || !matchingScope || !draft.id || !draft.prompt.trim()) return false;
+    if (!canAct() || owner.pending || !running || !matchingScope) return false;
     const latest = admittedRunningScope(current.current.options.controller, current.current.options.session);
     if (!latest || latest.turnId !== matchingScope.turnId || latest.runAttemptId !== matchingScope.runAttemptId ||
       latest.runId !== matchingScope.runId) return false;
-    if (draft.configuration.providerId !== selection.providerId || draft.configuration.modelId !== selection.modelId) return false;
-    const capturedDraft: HostedNativeDraft = Object.freeze({ ...draft, configuration: Object.freeze({ ...draft.configuration }) });
+    const capturedDraft = captureHostedNativeDraft(draft);
+    if (capturedDraft.configuration.providerId !== selection.providerId || capturedDraft.configuration.modelId !== selection.modelId) return false;
     const configuration = Object.freeze(createChatThreadInputConfiguration(capturedDraft.configuration));
     const capturedScope = Object.freeze({ ...matchingScope });
     return deliver(Object.freeze({ draft: capturedDraft, scope: capturedScope, delivery, configuration, client,
@@ -229,7 +233,9 @@ export function useDesktopHostedInputQueue(options: DesktopHostedInputQueueOptio
           if (owner.pending?.state === "uncertain") void deliver(owner.pending.capture);
           else { void queueRef.current.refresh(); refreshSession(); }
         }} /> : null}
-      <ThreadInputQueuePanel snapshot={queue.snapshot} error={queue.error} onRetry={queue.refresh}
+      <ThreadInputQueuePanel snapshot={queue.snapshot} error={queue.error ?? imagePreviews.error}
+        onRetry={() => { imagePreviews.retry(); return queue.refresh(); }}
+        resolveImageSource={imagePreviews.resolveAttachmentSource} resolveImageSourceId={imagePreviews.sourceId}
         active={Boolean(target)} queuingEnabled={preferences.followUpBehavior === "queue"}
         onQueuingChange={(enabled) => { if (canAct()) updateComposerPreferences({ followUpBehavior: enabled ? "queue" : "steer" }); }}
         onUpdate={(...args) => allowed() ? queue.update(...args) : Promise.resolve(null)}

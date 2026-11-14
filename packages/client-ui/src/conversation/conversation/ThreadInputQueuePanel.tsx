@@ -39,6 +39,7 @@ interface ThreadInputQueuePanelProps {
     revision: number,
   ) => Promise<ThreadInputReceipt | null>;
   resolveImageSource?: (attachmentId: string) => string | undefined;
+  resolveImageSourceId?: (attachmentId: string) => string | undefined;
 }
 
 type QueueActionKind = "save" | "remove" | "steer" | "start" | "retry";
@@ -239,12 +240,14 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
                   {image ? (
                     imageSource ? (
                       <img
+                        data-chat-image-source={props.resolveImageSourceId?.(image.attachmentId)}
                         src={imageSource}
                         alt={image.name}
                         className="h-8 w-8 shrink-0 rounded-md border border-zinc-700/80 object-cover"
                       />
                     ) : (
                       <span
+                        data-chat-image-source={props.resolveImageSourceId?.(image.attachmentId)}
                         aria-label={`Image attachment: ${image.name}`}
                         role="img"
                         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-zinc-700/80 bg-zinc-900 text-zinc-500"
