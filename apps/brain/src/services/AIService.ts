@@ -20,7 +20,8 @@ import {
   buildStructuredGenerationUsage,
   getStructuredGenerationMode,
 } from "./ai";
-import { resolveSelectionWithPreferences } from "./ai/preference-selection";
+import { resolveNativeProviderSelection, resolveSelectionWithPreferences } from "./ai/preference-selection";
+import { createNativeStructuredModelConfiguration } from "./ai/NativeStructuredModelConfiguration";
 import { DefaultAdapterService } from "./ai/DefaultAdapterService";
 import { consumeAxisQuotaIfNeeded } from "./ai/axis-quota";
 import { AXIS_PROVIDER_ID } from "./providers/axis";
@@ -50,10 +51,10 @@ export class AIService {
   }
 
   getProvider(): string {
-    return this.adapter.provider;
+    return this.providerConfigService?.getNativeProviderSelection?.()?.providerId ?? this.adapter.provider;
   }
   getDefaultModel(): string {
-    return this.defaultModel;
+    return this.providerConfigService?.getNativeProviderSelection?.()?.modelId ?? this.defaultModel;
   }
 
   resolveModelSelection(
@@ -61,10 +62,11 @@ export class AIService {
     modelId?: string,
     isByokOverride = false,
   ) {
+    const native = resolveNativeProviderSelection(this.providerConfigService, providerId, modelId);
     const options = isByokOverride ? { isByokOverride } : undefined;
     return resolveModelSelection(
-      providerId,
-      modelId,
+      native?.providerId ?? providerId,
+      native?.modelId ?? modelId,
       this.adapter.provider,
       this.defaultModel,
       mapProviderIdToRuntimeProvider,
@@ -150,30 +152,24 @@ export class AIService {
       this.providerConfigService,
     );
 
-    const overrideApiKey =
-      selection.providerId && selection.providerId !== AXIS_PROVIDER_ID
-        ? ((await this.providerConfigService?.getApiKey(
-            selection.providerId,
-          )) ?? undefined)
-        : undefined;
-
-    const structuredRuntimeProvider = resolveStructuredRuntimeProvider(
-      selection.runtimeProvider,
-      providerTransport,
-    );
-    const structuredBaseURLOverride = resolveStructuredBaseURLOverride(
-      providerTransport,
-      providerEndpoint,
-    );
-    const structuredModel = runtimeModelId ?? selection.model;
-    const sdkModelConfig = getSDKModelConfig(
-      structuredModel,
-      structuredRuntimeProvider,
-      this.env,
-      overrideApiKey,
-      selection.providerId,
-      structuredBaseURLOverride,
-    );
+    const nativeStructured = Boolean(this.providerConfigService?.getNativeProviderSelection?.());
+    let sdkModelConfig: SDKModelConfig;
+    if (nativeStructured && this.providerConfigService) {
+      sdkModelConfig = await createNativeStructuredModelConfiguration({
+        credentials: this.providerConfigService, selection, runtimeModelId, providerTransport, providerEndpoint,
+      });
+    } else {
+      const overrideApiKey =
+        selection.providerId && selection.providerId !== AXIS_PROVIDER_ID
+          ? ((await this.providerConfigService?.getApiKey(selection.providerId)) ?? undefined)
+          : undefined;
+      const structuredRuntimeProvider = resolveStructuredRuntimeProvider(selection.runtimeProvider, providerTransport);
+      const structuredBaseURLOverride = resolveStructuredBaseURLOverride(providerTransport, providerEndpoint);
+      sdkModelConfig = getSDKModelConfig(
+        runtimeModelId ?? selection.model, structuredRuntimeProvider, this.env,
+        overrideApiKey, selection.providerId, structuredBaseURLOverride,
+      );
+    }
 
     const sdkModel = this.createSDKModel(sdkModelConfig);
 
@@ -184,17 +180,17 @@ export class AIService {
       temperature,
       ...(maxTokens !== undefined ? { maxTokens } : {}),
       ...(abortSignal ? { abortSignal } : {}),
-      mode: getStructuredGenerationMode(selection.runtimeProvider),
+      mode: getStructuredGenerationMode(nativeStructured ? sdkModelConfig.provider : selection.runtimeProvider),
       maxRetries: PROVIDER_SDK_MAX_RETRIES,
     });
 
     return {
       object: result.object,
       usage: buildStructuredGenerationUsage({
-        provider: selection.runtimeProvider,
+        provider: nativeStructured ? sdkModelConfig.provider : selection.runtimeProvider,
         providerId: selection.providerId,
         baseURL: sdkModelConfig.baseURL,
-        model: structuredModel,
+        model: sdkModelConfig.model,
         usage: result.usage,
       }),
     };
