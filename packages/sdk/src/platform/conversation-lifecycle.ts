@@ -1,6 +1,7 @@
 import type { LifecycleEvent, TurnId } from "@repo/platform-protocol";
 import {
   applyConversationLifecycleEvent,
+  applyConversationLifecycleRecovery,
   createLifecycleProjection,
   type LifecycleProjection,
 } from "../workflow/conversation-lifecycle-projection.js";
@@ -39,6 +40,11 @@ export async function followConversationLifecycleProjection(
   const resumedEvents: LifecycleEvent[] = [];
   const operationOptions: PlatformClientOperationOptions = {
     signal: input.signal,
+    onLifecycleRecovery: recovery => {
+      if (input.signal.aborted) return;
+      projection = applyConversationLifecycleRecovery(projection, recovery);
+      if (resumed) input.onProjection(projection);
+    },
     onLifecycleContinuationStatus: (status) => {
       if (input.signal.aborted) return;
       if (status === "following" && !resumed) {
@@ -71,6 +77,7 @@ export async function followConversationLifecycleProjection(
     for (const event of page.events) {
       projection = applyConversationLifecycleEvent(projection, event);
     }
+    projection = applyConversationLifecycleRecovery(projection, page.recovery);
     afterSequence = page.nextSequence;
     if (projection.terminal || afterSequence === null) break;
   }
@@ -116,6 +123,7 @@ export async function replayConversationLifecycleProjection(input: {
     for (const event of page.events) {
       projection = applyConversationLifecycleEvent(projection, event);
     }
+    projection = applyConversationLifecycleRecovery(projection, page.recovery);
     afterSequence = page.nextSequence;
     if (projection.terminal) break;
   } while (afterSequence !== null);

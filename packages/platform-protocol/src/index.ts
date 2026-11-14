@@ -137,6 +137,7 @@ export {
   ReadLifecycleEventChunkResponseSchema,
   ReplayLifecycleEventsRequestSchema,
   ReplayLifecycleEventsResponseSchema,
+  NativeExecutionRecoveryProjectionSchema,
   SubmitLifecycleApprovalRequestSchema,
   type FollowLifecycleRequest,
   type GetTurnDiffRequest,
@@ -147,6 +148,7 @@ export {
   type ReadLifecycleEventChunkResponse,
   type ReplayLifecycleEventsRequest,
   type ReplayLifecycleEventsResponse,
+  type NativeExecutionRecoveryProjection,
   type SubmitLifecycleApprovalRequest,
 } from "./lifecycle-operations.js";
 export {

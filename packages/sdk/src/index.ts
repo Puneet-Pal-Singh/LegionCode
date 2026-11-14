@@ -354,6 +354,7 @@ export * from "./platform/local-thread-history.js";
 export {
   createLifecycleProjection,
   applyConversationLifecycleEvent,
+  applyConversationLifecycleRecovery,
   replayLifecycleProjection,
   lifecyclePhaseLabel,
   type LifecycleProjection,
