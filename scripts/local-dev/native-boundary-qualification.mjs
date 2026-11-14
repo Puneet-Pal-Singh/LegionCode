@@ -561,6 +561,7 @@ async function privateControl(config, action, operationId, inventory) {
 async function buildSource() {
   const platform = readJsonc(resolve(app, "wrangler.dev.jsonc"));
   const config = {
+    name: "legioncode-native-boundary-source",
     compatibility_date: platform.compatibility_date,
     compatibility_flags: platform.compatibility_flags,
     workers_dev: false,
