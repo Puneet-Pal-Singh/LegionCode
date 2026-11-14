@@ -278,7 +278,8 @@ export class AgentRuntime extends DurableObject<Env> {
       if (!(git instanceof GitPlugin)) throw new Error("NATIVE_BOOTSTRAP_GIT_OWNER_REQUIRED");
       const receipt = await original.materializeCheckout(git.nativeBootstrapAuthEnvironment(gitToken));
       await original.drainOriginalOperations();
-      if (!await original.awaitClosure()) throw new Error("NATIVE_BOOTSTRAP_CLOSURE_UNKNOWN");
+      const settlement = original.bootstrapTransportSettlement();
+      if (!settlement || settlement.receipt !== receipt) throw new Error("NATIVE_BOOTSTRAP_TRANSPORT_UNKNOWN");
       this.nativeCommands.delete(key);
       return receipt;
     } catch { throw new Error("NATIVE_BOOTSTRAP_ORIGINAL_UNKNOWN"); }

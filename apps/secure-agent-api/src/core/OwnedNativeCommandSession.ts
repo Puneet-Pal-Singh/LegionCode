@@ -47,6 +47,13 @@ interface Session extends NativeSessionFields, ExecutionDomainSessionFields {
   lease: SandboxExecutionLease;
   workspaceScope: SandboxExecutionLease["workspaceScope"];
   cleanupInProgress?: boolean;
+  expiresAt?: number;
+}
+/** Trusted bootstrap transport/FD settlement is not untrusted containment closure. */
+export interface NativeBootstrapTransportSettlement {
+  readonly kind: "bootstrap_transport";
+  readonly receipt: NativeCheckoutBootstrapReceipt;
+  readonly artifact: Readonly<{ id: string; sha256: string; size: number }>;
 }
 const prefix = "execution:session:";
 
@@ -55,6 +62,7 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
   private original: Promise<unknown> | undefined;
   private readonly operations = new Set<Promise<unknown>>();
   private stopped = false;
+  private settledBootstrap?: NativeBootstrapTransportSettlement;
   // Evidence belongs to this retained original task, never to whichever task
   // later occupies the session's current command slot. Keep its immutable R2
   // reference alongside the exact physical receipt until this owner releases.
@@ -100,14 +108,23 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
         const stored = await this.input.artifacts.download(uploaded.id, this.input.sessionId);
         if (!stored || stored.byteLength !== bytes.byteLength || await digest(stored) !== sha256) throw unavailable();
         const artifact = { id: uploaded.id, sha256, size: bytes.byteLength };
-        await this.update(command.binding.nonce, current => ({ ...current, nativeWorkspace: workspace,
-          nativeCheckout: { intent, phase: "materialized", receipt, artifact },
-          nativeCommand: { ...command, phase: "settled", originalTransportSettled: true } }));
+        await this.update(command.binding.nonce, current => {
+          // Recheck after artifact I/O, inside the same serialized write that
+          // publishes materialization. Never overwrite a concurrent Stop fence.
+          if (this.stopped || current.cleanupInProgress || current.nativeCommand?.stopRequested ||
+            current.nativeCommand?.phase !== "dispatching" || current.nativeCheckout?.phase !== "dispatching" ||
+            JSON.stringify(current.nativeCheckout.intent) !== JSON.stringify(intent) ||
+            current.expiresAt === undefined || current.expiresAt <= Date.now() || current.lease.expiresAt <= Date.now()) throw unavailable();
+          return { ...current, nativeWorkspace: workspace,
+            nativeCheckout: { ...current.nativeCheckout, phase: "materialized", receipt, artifact },
+            nativeCommand: { ...current.nativeCommand, phase: "settled", originalTransportSettled: true } };
+        });
+        this.settledBootstrap = freezeBootstrap({ kind: "bootstrap_transport", receipt, artifact });
         this.original = undefined;
         return receipt;
       } catch {
         await this.update(command.binding.nonce, current => ({ ...current,
-          nativeCheckout: { intent, phase: "unknown" }, nativeCommand: { ...command, phase: "unknown" } }));
+          nativeCheckout: { ...current.nativeCheckout, intent, phase: "unknown" }, nativeCommand: { ...current.nativeCommand!, phase: "unknown" } }));
         throw unavailable();
       }
     });
@@ -291,6 +308,11 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
     return await this.awaitClosure();
   }
 
+  bootstrapTransportSettlement(): NativeBootstrapTransportSettlement | undefined {
+    if (this.stopped && !this.original && this.operations.size === 0) return this.settledBootstrap;
+    return undefined;
+  }
+
   async awaitClosure(): Promise<boolean> {
     return this.stopped && !this.original && this.operations.size === 0 && this.settledOriginal?.closure.state === "settled";
   }
@@ -316,6 +338,7 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
   private track<T>(operation: () => Promise<T>): Promise<T> {
     if (this.stopped || this.original || this.operations.size > 0) return Promise.reject(unavailable());
     this.settledOriginal = undefined;
+    this.settledBootstrap = undefined;
     const original = Promise.resolve().then(operation);
     this.operations.add(original);
     const settled = () => { this.operations.delete(original); };
