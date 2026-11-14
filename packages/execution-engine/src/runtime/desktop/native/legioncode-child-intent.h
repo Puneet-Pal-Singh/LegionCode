@@ -1,6 +1,6 @@
 #ifndef LEGIONCODE_CHILD_INTENT_H
 #define LEGIONCODE_CHILD_INTENT_H
-/* Physical child lifetime WAL on the SAME writer inode, not another
+/* Physical child/host-resource WAL on the SAME writer inode, not another
  * writer lock or lifecycle store. No executable, argv, path or credential bytes.
  * Fixed 256-byte records: 224-byte canonical body + SHA-256. Whole records are
  * append-only; an incomplete final record never authorized START. Full corrupt
@@ -52,7 +52,7 @@ typedef struct {
   lc_child_intent header;
   lc_child_intent *intents;
   unsigned char *pending;
-  size_t count, active;
+  size_t count, active, host_active;
   off_t complete_bytes;
 } lc_intent_log;
 
@@ -61,6 +61,12 @@ static inline uint64_t lc_get64(const unsigned char *p) {
 }
 static inline void lc_put64(unsigned char *p, uint64_t n) {
   for (unsigned int i = 8; i > 0; --i) { p[i - 1] = (unsigned char)n; n >>= 8; }
+}
+static inline uint32_t lc_get32(const unsigned char *p) {
+  uint32_t n = 0; for (unsigned int i = 0; i < 4; ++i) n = (n << 8) | p[i]; return n;
+}
+static inline void lc_put32(unsigned char *p, uint32_t n) {
+  for (unsigned int i = 4; i > 0; --i) { p[i - 1] = (unsigned char)n; n >>= 8; }
 }
 static inline bool lc_clock(uint64_t *now) {
   struct timespec t; if (clock_gettime(CLOCK_MONOTONIC, &t) || t.tv_sec < 0) return false;
@@ -191,9 +197,30 @@ static inline bool lc_sync(int fd) {
 static inline bool lc_same_binding(const lc_child_intent *a, const lc_child_intent *b) {
   return memcmp(a->bytes + 24, b->bytes + 24, 48) == 0;
 }
+static inline bool lc_host_digest_valid(const unsigned char *digest) {
+  if (!digest) return false;
+  unsigned char nonzero = 0;
+  for (unsigned int i = 0; i < 32; ++i) nonzero |= digest[i];
+  return nonzero != 0;
+}
+/* U/V payload occupies all remaining body bytes: actor/execution BE u32,
+ * prepare ordinal BE u64, binding/reservation/capability digests (32 each).
+ * These checks validate framing, not privileged UID or cleanup authority. */
+static inline bool lc_host_payload_valid(const lc_child_intent *record) {
+  uint32_t actor = lc_get32(record->bytes + 112), execution = lc_get32(record->bytes + 116);
+  return actor > 0 && actor < UINT32_MAX && execution > 501 && execution < UINT32_MAX && actor != execution &&
+    lc_host_digest_valid(record->bytes + 128) && lc_host_digest_valid(record->bytes + 160) &&
+    lc_host_digest_valid(record->bytes + 192);
+}
 static inline bool lc_record_valid(lc_child_intent *record, size_t ordinal) {
   if (memcmp(record->bytes, "LCNFI001", 8) || lc_get64(record->bytes + 16) != ordinal || !lc_digest(record, true)) return false;
   for (unsigned int i = 9; i < 16; ++i) if (record->bytes[i]) return false;
+  if (record->bytes[8] == 'U' || record->bytes[8] == 'V') {
+    uint64_t prepare = lc_get64(record->bytes + 120);
+    return ordinal > 1 && lc_boot_field(record->bytes + 72) && lc_host_payload_valid(record) &&
+      prepare > 1 && prepare <= LC_INTENT_MAX_RECORDS &&
+      (record->bytes[8] == 'U' ? prepare == ordinal : prepare < ordinal);
+  }
   for (unsigned int i = 144; i < 224; ++i) if (record->bytes[i]) return false;
   if (record->bytes[8] != 'H' && record->bytes[8] != 'I' && record->bytes[8] != 'D') return false;
   if (!lc_boot_field(record->bytes + 72)) return false;
@@ -218,14 +245,18 @@ static inline bool lc_log_read(int fd, lc_intent_log *log, bool allow_tail) {
     if (!lc_io(fd, record.bytes, sizeof(record.bytes), (off_t)(i * sizeof(record.bytes)), false) || !lc_record_valid(&record, i + 1)) goto invalid;
     if (i == 0) { log->header = record; continue; }
     if (!lc_same_binding(&record, &log->header) || record.bytes[8] == 'H') goto invalid;
-    uint64_t intent = lc_get64(record.bytes + 128);
-    if (record.bytes[8] == 'I') {
+    bool host = record.bytes[8] == 'U' || record.bytes[8] == 'V';
+    uint64_t intent = lc_get64(record.bytes + (host ? 120 : 128));
+    if (record.bytes[8] == 'I' || record.bytes[8] == 'U') {
       if (intent != i + 1) goto invalid;
-      log->intents[i] = record; log->pending[i] = 1; log->active++;
+      if (host && log->host_active) goto invalid;
+      log->intents[i] = record; log->pending[i] = record.bytes[8]; log->active++;
+      if (host) log->host_active++;
     } else {
-      if (intent <= 1 || intent > i || !log->pending[intent - 1] ||
-          memcmp(record.bytes + 72, log->intents[intent - 1].bytes + 72, 72)) goto invalid;
+      if (intent <= 1 || intent > i || log->pending[intent - 1] != (host ? 'U' : 'I') ||
+          memcmp(record.bytes + 72, log->intents[intent - 1].bytes + 72, host ? 152 : 72)) goto invalid;
       log->pending[intent - 1] = 0; log->active--;
+      if (host) log->host_active--;
     }
   }
   return true;
@@ -282,11 +313,15 @@ static inline bool lc_intent_acquire(int fd, int root_fd, int namespace_fd, bool
   if (!lc_log_read(fd, &log, true) || !lc_borrowed_header(fd, root_fd, &log.header) ||
       lc_get64(log.header.bytes + 40) != (uint64_t)directory.st_dev ||
       lc_get64(log.header.bytes + 48) != (uint64_t)directory.st_ino) goto out;
+  /* UID/access obligations are never PID intents. Only their privileged owner
+   * may reconcile them; even a new boot is not access-restoration proof. Refuse
+   * before tail mutation or any child exclusion/completion is attempted. */
+  if (log.host_active) goto out;
   /* A partial last record never crossed its fsync/START barrier. Preserve every
    * full record; only this uncommitted tail may be removed under exclusive OFD fence. */
   if (ftruncate(fd, log.complete_bytes) || !lc_sync(fd)) goto out;
   size_t original_count = log.count, ordinal = log.count;
-  for (size_t i = 1; i < original_count; ++i) if (log.pending[i]) {
+  for (size_t i = 1; i < original_count; ++i) if (log.pending[i] == 'I') {
     if (!lc_exclude(&log.intents[i], deadline)) goto out;
     lc_child_intent done = log.intents[i]; done.bytes[8] = 'D';
     if (!lc_append(fd, &done, ++ordinal)) goto out;
@@ -318,14 +353,117 @@ unlock:
   return okay;
 }
 static inline bool lc_intent_complete(int fd, const lc_child_intent *intent) {
-  uint64_t now; if (!lc_clock(&now)) return false;
+  uint64_t now; if (!intent || intent->bytes[8] != 'I' || !lc_clock(&now)) return false;
   uint64_t deadline = now + 4000; if (!lc_journal_lock(fd, deadline, false)) return false;
   lc_intent_log log; bool okay = false;
   if (!lc_log_read(fd, &log, false)) goto unlock;
   uint64_t ordinal = lc_get64(intent->bytes + 128);
-  if (ordinal <= 1 || ordinal > log.count || !log.pending[ordinal - 1] ||
+  if (ordinal <= 1 || ordinal > log.count || log.pending[ordinal - 1] != 'I' ||
       memcmp(log.intents[ordinal - 1].bytes, intent->bytes, sizeof(intent->bytes))) goto out;
   lc_child_intent done = *intent; done.bytes[8] = 'D';
+  okay = lc_append(fd, &done, log.count + 1);
+out:
+  lc_log_free(&log);
+unlock:
+  if (!lc_journal_lock(fd, deadline, true)) okay = false;
+  return okay;
+}
+
+/* Codec-only privileged seam. The caller must already validate the ORIGINAL
+ * OFD, root/namespace, canonical attempt and protected broker reservation. This
+ * code never reacquires/unlocks the writer fence, signals a UID, or derives
+ * cleanup authority from actor-writable WAL bytes. */
+static inline bool lc_host_log_binding(int fd, const lc_child_intent *original_header,
+                                      const lc_intent_log *log, uint32_t actor) {
+  struct stat file;
+  if (getuid() != 0 || geteuid() != 0 || !original_header) return false;
+  lc_child_intent header = *original_header;
+  return lc_record_valid(&header, 1) && header.bytes[8] == 'H' &&
+    memcmp(header.bytes, log->header.bytes, sizeof(header.bytes)) == 0 &&
+    fstat(fd, &file) == 0 && S_ISREG(file.st_mode) && file.st_uid == actor && (file.st_mode & 0777) == 0600 &&
+    lc_get64(header.bytes + 56) == (uint64_t)file.st_dev && lc_get64(header.bytes + 64) == (uint64_t)file.st_ino;
+}
+static inline bool lc_host_current_prepare(const lc_child_intent *intent) {
+  if (!intent || intent->bytes[8] != 'U') return false;
+  uint64_t ordinal = lc_get64(intent->bytes + 120);
+  lc_child_intent record = *intent; unsigned char boot[40];
+  return ordinal <= LC_INTENT_MAX_RECORDS && lc_record_valid(&record, (size_t)ordinal) &&
+    lc_boot(boot) && memcmp(boot, record.bytes + 72, sizeof(boot)) == 0;
+}
+static inline bool lc_host_same_resource(const lc_child_intent *a, const lc_child_intent *b) {
+  return memcmp(a->bytes + 112, b->bytes + 112, 8) == 0 &&
+    memcmp(a->bytes + 128, b->bytes + 128, 96) == 0;
+}
+static inline bool lc_host_resource_begin(int fd, const lc_child_intent *original_header,
+    uint32_t actor, uint32_t execution, const unsigned char binding[32],
+    const unsigned char reservation[32], const unsigned char capability[32], lc_child_intent *intent) {
+  uint64_t now;
+  if (getuid() != 0 || geteuid() != 0 || !original_header || !intent ||
+      !lc_host_digest_valid(binding) || !lc_host_digest_valid(reservation) || !lc_host_digest_valid(capability) ||
+      !lc_clock(&now)) return false;
+  lc_child_intent proposed = *original_header; proposed.bytes[8] = 'U';
+  lc_put32(proposed.bytes + 112, actor); lc_put32(proposed.bytes + 116, execution);
+  memcpy(proposed.bytes + 128, binding, 32); memcpy(proposed.bytes + 160, reservation, 32);
+  memcpy(proposed.bytes + 192, capability, 32);
+  if (!lc_host_payload_valid(&proposed) || !lc_boot(proposed.bytes + 72)) return false;
+  uint64_t deadline = now + 4000; if (!lc_journal_lock(fd, deadline, false)) return false;
+  lc_intent_log log; bool okay = false;
+  if (!lc_log_read(fd, &log, false)) goto unlock;
+  if (!lc_host_log_binding(fd, original_header, &log, actor)) goto out;
+  for (size_t i = 1; i < log.count; ++i) if (log.intents[i].bytes[8] == 'U') {
+    const lc_child_intent *saved = &log.intents[i];
+    if (log.pending[i] == 'U') {
+      if (!lc_host_same_resource(saved, &proposed) || !lc_host_current_prepare(saved)) goto out;
+      *intent = *saved;
+      // A readable prior append may have lost its fsync acknowledgement.
+      okay = lc_sync(fd); goto out;
+    }
+    if (lc_host_same_resource(saved, &proposed)) goto out; // Never reopen a completed reservation.
+  }
+  if (log.count + log.active + 2 > LC_INTENT_MAX_RECORDS) goto out;
+  lc_put64(proposed.bytes + 120, log.count + 1);
+  if (!lc_append(fd, &proposed, log.count + 1)) goto out;
+  *intent = proposed; okay = true;
+out:
+  lc_log_free(&log);
+unlock:
+  if (!lc_journal_lock(fd, deadline, true)) okay = false;
+  return okay;
+}
+static inline bool lc_host_resource_assert(int fd, const lc_child_intent *original_header,
+                                          const lc_child_intent *intent) {
+  uint64_t now;
+  if (getuid() != 0 || geteuid() != 0 || !lc_host_current_prepare(intent) || !lc_clock(&now)) return false;
+  uint64_t deadline = now + 4000; if (!lc_journal_lock(fd, deadline, false)) return false;
+  lc_intent_log log; bool okay = false;
+  if (!lc_log_read(fd, &log, false)) goto unlock;
+  uint64_t ordinal = lc_get64(intent->bytes + 120);
+  okay = lc_host_log_binding(fd, original_header, &log, lc_get32(intent->bytes + 112)) &&
+    ordinal <= log.count && log.pending[ordinal - 1] == 'U' &&
+    memcmp(log.intents[ordinal - 1].bytes, intent->bytes, sizeof(intent->bytes)) == 0;
+  lc_log_free(&log);
+unlock:
+  if (!lc_journal_lock(fd, deadline, true)) okay = false;
+  return okay;
+}
+/* The trusted caller supplies independent protected closure proof BEFORE this
+ * append. Idempotence below certifies only the exact saved U/V pair, never UID
+ * absence, a caller boolean, an arbitrary receipt or an old-boot resource. */
+static inline bool lc_host_resource_complete(int fd, const lc_child_intent *original_header,
+                                            const lc_child_intent *intent) {
+  uint64_t now;
+  if (getuid() != 0 || geteuid() != 0 || !lc_host_current_prepare(intent) || !lc_clock(&now)) return false;
+  uint64_t deadline = now + 4000; if (!lc_journal_lock(fd, deadline, false)) return false;
+  lc_intent_log log; bool okay = false;
+  if (!lc_log_read(fd, &log, false)) goto unlock;
+  uint64_t ordinal = lc_get64(intent->bytes + 120);
+  if (!lc_host_log_binding(fd, original_header, &log, lc_get32(intent->bytes + 112)) || ordinal > log.count ||
+      memcmp(log.intents[ordinal - 1].bytes, intent->bytes, sizeof(intent->bytes))) goto out;
+  // The strict decoder clears a U only after its exact matching V. Re-sync a
+  // readable completed pair before acknowledging an interrupted previous call.
+  if (!log.pending[ordinal - 1]) { okay = lc_sync(fd); goto out; }
+  if (log.pending[ordinal - 1] != 'U') goto out;
+  lc_child_intent done = *intent; done.bytes[8] = 'V';
   okay = lc_append(fd, &done, log.count + 1);
 out:
   lc_log_free(&log);
@@ -341,5 +479,11 @@ static inline bool lc_intent_acquire(int fd, int root, int directory, bool initi
 static inline bool lc_borrowed_header(int fd, int root, lc_child_intent *header) { (void)fd; (void)root; (void)header; return false; }
 static inline bool lc_intent_begin(int fd, int root, pid_t child, lc_child_intent *intent) { (void)fd; (void)root; (void)child; (void)intent; return false; }
 static inline bool lc_intent_complete(int fd, const lc_child_intent *intent) { (void)fd; (void)intent; return false; }
+static inline bool lc_host_resource_begin(int fd, const lc_child_intent *header, uint32_t actor, uint32_t execution,
+    const unsigned char binding[32], const unsigned char reservation[32], const unsigned char capability[32], lc_child_intent *intent) {
+  (void)fd; (void)header; (void)actor; (void)execution; (void)binding; (void)reservation; (void)capability; (void)intent; return false;
+}
+static inline bool lc_host_resource_assert(int fd, const lc_child_intent *header, const lc_child_intent *intent) { (void)fd; (void)header; (void)intent; return false; }
+static inline bool lc_host_resource_complete(int fd, const lc_child_intent *header, const lc_child_intent *intent) { (void)fd; (void)header; (void)intent; return false; }
 #endif
 #endif
