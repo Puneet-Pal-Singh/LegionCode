@@ -139,12 +139,14 @@ export function DesktopLocalWorkspace({ active = true, onPlacementChange, hosted
     onInitializeError: () => setThreadLoadState("error"),
   });
 
-  const workspaceAccessContext = useRef({ client: appServerClient, enabled: active && sdkReady });
-  workspaceAccessContext.current = { client: appServerClient, enabled: active && sdkReady };
+  // An admitted Local metadata selection keeps its original custody when the
+  // view is hidden. Placement changes cannot discard its server-side result.
+  const workspaceAccessContext = useRef({ client: appServerClient, enabled: sdkReady });
+  workspaceAccessContext.current = { client: appServerClient, enabled: sdkReady };
   useEffect(() => {
-    workspaceAccessContext.current = { client: appServerClient, enabled: active && sdkReady };
+    workspaceAccessContext.current = { client: appServerClient, enabled: sdkReady };
     return () => { workspaceAccessContext.current.enabled = false; };
-  }, [appServerClient, active, sdkReady]);
+  }, [appServerClient, sdkReady]);
 
   const projects = useDesktopProjectNavigation({
     client: appServerClient,
