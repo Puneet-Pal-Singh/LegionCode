@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { RuntimeCredentialReferenceSchema } from "@repo/platform-protocol/private/runtime-credential-reference";
+export { RuntimeCredentialReferenceSchema, type RuntimeCredentialReference } from "@repo/platform-protocol/private/runtime-credential-reference";
 import {
   ProviderIdSchema,
   type ProviderConnectionConfig,
@@ -78,19 +80,9 @@ export const CredentialSecretSchema = z.discriminatedUnion("type", [
 ]);
 export type CredentialSecret = z.infer<typeof CredentialSecretSchema>;
 
-export const CredentialAcquisitionSchema = z
-  .object({
-    connectionId: z.string().uuid(),
-    userId: z.string().min(1),
-    providerId: ProviderIdSchema,
-    ownerGeneration: z.number().int().safe().positive(),
-    tokenMaterialVersion: z.number().int().safe().positive(),
-  })
-  .strict();
+export const CredentialAcquisitionSchema = RuntimeCredentialReferenceSchema
+  .extend({ userId: z.string().min(1) }).strict();
 export type CredentialAcquisition = z.infer<typeof CredentialAcquisitionSchema>;
-/** Nonsecret private runtime reference; the canonical admission supplies its owner. */
-export const RuntimeCredentialReferenceSchema = CredentialAcquisitionSchema.omit({ userId: true });
-export type RuntimeCredentialReference = z.infer<typeof RuntimeCredentialReferenceSchema>;
 export type CredentialRefreshClaim = CredentialAcquisition & {
   refreshClaimId: string;
 };

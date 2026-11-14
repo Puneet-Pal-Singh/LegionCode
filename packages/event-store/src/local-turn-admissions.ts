@@ -9,11 +9,19 @@ import { EventStoreError, LocalPersistenceError } from "./errors.js";
 import { createStableEventFingerprint } from "./fingerprint.js";
 import type { AppendEventInput } from "./types.js";
 import { readLocalThreadParents, readLocalThreadRuntimeSummary, type LocalThreadRuntimeScope } from "./local-thread-runtime-summary.js";
+import { RuntimeCredentialReferenceSchema, type RuntimeCredentialReference } from "@repo/platform-protocol/private/runtime-credential-reference";
+import { LocalTurnArtifactScopeSchema } from "./local-turn-artifact-scope.js";
 
 type AdmissionRow = {
   thread_id: string; request_id: string; workspace_id: string; run_id: string;
   turn_id: string; run_attempt_id: string; item_id: string; fingerprint: string;
   run_event_id: string; turn_event_id: string; prompt_event_id: string;
+  credential_acquisition_json: string | null;
+};
+
+export type LocalTurnCredentialScope = {
+  readonly userId: string; readonly workspaceId: string; readonly threadId: string;
+  readonly runId: string; readonly turnId: string; readonly runAttemptId: string;
 };
 
 /** Identity and references only: all product records remain in canonical events. */
@@ -45,6 +53,7 @@ export class LocalTurnAdmissions {
           run_id TEXT NOT NULL UNIQUE, turn_id TEXT NOT NULL UNIQUE, run_attempt_id TEXT NOT NULL UNIQUE, item_id TEXT NOT NULL UNIQUE,
           fingerprint TEXT NOT NULL, run_event_id TEXT NOT NULL UNIQUE,
           turn_event_id TEXT NOT NULL UNIQUE, prompt_event_id TEXT NOT NULL UNIQUE,
+          credential_acquisition_json TEXT,
           PRIMARY KEY(thread_id, request_id)
         )`);
         this.database.prepare("INSERT INTO metadata(key,value) VALUES ('turn_admission_index_v1','1')").run();
@@ -63,13 +72,13 @@ export class LocalTurnAdmissions {
     }
   }
 
-  admit(input: TurnAdmission): { admission: TurnAdmission; newlyAdmitted: boolean } {
-    return this.database.transaction(() => this.admitWithin(input)).immediate();
+  admit(input: TurnAdmission, credentialAcquisition?: RuntimeCredentialReference | null): { admission: TurnAdmission; newlyAdmitted: boolean } {
+    return this.database.transaction(() => this.admitWithin(input, credentialAcquisition)).immediate();
   }
 
   /** Same-writer synchronous composition seam; the caller owns the entire
    * immediate transaction, including any queue/preparation compare-and-swap. */
-  admitWithin(input: TurnAdmission): { admission: TurnAdmission; newlyAdmitted: boolean } {
+  admitWithin(input: TurnAdmission, credentialAcquisition?: RuntimeCredentialReference | null): { admission: TurnAdmission; newlyAdmitted: boolean } {
     if (!this.database.inTransaction)
       throw new LocalPersistenceError("unavailable", "Atomic local admission requires the existing SQLite writer transaction");
     const candidate = TurnAdmissionSchema.parse(input);
@@ -79,6 +88,11 @@ export class LocalTurnAdmissions {
       if (existing.fingerprint !== fingerprint) throw new EventStoreError("idempotency_conflict", "Admission request key has different content or configuration");
       return { admission: this.reconstruct(existing), newlyAdmitted: false };
     }
+    // Retries above retain the original private capture, even when today's
+    // credential selection differs. Capture is not part of public request identity.
+    const credential = credentialAcquisition == null ? null : RuntimeCredentialReferenceSchema.parse(credentialAcquisition);
+    if (credential && (isDelegated(candidate) || credential.providerId !== candidate.run.providerId))
+      throw new EventStoreError("idempotency_conflict", "Credential reference does not match the Native admission");
     this.assertActiveOwnedThread(candidate);
     const prior = this.database.prepare("SELECT * FROM turn_admissions WHERE thread_id = ?").all(candidate.run.threadId) as AdmissionRow[];
     for (const row of prior) {
@@ -110,9 +124,10 @@ export class LocalTurnAdmissions {
     const run = this.append({ ...base, type: "run.created", payload: { run: candidate.run }, idempotencyKey: `admission:${candidate.run.id}:run` });
     const turn = this.append({ ...base, type: "turn.started", payload: { turn: candidate.turn }, idempotencyKey: `admission:${candidate.run.id}:turn` });
     const prompt = this.append({ ...base, type: "item.completed", payload: { item: candidate.userMessage }, idempotencyKey: `admission:${candidate.run.id}:prompt` });
-    this.database.prepare(`INSERT INTO turn_admissions(thread_id,request_id,workspace_id,run_id,turn_id,run_attempt_id,item_id,fingerprint,run_event_id,turn_event_id,prompt_event_id)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(candidate.run.threadId, candidate.clientRequestId, candidate.run.workspaceId,
-        candidate.run.id, candidate.turn.id, candidate.runAttemptId, candidate.userMessage.id, fingerprint, run.eventId, turn.eventId, prompt.eventId);
+    this.database.prepare(`INSERT INTO turn_admissions(thread_id,request_id,workspace_id,run_id,turn_id,run_attempt_id,item_id,fingerprint,run_event_id,turn_event_id,prompt_event_id,credential_acquisition_json)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(candidate.run.threadId, candidate.clientRequestId, candidate.run.workspaceId,
+        candidate.run.id, candidate.turn.id, candidate.runAttemptId, candidate.userMessage.id, fingerprint, run.eventId, turn.eventId, prompt.eventId,
+        credential === null ? null : JSON.stringify(credential));
     const saved = this.findRow(candidate.run.threadId, candidate.clientRequestId);
     if (!saved) throw corrupt("Admission receipt was not stored");
     const admission = this.reconstruct(saved);
@@ -131,6 +146,30 @@ export class LocalTurnAdmissions {
     TurnIdSchema.parse(turnId);
     const row = this.database.prepare("SELECT * FROM turn_admissions WHERE turn_id = ?").get(turnId) as AdmissionRow | undefined;
     return row ? this.reconstruct(row) : null;
+  }
+
+  /** Private exact-attempt metadata. A legacy NULL is not execution authority. */
+  readCredentialAcquisition(input: LocalTurnCredentialScope): Readonly<RuntimeCredentialReference> | null {
+    const scope = LocalTurnArtifactScopeSchema.parse(input);
+    return this.database.transaction(() => {
+      const row = this.database.prepare("SELECT * FROM turn_admissions WHERE turn_id = ?").get(scope.turnId) as AdmissionRow | undefined;
+      if (!row) throw new EventStoreError("idempotency_conflict", "Credential admission scope does not match canonical history");
+      const admission = this.reconstruct(row);
+      if (admission.run.userId !== scope.userId || admission.run.workspaceId !== scope.workspaceId ||
+          admission.run.threadId !== scope.threadId || admission.run.id !== scope.runId ||
+          admission.turn.id !== scope.turnId || admission.runAttemptId !== scope.runAttemptId)
+        throw new EventStoreError("idempotency_conflict", "Credential admission scope does not match canonical history");
+      readLocalOwnedThread(this.database, scope, false);
+      return this.parseCredentialAcquisition(row, admission);
+    })();
+  }
+
+  /** Lost-ACK adoption must match the original four-field capture exactly. */
+  matchesCredentialAcquisition(scope: LocalTurnCredentialScope, expected: RuntimeCredentialReference): boolean {
+    const captured = RuntimeCredentialReferenceSchema.parse(expected);
+    const saved = this.readCredentialAcquisition(scope);
+    return saved !== null && saved.connectionId === captured.connectionId && saved.providerId === captured.providerId &&
+      saved.ownerGeneration === captured.ownerGeneration && saved.tokenMaterialVersion === captured.tokenMaterialVersion;
   }
 
   readThreadSummary(input: LocalThreadRuntimeScope) {
@@ -250,9 +289,12 @@ export class LocalTurnAdmissions {
   }
 
   private validateSchema(): void {
-    const columns = this.database.pragma("table_info(turn_admissions)") as { name: string; type: string; pk: number; notnull: number }[];
+    const columns = this.database.pragma("table_info(turn_admissions)") as { name: string; type: string; pk: number; notnull: number; dflt_value: unknown }[];
     const expected = ["thread_id", "request_id", "workspace_id", "run_id", "turn_id", "run_attempt_id", "item_id", "fingerprint", "run_event_id", "turn_event_id", "prompt_event_id"];
-    if (columns.length !== expected.length || expected.some((name) => !columns.some((column) => column.name === name && column.type.toUpperCase() === "TEXT" && column.notnull === 1))
+    const credential = columns.find((column) => column.name === "credential_acquisition_json");
+    if (columns.length !== expected.length + 1 || !credential || credential.type.toUpperCase() !== "TEXT" ||
+        credential.notnull !== 0 || credential.pk !== 0 || credential.dflt_value !== null ||
+        expected.some((name) => !columns.some((column) => column.name === name && column.type.toUpperCase() === "TEXT" && column.notnull === 1))
       || columns.find(({ name }) => name === "thread_id")?.pk !== 1 || columns.find(({ name }) => name === "request_id")?.pk !== 2
       || columns.filter(({ pk }) => pk > 0).length !== 2) throw corrupt("Admission index columns or primary key are incompatible");
     const indexes = this.database.pragma("index_list(turn_admissions)") as { name: string; unique: number; partial: number }[];
@@ -289,8 +331,20 @@ export class LocalTurnAdmissions {
       const lifecycleRows = this.database.prepare("SELECT event_json FROM events WHERE family = 'lifecycle' AND turn_id = ?").iterate(row.turn_id) as Iterable<{ event_json: string }>;
       for (const saved of lifecycleRows) this.assertLifecycleIdentity(LifecycleEventSchema.parse(JSON.parse(saved.event_json)));
       if (admission.run.id !== row.run_id || admission.turn.id !== row.turn_id || admission.userMessage.id !== row.item_id || requestFingerprint(admission) !== row.fingerprint) throw corrupt("Admission fingerprint is inconsistent");
+      this.parseCredentialAcquisition(row, admission);
       return admission;
     } catch { throw corrupt("Admission index does not match canonical history"); }
+  }
+
+  private parseCredentialAcquisition(row: AdmissionRow, admission: TurnAdmission): Readonly<RuntimeCredentialReference> | null {
+    if (row.credential_acquisition_json === null) return null;
+    try {
+      if (typeof row.credential_acquisition_json !== "string") throw corrupt("Credential reference is not stored text");
+      const reference = RuntimeCredentialReferenceSchema.parse(JSON.parse(row.credential_acquisition_json));
+      if (isDelegated(admission) || reference.providerId !== admission.run.providerId)
+        throw corrupt("Credential reference differs from canonical Native ownership");
+      return Object.freeze(reference);
+    } catch { throw corrupt("Stored credential reference does not match its canonical Native admission"); }
   }
 }
 
@@ -304,3 +358,7 @@ function requestFingerprint({ run, turn, userMessage }: TurnAdmission): string {
   })).digest("hex");
 }
 function corrupt(message: string): LocalPersistenceError { return new LocalPersistenceError("corrupt", message); }
+function isDelegated(admission: TurnAdmission): boolean {
+  return ("harnessSelection" in admission.run && admission.run.harnessSelection !== undefined) ||
+    (admission.userMessage.type === "user_message" && admission.userMessage.content.harnessSelection !== undefined);
+}

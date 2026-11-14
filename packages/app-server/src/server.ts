@@ -660,6 +660,22 @@ async function dispatch(
       }
       return composition.localWorkspaceFilesService.readFile(request.params);
     }
+    case "workspace/localProjects": {
+      if (composition.environment !== "local" || !composition.workspaceService || !composition.threadService) {
+        throw new AppServerOperationError(503, "server_unavailable", "Local project navigation is unavailable");
+      }
+      const threads = await composition.threadService.listProjectMetadata();
+      const navigation = await composition.workspaceService.listProjects(threads.map((thread) => thread.workspaceId));
+      const visible = new Set(navigation.projects.map((project) => project.workspaceId));
+      return { ...navigation, threads: threads.filter((thread) => visible.has(thread.workspaceId)) };
+    }
+    case "workspace/forgetLocalProject": {
+      if (composition.environment !== "local" || !composition.workspaceService) {
+        throw new AppServerOperationError(503, "server_unavailable", "Local project navigation is unavailable");
+      }
+      await composition.workspaceService.forgetProject(request.params.workspaceId);
+      return { forgotten: true };
+    }
     case "workspace/current": {
       if (!composition.workspaceService) throw new Error("unsupported");
       return { grant: await composition.workspaceService.getCurrent() };
@@ -670,9 +686,17 @@ async function dispatch(
       }
       return { grant: await composition.workspaceService.grant({ path: request.params.path }) };
     }
+    case "workspace/grants": {
+      if (composition.environment !== "local" || !composition.workspaceService) throw new Error("unsupported");
+      return { grants: await composition.workspaceService.list() };
+    }
+    case "workspace/selectGrant": {
+      if (composition.environment !== "local" || !composition.workspaceService) throw new Error("unsupported");
+      return { grant: await composition.workspaceService.select(request.params.workspaceId) };
+    }
     case "workspace/revoke": {
       if (!composition.workspaceService) throw new Error("unsupported");
-      await composition.workspaceService.revoke();
+      await composition.workspaceService.revoke(request.params.workspaceId);
       return { revoked: true };
     }
     case "thread/list": {
