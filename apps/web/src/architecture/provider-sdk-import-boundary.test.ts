@@ -36,6 +36,7 @@ const ALLOWED_IMPORT_FILES = new Set([
   "hooks/conversationScope.ts",
   "hooks/useConversationLifecycleProjections.ts",
   "hooks/useTurnLifecycleProjection.ts",
+  "hooks/useAuthenticatedConversationLifecycleClient.ts",
   "lib/session-sidebar-selectors.ts",
   "lib/chat-request.ts",
   "lib/provider-recovery.ts",
