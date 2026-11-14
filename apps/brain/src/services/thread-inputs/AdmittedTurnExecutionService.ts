@@ -13,11 +13,11 @@ import { RunAdmissionService } from "../../runtime/RunAdmissionService";
 import type { RunAdmissionLease } from "../../runtime/RunAdmissionLimiterClient";
 import {
   executeViaRunEngineDurableObject,
-  fetchRunProviderModels,
   fetchRunRuntimeRoute,
 } from "../../controllers/chat-runtime-helpers";
 import { mapAgentIdToType } from "../../controllers/chat-request-helpers";
-import { resolveChatModelMetadata } from "../chat/ChatModelMetadataResolution";
+import { resolveCachedChatModelMetadata } from "../chat/ChatModelMetadataResolution";
+import { createPostgresProviderConfigService } from "../providers/stores/PostgresStoreFactory";
 import { validateChatReasoningEffort } from "../chat/ChatReasoningEffortPolicy";
 import type { ChatModelMetadata } from "../chat/ChatModelMetadataResolver";
 import { withTurnAdmissionRepository } from "../turn-admissions/TurnAdmissionPersistenceFactory";
@@ -63,19 +63,13 @@ export async function prepareAdmittedTurnModel(input: {
   readonly workspaceId: string;
   readonly configuration: AdmittedTurnExecution["configuration"];
 }): Promise<ChatModelMetadata> {
-  const modelMetadata = await resolveChatModelMetadata({
+  const modelMetadata = await resolveCachedChatModelMetadata({
     providerId:
       input.configuration.providerId ?? input.run.providerId ?? undefined,
     modelId: input.configuration.modelId ?? input.run.modelId ?? undefined,
-    fetchModels: (providerId, query) =>
-      fetchRunProviderModels(input.env, {
-        runId: input.run.id,
-        userId: input.userId,
-        workspaceId: input.workspaceId,
-        providerId,
-        query,
-        requestedBackend: "execution-engine-v1",
-      }),
+    readCachedModel: (providerId, modelId) => createPostgresProviderConfigService(
+      input.env, input.userId, input.workspaceId, input.run.id,
+    ).getCachedModel(providerId, modelId),
   });
   const reasoningEffort = input.configuration.reasoningEffort;
   if (reasoningEffort) {

@@ -6,11 +6,11 @@ import { mapAgentIdToType } from "../../controllers/chat-request-helpers";
 import {
   executeViaRunEngineDurableObject,
   extractPromptFromMessages,
-  fetchRunProviderModels,
   resolveRuntimeTarget,
 } from "../../controllers/chat-runtime-helpers";
 import { RunAdmissionService } from "../../runtime/RunAdmissionService";
-import { resolveChatModelMetadata } from "../../services/chat/ChatModelMetadataResolution";
+import { resolveCachedChatModelMetadata } from "../../services/chat/ChatModelMetadataResolution";
+import { createPostgresProviderConfigService } from "../../services/providers/stores/PostgresStoreFactory";
 import type { ChatModelMetadata } from "../../services/chat/ChatModelMetadataResolver";
 import { validateChatReasoningEffort } from "../../services/chat/ChatReasoningEffortPolicy";
 import {
@@ -110,19 +110,11 @@ export async function submitHostedChat(
     const executionStartedAt = Date.now();
     const useCase = new HandleChatRequest(env);
     const trustedModelMetadata: ChatModelMetadata =
-      await resolveChatModelMetadata({
+      await resolveCachedChatModelMetadata({
         providerId: body.providerId,
         modelId: body.modelId,
-        fetchModels: (_providerId, query) =>
-          fetchRunProviderModels(env, {
-            runId,
-            userId,
-            workspaceId,
-            providerId: _providerId,
-            query,
-            requestedBackend:
-              body.orchestratorBackend ?? "execution-engine-v1",
-          }),
+        readCachedModel: (providerId, modelId) =>
+          createPostgresProviderConfigService(env, userId, workspaceId, runId).getCachedModel(providerId, modelId),
       });
 
     const reasoningEffortError = validateChatReasoningEffort(
