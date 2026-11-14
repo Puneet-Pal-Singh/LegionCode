@@ -39,12 +39,16 @@ static inline xpc_object_t lc_host_recovery_reply(const lc_host_approval *approv
 /* The exact actor has already passed kernel-backed XPC code/bundle checks.
  * This endpoint can ONLY observe or seal; it cannot release any command gate. */
 static inline xpc_object_t lc_host_recovery(int state, const lc_host_approval *approval,
-    xpc_object_t request, lc_host_scope *scopes, bool seal) {
+    xpc_object_t request, lc_host_scope *scopes, bool seal, const lc_host_record_scan *history) {
   static const char *const fields[] = { "version", "operation", "generation", "workspaceId", "threadId", "runId", "turnId", "runAttemptId",
     "rootDevice", "rootInode", "namespaceDevice", "namespaceInode", "fenceDevice", "fenceInode", "resourceId", "resourceGeneration" };
   unsigned char scope[32]; lc_host_scope_record record; char name[80]; bool present;
   if (!lc_host_fields(request, fields, sizeof(fields) / sizeof(fields[0])) || !lc_host_request_scope(request, scope)) return lc_host_reply("unavailable", "invalidRequest");
-  if (!lc_host_record_find(state, approval->actor, scope, &record, name, &present)) return lc_host_reply("unknown", "protectedResourceRecordInvalid");
+  if (!history || history->phase != LC_HOST_SCAN_COMPLETE || history->actor != approval->actor ||
+      memcmp(history->scope, scope, 32)) return lc_host_reply("unknown", "protectedResourceRecordInvalid");
+  present = history->present; record = history->found; strcpy(name, history->name);
+  if (present && (!lc_host_record_read(state, name, &record) || memcmp(&record, &history->found, sizeof(record))))
+    return lc_host_reply("unknown", "protectedResourceRecordInvalid");
   bool reserved;
   if (!lc_host_reservation_seen(state, approval, scope, &reserved)) return lc_host_reply("unknown", "protectedReservationInvalid");
   if (present && record.purpose != LC_HOST_RESOURCE_NATIVE) return lc_host_reply("unavailable", "resourcePurposeConflict");

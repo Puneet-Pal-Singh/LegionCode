@@ -46,7 +46,7 @@ static xpc_object_t scope_reply(lc_host_scope *scope) {
   xpc_dictionary_set_data(reply, "stderr", scope->stderr_bytes, scope->stderr_size > 32768 ? 32768 : scope->stderr_size);
   return reply;
 }
-static xpc_object_t serve_request(xpc_connection_t peer, xpc_object_t request) {
+static xpc_object_t serve_request(xpc_connection_t peer, xpc_object_t request, const lc_host_record_scan *history) {
   char operation[40], version[8], generation[65];
   if (!lc_host_authorize(&approval, peer, request) || !lc_host_get(request, "version", version, sizeof(version)) ||
       strcmp(version, "1") || !lc_host_get(request, "operation", operation, sizeof(operation))) return lc_host_reply("unavailable", "unauthorized");
@@ -64,12 +64,15 @@ static xpc_object_t serve_request(xpc_connection_t peer, xpc_object_t request) {
     return lc_host_setup_request(&approval, request, operation);
   if (!approval.qualified || !lc_host_writer_supported() ||
       !lc_host_get(request, "generation", generation, sizeof(generation)) || strcmp(generation, approval.generation)) return lc_host_reply("unavailable", "serviceGenerationChanged");
-  if (!strcmp(operation, "recoveryDescribe") || !strcmp(operation, "recoverySeal"))
-    return lc_host_recovery(state_directory, &approval, request, scopes, !strcmp(operation, "recoverySeal"));
+  if (!strcmp(operation, "recoveryDescribe") || !strcmp(operation, "recoverySeal")) {
+    if (!history) return NULL;
+    return lc_host_recovery(state_directory, &approval, request, scopes, !strcmp(operation, "recoverySeal"), history);
+  }
   if (!strcmp(operation, "prepareScope")) {
+    if (!history) return NULL;
     for (size_t i = 0; i < LC_HOST_MAX_SCOPES; i++) {
       if (scopes[i].used) continue;
-      if (!lc_host_scope_open(state_directory, &approval, request, &scopes[i])) return lc_host_reply("unknown", "scopePreparationUnconfirmed");
+      if (!lc_host_scope_open(state_directory, &approval, request, &scopes[i], history)) return lc_host_reply("unknown", "scopePreparationUnconfirmed");
       owners[i] = peer; xpc_retain(peer); return scope_reply(&scopes[i]);
     }
     return lc_host_reply("unavailable", "resourceLimit");
@@ -130,6 +133,58 @@ static xpc_object_t serve_request(xpc_connection_t peer, xpc_object_t request) {
   return lc_host_reply("unavailable", "unknownOperation");
 }
 
+/* Pending admission/discovery owns the original XPC request (including original
+ * FD rights) and reply envelope. It is not another attempt, writer or registry.
+ * No effect is retried/reconstructed; disconnect cancels before provisioning. */
+typedef struct {
+  bool used;
+  xpc_connection_t peer; xpc_object_t request, envelope;
+  lc_host_record_scan history;
+} lc_host_history_query;
+static lc_host_history_query history_queries[LC_HOST_MAX_SCOPES];
+static size_t history_cursor;
+static void send_reply(xpc_connection_t peer, xpc_object_t envelope, xpc_object_t reply) {
+  xpc_dictionary_apply(reply, ^bool(const char *key, xpc_object_t value) { xpc_dictionary_set_value(envelope, key, value); return true; });
+  xpc_connection_send_message(peer, envelope); xpc_release(envelope); xpc_release(reply);
+}
+static void history_drop(lc_host_history_query *query) {
+  (void)lc_host_scan_close(&query->history);
+  if (query->request) xpc_release(query->request);
+  if (query->envelope) xpc_release(query->envelope);
+  if (query->peer) xpc_release(query->peer);
+  memset(query, 0, sizeof(*query));
+}
+static void history_begin(xpc_connection_t peer, xpc_object_t request, xpc_object_t envelope) {
+  unsigned char scope[32];
+  if (!lc_host_request_scope(request, scope)) { send_reply(peer, envelope, lc_host_reply("unavailable", "invalidRequest")); return; }
+  for (size_t i = 0; i < LC_HOST_MAX_SCOPES; i++) {
+    lc_host_history_query *query = &history_queries[i]; if (query->used) continue;
+    memset(query, 0, sizeof(*query));
+    if (!lc_host_scan_begin(state_directory, approval.actor, scope, &query->history)) {
+      send_reply(peer, envelope, lc_host_reply("unknown", "protectedResourceRecordInvalid")); return;
+    }
+    query->used = true; query->peer = peer; query->request = request; query->envelope = envelope;
+    xpc_retain(peer); xpc_retain(request); return;
+  }
+  send_reply(peer, envelope, lc_host_reply("unavailable", "historyQueryLimit"));
+}
+static void history_tick(void) {
+  uint64_t start, now; if (!lc_host_monotonic(&start)) return;
+  size_t visited = 0, reads = 0;
+  while (visited++ < LC_HOST_MAX_SCOPES * 8U && reads < 8) {
+    if (!lc_host_monotonic(&now) || now - start >= 2) return;
+    lc_host_history_query *query = &history_queries[history_cursor++ % LC_HOST_MAX_SCOPES];
+    if (!query->used) continue;
+    lc_host_scan_step(state_directory, &query->history); reads++;
+    if (query->history.phase == LC_HOST_SCAN_PENDING) continue;
+    xpc_object_t reply = query->history.phase == LC_HOST_SCAN_COMPLETE ?
+      serve_request(query->peer, query->request, &query->history) : lc_host_reply("unknown", "protectedResourceRecordInvalid");
+    if (!reply) reply = lc_host_reply("unknown", "protectedResourceRecordInvalid");
+    xpc_object_t original_envelope = query->envelope; query->envelope = NULL;
+    send_reply(query->peer, original_envelope, reply); history_drop(query);
+  }
+}
+
 static int serve(void) {
   if (getuid() != 0 || geteuid() != 0 || !lc_host_load_approval(&approval)) return 78;
   /* Setup-created roots only. Starting/health checking never installs accounts,
@@ -149,6 +204,8 @@ static int serve(void) {
     xpc_connection_set_target_queue(peer, queue);
     xpc_connection_set_event_handler(peer, ^(xpc_object_t request) {
       if (xpc_get_type(request) == XPC_TYPE_ERROR) {
+        for (size_t i = 0; i < LC_HOST_MAX_SCOPES; i++)
+          if (history_queries[i].used && history_queries[i].peer == peer) history_drop(&history_queries[i]);
         for (size_t i = 0; i < LC_HOST_MAX_SCOPES; i++) if (owners[i] == peer && scopes[i].used) {
           scopes[i].owner_disconnected = true;
           if (!scopes[i].released) (void)lc_host_scope_seal(state_directory, &scopes[i]);
@@ -156,10 +213,10 @@ static int serve(void) {
         return;
       }
       if (xpc_get_type(request) != XPC_TYPE_DICTIONARY) { xpc_connection_cancel(peer); return; }
-      xpc_object_t reply = serve_request(peer, request), envelope = xpc_dictionary_create_reply(request);
-      if (!envelope) { xpc_release(reply); return; }
-      xpc_dictionary_apply(reply, ^bool(const char *key, xpc_object_t value) { xpc_dictionary_set_value(envelope, key, value); return true; });
-      xpc_connection_send_message(peer, envelope); xpc_release(envelope); xpc_release(reply);
+      xpc_object_t reply = serve_request(peer, request, NULL), envelope = xpc_dictionary_create_reply(request);
+      if (!envelope) { if (reply) xpc_release(reply); return; }
+      if (!reply) { history_begin(peer, request, envelope); return; }
+      send_reply(peer, envelope, reply);
     });
     xpc_connection_resume(peer);
   });
@@ -168,6 +225,7 @@ static int serve(void) {
   dispatch_source_set_timer(timer, DISPATCH_TIME_NOW, 20000000, 1000000);
   dispatch_source_set_event_handler(timer, ^{
     for (size_t i = 0; i < LC_HOST_MAX_SCOPES; i++) lc_host_scope_tick(state_directory, &scopes[i]);
+    history_tick();
   });
   dispatch_resume(timer); xpc_connection_resume(listener); dispatch_main();
 }

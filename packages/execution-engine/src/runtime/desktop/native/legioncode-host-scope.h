@@ -70,7 +70,7 @@ static inline bool lc_host_command_seen(lc_host_scope *scope, const char *id) {
   return false;
 }
 static inline bool lc_host_scope_open(int state, const lc_host_approval *approval, xpc_object_t request,
-                                     lc_host_scope *scope) {
+                                     lc_host_scope *scope, const lc_host_record_scan *history) {
   static const char *const fields[] = { "version", "operation", "generation", "workspaceId", "threadId", "runId",
     "turnId", "runAttemptId", "policy", "policyGeneration", "rootFd", "fenceFd", "namespaceFd", LC_HOST_METADATA_FIELDS };
   if (!lc_host_fields(request, fields, sizeof(fields) / sizeof(fields[0])) || !lc_host_writer_supported()) return false;
@@ -96,9 +96,10 @@ static inline bool lc_host_scope_open(int state, const lc_host_approval *approva
       lc_host_beneath(scope->record.namespace_path, scope->record.root_path)) goto unused;
   if (!lc_host_metadata_read(request, &scope->record.metadata) ||
       !lc_host_metadata_open(&scope->record.metadata, &scope->metadata_pins, scope->record.root_path, scope->root)) goto unused;
-  lc_host_scope_record previous; char previous_name[80]; bool present, reserved;
-  if (!lc_host_request_scope(request, scope->record.binding.scope_sha256) ||
-      !lc_host_record_find(state, approval->actor, scope->record.binding.scope_sha256, &previous, previous_name, &present) || present ||
+  bool reserved;
+  if (!lc_host_request_scope(request, scope->record.binding.scope_sha256) || !history ||
+      history->phase != LC_HOST_SCAN_COMPLETE || history->actor != approval->actor || history->present ||
+      memcmp(history->scope, scope->record.binding.scope_sha256, 32) ||
       !lc_host_reservation_seen(state, approval, scope->record.binding.scope_sha256, &reserved) || reserved) goto unused;
   unsigned char capability[32]; arc4random_buf(capability, sizeof(capability));
   lc_host_hex(capability, sizeof(capability), scope->capability, sizeof(scope->capability));
