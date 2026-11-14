@@ -84,6 +84,8 @@ export interface QualificationNamespaceIntent {
   identity?: z.infer<typeof NativeCommandIdentitySchema>;
   stopRequested?: true;
   stopControlSettled?: true;
+  /** Durable creator seal; later Stop requests are read-only, never new loans. */
+  controlAdmissionClosed?: true;
   payloadReady?: true;
   receipt?: QualificationNamespaceReceipt;
   receiptSha256?: string;
