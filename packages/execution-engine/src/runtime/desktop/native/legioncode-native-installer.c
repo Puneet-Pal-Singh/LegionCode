@@ -1,6 +1,7 @@
 /* Invoked only by the explicitly installed Mac package, never by a readiness
  * probe. This stages the existing broker; it cannot qualify agent execution. */
 #include "legioncode-host-approval.h"
+#include "legioncode-native-installer-node.h"
 #include <fts.h>
 
 #define LC_INSTALL_APP "/Library/Application Support/LegionCode/Applications/LegionCode Desktop.app"
@@ -244,7 +245,28 @@ static int install_stage(void) {
   return okay ? 0 : 74;
 }
 
+#include "legioncode-native-installer-configure.h"
+
 int main(int argc, char **argv) {
+  if (argc == 6 && !strcmp(argv[1], "--configure")) return install_configure(argv[2], argv[3], argv[4], argv[5]);
+  if (argc == 4 && !strcmp(argv[1], "--inspect-toolchain")) {
+    if (!getuid() || geteuid() != getuid()) return 77;
+    uid_t actor = getuid();
+    int node = cfg_source_open(argv[2], actor, false), npm = cfg_source_open(argv[3], actor, true);
+    lc_install_copy_budget budget = { actor, 0, 0 };
+    bool okay = node >= 0 && npm >= 0 && cfg_selected_node_valid(argv[2], node, actor, &budget) &&
+      cfg_validate_tree(npm, &budget) && cfg_npm_package(npm, actor);
+    if (node >= 0 && close(node)) okay = false;
+    if (npm >= 0 && close(npm)) okay = false;
+    return okay ? 0 : 77;
+  }
+  if (argc == 3 && !strcmp(argv[1], "--inspect-node")) {
+    if (!getuid() || geteuid() != getuid() || !lc_host_absolute(argv[2])) return 77;
+    int fd = open(argv[2], O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK);
+    bool okay = fd >= 0 && install_node_dependencies(fd);
+    if (fd >= 0 && close(fd)) okay = false;
+    return okay ? 0 : 77;
+  }
   if (argc == 2 && !strcmp(argv[1], "--preflight")) return install_preflight();
   if (argc == 2 && !strcmp(argv[1], "--stage")) return install_stage();
   return 64;

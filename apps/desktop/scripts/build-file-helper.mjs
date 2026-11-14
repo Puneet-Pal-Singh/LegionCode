@@ -301,6 +301,8 @@ export async function buildNativeFileHelper(
     args.push(...sources);
     if (["legioncode-host-broker", "legioncode-native-installer"].includes(helperName))
       args.push("-framework", "CoreFoundation", "-framework", "Security");
+    if (helperName === "legioncode-native-installer")
+      args.push("-framework", "OpenDirectory", "-framework", "JavaScriptCore");
     args.push("-o", temporaryExecutable);
     try {
       await execute(compiler, args, {
