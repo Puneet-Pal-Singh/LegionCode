@@ -152,6 +152,22 @@ describe("conversation turns", () => {
         data: { metadata: { canonicalIdentity, phase: "commentary" } },
       },
       {
+        id: "steer-1",
+        role: "user",
+        content: "Also inspect the package scripts.",
+        data: { metadata: { canonicalIdentity } },
+      },
+      {
+        id: "other-user",
+        role: "user",
+        content: "A different canonical turn.",
+        data: {
+          metadata: {
+            canonicalIdentity: { ...canonicalIdentity, turnId: "trn_metadata02" },
+          },
+        },
+      },
+      {
         id: "assistant-1",
         role: "assistant",
         content: "The README is clear.",
@@ -159,12 +175,18 @@ describe("conversation turns", () => {
       },
     ] as ConversationMessage[]);
 
-    expect(turns).toHaveLength(1);
+    expect(turns).toHaveLength(3);
     expect(turns[0]).toMatchObject({
       turnId: "trn_metadata01",
       userMessage: { id: "user-1" },
-      assistantMessages: [{ id: "commentary-1" }, { id: "assistant-1" }],
+      assistantMessages: [{ id: "commentary-1" }],
     });
+    expect(turns[1]).toMatchObject({
+      turnId: "trn_metadata01",
+      userMessage: { id: "steer-1" },
+      assistantMessages: [{ id: "assistant-1" }],
+    });
+    expect(turns[2]?.assistantMessages).toBeUndefined();
   });
 
 });
