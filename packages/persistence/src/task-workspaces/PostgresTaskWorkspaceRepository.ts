@@ -240,7 +240,7 @@ export class PostgresTaskWorkspaceRepository
     const row = result.rows[0];
     if (
       !row ||
-      !["ready", "active"].includes(row.status ?? "") ||
+      !["ready", "active", "settled"].includes(row.status ?? "") ||
       row.issuance_state !== "ready" ||
       !row.execution_domain_digest ||
       !row.execution_domain_json

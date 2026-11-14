@@ -93,15 +93,6 @@ export class TaskCheckoutIssuer {
     private readonly sessionFactory: SecureExecutionSessionFactory = (
       input,
     ) => {
-      // The current client resume endpoint can provision a replacement. Keep
-      // persisted sessions unavailable until its original-only owner port joins.
-      if (input.persistedReference)
-        throw new DomainError(
-          "TASK_CHECKOUT_RESUME_UNAVAILABLE",
-          "Original-only secure checkout recovery is unavailable.",
-          503,
-          false,
-        );
       return new SecureExecutionSessionClient(
         env,
         input.sessionId,
@@ -727,6 +718,7 @@ export class TaskCheckoutIssuer {
         leaseId: checkout.leaseId,
         sandboxId: checkout.sandboxId,
         generation: checkout.generation,
+        executionDomainDigest: persistedDomain.digest,
       },
     });
     let handle: SecureExecutionSessionHandle;

@@ -209,6 +209,11 @@ describe("TaskCheckoutIssuer", () => {
           leaseId: first.checkout.leaseId,
           sandboxId: first.checkout.sandboxId,
           generation: first.checkout.generation,
+          executionDomainDigest: (
+            await repository.getCheckoutExecutionDomain(
+              first.checkout.checkoutId,
+            )
+          ).digest,
         },
       }),
     );

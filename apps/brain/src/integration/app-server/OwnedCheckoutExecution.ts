@@ -1,6 +1,7 @@
+import { snapshotExecutionDomain, executionDomainDigest } from "@repo/worker-protocol/private/execution-domain";
 import { AppServerOperationError } from "@legioncode/app-server/server";
 import { RunAttemptIdSchema, RunIdSchema, workspaceIdFromExternalId } from "@repo/platform-protocol";
-import { PostgresTaskWorkspaceRepository } from "@repo/persistence";
+import { PostgresTaskWorkspaceRepository, type TaskCheckoutIssuanceRepository } from "@repo/persistence";
 import { resolveExecutionScope } from "../../controllers/chat-runtime-helpers";
 import { withRunRepository } from "../../services/runs/RunPersistenceFactory";
 import { withTurnAdmissionRepository } from "../../services/turn-admissions/TurnAdmissionPersistenceFactory";
@@ -78,19 +79,52 @@ export async function resolveOwnedCheckoutExecution(
     workspaceId: checkout.workspaceId,
     root: checkout.filesystemRoot,
   });
-  const sessionClient = new SecureExecutionSessionClient(
-    env,
-    run.sessionId,
-    run.id,
-    workspaceScope,
-    {
-      secureSessionId: checkout.secureSessionId,
-      leaseId: checkout.leaseId,
-      sandboxId: checkout.sandboxId,
-      generation: checkout.generation,
-    },
-  );
   try {
+    const persistedDomain = await withBrainPersistenceRepository(
+      env,
+      env.AUTH_TASK_WORKSPACE_REPOSITORY,
+      (client) => new PostgresTaskWorkspaceRepository(client),
+      async (repository) => {
+        const custody = repository as typeof repository &
+          Partial<TaskCheckoutIssuanceRepository>;
+        if (!custody.getCheckoutExecutionDomain)
+          throw checkoutUnavailable(
+            "The original checkout execution binding is unavailable.",
+          );
+        return await custody.getCheckoutExecutionDomain(checkout.checkoutId);
+      },
+    );
+    const executionDomain = snapshotExecutionDomain(persistedDomain.value);
+    const domainScope = executionDomain.scope;
+    if (
+      (await executionDomainDigest(executionDomain)) !==
+        persistedDomain.digest ||
+      domainScope.userId !== userId ||
+      domainScope.brainSessionId !== run.sessionId ||
+      domainScope.runId !== run.id ||
+      domainScope.workspaceId !== expectedWorkspaceId ||
+      domainScope.threadId !== admission.threadId ||
+      domainScope.turnId !== admission.turnId ||
+      domainScope.runAttemptId !== admission.runAttemptId
+    ) {
+      throw checkoutUnavailable(
+        "The original checkout execution binding is unavailable.",
+      );
+    }
+    const sessionClient = new SecureExecutionSessionClient(
+      env,
+      run.sessionId,
+      run.id,
+      workspaceScope,
+      {
+        secureSessionId: checkout.secureSessionId,
+        leaseId: checkout.leaseId,
+        sandboxId: checkout.sandboxId,
+        generation: checkout.generation,
+        executionDomainDigest: persistedDomain.digest,
+      },
+      executionDomain,
+    );
     return {
       runId,
       brainSessionId: run.sessionId,
