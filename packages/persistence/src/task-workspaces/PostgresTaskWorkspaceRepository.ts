@@ -83,11 +83,37 @@ export class PostgresTaskWorkspaceRepository
     reservation: TaskCheckoutIssuanceReservation,
   ): Promise<void> {
     const parsed = WorkspaceSnapshotSchema.parse(snapshot);
+    const { issuanceToken, ...binding } = { ...reservation };
+    // Project the canonical nonphysical binding without inventing ready-only
+    // session or lease values. Capture all caller data before any await.
+    const captured = Object.freeze({
+      ...TaskCheckoutSchema.unwrap()
+        .innerType()
+        .options[0].pick({
+          checkoutId: true,
+          snapshotId: true,
+          workspaceId: true,
+          threadId: true,
+          turnId: true,
+          runAttemptId: true,
+          filesystemRoot: true,
+          gitDir: true,
+          indexFile: true,
+          workingBranch: true,
+          startTreeId: true,
+          createdAt: true,
+        })
+        .parse(binding),
+      issuanceToken,
+    });
     if (
-      reservation.snapshotId !== parsed.snapshotId ||
-      reservation.workspaceId !== parsed.workspaceId ||
-      reservation.startTreeId !== parsed.authorizedTreeId ||
-      !reservation.issuanceToken
+      captured.snapshotId !== parsed.snapshotId ||
+      captured.workspaceId !== parsed.workspaceId ||
+      captured.startTreeId !== parsed.authorizedTreeId ||
+      typeof captured.issuanceToken !== "string" ||
+      captured.issuanceToken.length === 0 ||
+      new Set([captured.filesystemRoot, captured.gitDir, captured.indexFile])
+        .size !== 3
     ) {
       throw new TaskWorkspacePersistenceError(
         "task_checkout_scope_mismatch",
@@ -105,22 +131,22 @@ export class PostgresTaskWorkspaceRepository
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'issuing',$13,'reserved')
         ON CONFLICT DO NOTHING RETURNING checkout_id`,
         [
-          reservation.checkoutId,
-          reservation.snapshotId,
-          reservation.workspaceId,
-          reservation.threadId,
-          reservation.turnId,
-          reservation.runAttemptId,
-          reservation.filesystemRoot,
-          reservation.gitDir,
-          reservation.indexFile,
-          reservation.workingBranch,
-          reservation.startTreeId,
-          reservation.createdAt,
-          reservation.issuanceToken,
+          captured.checkoutId,
+          captured.snapshotId,
+          captured.workspaceId,
+          captured.threadId,
+          captured.turnId,
+          captured.runAttemptId,
+          captured.filesystemRoot,
+          captured.gitDir,
+          captured.indexFile,
+          captured.workingBranch,
+          captured.startTreeId,
+          captured.createdAt,
+          captured.issuanceToken,
         ],
       );
-      if (result.rowCount !== 1) throw issuanceRecovery(reservation.checkoutId);
+      if (result.rowCount !== 1) throw issuanceRecovery(captured.checkoutId);
     });
   }
 
