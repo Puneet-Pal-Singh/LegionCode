@@ -11,8 +11,9 @@ import {
   type HostedResponseMetadata,
 } from "../shared/hosted-request";
 import type { DesktopHostedAccount } from "./hosted-account";
+import { DESKTOP_HOSTED_TARGET } from "./hosted-target";
 
-const BRAIN = "https://brain.legioncode.dev";
+const BRAIN = DESKTOP_HOSTED_TARGET.brainOrigin;
 
 /** HTTP adaptation only; hosted authentication, admission and runtime remain canonical. */
 export class DesktopHostedAppServer {

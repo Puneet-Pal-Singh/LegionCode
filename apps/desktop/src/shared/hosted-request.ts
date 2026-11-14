@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { HostedTargetSchema } from "./hosted-account";
 import {
   AppServerRequestSchema,
   AppServerResponseSchema,
@@ -12,7 +13,7 @@ const MAX_REQUEST_BYTES = 32 * 1024;
 const MAX_IMAGE_REQUEST_BYTES = MAX_REQUEST_BYTES + 4 * Math.ceil(10 * 1024 * 1024 / 3) + 4 * 256;
 
 export const HostedRequestScopeSchema = z.object({
-  target: z.literal("production"),
+  target: HostedTargetSchema,
   accountId: z.string().min(1).max(256),
   generation: z.number().int().safe().nonnegative(),
   expectedWorkspaceId: z.string().min(1).max(200).regex(/^[A-Za-z0-9_-]+$/).optional(),

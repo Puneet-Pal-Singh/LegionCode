@@ -2,17 +2,16 @@ import { BrowserWindow, session, type Session } from "electron";
 import { GitHubSessionResponseSchema } from "@repo/shared-types";
 import type { HostedAccountSnapshot } from "../shared/hosted-account";
 import { HostedRequestScopeSchema, type HostedRequestScope } from "../shared/hosted-request";
+import { DESKTOP_HOSTED_TARGET } from "./hosted-target";
 
-// Release target is a closed application choice, never a renderer-supplied URL.
-const BRAIN = "https://brain.legioncode.dev";
-const FRONTEND = "https://legioncode.dev";
+const { brainOrigin: BRAIN, frontendOrigin: FRONTEND, partition, target } = DESKTOP_HOSTED_TARGET;
 const MAX_SESSION_BYTES = 64 * 1024;
 
 /** The Web cookie-session owner authenticates this isolated, persistent jar. */
 export class DesktopHostedAccount {
   private readonly session: Session;
   private generation = 0;
-  private snapshot: HostedAccountSnapshot = { target: "production", state: "signed_out", generation: 0 };
+  private snapshot: HostedAccountSnapshot = { target, state: "signed_out", generation: 0 };
   private connection: Promise<HostedAccountSnapshot> | null = null;
   private disconnection: Promise<HostedAccountSnapshot> | null = null;
   private window: BrowserWindow | null = null;
@@ -20,14 +19,14 @@ export class DesktopHostedAccount {
   private closing = false;
 
   constructor() {
-    this.session = session.fromPartition("persist:legioncode-hosted-production-v1");
+    this.session = session.fromPartition(partition);
     this.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
     this.session.setPermissionCheckHandler(() => false);
     this.session.on("will-download", (event) => event.preventDefault());
   }
 
   private publish(state: HostedAccountSnapshot["state"], account?: HostedAccountSnapshot["account"]): HostedAccountSnapshot {
-    this.snapshot = { target: "production", state, generation: this.generation, ...(account ? { account } : {}) };
+    this.snapshot = { target, state, generation: this.generation, ...(account ? { account } : {}) };
     return this.snapshot;
   }
 
@@ -41,7 +40,7 @@ export class DesktopHostedAccount {
   run<T>(scope: HostedRequestScope, operation: (session: Session) => Promise<T>): Promise<T> {
     const captured = Object.freeze(HostedRequestScopeSchema.parse(scope));
     const assertCurrent = () => {
-      if (this.closing || this.disconnection || this.snapshot.state !== "signed_in" ||
+      if (captured.target !== target || this.closing || this.disconnection || this.snapshot.state !== "signed_in" ||
           captured.generation !== this.generation || captured.accountId !== this.snapshot.account?.id) {
         throw new Error("Hosted account changed");
       }

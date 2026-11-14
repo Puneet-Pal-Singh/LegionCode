@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { DesktopHostedAccount } from "./hosted-account";
 import { DesktopHostedAppServer } from "./hosted-app-server";
+import { DESKTOP_HOSTED_TARGET, DESKTOP_HOSTED_TARGETS } from "./hosted-target";
+import { HostedAccountSnapshotSchema } from "../shared/hosted-account";
 import { HostedRequestSchema, parseHostedEnvelope, sameHostedScope, type HostedResponseEvent } from "../shared/hosted-request";
 
 import {
@@ -9,17 +11,20 @@ import {
   WorkspaceSelectionTokens,
 } from "./request-security";
 
-const hostedSession = vi.hoisted(() => ({ fetch: vi.fn(), flush: vi.fn(async () => undefined) }));
+const hostedSession = vi.hoisted(() => ({ fetch: vi.fn(), partition: vi.fn(), flush: vi.fn(async () => undefined) }));
 vi.mock("electron", () => ({
   BrowserWindow: vi.fn(),
-  session: { fromPartition: () => ({
+  session: { fromPartition: (partition: string) => {
+    hostedSession.partition(partition);
+    return {
     fetch: hostedSession.fetch,
     setPermissionRequestHandler: () => undefined,
     setPermissionCheckHandler: () => undefined,
     on: () => undefined,
     clearStorageData: async () => undefined,
     cookies: { flushStore: hostedSession.flush },
-  }) },
+    };
+  } },
 }));
 
 describe("Desktop App Server request security", () => {
@@ -48,6 +53,12 @@ describe("Desktop App Server request security", () => {
     };
     expect(() => HostedRequestSchema.parse({ ...input, url: "https://untrusted.example" })).toThrow();
     expect(() => HostedRequestSchema.parse({ ...input, scope: { ...scope, target: "arbitrary" } })).toThrow();
+    const developmentScope = { ...scope, target: "development" as const };
+    expect(HostedRequestSchema.parse({ ...input, scope: developmentScope }).scope).toEqual(developmentScope);
+    expect(sameHostedScope(scope, developmentScope)).toBe(false);
+    expect(HostedAccountSnapshotSchema.parse({ target: "development", state: "signed_out", generation: 0 }).target).toBe("development");
+    expect(DESKTOP_HOSTED_TARGETS.production.partition).not.toBe(DESKTOP_HOSTED_TARGETS.development.partition);
+    expect(DESKTOP_HOSTED_TARGETS.production.brainOrigin).not.toBe(DESKTOP_HOSTED_TARGETS.development.brainOrigin);
     expect(() => HostedRequestSchema.parse({ ...input, scope: { ...scope, expectedWorkspaceId: "workspace\nforeign" } })).toThrow();
     expect(sameHostedScope(scope, { ...scope, expectedWorkspaceId: "workspace-other" })).toBe(false);
     for (const method of ["workspace/current", "thread/list", "provider/current"]) {
@@ -193,7 +204,12 @@ describe("Desktop App Server request security", () => {
       });
       const account = new DesktopHostedAccount();
       const status = await account.status();
+      expect(status.target).toBe(DESKTOP_HOSTED_TARGET.target);
+      expect(hostedSession.partition).toHaveBeenLastCalledWith(DESKTOP_HOSTED_TARGET.partition);
       const scope = { target: status.target, accountId: "account-fixture", generation: status.generation };
+      const foreignOperation = vi.fn(async () => "must not start");
+      expect(() => account.run({ ...scope, target: status.target === "production" ? "development" : "production" }, foreignOperation)).toThrow("changed");
+      expect(foreignOperation).not.toHaveBeenCalled();
       let release!: () => void;
       let started!: () => void;
       const held = new Promise<void>((resolve) => { release = resolve; });
