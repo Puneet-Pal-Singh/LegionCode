@@ -1,0 +1,36 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  // Deliberately sealed and undeployable: no invented account, target, image,
+  // environment or creation receipt. An authenticated creator must supply them.
+  "main": "src/qualification.ts",
+  "compatibility_date": "2025-05-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": false },
+  "containers": [
+    {
+      "class_name": "Sandbox",
+      "scheduling_policy": "default",
+      // Qualification capacity only; this does not qualify the product lite VM.
+      "instance_type": "basic",
+      "max_instances": 1
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "AGENT_RUNTIME", "class_name": "AgentRuntime" },
+      { "name": "Sandbox", "class_name": "Sandbox" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "native-qualification-v1",
+      "new_sqlite_classes": ["AgentRuntime", "Sandbox"]
+    }
+  ],
+  "vars": { "ENVIRONMENT": "native-boundary-qualification" }
+  // INTERNAL_RUNTIME_EVENT_SECRET is a fresh protected secret, never a var.
+  // The first sealed deployment must omit unavailable authority/image/helper/
+  // policy pins. Activation requires real creation inventory and observed pins.
+}
