@@ -1,3 +1,4 @@
+import { snapshotNativeSandboxPhysicalBinding } from "@repo/worker-protocol/private/native-sandbox-binding";
 import { gitCommandRunnerArgs, gitCommandRunnerEnvironment, parseGitIndexTransactionResult, type GitCommandExecutionInput } from "@repo/git-service/executor";
 import { NativeCheckoutBootstrapIntentSchema, type NativeCheckoutBootstrapReceipt } from "@repo/worker-protocol/private/native-checkout-bootstrap";
 import { materializeNativeCheckout } from "./NativeCheckoutMaterialization";
@@ -25,6 +26,9 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
   private readonly nativeState: DurableObjectState;
   private readonly nativeEnvironment: Env;
   private nativeOriginal: Promise<unknown> | undefined;
+  // Retain the actual provider creator/process on every ambiguous outcome.
+  // This is an original loan, not a separate execution authority or registry.
+  private nativeExec?: { creation?: Promise<unknown>; process?: unknown; barriers?: Promise<PromiseSettledResult<unknown>[]> };
   private nativeBootstrapCreator?: <T>(binding: NativeCommandBinding, effect: (deadline: number) => Promise<T>, readOnly?: boolean) => Promise<T>;
   private nativeRuntimeObserver?: (binding: NativeCommandBinding, preparation: unknown) => Promise<void>;
   private nativeBootstrap?: { binding: NativeCommandBinding; sealed: boolean; creators: Set<Promise<unknown>> };
@@ -210,11 +214,15 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
     gate.sealed = true;
     await Promise.allSettled([...gate.creators]);
     if (this.nativeOriginal) await Promise.allSettled([this.nativeOriginal]);
+    if (this.nativeExec) throw unavailable();
   }
 
   async materializeNativeCheckout(input: Parameters<NonNullable<OwnedNativeSandboxPort["materializeNativeCheckout"]>>[0]) {
     const binding = NativeCommandBindingSchema.parse(input.binding);
     const intent = NativeCheckoutBootstrapIntentSchema.parse(input.intent);
+    const physical = snapshotNativeSandboxPhysicalBinding(input.physicalBinding);
+    if (!this.nativeEnvironment.NativeSandbox || physical.sandboxObjectId !== this.nativeState.id.toString() ||
+      this.nativeEnvironment.NativeSandbox.idFromName(binding.sandboxId).toString() !== physical.sandboxObjectId) throw unavailable();
     if (this.nativeOriginal || this.nativeBootstrap) throw unavailable();
     const gate = { binding, sealed: false, creators: new Set<Promise<unknown>>() };
     this.nativeBootstrap = gate;
@@ -276,7 +284,7 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
         binding: resourceBinding, policy: RESOURCE_POLICY, expectedBootId: observation.sandboxBootId, expectedParent: observation.parent.identity }));
       if (JSON.stringify(observation.binding) !== JSON.stringify(resourceBinding) || JSON.stringify(resources.binding) !== JSON.stringify(resourceBinding) ||
         resources.sandboxBootId !== observation.sandboxBootId) throw unavailable();
-      const runtimePreparation = NativeRuntimePreparationSchema.parse({ imageReference: observedImage.reference, imageDigest: observedImage.digest,
+      const runtimePreparation = NativeRuntimePreparationSchema.parse({ physicalBinding: physical, imageReference: observedImage.reference, imageDigest: observedImage.digest,
         sandboxObjectId: this.nativeState.id.toString(), observation, resources });
       this.nativeRuntimeObserver = async (commandBinding, expected) => {
         const preparation = NativeRuntimePreparationSchema.parse(expected);
@@ -291,7 +299,7 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
           JSON.stringify(observed.parent.identity) !== JSON.stringify(observation.parent.identity)) throw unavailable();
       };
       const materialized = await materializeNativeCheckout({
-      binding, intent, authEnvironment: input.authEnvironment, gitReceipts,
+      binding, physicalBinding: physical, intent, authEnvironment: input.authEnvironment, gitReceipts,
       original: (argv, body) => createOriginal(deadline => this.runOriginal(argv, body, 64 * 1024, deadline)),
       git: { execute: async (command: GitCommandExecutionInput) => {
         if (command.cwd !== intent.root || gitReceipts.length >= 64) throw unavailable();
@@ -345,16 +353,21 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
 
   private async runOriginal(argv: string[], input: unknown, limit = 64 * 1024, expiresAt?: number, trustedGit?: { cwd: string; env: Record<string, string> }): Promise<NativeCommandOriginal> {
     const container = this.nativeState.container;
-    if (!container?.running || typeof container.exec !== "function") throw unavailable();
+    if (!container?.running || typeof container.exec !== "function" || this.nativeExec) throw unavailable();
     const body = encoder.encode(JSON.stringify(input));
     if (body.byteLength > limit) throw unavailable();
     // Check in the synchronous creator section, not before an awaited
     // authorization helper whose continuation may resume past the deadline.
     if (expiresAt !== undefined && expiresAt <= Date.now()) throw unavailable();
-    const process = await container.exec(argv, {
+    const retained: NonNullable<Sandbox["nativeExec"]> = {};
+    this.nativeExec = retained;
+    const creation = container.exec(argv, {
       user: "0:0", cwd: trustedGit?.cwd ?? "/", env: { PATH: "/usr/local/bin:/usr/bin:/bin", LANG: "C.UTF-8", LC_ALL: "C.UTF-8", ...(trustedGit?.env ?? {}) },
       stdin: "pipe", stdout: "pipe", stderr: "pipe",
     });
+    retained.creation = creation;
+    const process = await creation;
+    retained.process = process;
     if (!process.stdin || !process.stdout || !process.stderr) throw unavailable();
     const stdin = process.stdin;
     const inputSettled = (async () => {
@@ -364,11 +377,14 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
     })();
     // Consume original channels concurrently through EOF, including rejected
     // reads. An observer timeout or a process-status label cannot replace them.
-    const settled = await Promise.allSettled([
+    const barriers = Promise.allSettled([
       readBounded(process.stdout, 12 * 1024 * 1024), readBounded(process.stderr, 4096), process.exitCode, inputSettled,
     ]);
+    retained.barriers = barriers;
+    const settled = await barriers;
     const [stdout, stderr, exit, inputClosed] = settled;
     if (stdout.status !== "fulfilled" || stderr.status !== "fulfilled" || exit.status !== "fulfilled" || inputClosed.status !== "fulfilled") throw unavailable();
+    if (this.nativeExec === retained) this.nativeExec = undefined;
     return { stdout: stdout.value, stderr: stderr.value, exitCode: exit.value };
   }
 }

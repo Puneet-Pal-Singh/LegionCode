@@ -209,7 +209,26 @@ func validateRequest(value request) error {
 	return nil
 }
 
+func validateProductBinding(value binding) error {
+	if value.Qualification != nil || !hexadecimal.MatchString(value.ExecutionDomainDigest) || !hexadecimal.MatchString(value.Nonce) || value.Generation < 0 {
+		return errors.New("invalid_product_binding")
+	}
+	for _, id := range []string{value.SessionID, value.LeaseID, value.SandboxID, value.WorkspaceID, value.RunID, value.ThreadID, value.TurnID, value.RunAttemptID, value.TaskID} {
+		if !opaqueID.MatchString(id) {
+			return errors.New("invalid_product_binding")
+		}
+	}
+	return nil
+}
+
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--write-bootstrap-witness" {
+		if writeBootstrapWitness() != nil {
+			_, _ = io.WriteString(os.Stderr, "native_bootstrap_witness_unavailable\n")
+			os.Exit(70)
+		}
+		return
+	}
 	if len(os.Args) == 2 && os.Args[1] == "--bootstrap-workspace-root" {
 		if bootstrapWorkspaceRoot() != nil {
 			_, _ = io.WriteString(os.Stderr, "native_bootstrap_root_unavailable\n")

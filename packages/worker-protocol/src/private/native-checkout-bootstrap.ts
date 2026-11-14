@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { NativeSandboxPhysicalBindingSchema } from "./native-sandbox-binding.js";
 import { ExecutionDomainDigestSchema } from "./execution-domain.js";
 
 const sha = ExecutionDomainDigestSchema;
@@ -29,20 +30,29 @@ export const NativeBootstrapObservationSchema = z.object({
   binding: NativeBootstrapBindingSchema, root: physical, sandboxBootId: z.string().uuid(),
   helperSha256: sha, kernelRelease: z.string().min(1).max(256),
 }).strict();
-export const NativeBootstrapFileSchema = z.object({
-  path: z.literal(".legioncode/native-bootstrap.json"), file: physical,
-  bytes: z.number().int().positive().max(200_000), sha256: sha,
+export const NativeBootstrapWitnessSchema = z.object({
+  version: z.literal(2), binding: NativeBootstrapBindingSchema,
+  workspaceRoot: physical, sandboxBootId: z.string().uuid(), metadataIdentity: z.string().regex(/^linux-git-metadata-v1:[a-f0-9]{64}$/),
+  storageRoot: physical, key: z.string().regex(/^bootstrap-[a-f0-9]{64}\.json$/), file: physical,
+  bytes: z.number().int().positive().max(200_000), sha256: sha, materializationSha256: sha,
 }).strict();
 export const NativeCheckoutBootstrapReceiptSchema = z.object({
-  version: z.literal(1), intent: NativeCheckoutBootstrapIntentSchema,
+  version: z.literal(2), physicalBinding: NativeSandboxPhysicalBindingSchema, intent: NativeCheckoutBootstrapIntentSchema,
   observation: NativeBootstrapObservationSchema,
   metadataIdentity: z.string().regex(/^linux-git-metadata-v1:[a-f0-9]{64}$/),
   head: objectId, tree: objectId, branch: z.string().regex(/^task\/[A-Za-z0-9_.-]+$/),
-  file: NativeBootstrapFileSchema,
+  witness: NativeBootstrapWitnessSchema,
   git: z.array(z.object({ commandSha256: sha, originalTransportSettled: z.literal(true) }).strict()).min(1).max(64),
   // This receipt is emitted only after all original Git/helper transports drain.
   originalTransportSettled: z.literal(true),
-}).strict();
+}).strict().superRefine((value, context) => {
+  const observed = value.observation, witness = value.witness;
+  if (witness.key !== `bootstrap-${observed.binding.nonce}.json` || JSON.stringify(witness.binding) !== JSON.stringify(observed.binding) ||
+    witness.workspaceRoot.device !== observed.root.device || witness.workspaceRoot.inode !== observed.root.inode ||
+    witness.sandboxBootId !== observed.sandboxBootId || witness.metadataIdentity !== value.metadataIdentity ||
+    value.head !== value.intent.authorizedCommitId || value.tree !== value.intent.authorizedTreeId || value.branch !== value.intent.workingBranch)
+    context.addIssue({ code: "custom", message: "Bootstrap witness does not match original materialization" });
+});
 export type NativeCheckoutBootstrapReceipt = z.infer<typeof NativeCheckoutBootstrapReceiptSchema>;
 
 /** Physical materialization is not image/platform qualification. Only the
@@ -53,6 +63,7 @@ export const NativeCheckoutReadyEvidenceSchema = z.object({
   artifact: z.object({ id: artifactId, sha256: sha, size: z.number().int().positive().safe() }).strict(),
   runtime: z.object({
     imageDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/), helperSha256: sha, policySha256: sha,
+    physicalBinding: NativeSandboxPhysicalBindingSchema,
     binding: NativeBootstrapBindingSchema, commandBinding: NativeBootstrapBindingSchema,
     resourceArtifactId: artifactId, resourceSha256: sha, commandArtifactId: artifactId, commandSha256: sha,
     sandboxBootId: z.string().uuid(), kernelRelease: z.string().min(1).max(256),
@@ -86,7 +97,9 @@ export function parseNativeCheckoutReadyEvidence(value: unknown): NativeCheckout
   const evidence = NativeCheckoutReadyEvidenceSchema.parse(value);
   const { bootstrap, runtime } = evidence;
   const observed = bootstrap.observation, binding = observed.binding;
-  if (bootstrap.head !== bootstrap.intent.authorizedCommitId || bootstrap.tree !== bootstrap.intent.authorizedTreeId ||
+  if (JSON.stringify(runtime.physicalBinding) !== JSON.stringify(bootstrap.physicalBinding) || bootstrap.witness.key !== `bootstrap-${binding.nonce}.json` || JSON.stringify(bootstrap.witness.binding) !== JSON.stringify(binding) ||
+    bootstrap.witness.sandboxBootId !== observed.sandboxBootId || bootstrap.witness.workspaceRoot.device !== observed.root.device ||
+    bootstrap.witness.workspaceRoot.inode !== observed.root.inode || bootstrap.witness.metadataIdentity !== bootstrap.metadataIdentity || bootstrap.head !== bootstrap.intent.authorizedCommitId || bootstrap.tree !== bootstrap.intent.authorizedTreeId ||
     bootstrap.branch !== bootstrap.intent.workingBranch || JSON.stringify(runtime.binding) !== JSON.stringify(binding) ||
     JSON.stringify({ ...runtime.commandBinding, nonce: binding.nonce }) !== JSON.stringify(binding) ||
     !runtime.resourceArtifactId.startsWith(`artifacts/${binding.sessionId}/`) || !runtime.commandArtifactId.startsWith(`artifacts/${binding.sessionId}/`) || runtime.helperSha256 !== observed.helperSha256 ||

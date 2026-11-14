@@ -1,3 +1,4 @@
+import { NativeSandboxPhysicalBindingSchema } from "@repo/worker-protocol/private/native-sandbox-binding";
 import { z } from "zod";
 import { NativeBootstrapBindingSchema } from "@repo/worker-protocol/private/native-checkout-bootstrap";
 import { NativeCommandReceiptSchema, NativeCommandIdentitySchema } from "../toolbox/contracts/OwnedSandboxCommand";
@@ -67,6 +68,7 @@ export type ResourceProvisionReceipt = z.infer<typeof ResourceProvisionReceiptSc
 export const NativeResourceObservationSchema = ResourceObservationSchema.extend({ binding: NativeResourceSetupBindingSchema });
 export const NativeResourceProvisionReceiptSchema = ResourceProvisionReceiptSchema.extend({ binding: NativeResourceSetupBindingSchema });
 export const NativeRuntimePreparationSchema = z.object({
+  physicalBinding: NativeSandboxPhysicalBindingSchema,
   imageReference: z.string().min(1).max(2048), imageDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   sandboxObjectId: z.string().regex(/^[a-f0-9]{64}$/),
   observation: NativeResourceObservationSchema, resources: NativeResourceProvisionReceiptSchema,

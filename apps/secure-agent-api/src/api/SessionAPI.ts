@@ -1,3 +1,4 @@
+import { snapshotNativeSandboxPhysicalBinding, type NativeSandboxPhysicalBinding } from "@repo/worker-protocol/private/native-sandbox-binding";
 import { NativeCheckoutBootstrapIntentSchema, type NativeCheckoutBootstrapIntent } from "@repo/worker-protocol/private/native-checkout-bootstrap";
 import { SessionNativeBootstrapRequestSchema } from "../schemas/http-api";
 /**
@@ -45,6 +46,7 @@ const EXECUTION_NOT_IMPLEMENTED_CODE = "EXECUTION_NOT_IMPLEMENTED";
 interface SessionRecord {
   executionDomain?: ServerExecutionDomainBinding;
   nativeCheckoutIntent?: NativeCheckoutBootstrapIntent;
+  nativeSandboxBinding?: NativeSandboxPhysicalBinding;
   runId: string;
   taskId: string;
   repoPath: string;
@@ -191,7 +193,7 @@ async function storeSession(
   workspaceScope: WorkspaceScope,
   executionDomain?: ServerExecutionDomainBinding,
   nativeCheckoutIntent?: NativeCheckoutBootstrapIntent,
-): Promise<{ expiresAt: number; lease: SandboxExecutionLease }> {
+): Promise<{ expiresAt: number; lease: SandboxExecutionLease; nativeSandboxBinding?: NativeSandboxPhysicalBinding }> {
   const domain = executionDomain ? snapshotExecutionDomain(executionDomain) : undefined;
   const sessionStore = getRuntimeSessionStore(runtime);
   if (!sessionStore) {
@@ -219,7 +221,9 @@ async function storeSession(
     ...(domain ? { executionDomain: domain } : {}),
     ...(nativeCheckoutIntent ? { nativeCheckoutIntent } : {}),
   });
-  return { expiresAt, lease };
+  const nativeSandboxBinding = domain?.domain === "legioncode_native"
+    ? snapshotNativeSandboxPhysicalBinding((await sessionStore.getExecutionSession(sessionId))?.nativeSandboxBinding) : undefined;
+  return { expiresAt, lease, ...(nativeSandboxBinding ? { nativeSandboxBinding } : {}) };
 }
 
 async function getActiveSession(
@@ -563,6 +567,7 @@ export async function handleCreateSession(
       token,
       expiresAt: storedSession.expiresAt,
       lease: storedSession.lease,
+      ...(storedSession.nativeSandboxBinding ? { nativeSandboxBinding: storedSession.nativeSandboxBinding } : {}),
     };
     if (manifest) {
       response.manifest = manifest;
@@ -608,7 +613,8 @@ export async function handleBorrowSession(
     }
     const session = await sessionStore.getExecutionSession(sessionId);
     const domain = validation.data.executionDomain ? snapshotExecutionDomain(validation.data.executionDomain) : undefined;
-    if (session && !await matchesStoredDomain(request, session, domain)) {
+    if (session && (!await matchesStoredDomain(request, session, domain) ||
+      (domain?.domain === "legioncode_native" && !samePhysicalBinding(session.nativeSandboxBinding, validation.data.nativeSandboxBinding)))) {
       return errorResponse("Execution domain binding unavailable", "EXECUTION_DOMAIN_BINDING_UNAVAILABLE", 409);
     }
     if (!isExactBorrowableSession(session, validation.data)) {
@@ -632,6 +638,7 @@ export async function handleBorrowSession(
       token: session.token,
       expiresAt: session.expiresAt,
       lease: session.lease,
+      ...(session.nativeSandboxBinding ? { nativeSandboxBinding: session.nativeSandboxBinding } : {}),
     }, 200);
   } catch (error) {
     const message = sanitizeUnknownError(error);
@@ -702,10 +709,11 @@ export async function handleResumeSession(
       return errorResponse("Execution domain binding unavailable", "EXECUTION_DOMAIN_BINDING_UNAVAILABLE", 409);
     }
     const rawSession = await getRuntimeSessionStore(runtime)?.getExecutionSession(sessionId);
-    if (rawSession && !await matchesStoredDomain(request, rawSession, domain)) {
+    if (rawSession && (!await matchesStoredDomain(request, rawSession, domain) ||
+      (domain?.domain === "legioncode_native" && !samePhysicalBinding(rawSession.nativeSandboxBinding, validation.data.nativeSandboxBinding)))) {
       return errorResponse("Execution domain binding unavailable", "EXECUTION_DOMAIN_BINDING_UNAVAILABLE", 409);
     }
-    if (domain && (!rawSession || rawSession.expiresAt <= Date.now())) {
+    if (domain && (!rawSession || rawSession.expiresAt <= Date.now() || (domain.domain === "legioncode_native" && rawSession.lease.expiresAt <= Date.now()))) {
       return errorResponse("The original marked execution session is unavailable", "EXECUTION_DOMAIN_BINDING_UNAVAILABLE", 503);
     }
     const session = domain ? rawSession : await getActiveSession(runtime, sessionId);
@@ -809,6 +817,7 @@ export async function handleResumeSession(
         token,
         expiresAt: resumed.expiresAt,
         lease: resumed.lease,
+        ...(resumed.nativeSandboxBinding ? { nativeSandboxBinding: resumed.nativeSandboxBinding } : {}),
         replaced: pendingReplacement,
       },
       200,
@@ -1166,4 +1175,9 @@ export async function isSessionValid(
 ): Promise<boolean> {
   const session = await getActiveSession(runtime, sessionId);
   return session !== null;
+}
+
+function samePhysicalBinding(stored: unknown, supplied: unknown): boolean {
+  try { return JSON.stringify(snapshotNativeSandboxPhysicalBinding(stored)) === JSON.stringify(snapshotNativeSandboxPhysicalBinding(supplied)); }
+  catch { return false; }
 }

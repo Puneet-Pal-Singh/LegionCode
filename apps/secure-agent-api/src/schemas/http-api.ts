@@ -1,3 +1,4 @@
+import { NativeSandboxPhysicalBindingSchema } from "@repo/worker-protocol/private/native-sandbox-binding";
 import { NativeCheckoutBootstrapIntentSchema } from "@repo/worker-protocol/private/native-checkout-bootstrap";
 /**
  * HTTP API Schemas
@@ -59,6 +60,7 @@ export const SessionCreateRequestSchema = z
 export type SessionCreateRequest = z.infer<typeof SessionCreateRequestSchema>;
 
 export const SessionCreateResponseSchema = z.object({
+  nativeSandboxBinding: NativeSandboxPhysicalBindingSchema.optional(),
   sessionId: z.string().min(1),
   token: z.string().min(1),
   expiresAt: z.number().int().positive(),
@@ -80,6 +82,7 @@ export type SessionCreateResponse = z.infer<typeof SessionCreateResponseSchema>;
 
 export const SessionResumeRequestSchema = z
   .object({
+    nativeSandboxBinding: NativeSandboxPhysicalBindingSchema.optional(),
     executionDomain: ServerExecutionDomainBindingSchema.optional(),
     workspaceScope: WorkspaceScopeSchema,
     lease: z
@@ -95,6 +98,7 @@ export const SessionResumeRequestSchema = z
 export type SessionResumeRequest = z.infer<typeof SessionResumeRequestSchema>;
 
 export const SessionBorrowRequestSchema = z.object({
+  nativeSandboxBinding: NativeSandboxPhysicalBindingSchema.optional(),
   executionDomain: ServerExecutionDomainBindingSchema.optional(),
   runId: z.string().min(1),
   requireNativeBootstrap: z.boolean().optional(),

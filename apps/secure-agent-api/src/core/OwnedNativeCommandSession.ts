@@ -1,3 +1,4 @@
+import { snapshotNativeSandboxPhysicalBinding } from "@repo/worker-protocol/private/native-sandbox-binding";
 import { NativeCheckoutBootstrapIntentSchema, NativeCheckoutBootstrapReceiptSchema, freezeBootstrap,
   NativeRuntimeObservationSchema, type NativeRuntimeObservation, type NativeCheckoutBootstrapIntent, type NativeCheckoutBootstrapReceipt, type NativeCheckoutReadyEvidence } from "@repo/worker-protocol/private/native-checkout-bootstrap";
 import path from "node:path";
@@ -99,14 +100,16 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
       });
       try {
         if (this.stopped || (await this.read()).nativeCommand?.stopRequested) throw unavailable();
-        const original = materialize.call(this.input.sandbox, { binding: command.binding, intent, authEnvironment, physicalOwnerId: this.input.state.id.toString() });
+        const original = materialize.call(this.input.sandbox, { binding: command.binding, physicalBinding: snapshotNativeSandboxPhysicalBinding(session.nativeSandboxBinding), intent, authEnvironment, physicalOwnerId: this.input.state.id.toString() });
         this.original = original;
         const completed = await original;
         if (this.stopped || (await this.read()).nativeCommand?.stopRequested) throw unavailable();
         const receipt = freezeBootstrap(NativeCheckoutBootstrapReceiptSchema.parse(completed.receipt));
         const workspace = NativeWorkspaceStateSchema.parse(completed.workspace);
         const runtimePreparation = NativeRuntimePreparationSchema.parse(completed.runtimePreparation);
-        if (!sameNativeBinding(receipt.observation.binding, command.binding) || JSON.stringify(receipt.intent) !== JSON.stringify(intent) ||
+        if (JSON.stringify(receipt.physicalBinding) !== JSON.stringify(session.nativeSandboxBinding) ||
+          JSON.stringify(runtimePreparation.physicalBinding) !== JSON.stringify(session.nativeSandboxBinding) ||
+          !sameNativeBinding(receipt.observation.binding, command.binding) || JSON.stringify(receipt.intent) !== JSON.stringify(intent) ||
           workspace.root.device !== receipt.observation.root.device || workspace.root.inode !== receipt.observation.root.inode ||
           workspace.sandboxBootId !== receipt.observation.sandboxBootId || workspace.metadata.identity !== receipt.metadataIdentity) throw unavailable();
         const bytes = new TextEncoder().encode(JSON.stringify(receipt)), sha256 = await digest(bytes);
@@ -197,7 +200,7 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
       };
       const resourceArtifact = await uploadVerified(preparation);
       const identity = command.identity, binding = checkout.receipt.observation.binding;
-      const proof = { providerImageReference: preparation.imageReference, providerImageDigestReference: preparation.imageDigest, helperSha256: preparation.observation.helperSha256,
+      const proof = { physicalBinding: preparation.physicalBinding, providerImageReference: preparation.imageReference, providerImageDigestReference: preparation.imageDigest, helperSha256: preparation.observation.helperSha256,
         observedPolicySha256: policy.policySha256, sandboxObjectId: preparation.sandboxObjectId,
         binding, commandBinding: command.binding, resourceArtifactId: resourceArtifact.id, resourceSha256: resourceArtifact.sha256,
         commandArtifactId: command.receiptArtifact.id, commandSha256: command.receiptArtifact.sha256,

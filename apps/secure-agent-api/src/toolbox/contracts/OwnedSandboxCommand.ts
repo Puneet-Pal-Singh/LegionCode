@@ -1,3 +1,4 @@
+import type { NativeSandboxPhysicalBinding } from "@repo/worker-protocol/private/native-sandbox-binding";
 import type { NativeCheckoutBootstrapIntent, NativeCheckoutBootstrapReceipt } from "@repo/worker-protocol/private/native-checkout-bootstrap";
 import { z } from "zod";
 import type { NativeRuntimePreparation } from "../../qualification/contracts";
@@ -99,7 +100,7 @@ export interface NativeCommandOriginal {
 export interface OwnedNativeSandboxPort {
   sealNativeBootstrap?(binding: NativeCommandBinding): Promise<void>;
   verifyNativeRuntimeOriginal?(binding: NativeCommandBinding, preparation: unknown): Promise<void>;
-  materializeNativeCheckout?(input: { physicalOwnerId: string; binding: NativeCommandBinding; intent: NativeCheckoutBootstrapIntent;
+  materializeNativeCheckout?(input: { physicalOwnerId: string; physicalBinding: NativeSandboxPhysicalBinding; binding: NativeCommandBinding; intent: NativeCheckoutBootstrapIntent;
     authEnvironment?: Readonly<Record<string, string>> }): Promise<{ receipt: NativeCheckoutBootstrapReceipt; workspace: NativeWorkspaceState; runtimePreparation: NativeRuntimePreparation }>;
   executeNativeCommand(request: NativeCommandRequest): Promise<NativeCommandOriginal>;
   controlNativeCommand(request: {
