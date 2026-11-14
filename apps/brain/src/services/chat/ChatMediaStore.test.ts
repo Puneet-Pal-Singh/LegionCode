@@ -29,6 +29,7 @@ describe("ChatMediaStore", () => {
     expect(bucket.keys[0]).toBe(
       "chat-media/user-1/session-1/img_1234567890abcdef",
     );
+    expect(await store.getOriginalImage({ userId: "user-1", sessionId: "session-1", ref })).toEqual(PNG_BYTES);
   });
 
   it.each([
@@ -48,6 +49,7 @@ describe("ChatMediaStore", () => {
       await expect(
         store.getProviderImage({ ...scope, ref }),
       ).rejects.toMatchObject({ code: "CHAT_MEDIA_NOT_FOUND" });
+      await expect(store.getOriginalImage({ ...scope, ref })).rejects.toMatchObject({ code: "CHAT_MEDIA_NOT_FOUND" });
       await expect(
         store.getProviderImage({
           userId: "user-1",
@@ -72,12 +74,16 @@ describe("ChatMediaStore", () => {
       image: { image: PNG_DATA_URL },
     });
     const input = { userId: "user-1", sessionId: "session-1", ref };
+    await expect(store.getOriginalImage({ ...input, ref: { ...ref, byteSize: PNG_BYTES.length + 1 } }))
+      .rejects.toMatchObject({ code: "CHAT_MEDIA_METADATA_INVALID" });
     await expect(
       store.getProviderImage({
         ...input,
         ref: { ...ref, byteSize: PNG_BYTES.length + 1 },
       }),
     ).rejects.toMatchObject({ code: "CHAT_MEDIA_METADATA_INVALID" });
+    await expect(store.getOriginalImage({ ...input, ref: { ...ref, mediaType: "image/jpeg" } }))
+      .rejects.toMatchObject({ code: "CHAT_MEDIA_METADATA_INVALID" });
     await expect(
       store.getProviderImage({
         ...input,
@@ -85,6 +91,7 @@ describe("ChatMediaStore", () => {
       }),
     ).rejects.toMatchObject({ code: "CHAT_MEDIA_METADATA_INVALID" });
     bucket.bytes.fill(0);
+    await expect(store.getOriginalImage(input)).rejects.toMatchObject({ code: "CHAT_MEDIA_CONTENT_INVALID" });
     await expect(store.getProviderImage(input)).rejects.toMatchObject({
       code: "CHAT_MEDIA_CONTENT_INVALID",
     });
