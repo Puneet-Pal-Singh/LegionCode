@@ -40,8 +40,8 @@ type binding struct {
 }
 
 type rootIdentity struct {
-	Device uint64 `json:"device"`
-	Inode  uint64 `json:"inode"`
+	Device uint64 `json:"device,string"`
+	Inode  uint64 `json:"inode,string"`
 }
 
 type resourceLimits struct {
@@ -52,18 +52,19 @@ type resourceLimits struct {
 }
 
 type request struct {
-	Version      int                `json:"version"`
-	Binding      binding            `json:"binding"`
-	ControlToken string             `json:"controlToken"`
-	Root         string             `json:"root"`
-	ExpectedRoot rootIdentity       `json:"expectedRoot"`
-	Cwd          string             `json:"cwd"`
-	Argv         []string           `json:"argv"`
-	Environment  map[string]string  `json:"environment"`
-	TimeoutMS    int64              `json:"timeoutMs"`
-	OutputLimit  int                `json:"outputLimit"`
-	Limits       resourceLimits     `json:"limits"`
-	Metadata     metadataProtection `json:"metadata"`
+	Version        int                `json:"version"`
+	Binding        binding            `json:"binding"`
+	ControlToken   string             `json:"controlToken"`
+	Root           string             `json:"root"`
+	ExpectedRoot   rootIdentity       `json:"expectedRoot"`
+	ExpectedBootID string             `json:"expectedBootId"`
+	Cwd            string             `json:"cwd"`
+	Argv           []string           `json:"argv"`
+	Environment    map[string]string  `json:"environment"`
+	TimeoutMS      int64              `json:"timeoutMs"`
+	OutputLimit    int                `json:"outputLimit"`
+	Limits         resourceLimits     `json:"limits"`
+	Metadata       metadataProtection `json:"metadata"`
 }
 
 // Only this non-credential subset crosses into the namespace init process.
@@ -79,8 +80,8 @@ type initRequest struct {
 
 type namespaceIdentity struct {
 	BootID           string         `json:"bootId"`
-	NamespaceDevice  uint64         `json:"namespaceDevice"`
-	NamespaceInode   uint64         `json:"namespaceInode"`
+	NamespaceDevice  uint64         `json:"namespaceDevice,string"`
+	NamespaceInode   uint64         `json:"namespaceInode,string"`
 	InitHostPID      int            `json:"initHostPid"`
 	Root             rootIdentity   `json:"root"`
 	Cgroup           rootIdentity   `json:"cgroup"`
@@ -172,6 +173,13 @@ func validateRequest(value request) error {
 }
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--write-workspace-file" {
+		if writeWorkspaceFile() != nil {
+			_, _ = io.WriteString(os.Stderr, "native_workspace_write_unavailable\n")
+			os.Exit(70)
+		}
+		return
+	}
 	if len(os.Args) == 2 && os.Args[1] == "--prepare-workspace" {
 		if prepareWorkspace() != nil {
 			_, _ = io.WriteString(os.Stderr, "native_workspace_preparation_unavailable\n")

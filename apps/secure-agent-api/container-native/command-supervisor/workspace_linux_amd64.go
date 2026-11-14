@@ -14,9 +14,9 @@ import (
 )
 
 type workspaceRequest struct {
-	Binding  binding            `json:"binding"`
-	Root     string             `json:"root"`
-	Metadata metadataProtection `json:"metadata"`
+	Binding       binding       `json:"binding"`
+	Root          string        `json:"root"`
+	MetadataPaths metadataPaths `json:"metadataPaths"`
 }
 
 // Invoked only by the physical checkout owner before the initial baseline.
@@ -47,7 +47,14 @@ func prepareWorkspace() error {
 	}
 	root := os.NewFile(uintptr(fd), "held-workspace")
 	defer root.Close()
-	metadata, err := pinMetadata(input.Metadata)
+	if input.MetadataPaths.WorkspaceRoot != input.Root {
+		return errors.New("metadata_scope_changed")
+	}
+	protection, err := resolveMetadataPaths(input.MetadataPaths, root)
+	if err != nil {
+		return err
+	}
+	metadata, err := pinMetadata(protection, root)
 	if err != nil {
 		return err
 	}
@@ -61,10 +68,19 @@ func prepareWorkspace() error {
 		return errors.New("workspace_identity_unavailable")
 	}
 	remaining := 100_000
-	if prepareWorkspaceEntry(root, input.Root, input.Metadata, uint64(identity.Dev), 0, &remaining) != nil {
+	if prepareWorkspaceEntry(root, input.Root, protection, uint64(identity.Dev), 0, &remaining) != nil {
 		return errors.New("workspace_ownership_unavailable")
 	}
-	return json.NewEncoder(os.Stdout).Encode(rootIdentity{Device: uint64(identity.Dev), Inode: identity.Ino})
+	boot, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil || len(strings.TrimSpace(string(boot))) != 36 {
+		return errors.New("sandbox_identity_unavailable")
+	}
+	return json.NewEncoder(os.Stdout).Encode(struct {
+		Binding       binding            `json:"binding"`
+		Root          rootIdentity       `json:"root"`
+		SandboxBootID string             `json:"sandboxBootId"`
+		Metadata      metadataProtection `json:"metadata"`
+	}{Binding: input.Binding, Root: rootIdentity{Device: uint64(identity.Dev), Inode: identity.Ino}, SandboxBootID: strings.TrimSpace(string(boot)), Metadata: protection})
 }
 
 func prepareWorkspaceEntry(file *os.File, path string, metadata metadataProtection, device uint64, depth int, remaining *int) error {

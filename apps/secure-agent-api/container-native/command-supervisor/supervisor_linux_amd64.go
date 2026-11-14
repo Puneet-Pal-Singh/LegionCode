@@ -46,6 +46,10 @@ func serveCommand(input request) error {
 	if err := requireToolIdentity(); err != nil {
 		return err
 	}
+	boot, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil || input.ExpectedBootID == "" || strings.TrimSpace(string(boot)) != input.ExpectedBootID {
+		return errors.New("sandbox_generation_changed")
+	}
 	root, err := openHeldWorkspace(input.Root, input.ExpectedRoot)
 	if err != nil {
 		return err
@@ -54,7 +58,10 @@ func serveCommand(input request) error {
 	if err := verifyHeldCwd(root, input.Cwd); err != nil {
 		return err
 	}
-	metadata, err := pinMetadata(input.Metadata)
+	if input.Metadata.Paths.WorkspaceRoot != input.Root {
+		return errors.New("metadata_scope_changed")
+	}
+	metadata, err := pinMetadata(input.Metadata, root)
 	if err != nil {
 		return err
 	}

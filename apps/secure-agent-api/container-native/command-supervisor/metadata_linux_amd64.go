@@ -14,13 +14,14 @@ import (
 
 type metadataEntry struct {
 	Path   string `json:"path"`
-	Device uint64 `json:"device"`
-	Inode  uint64 `json:"inode"`
+	Device uint64 `json:"device,string"`
+	Inode  uint64 `json:"inode,string"`
 	Kind   string `json:"kind"`
 }
 type metadataProtection struct {
 	Identity string          `json:"identity"`
 	Entries  []metadataEntry `json:"entries"`
+	Paths    metadataPaths   `json:"paths"`
 }
 type initMetadataEntry struct {
 	metadataEntry
@@ -29,7 +30,7 @@ type initMetadataEntry struct {
 
 // Git discovery is deliberately absent. The canonical owner supplies exact
 // metadata identities; this adapter pins and enforces those existing authorities.
-func pinMetadata(value metadataProtection) ([]*os.File, error) {
+func pinMetadata(value metadataProtection, root *os.File) ([]*os.File, error) {
 	if value.Identity == "" || len(value.Identity) > 512 || len(value.Entries) < 1 || len(value.Entries) > 32 {
 		return nil, errors.New("canonical_metadata_required")
 	}
@@ -46,24 +47,11 @@ func pinMetadata(value metadataProtection) ([]*os.File, error) {
 		if !strings.HasPrefix(entry.Path, "/home/sandbox/") || filepath.Clean(entry.Path) != entry.Path || entry.Inode == 0 || (entry.Kind != "directory" && entry.Kind != "file") {
 			return nil, errors.New("canonical_metadata_required")
 		}
-		fd, err := syscall.Open("/", syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_CLOEXEC, 0)
+		file, err := openMetadataPath(entry.Path)
 		if err != nil {
-			return nil, errors.New("metadata_unavailable")
+			return nil, err
 		}
-		parts := strings.Split(strings.TrimPrefix(entry.Path, "/"), "/")
-		for index, part := range parts {
-			flags := syscall.O_RDONLY | syscall.O_NOFOLLOW | syscall.O_CLOEXEC | syscall.O_NONBLOCK
-			if index != len(parts)-1 || entry.Kind == "directory" {
-				flags |= syscall.O_DIRECTORY
-			}
-			next, openErr := syscall.Openat(fd, part, flags, 0)
-			_ = syscall.Close(fd)
-			if openErr != nil {
-				return nil, errors.New("metadata_unavailable")
-			}
-			fd = next
-		}
-		file := os.NewFile(uintptr(fd), "protected-metadata")
+		fd := int(file.Fd())
 		files = append(files, file)
 		var info syscall.Stat_t
 		if syscall.Fstat(fd, &info) != nil || uint64(info.Dev) != entry.Device || info.Ino != entry.Inode ||
@@ -75,6 +63,9 @@ func pinMetadata(value metadataProtection) ([]*os.File, error) {
 		if verifyProtectedMetadata(file, entry.Device, 0, &remaining) != nil {
 			return nil, errors.New("metadata_alias_protection_unavailable")
 		}
+	}
+	if verifyMetadataGraph(value, files, root) != nil {
+		return nil, errors.New("metadata_association_unavailable")
 	}
 	failed = false
 	return files, nil
