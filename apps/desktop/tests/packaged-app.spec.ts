@@ -85,7 +85,8 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
     const page = await launchedApplication.firstWindow();
     await page.setViewportSize({ width: 420, height: 900 });
     const openSidebar = page.getByRole("button", { name: "Open sidebar" });
-    const workspaceSidebar = page.getByTestId("workspace-sidebar");
+    const localView = page.locator("#root > div").filter({ has: page.getByRole("button", { name: "Work in This computer", includeHidden: true }) }).first();
+    const workspaceSidebar = localView.getByTestId("workspace-sidebar");
     const closeSidebar = workspaceSidebar.getByRole("button", { name: "Close sidebar" });
     await expect(openSidebar).toBeVisible();
     await expect(workspaceSidebar).toBeHidden();
@@ -118,7 +119,6 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
     });
     // View switching retains the existing Local environment and never signs in
     // or uploads its provider credentials to the independent hosted account.
-    const localView = page.locator("#root > div").filter({ has: page.getByRole("button", { name: "Work in This computer", includeHidden: true }) }).first();
     const composer = page.getByRole("textbox").and(page.locator("textarea"));
     await composer.fill("Keep this unsent local draft while viewing Cloud");
     await page.getByRole("button", { name: "Work in This computer", exact: true }).click();
