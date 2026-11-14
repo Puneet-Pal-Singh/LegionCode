@@ -185,20 +185,27 @@ static bool install_launch_description(void) {
   return okay;
 }
 
-static bool install_register(void) {
+static bool install_launchctl(bool restart) {
+  uint64_t deadline, now;
+  if (!lc_host_monotonic(&deadline)) return false;
+  deadline += 30000;
   pid_t child = fork();
   if (child < 0) return false;
   if (!child) {
     long bound = sysconf(_SC_OPEN_MAX);
     if (bound < 3 || bound > INT_MAX) _exit(126);
     for (int fd = 3; fd < bound; fd++) close(fd);
-    char *args[] = { "/bin/launchctl", "bootstrap", "system", LC_INSTALL_LAUNCH, NULL };
+    if (restart) {
+      int sink = open("/dev/null", O_WRONLY | O_NOFOLLOW | O_CLOEXEC);
+      if (sink < 0 || dup2(sink, STDOUT_FILENO) < 0 || dup2(sink, STDERR_FILENO) < 0) _exit(126);
+      if (sink > STDERR_FILENO) close(sink);
+    }
+    char *bootstrap[] = { "/bin/launchctl", "bootstrap", "system", LC_INSTALL_LAUNCH, NULL };
+    char *kickstart[] = { "/bin/launchctl", "kickstart", "-k", "system/dev.legioncode.desktop.native-host", NULL };
+    char **args = restart ? kickstart : bootstrap;
     char *environment[] = { "PATH=/usr/bin:/bin:/usr/sbin:/sbin", "LANG=C", NULL };
     execve(args[0], args, environment); _exit(127);
   }
-  uint64_t deadline, now;
-  if (!lc_host_monotonic(&deadline)) return false;
-  deadline += 30000;
   for (;;) {
     int status; pid_t result = waitpid(child, &status, WNOHANG);
     if (result == child) return WIFEXITED(status) && !WEXITSTATUS(status);
@@ -213,6 +220,8 @@ static bool install_register(void) {
     struct timespec pause = { 0, 10000000 }; (void)nanosleep(&pause, NULL);
   }
 }
+
+static bool install_register(void) { return install_launchctl(false); }
 
 static int install_stage(void) {
   if (getuid() || geteuid() || !install_absent(LC_INSTALL_DIRECTORY) || !install_absent(LC_HOST_WORK) ||
@@ -246,8 +255,10 @@ static int install_stage(void) {
 }
 
 #include "legioncode-native-installer-configure.h"
+#include "legioncode-native-installer-reauthorize.h"
 
 int main(int argc, char **argv) {
+  if (argc == 5 && !strcmp(argv[1], "--reauthorize")) return install_reauthorize(argv[2], argv[3], argv[4]);
   if (argc == 6 && !strcmp(argv[1], "--configure")) return install_configure(argv[2], argv[3], argv[4], argv[5]);
   if (argc == 4 && !strcmp(argv[1], "--inspect-toolchain")) {
     if (!getuid() || geteuid() != getuid()) return 77;
