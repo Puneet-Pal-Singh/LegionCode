@@ -11,6 +11,7 @@ import { ToolboxSessionService } from "../services/ToolboxSessionService";
 import { OwnedNativeCommandSession, hasUnsettledNativeCommand, type NativeSessionFields } from "../../core/OwnedNativeCommandSession";
 import type { ArtifactStorePort } from "../../ports/ArtifactStorePort";
 import type { SandboxExecutionLease } from "../../ports/SandboxExecutionLease";
+import { executionDomainDigest, snapshotExecutionDomain } from "@repo/worker-protocol/private/execution-domain";
 import { NativeCommandReceiptSchema, type NativeCommandOriginal, type NativeCommandRequest, type OwnedNativeSandboxPort } from "../contracts/OwnedSandboxCommand";
 
 interface ExecutorMock extends ToolboxCommandExecutor {
@@ -222,7 +223,13 @@ describe("ToolboxSessionService", () => {
 });
 
 async function assertNativeOriginalOwnership() {
+  const executionDomain = snapshotExecutionDomain({
+    version: 1, domain: "legioncode_native",
+    scope: { userId: "user-1", brainSessionId: "brain-session-1", workspaceId: "workspace-1",
+      runId: "run-1", threadId: "thread-1", turnId: "turn-1", runAttemptId: "attempt-1" },
+  });
   const lease: SandboxExecutionLease = {
+    executionDomainDigest: await executionDomainDigest(executionDomain),
     leaseId: "lease-1", sandboxId: "sandbox-1", generation: 0, owner: "session-1",
     correlationId: "correlation-1", expiresAt: Date.now() + 60_000, mutationMode: "serialized",
     workspaceScope: { root: "/home/sandbox/checkouts/fixture", workspaceId: "workspace-1", runId: "run-1", threadId: "thread-1", turnId: "turn-1", runAttemptId: "attempt-1" },
@@ -231,7 +238,7 @@ async function assertNativeOriginalOwnership() {
   const metadata = { identity: "linux-git-metadata-v1:"+"d".repeat(64),
     paths: { version: 1 as const, workspaceRoot: lease.workspaceScope.root, gitEntry: `${lease.workspaceScope.root}/.git`, gitDirectory: `${lease.workspaceScope.root}/.git`, commonDirectory: `${lease.workspaceScope.root}/.git`, backlinkPath: null, backlinkRecordPath: null },
     entries: [{ path: `${lease.workspaceScope.root}/.git`, device: "1", inode: "3", kind: "directory" as const }] };
-  const records = new Map<string, unknown>([["execution:session:session-1", { lease, workspaceScope: lease.workspaceScope, nativeWorkspace: { root, metadata, sandboxBootId: "123e4567-e89b-42d3-a456-426614174000" } }]]);
+  const records = new Map<string, unknown>([["execution:session:session-1", { lease, executionDomain, workspaceScope: lease.workspaceScope, nativeWorkspace: { root, metadata, sandboxBootId: "123e4567-e89b-42d3-a456-426614174000" } }]]);
   const state = {
     blockConcurrencyWhile: async <T>(operation: () => Promise<T>) => await operation(),
     storage: {
@@ -298,6 +305,7 @@ async function assertNativeOriginalOwnership() {
   expect(starts).toBe(1);
   finish({ stdout: JSON.stringify(receipt()), stderr: "", exitCode: 0 });
   await expect(execution).resolves.toEqual({ exitCode: 0, stdout: "native output", stderr: "" });
+  await owner.drainOriginalOperations();
   expect(await owner.awaitClosure()).toBe(true);
   expect(hasUnsettledNativeCommand(read())).toBe(false);
   expect(read().nativeCommand?.originalTransportSettled).toBe(true);
@@ -310,8 +318,9 @@ async function assertNativeOriginalOwnership() {
 
   const settledSession = records.get("execution:session:session-1") as NativeSessionFields;
   settledSession.nativeCommand!.binding.generation = 1;
+  const corruptReplay = new OwnedNativeCommandSession({ state, sessionId: "session-1", lease, taskId: "task-1", sandbox, artifacts });
   expect(hasUnsettledNativeCommand(settledSession)).toBe(true);
-  expect((await owner.closureEvidence())?.state).toBe("unknown");
+  expect((await corruptReplay.closureEvidence())?.state).toBe("unknown");
   settledSession.nativeCommand!.binding.generation = 0;
 
   // A reconstructed session cannot recreate a lost original transport handle.
