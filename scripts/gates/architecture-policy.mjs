@@ -52,6 +52,20 @@ export const APP_IMPORT_POLICY = {
   ],
 };
 
+// Server admission bridges share one Node-free private contract. This permits
+// neither worker-protocol barrels nor worker implementation imports in Brain.
+export const APP_PRIVATE_IMPORT_POLICY = {
+  "@legioncode/brain": {
+    "@repo/worker-protocol/private/execution-domain": [
+      "apps/brain/src/services/secure-execution/SecureExecutionSessionClient.ts",
+      "apps/brain/src/runtime/task-workspaces/TaskCheckoutIssuer.ts",
+      "apps/brain/src/runtime/RuntimeExecutionResources.ts",
+      "apps/brain/src/runtime/CloudDelegatedRunPreparation.ts",
+      "apps/brain/src/integration/app-server/OwnedCheckoutExecution.ts",
+    ],
+  },
+};
+
 export const CANONICAL_AUTHORITIES = [
   {
     symbol: "CodingToolRegistry",

@@ -29,6 +29,7 @@
 		"@repo/git-service": "workspace:*",
 		"@repo/observability": "workspace:*",
 		"@repo/shared-types": "workspace:*",
+		"@repo/worker-protocol": "workspace:*",
 		"zod": "^3.25.1"
 	},
 	"author": "",
