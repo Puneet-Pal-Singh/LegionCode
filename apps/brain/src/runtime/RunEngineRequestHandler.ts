@@ -82,10 +82,8 @@ import {
   InMemoryRunInterruptRegistry,
   type RunInterruptRegistry,
 } from "./RunInterruptRegistry";
-import {
-  settleOwnedStartupFailure,
-  settleOrphanStop,
-} from "./RuntimeLifecycleSettlement";
+import { settleOwnedStartupFailure } from "./RuntimeLifecycleSettlement";
+import { acknowledgePersistedNativeStop } from "./PersistedNativeStop";
 import {
   InMemoryRunContextCompactionRegistry,
   type RunContextCompactionRegistry,
@@ -465,108 +463,28 @@ export class RunEngineRequestHandler {
       ...(storedIdentity ?? durableIdentity), ownerUserId: admission.userId, pendingInterruptReason: payload.reason,
     });
 
-    const hasActiveOwner =
-      this.interruptRegistry.hasActiveOwner(payload.turnId) ||
-      this.approvalResolutionRegistry.has(payload.turnId);
-    if (hasActiveOwner) {
-      const accepted = await this.interruptRegistry.request(
-        payload.turnId,
-        payload.reason,
-      );
-      if (!accepted) {
-        return runEngineErrorResponse(
-          request,
-          this.env,
-          "Turn is no longer interruptible",
-          409,
-        );
-      }
-      return runEngineJsonResponse(request, this.env, {
-        runId: payload.runId,
-        accepted: true,
-        status: "interrupt_requested",
-      });
-    }
-
-    if (this.withExecutionLock.hasQueuedOrActiveRun(payload.runId)) {
-      return runEngineErrorResponse(
-        request,
-        this.env,
-        "Turn is no longer interruptible",
-        409,
-      );
-    }
-
-    const settled = await this.withExecutionLock(payload.runId, async () => {
-      const currentAdmission = await withTurnAdmissionRepository(
-        this.env,
-        (repository) => repository.getByTurnId(payload.turnId),
-      );
-      if (!sameAdmissionIdentity(admission, currentAdmission)) {
-        return { status: "not_recovery_orphan" } as const;
-      }
-
-      const currentHistory = await readAllLifecycleEvents(store, payload.turnId);
-      const currentTerminalEvent = currentHistory.find(isTerminalLifecycleEvent);
-      if (currentTerminalEvent) {
-        return {
-          status: "terminal_exists",
-          terminalEvent: currentTerminalEvent,
-        } as const;
-      }
-
-      if (
-        this.interruptRegistry.hasActiveOwner(payload.turnId) ||
-        this.approvalResolutionRegistry.has(payload.turnId)
-      ) {
-        return { status: "not_recovery_orphan" } as const;
-      }
-
-      return await settleOrphanStop({
-        store,
-        admission: currentAdmission,
-        identity: {
-          turnId: payload.turnId,
-          runAttemptId: payload.runAttemptId,
-          threadId: payload.threadId,
-          workspaceId: workspaceIdFromExternalId(payload.workspaceId),
-          ...(currentAdmission.revisionOfTurnId
-            ? {
-                revisionOfTurnId: TurnIdSchema.parse(
-                  currentAdmission.revisionOfTurnId,
-                ),
-              }
-            : {}),
-          ...(currentAdmission.continuationOfTurnId
-            ? {
-                continuationOfTurnId: TurnIdSchema.parse(
-                  currentAdmission.continuationOfTurnId,
-                ),
-              }
-            : {}),
-          ...(currentAdmission.originalPromptId
-            ? { originalPromptId: currentAdmission.originalPromptId }
-            : {}),
-        },
-        admittedWorkspaceId: payload.workspaceId,
-        reason: payload.reason,
-      });
+    const receipt = await acknowledgePersistedNativeStop({
+      admission,
+      hasActiveOriginal: () => this.interruptRegistry.hasActiveOwner(payload.turnId) || this.approvalResolutionRegistry.has(payload.turnId),
+      requestOriginalStop: () => this.interruptRegistry.request(payload.turnId, payload.reason),
+      hasQueuedOrActiveRun: () => this.withExecutionLock.hasQueuedOrActiveRun(payload.runId),
+      underRunLock: operation => this.withExecutionLock(payload.runId, operation),
+      readAdmission: () => withTurnAdmissionRepository(this.env, repository => repository.getByTurnId(payload.turnId)),
+      readTerminal: async () => (await readAllLifecycleEvents(store, payload.turnId)).find(isTerminalLifecycleEvent),
+      markRecoveryRequired: current => withTurnAdmissionRepository(this.env, repository =>
+        repository.markRecoveryRequiredForUnownedStop({
+          userId: current.userId, sessionId: current.sessionId, workspaceId: current.workspaceId!,
+          runId: current.runId, threadId: current.threadId, turnId: current.turnId, runAttemptId: current.runAttemptId,
+        })),
+      reportUnresolved: () => console.warn(formatDiagnosticLogLine("run/runtime", "persisted-stop-delivery-unresolved", {
+        runId: payload.runId, turnId: payload.turnId,
+      })),
     });
-    if (settled.status === "settled" || settled.status === "terminal_exists") {
-      return runEngineJsonResponse(request, this.env, {
-        runId: payload.runId,
-        accepted: settled.status === "settled",
-        status: "settled",
-        terminalEvent: settled.terminalEvent,
-      });
-    }
-
-    return runEngineErrorResponse(
-      request,
-      this.env,
-      "Turn is no longer interruptible",
-      409,
-    );
+    return runEngineJsonResponse(request, this.env, {
+      runId: payload.runId,
+      accepted: receipt.status === "interrupt_requested",
+      ...receipt,
+    });
   }
 
   async handleThreadInputSteerRequest(request: Request): Promise<Response> {
@@ -1287,7 +1205,10 @@ export class RunEngineRequestHandler {
   async handleExecuteRequest(request: Request, observer?: NativeAttemptObserver): Promise<Response> {
     let executionClaim: { turnId: TurnId; claimId: string } | null = null;
     let startupInterruptReason: string | null = null;
-    let preparationCleanup: NativePreparationCleanupReceipt | undefined;
+    // This original creator has not invoked any resource/provider preparation.
+    // Clear the receipt synchronously before handing capability to that owner.
+    let preparationCleanup: NativePreparationCleanupReceipt | undefined = { kind: "no_exposure" };
+    let retainedOwnerClaimed = false;
     let startupOwner = false;
     const attemptController = new AbortController();
     let payload: ExecuteRunPayload;
@@ -1493,6 +1414,7 @@ export class RunEngineRequestHandler {
         const effectivePayload: ExecuteRunPayload = { ...payload,
           input: resolveNativeAdmissionExecutionInput(payload.input, nativeCredentials, payload.correlationId) };
         await new RunAdmissionService(this.env).claimAttempt(runAttemptId, payload.admissionLease, claimId, payload.correlationId);
+        retainedOwnerClaimed = true;
         nativeObserver?.claimed(Object.freeze({
           admission: claimedAdmission, correlationId: payload.correlationId, claimId,
           admissionLease: payload.admissionLease ? Object.freeze({ ...payload.admissionLease }) : undefined,
@@ -1507,6 +1429,7 @@ export class RunEngineRequestHandler {
           throw new DOMException("Run cancelled before Native preparation", "AbortError");
         }
         const runtimeState = this.createRuntimeState();
+        preparationCleanup = undefined;
         const resources = await prepareRuntimeExecutionResources(this.ctx, this.env, effectivePayload, nativeCredentials, receipt => { preparationCleanup = receipt; });
         const taskCheckoutLifecycle = resources.checkoutLifecycle;
         const editArtifactCoordinator = resources.artifacts;
@@ -1745,8 +1668,9 @@ export class RunEngineRequestHandler {
         this.interruptRegistry.unregister(claimedExecution.turnId);
         try {
           const identity = payload.identity;
-          if (identity && payload.userId) {
+          if (identity && payload.userId && preparationCleanup?.kind === "no_exposure") {
             await settleOwnedStartupFailure({
+              disposition: preparationCleanup,
               store: this.createLifecycleEventStore(),
               claim: claimedExecution,
               identity: {
@@ -1828,7 +1752,7 @@ export class RunEngineRequestHandler {
     } finally {
       // This receipt comes from the preparation owner, after known no-exposure
       // or successful compensation. An arbitrary preparation Error grants nothing.
-      if (preparationCleanup && executionClaim) nativeObserver?.cleanupSettled();
+      if (preparationCleanup && executionClaim && retainedOwnerClaimed) nativeObserver?.cleanupSettled();
       if (startupOwner && payload.identity) this.interruptRegistry.unregister(payload.identity.turnId);
     }
   }
@@ -1957,27 +1881,6 @@ export class RunEngineRequestHandler {
   }
 }
 
-function sameAdmissionIdentity(
-  original: TurnAdmissionRecord,
-  current: TurnAdmissionRecord | null,
-): current is TurnAdmissionRecord {
-  return Boolean(
-    current &&
-      current.userId === original.userId &&
-      current.sessionId === original.sessionId &&
-      current.clientMessageId === original.clientMessageId &&
-      current.threadId === original.threadId &&
-      current.turnId === original.turnId &&
-      current.runAttemptId === original.runAttemptId &&
-      current.runId === original.runId &&
-      current.workspaceId === original.workspaceId &&
-      current.revisionOfTurnId === original.revisionOfTurnId &&
-      current.continuationOfTurnId === original.continuationOfTurnId &&
-      current.originalPromptId === original.originalPromptId &&
-      current.continuationTerminalSequence ===
-        original.continuationTerminalSequence,
-  );
-}
 
 function toStartupLifecycleFailure(
   error: unknown,

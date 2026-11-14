@@ -16,8 +16,7 @@ import {
   fetchRunRuntimeRoute,
 } from "../../controllers/chat-runtime-helpers";
 import { mapAgentIdToType } from "../../controllers/chat-request-helpers";
-import { resolveCachedChatModelMetadata } from "../chat/ChatModelMetadataResolution";
-import { createPostgresProviderConfigService } from "../providers/stores/PostgresStoreFactory";
+import { resolveAdmissionChatModelMetadata } from "../chat/ChatModelMetadataResolution";
 import { validateChatReasoningEffort } from "../chat/ChatReasoningEffortPolicy";
 import type { ChatModelMetadata } from "../chat/ChatModelMetadataResolver";
 import { withTurnAdmissionRepository } from "../turn-admissions/TurnAdmissionPersistenceFactory";
@@ -63,13 +62,12 @@ export async function prepareAdmittedTurnModel(input: {
   readonly workspaceId: string;
   readonly configuration: AdmittedTurnExecution["configuration"];
 }): Promise<ChatModelMetadata> {
-  const modelMetadata = await resolveCachedChatModelMetadata({
+  const modelMetadata = await resolveAdmissionChatModelMetadata(input.env, {
+    userId: input.userId, workspaceId: input.workspaceId, runId: input.run.id,
+  }, {
     providerId:
       input.configuration.providerId ?? input.run.providerId ?? undefined,
     modelId: input.configuration.modelId ?? input.run.modelId ?? undefined,
-    readCachedModel: (providerId, modelId) => createPostgresProviderConfigService(
-      input.env, input.userId, input.workspaceId, input.run.id,
-    ).getCachedModel(providerId, modelId),
   });
   const reasoningEffort = input.configuration.reasoningEffort;
   if (reasoningEffort) {
@@ -248,6 +246,8 @@ export async function settleUnclaimedStartupFailure(input: {
   let result;
   try {
     result = await settleOwnedStartupFailure({
+      // This caller is reached only before the original runtime dispatch.
+      disposition: { kind: "no_exposure" },
       store: new BrainLifecycleEventStore(input.env),
       claim: { turnId: input.identity.turnId, claimId },
       identity: {

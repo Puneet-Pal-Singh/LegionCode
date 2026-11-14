@@ -39,6 +39,8 @@ export type RuntimeLifecycleSettlementResult =
 
 export async function settleOwnedStartupFailure(input: {
   readonly store: LifecycleEventStore;
+  /** Issued by this original creator before any resource/provider exposure. */
+  readonly disposition: { readonly kind: "no_exposure" };
   readonly claim: { readonly turnId: TurnId; readonly claimId: string };
   readonly identity: OwnedStartupFailureIdentity;
   readonly markRecoveryRequired: (claim: {
@@ -52,6 +54,7 @@ export async function settleOwnedStartupFailure(input: {
   RuntimeLifecycleSettlementResult | { readonly status: "not_owned" }
 > {
   if (
+    input.disposition?.kind !== "no_exposure" ||
     input.claim.turnId !== input.identity.turnId ||
     !(await input.markRecoveryRequired(input.claim))
   ) {
@@ -100,95 +103,6 @@ export async function settleOwnedStartupFailure(input: {
           failure: input.failure,
         },
   });
-}
-
-export async function settleOrphanStop(input: {
-  readonly store: LifecycleEventStore;
-  readonly admission: TurnAdmissionRecord;
-  readonly identity: RuntimeLifecycleSettlementIdentity;
-  readonly admittedWorkspaceId: string;
-  readonly reason: string;
-}): Promise<
-  | RuntimeLifecycleSettlementResult
-  | { readonly status: "not_recovery_orphan" }
-  | { readonly status: "not_recoverable" }
-> {
-  if (
-    input.admission.state !== "admitted" ||
-    (input.admission.executionState !== "pending" &&
-      input.admission.executionState !== "running" &&
-      input.admission.executionState !== "recovery_required") ||
-    input.admission.turnId !== input.identity.turnId ||
-    input.admission.runAttemptId !== input.identity.runAttemptId ||
-    input.admission.threadId !== input.identity.threadId ||
-    input.admission.workspaceId !== input.admittedWorkspaceId ||
-    input.admission.revisionOfTurnId !==
-      (input.identity.revisionOfTurnId ?? null) ||
-    input.admission.continuationOfTurnId !==
-      (input.identity.continuationOfTurnId ?? null) ||
-    input.admission.originalPromptId !==
-      (input.identity.originalPromptId ?? null)
-  ) {
-    return { status: "not_recovery_orphan" };
-  }
-  const history = await readLifecycleHistory(
-    input.store,
-    input.identity.turnId,
-  );
-  const terminalEvent = history.find(isTerminalEvent);
-  if (terminalEvent) {
-    return { status: "terminal_exists", terminalEvent };
-  }
-  if (history.length === 0) {
-    return await settleEmptyRuntimeLifecycle({
-      store: input.store,
-      identity: input.identity,
-      outcome: { type: "interrupted", reason: input.reason },
-    });
-  }
-
-  const constructedEvents: LifecycleEvent[] = [];
-  try {
-    const coordinator = RuntimeLifecycleCoordinator.restoreForInterruption(
-      {
-        ...input.identity,
-        sink: {
-          appendBatch: async (events) => {
-            constructedEvents.push(...events);
-            return events;
-          },
-        },
-        producerId: "brain-runtime-recovery",
-        clock: { now: () => new Date().toISOString() },
-      },
-      history,
-    );
-    await coordinator.interrupt(input.reason);
-  } catch {
-    return { status: "not_recoverable" };
-  }
-
-  try {
-    await input.store.appendBatch(constructedEvents);
-  } catch {
-    const afterConflict = await readLifecycleHistory(
-      input.store,
-      input.identity.turnId,
-    );
-    const terminalAfterConflict = afterConflict.find(isTerminalEvent);
-    return terminalAfterConflict
-      ? { status: "terminal_exists", terminalEvent: terminalAfterConflict }
-      : { status: "history_exists" };
-  }
-
-  const settledHistory = await readLifecycleHistory(
-    input.store,
-    input.identity.turnId,
-  );
-  const settledTerminal = settledHistory.find(isTerminalEvent);
-  return settledTerminal
-    ? { status: "settled", terminalEvent: settledTerminal }
-    : { status: "append_conflict" };
 }
 
 /**
