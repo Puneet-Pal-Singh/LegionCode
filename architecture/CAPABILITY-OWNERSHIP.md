@@ -2206,6 +2206,92 @@ mapper; canonical resolution/attestation remains with the injected authority.
 Both files are inventoried as permission typed-protocol projectors, without
 changing their implementations, permissions, launch availability or physical
 release requirements. All other architecture dependency rules are unchanged.
+## Plan 057 — Native predecessor resource settlement evidence
+
+The existing `LocalTurnResources` owner records Native resource settlement only
+after the original executor's combined terminal/capture/quiescence proof, the
+same writer owner's positive release and the original binding's successful close.
+The existing immutable Turn-artifact metadata authority stores the exact admission,
+terminal/publication digests, root and Git metadata identity, grant provenance and
+actual released namespace/writer-file identity. It creates no lifecycle event or
+public review artifact. Unknown write acknowledgements require an exact durable
+record read before the same owned entry is removed; unreadable or absent evidence
+retains that owner and prevents positive shutdown.
+
+The private Native predecessor reader validates those canonical references under
+the successor's already-held physical writer, using a metadata-only tracked loan
+that exposes no file descriptor or execution capability. It never acquires or
+releases a replacement fence. Missing legacy or crash-before-receipt evidence is
+explicit `native_predecessor_recovery_required`; terminal history, artifacts and
+an absent executor map never establish physical settlement. There is no automatic
+historical backfill from a freshly acquired fence.
+
+Unused prepared acquisitions have a separate positive cleanup path on the same
+writer entry. Sticky physical exposure prevents that path after any broad authority
+loan or tracked execution. The trusted first consumer must fence and await its
+original canonical publication before its exact absence read; unknown publication
+or cleanup retains the original binding and lease. This source does not activate
+delegated external execution or supply its missing physical process boundary.
+
+Crash-before-receipt recovery remains a concrete backend limitation: the Native
+process guardian retains the writer descriptor through normal exact-child reaping,
+but its target closes that descriptor before execution. An unexpectedly lost
+guardian therefore cannot be excluded solely by acquiring the old fence. No
+preparation label or new receipt is substituted for surviving-child exclusion.
+
+## Plan 057 / 061 — Private physical admission candidates
+
+The trusted Desktop composition supplies physical admission candidates through
+its existing Native/commit writer owner. The opaque candidate registers its
+original deferred acquisition before the caller awaits readiness. It validates
+Native predecessor settlement under that same held lease and exposes execution
+authority only after the original canonical publication positively admits and
+re-reads the exact candidate. No second admission or attempt registry is created.
+
+Discard permanently fences publication and adoption, drains the original
+acquisition and full publication/validation promise, and calls the same writer
+entry's unused-release path with a fresh exact canonical absence read. Only
+positive release and original binding close permit cleanup; unknown acquisition,
+publication, exposure or cleanup remains in the caller's existing reservation.
+The private factory option is a provider seam only until the 061 constructor
+retains and invokes these candidates. Delegated availability also requires the
+new enforcing Native child-intent ABI; this leaf does not advertise activation.
+
+If the original publisher finishes after fencing, exact durable admission yields
+only a never-dispatched settlement capability. The actual 061 canonical owner
+settles interruption; the same P11 transactional reader proves exact terminal,
+capture and pre-opening/targeted-cancellation state. The candidate independently
+rechecks that proof and canonical publication while the original writer still
+holds its never-exposed authority. Only the same writer's combined release and
+original binding close complete cleanup. A lost publisher acknowledgement can
+reconcile to this cleanup-only path, never newly authorize execution.
+
+Physical admission candidates synchronously freeze the complete private harness
+selection, including policy/runtime/account-generation pins, and validate it
+against canonical admission and captured client selection before acquisition.
+The original publisher atomically reserves preparation on the same P11 binding
+row; raw authority transfer includes that exact immutable preparation identity.
+The actual 061 caller must win reserved-to-begun once before any preparation work.
+Existing-request receipts retain the winner's own persisted private binding;
+server-derived parent/default/policy changes do not replace client retry intent.
+
+Cancellation after transfer first seals new execution and metadata loans on the
+same physical writer entry and drains originals. Only an unexposed entry plus
+the exact reserved-to-cancelled preparation CAS and canonical failed/interrupted
+proof permit early close. A begun preparation or physical exposure refuses that
+path without consuming the normal runtime release; retained settlement authority
+remains usable for its original cleanup owner. No terminal, absent opening or
+preparation label alone establishes physical release.
+
+Restart cleanup consumes the actual persisted full selection and preparation ID
+through a separate opaque recovery handle. It creates no new admission, random
+preparation identity, publisher or raw execution capability. Canonical admission,
+private selection, unbegun preparation identity and absence of learned ingress
+are checked before and after acquiring the same physical writer. Eligibility is
+not closure: the existing seal, reserved/cancelled-only P11 no-activity CAS and
+exact canonical terminal/resource proof still precede original FD/binding close.
+Missing/foreign/begun state remains with normal physical settlement or explicit
+recovery; the original recovery promises must drain before Ready/owner retirement.
 
 ## Issue 810 — Versioned hosted workspace configuration
 
@@ -2267,3 +2353,121 @@ lifecycle authority changes. Public HTTP byte paging remains inactive until the
 separately owned lossless event hydration and cursor-aware consumers are wired;
 this foundation alone does not make oversized public replay deliverable. Chunk
 bytes and their real wire digest remain read/transport responsibilities.
+
+## Plans 048 / 061 — Local harness protocol foundation
+
+The platform protocol owns harness family, immutable pre-admission selection,
+instance/operation and measured-usage contracts, canonical question descriptors
+and response normalization. Chat request and queued-input schemas remain unchanged and reject unsupported
+captured selection. Run capture lands with the Kernel's resolved-strategy guard;
+Chat capture requires routed admission, and queued capture requires its actual
+producer migration. Reference contracts
+alone never authorize a Native fallback. The existing lifecycle schema adds typed passive harness measurements
+and provider-limit observations, without introducing a producer or state store.
+
+The worker protocol consumes those public contracts for scoped host commands,
+observations, opening reservations, replies and positive quiescence receipts.
+These definitions do not enable a driver, create a host, resolve credentials or
+certify physical containment. Required initialize environment identity is deferred
+to its actual constructor/handshake consumer and existing fixture migration.
+The active SDK legacy question wrapper remains unchanged until that consumer
+migrates its shared route and removes the old DTO; this foundation alone does not
+claim that client/runtime integration. Native capture, current byte paging and
+provider custody retain their existing owners and exports.
+
+## Plans 048 / 061 — Same-writer local harness persistence foundation
+
+The existing exclusive LocalPersistence SQLite connection owns durable local
+harness bindings, observation ingress/reply claims, opening phases and verified
+attachment retirement. Its constructor validates and initializes those indexes
+and one environment identity; no second writer or runtime registry is introduced.
+Control-plane setup/selection uses that same writer and the caller's canonical
+local actor. It reuses the same strict versioned grant parser as LocalPersistence,
+including v2 Git metadata identity in its grant fingerprint. It stores no
+credentials and starts no provider or process.
+
+This foundation exposes private ports but does not activate a public local
+harness consumer. Binding validation parses captured selection from an opaque
+Run property; the Kernel strategy guard lands atomically with the canonical Run
+field before any public delegated admission is enabled. Missing capture never selects Native
+or reconstructs external ownership. Final constructor/driver wiring remains
+separate. Current Native admission/lineage, immutable artifacts, lifecycle byte
+paging and provider custody retain their existing source and exports.
+
+## Plans 048 / 061 — Kernel delegated execution foundation
+
+RuntimeKernel remains the sole canonical lifecycle, approval and terminal owner.
+It requires a nonnull frozen delegated Run selection and matches every captured
+field to the resolved execution strategy before any binding or runtime effect;
+exact scope and active binding remain independently required; it never routes that intent into Native
+execution or its preparation-failure fallback. Existing Native provider, guarded
+worker, restoration and artifact responsibilities remain on their current path.
+
+Delegated observation ingestion validates worker scope and commits through the
+existing lifecycle writer before its durable ACK. That transition owner rejects
+reused item, tool-call and approval identities before append, including already
+settled identities, so acknowledged history remains restorable. Recovery restores the same
+attempt and committed start snapshot; uncertain physical quiescence retains
+workspace ownership and cannot certify an immutable resume artifact. Canonical
+question/deadline handling and secret-safe public errors share the existing
+approval/lifecycle owner. Worker-protocol is the explicit package dependency.
+
+This is an execution foundation, not driver or public-route activation. Chat and
+queued-input capture, real host/driver construction and initialization identity
+remain with the final consumer slice. No credential resolver, process launcher,
+second event writer or client-owned lifecycle is introduced here.
+
+## Plans 057 / 061 — Canonical pre-opening settlement evidence
+
+The existing LocalPersistence P11 writer owns a read-only structured settlement
+receipt for an exact admitted delegated attempt stopped before physical authority
+was exposed. One immediate transaction validates the original canonical admission,
+immutable Run/user-message capture, complete contiguous lifecycle scope and producer,
+and the final failed/interrupted terminal with real SHA256 digests. It includes
+the actual frozen full selection and the exact preparation reservation cancelled
+before preparation began. Missing/legacy preparation, an unbound row, and an old
+cancelled opening alone never establish this positive proof. No opening intent, snapshot, metadata record,
+second registry or lifecycle event is synthesized.
+
+A generation, attachment, ingress/reply receipt, external turn, uncertain binding
+or dispatch authority prevents positive proof. The existing terminal gates claim,
+opening dispatch and attachment; freeze cannot append past that terminal to regain
+authority. The receipt proves logical pre-dispatch settlement only. The physical
+candidate owner must independently retain and drain its original admission
+publication, prove authority was never exposed, and positively release the same
+held physical lease before closing its exact binding.
+
+## Plan 057 / 061 — Atomic local admission composition
+
+LocalTurnAdmissions remains the canonical local admission writer. Its synchronous
+admitWithin port requires the original SQLite transaction; basic Native admission,
+queued-input consumption and private delegated preparation can compose their own
+CAS with the same canonical admission and event append, without nested asynchronous
+transactions or a second admission owner. Existing scope, fingerprint, parent and
+unsettled-turn checks are unchanged. Canonical Thread ownership reads are shared
+with the local queue adapter and retain one-record streaming memory.
+
+## Plans 057 / 061 — Atomic delegated preparation reservation
+
+The existing LocalPersistence writer commits canonical admission and the full
+private selection's preparation reservation in one immediate transaction on the
+same harness binding row. A reserved-to-begun compare-and-swap is required before
+binding preparation, capture, claim, opening or dispatch; legacy rows cannot gain
+new execution authority. Existing admission retries read the winner's original
+private reservation and never rewrite it with another candidate's pins.
+
+The physical candidate owner seals new execution exposure before requesting the
+reserved-to-cancelled transition. Only that explicit cancelled-before-preparation
+state plus the original canonical failed/interrupted terminal can produce the
+pre-opening settlement receipt. SQLite state does not certify physical closure:
+the same original physical owner must drain publication and loans, prove no
+exposure, release its held lease and close its binding. A begun reservation keeps
+its normal execution/settlement owner; no replacement registry or table is added.
+
+Delegated retries use one pure EventStore client-intent fingerprint shared with
+the physical candidate caller. The facade checks the canonical request receipt
+inside the same transaction before strict Native admission: owner/request, exact
+prompt, matching public selection capture, explicit content configuration and
+immutable image digest must agree. Server-derived runtime pins, lineage and
+attachment identifiers do not change a saved request. The original Native
+admission fingerprint and its checks remain unchanged.

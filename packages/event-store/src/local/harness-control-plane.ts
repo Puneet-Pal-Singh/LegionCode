@@ -1,12 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
-import { isAbsolute } from "node:path";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import {
   HarnessSetupRequestSchema, HarnessSetupResponseSchema,
   HarnessStatusRequestSchema, HarnessStatusResponseSchema,
   HarnessSelectionReadRequestSchema, HarnessSelectRequestSchema, HarnessSelectionResponseSchema,
-  HarnessInstanceStatusSchema, LocalWorkspaceGrantSchema, LocalWorkspaceGrantPathSchema,
+  HarnessInstanceStatusSchema,
   PlatformEventSchema, UserIdSchema,
   type HarnessSetupRequest, type HarnessSetupResponse,
   type HarnessStatusRequest, type HarnessStatusResponse,
@@ -14,6 +13,7 @@ import {
   type HarnessInstanceStatus, type Thread, type UserId,
 } from "@repo/platform-protocol";
 import { createStableEventFingerprint } from "../fingerprint.js";
+import { parseStoredGrant } from "../local-workspace-grant.js";
 import { LocalPersistenceError } from "../errors.js";
 
 /** Private accountless LOCAL operations, not a credential or runtime authority. */
@@ -42,12 +42,6 @@ const InstanceRecordsSchema = z.object({
 const ReceiptSchema = z.object({
   version: z.literal(1), fingerprint: z.string().min(1), response: z.unknown(),
 }).strict();
-// Preserve physical-grant identity added by the existing writer owner. No copy
-// of a grant or credential is persisted in this adapter's metadata records.
-const GrantEnvelopeSchema = z.object({
-  version: z.literal(1), path: LocalWorkspaceGrantPathSchema, grant: LocalWorkspaceGrantSchema,
-}).passthrough();
-
 /** Uses ONLY the process's existing exclusively owned SQLite writer. Every
  * operation is synchronous inside one immediate transaction; external health,
  * catalog, vault and provider I/O do not participate in the transaction.
@@ -163,9 +157,8 @@ export class LocalHarnessControlPlane implements LocalHarnessControlPlanePort {
     const row = this.database.prepare("SELECT value_json FROM workspace_grant WHERE id=1")
       .get() as { value_json: string } | undefined;
     if (!row) fail("not_found", "Local harness workspace is not granted");
-    const grant = GrantEnvelopeSchema.parse(JSON.parse(row.value_json));
-    if (!isAbsolute(grant.path) || grant.path.includes("\0") ||
-        grant.grant.workspaceId !== input.workspaceId || grant.grant.readiness !== "ready" ||
+    const grant = parseStoredGrant(JSON.parse(row.value_json));
+    if (grant.grant.workspaceId !== input.workspaceId || grant.grant.readiness !== "ready" ||
         !grant.grant.capabilities.includes("filesystem"))
       fail("not_found", "Local harness workspace grant is unavailable");
     // Full stored identity includes the physical fence when supplied by the

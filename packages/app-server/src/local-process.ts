@@ -29,6 +29,7 @@ import { LocalTurnArtifactReads } from "./local-turn-artifact-reads.js";
 import { LocalChatMediaStore } from "./local-chat-media-store.js";
 import { LocalChatMediaReads } from "./local-chat-media-reads.js";
 import { LocalLifecycleReplay } from "./local-lifecycle-replay.js";
+import type { LocalPhysicalAdmissionCandidates } from "./local-physical-admission-candidates.js";
 import type { LocalTurnMediaPort } from "./local-turn-media.js";
 
 export type LocalAppServerStartConfig = {
@@ -56,6 +57,13 @@ export type LocalAppServerParentPort = {
 
 export type LocalAppServerCompositionOptions = {
   harnessBootstrap?: LocalHarnessBootstrap;
+  createPhysicalAdmissionCandidates?(input: {
+    persistence: Pick<LocalPersistence, "turnAdmissions" | "lifecycleEvents" | "turnArtifacts" |
+      "harnessBindings" | "admitHarnessPreparation" | "cancelHarnessPreparation" |
+      "readHarnessPreparation" | "readHarnessPreOpeningSettlement">;
+    workspaces: LocalWorkspaceService;
+  }): LocalPhysicalAdmissionCandidates;
+
   providerModelCatalog?: LocalProviderModelCatalog;
   createMetadataInspector?: LocalWorkspaceServiceOptions["createMetadataInspector"];
   createProbeExecution?: (authority: Pick<VerifiedMacGitOptions, "probeRoot" | "withRootAuthority">) => Promise<VerifiedMacGitExecution>;

@@ -1195,6 +1195,8 @@ const TurnLifecycleEventSchema = z
       "turn.input.applied",
       "context_budget.updated",
       "usage.updated",
+      "harness.activity_measured",
+      "harness.provider_limit_notified",
       "context_compaction.requested",
       "context_compaction.started",
       "context_compaction.completed",

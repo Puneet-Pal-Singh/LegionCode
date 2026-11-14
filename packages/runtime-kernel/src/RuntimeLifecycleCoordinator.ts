@@ -846,6 +846,12 @@ export class RuntimeLifecycleCoordinator {
     callBatchId?: import("@repo/platform-protocol").ToolCallBatchId,
     display?: LifecycleToolDisplay,
   ): Promise<void> {
+    const current = this.toolCallStatuses[toolCallId];
+    if (current !== undefined) {
+      throw new LifecycleTransitionError(
+        "tool_call", current, "active", "Tool call identity was already started",
+      );
+    }
     await this.startItem(itemId, "tool_call", display ? { display } : {});
     const next = transitionToolCallStatus("not_started", "active");
     await this.emit({
@@ -1099,6 +1105,12 @@ export class RuntimeLifecycleCoordinator {
     approvalItemId: ItemId,
     payload: JsonRecord,
   ): Promise<void> {
+    const current = this.approvalStatuses[approvalId];
+    if (current !== undefined) {
+      throw new LifecycleTransitionError(
+        "approval", current, "pending", "Approval identity was already requested",
+      );
+    }
     await this.startItem(approvalItemId, "approval_request", { parentItemId });
     await this.emit({
       type: "approval.requested",
@@ -1330,6 +1342,12 @@ export class RuntimeLifecycleCoordinator {
     kind: ItemKind,
     payload: JsonRecord,
   ): Promise<void> {
+    const current = this.itemStatuses[itemId];
+    if (current !== undefined) {
+      throw new LifecycleTransitionError(
+        "item", current, "active", "Item identity was already started",
+      );
+    }
     const next = transitionItemStatus("not_started", "active");
     await this.emit({
       type: "item.started",

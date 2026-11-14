@@ -1,7 +1,8 @@
 import { constants, type BigIntStats } from "node:fs";
 import { lstat, open, realpath, type FileHandle } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
-import type { WorkspaceId } from "@repo/platform-protocol";
+import type { TurnAdmission, WorkspaceId } from "@repo/platform-protocol";
+import type { LocalNativeFileIdentity, LocalNativeReleasedFence } from "@repo/event-store";
 import { acquireNativeWriterFence } from "@legioncode/execution-engine/runtime/desktop/NativeWriterFence";
 import type { SingleProcessMacExecution } from "@legioncode/execution-engine/runtime/desktop/SingleExecutableProcess";
 import type { NativeFilesystemExecution } from "@legioncode/execution-engine/runtime/desktop/NativeFilesystemBridge";
@@ -27,6 +28,8 @@ export interface LocalWorkspaceWriterAuthority extends LocalMutationLease {
 }
 
 export interface LocalWorkspaceWriterLease extends LocalWorkspaceWriterAuthority {
+  /** Metadata-only loan: never exposes FileHandles or execution authority. */
+  withPredecessorVerification<T>(operation: (identity: LocalWorkspaceWriterReleaseReceipt) => Promise<T>): Promise<T>;
   withMutationAuthority<T>(
     workspaceId: WorkspaceId,
     operation: (authority: LocalWorkspaceWriterAuthority) => Promise<T>,
@@ -40,6 +43,18 @@ export interface LocalWorkspaceWriterLease extends LocalWorkspaceWriterAuthority
   release(
     awaitResourceRelease: LocalTurnExecutor["awaitResourceRelease"],
   ): Promise<boolean>;
+  /** Caller must fence and await its original publication before this canonical
+   * read. Any admission, tracked physical resource or unknown result retains. */
+  releaseUnadmitted(readCanonicalAdmission: () => Promise<TurnAdmission | null>): Promise<boolean>;
+  /** One-shot active-work seal. Refuses ever-exposed leases without consuming
+   * normal settlement/release; proof must certify the same cancelled preparation. */
+  releaseBeforeExposure(proof: LocalTurnExecutor["awaitResourceRelease"]): Promise<boolean>;
+}
+
+export interface LocalWorkspaceWriterReleaseReceipt {
+  readonly root: LocalNativeFileIdentity;
+  readonly gitMetadataIdentity: string;
+  readonly writerFence: LocalNativeReleasedFence;
 }
 
 type Resource = {
@@ -55,8 +70,12 @@ type Entry = {
   readonly retained: AbortController;
   readonly loans: Set<Promise<unknown>>;
   readonly resources: Set<Resource>;
+  physicalExposure: boolean;
+  executionSealed: boolean;
+  beforeExposureRelease?: Promise<boolean>;
   file?: FileHandle;
   fileIdentity?: BigIntStats;
+  namespaceIdentity?: BigIntStats;
   unknown: boolean;
   releasing: boolean;
   released: boolean;
@@ -114,6 +133,7 @@ export class LocalWorkspaceWriterLeaseOwner {
   async releaseAttempt(
     attempt: LocalTurnAttemptIdentity,
     proof: LocalTurnExecutor["awaitResourceRelease"],
+    onReleased?: (receipt: LocalWorkspaceWriterReleaseReceipt) => void,
   ): Promise<boolean> {
     for (const entry of this.entries.values()) {
       if (
@@ -123,7 +143,9 @@ export class LocalWorkspaceWriterLeaseOwner {
         entry.attempt.turnId === attempt.turnId &&
         entry.attempt.runAttemptId === attempt.runAttemptId
       ) {
-        return this.release(entry, proof);
+        const released = await this.release(entry, proof);
+        if (released && onReleased) onReleased(physicalIdentity(entry));
+        return released;
       }
     }
     // Absence is never proof. The factory's combined callback must prove the
@@ -161,6 +183,8 @@ export class LocalWorkspaceWriterLeaseOwner {
       retained: new AbortController(),
       loans: new Set(),
       resources: new Set(),
+      physicalExposure: false,
+      executionSealed: false,
       unknown: false,
       releasing: false,
       released: false,
@@ -170,6 +194,7 @@ export class LocalWorkspaceWriterLeaseOwner {
     let busy = false;
     try {
       await this.assertDirectory();
+      entry.namespaceIdentity = (await this.directory!).identity;
       binding.assertCurrent();
       entry.file = await open(
         this.filePath(entry),
@@ -220,6 +245,7 @@ export class LocalWorkspaceWriterLeaseOwner {
       execution: Resource["execution"],
       proof: Promise<unknown>,
     ) => {
+      entry.physicalExposure = true;
       const closed = proof
         .then(
           () => execution.quiescent === true,
@@ -256,6 +282,11 @@ export class LocalWorkspaceWriterLeaseOwner {
       settlement: boolean,
       operation: (value: LocalWorkspaceWriterAuthority) => Promise<T>,
     ): Promise<T> => {
+      if (entry.unknown || entry.releasing || entry.released || (!settlement && entry.executionSealed)) {
+        return Promise.reject(new LocalWorkspaceWriterLeaseError("workspace_writer_unavailable"));
+      }
+      // Sticky: even a completed loan may have authorized physical execution.
+      entry.physicalExposure = true;
       const loan = (async () => {
         if (entry.releasing)
           throw new LocalWorkspaceWriterLeaseError(
@@ -271,6 +302,20 @@ export class LocalWorkspaceWriterLeaseOwner {
     };
     return Object.freeze({
       ...authority,
+      withPredecessorVerification: <T>(operation: (identity: LocalWorkspaceWriterReleaseReceipt) => Promise<T>) => {
+        if (entry.unknown || entry.executionSealed || entry.releasing || entry.released) {
+          return Promise.reject(new LocalWorkspaceWriterLeaseError("workspace_writer_unavailable"));
+        }
+        const loan = Promise.resolve().then(async () => {
+          if (entry.releasing || entry.released) throw new LocalWorkspaceWriterLeaseError("workspace_writer_unavailable");
+          await this.assertEntry(entry, false);
+          const result = await operation(physicalIdentity(entry));
+          await this.assertEntry(entry, false);
+          return result;
+        });
+        entry.loans.add(loan);
+        return loan.finally(() => { entry.loans.delete(loan); });
+      },
       withMutationAuthority: <T>(
         workspaceId: WorkspaceId,
         operation: (value: LocalWorkspaceWriterAuthority) => Promise<T>,
@@ -286,7 +331,50 @@ export class LocalWorkspaceWriterLeaseOwner {
       ) => borrow(true, operation),
       release: (proof: LocalTurnExecutor["awaitResourceRelease"]) =>
         this.release(entry, proof),
+      releaseUnadmitted: (readCanonicalAdmission: () => Promise<TurnAdmission | null>) => {
+        entry.release ??= this.releaseUnadmitted(entry, readCanonicalAdmission);
+        return entry.release;
+      },
+      releaseBeforeExposure: (proof: LocalTurnExecutor["awaitResourceRelease"]) => this.releaseBeforeExposure(entry, proof),
     });
+  }
+
+  private releaseBeforeExposure(entry: Entry, proof: LocalTurnExecutor["awaitResourceRelease"]): Promise<boolean> {
+    // A refused early path must never poison the original runtime's release.
+    if (entry.physicalExposure || entry.unknown || entry.releasing || entry.released ||
+        entry.release || this.entries.get(entry.key) !== entry) return Promise.resolve(false);
+    if (entry.beforeExposureRelease) return entry.beforeExposureRelease;
+    entry.executionSealed = true;
+    entry.active.abort("Unused preparation is sealing active execution");
+    entry.beforeExposureRelease = Promise.resolve().then(async () => {
+      await Promise.allSettled([...entry.loans]);
+      if (entry.physicalExposure || entry.unknown || entry.resources.size || entry.loans.size || entry.release ||
+          !(await proof(entry.attempt.turnId))) return false;
+      // Existing settlement work may have begun during the canonical CAS/read.
+      // A begun preparation still belongs to its normal runtime cleanup owner.
+      if (entry.physicalExposure || entry.unknown || entry.resources.size || entry.loans.size ||
+          entry.release || entry.releasing || entry.released || this.entries.get(entry.key) !== entry) return false;
+      entry.releasing = true;
+      entry.release = Promise.resolve().then(async () => {
+        try {
+          if (!(await proof(entry.attempt.turnId))) throw new Error("Preparation settlement proof changed");
+          await this.assertEntry(entry, true);
+          if (entry.physicalExposure || entry.unknown || entry.resources.size || entry.loans.size) {
+            throw new Error("Preparation acquired physical work after sealing");
+          }
+          await entry.file!.close();
+          entry.released = true;
+          entry.retained.abort("Unused preparation released");
+          this.entries.delete(entry.key);
+          return true;
+        } catch {
+          this.markUnknown(entry);
+          return false;
+        }
+      });
+      return entry.release;
+    }).catch(() => false);
+    return entry.beforeExposureRelease;
   }
 
   private release(
@@ -332,6 +420,28 @@ export class LocalWorkspaceWriterLeaseOwner {
       await entry.file!.close();
       entry.released = true;
       entry.retained.abort("Writer settlement released");
+      this.entries.delete(entry.key);
+      return true;
+    } catch {
+      this.markUnknown(entry);
+      return false;
+    }
+  }
+
+  private async releaseUnadmitted(entry: Entry, readCanonicalAdmission: () => Promise<TurnAdmission | null>): Promise<boolean> {
+    try {
+      if (entry.unknown || entry.releasing || entry.released || this.entries.get(entry.key) !== entry) return false;
+      entry.releasing = true;
+      entry.active.abort("Unused writer acquisition is closing");
+      await Promise.allSettled([...entry.loans]);
+      if (entry.unknown || entry.physicalExposure || entry.loans.size || entry.resources.size || await readCanonicalAdmission() !== null) {
+        this.markUnknown(entry);
+        return false;
+      }
+      await this.assertEntry(entry, true);
+      await entry.file!.close();
+      entry.released = true;
+      entry.retained.abort("Unused writer acquisition released");
       this.entries.delete(entry.key);
       return true;
     } catch {
@@ -458,6 +568,17 @@ function knownBusyAcquisition(
 
 function sameIdentity(left: BigIntStats, right: BigIntStats): boolean {
   return left.dev === right.dev && left.ino === right.ino;
+}
+function physicalIdentity(entry: Entry): LocalWorkspaceWriterReleaseReceipt {
+  if (!entry.fileIdentity || !entry.namespaceIdentity) throw new Error("Writer physical identity is unavailable");
+  const identity = (value: BigIntStats): LocalNativeFileIdentity => Object.freeze({
+    device: value.dev.toString(16), inode: value.ino.toString(16),
+  });
+  return Object.freeze({
+    root: identity(entry.rootIdentity),
+    gitMetadataIdentity: entry.binding.metadataIdentity,
+    writerFence: Object.freeze({ namespace: identity(entry.namespaceIdentity), lease: identity(entry.fileIdentity) }),
+  });
 }
 function privateDirectory(value: BigIntStats): boolean {
   return (

@@ -15,7 +15,6 @@ import {
   TurnIdSchema,
   HarnessActivityMeasuredPayloadSchema,
   HarnessProviderLimitNotifiedPayloadSchema,
-  JsonRecordSchema,
   ItemIdSchema,
   LeaseIdSchema,
   ProtocolErrorSchema,
