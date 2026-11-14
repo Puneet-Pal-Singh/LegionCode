@@ -9,7 +9,7 @@ import { EventStoreError, LocalPersistenceError } from "./errors.js";
 import { createStableEventFingerprint } from "./fingerprint.js";
 import type { AppendEventInput } from "./types.js";
 import { readLocalThreadParents, readLocalThreadRuntimeSummary, type LocalThreadRuntimeScope } from "./local-thread-runtime-summary.js";
-import { RuntimeCredentialReferenceSchema, type RuntimeCredentialReference } from "@repo/shared-types";
+import { RuntimeCredentialReferenceSchema, type RuntimeCredentialReference } from "@repo/platform-protocol/private/runtime-credential-reference";
 import { LocalTurnArtifactScopeSchema } from "./local-turn-artifact-scope.js";
 
 type AdmissionRow = {

@@ -20,7 +20,8 @@
     "./task-workspaces": "./src/task-workspaces.ts",
     "./thread-input": "./src/thread-input.ts",
     "./workspaces": "./src/workspaces.ts",
-    "./workspace-grants": "./src/workspace-grants.ts"
+    "./workspace-grants": "./src/workspace-grants.ts",
+    "./private/runtime-credential-reference": "./src/private/runtime-credential-reference.ts"
   },
   "scripts": {
     "build": "tsc",

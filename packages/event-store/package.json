@@ -21,7 +21,6 @@
   },
   "dependencies": {
     "@repo/platform-protocol": "workspace:*",
-    "@repo/shared-types": "workspace:*",
     "@repo/worker-protocol": "workspace:*",
     "better-sqlite3": "12.8.0",
     "zod": "3.25.1"
