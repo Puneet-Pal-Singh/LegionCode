@@ -1,4 +1,5 @@
 import { applyConversationLifecycleRecovery, type LifecycleProjection } from "./conversation-lifecycle-projection.js";
+import { sameLifecycleAttempt } from "./lifecycle-attempt.js";
 
 type ProjectionMap = Readonly<Record<string, LifecycleProjection>>;
 
@@ -15,13 +16,23 @@ export function mergeLifecycleProjections(
   ]);
 
   for (const turnId of turnIds) {
-    const candidates = [
+    const activeProjection = active?.turnId === turnId ? active : undefined;
+    const snapshots = [
       observed[turnId],
       replayed[turnId],
-      active?.turnId === turnId ? active : undefined,
+      activeProjection,
     ].filter(
       (candidate): candidate is LifecycleProjection => candidate !== undefined,
     );
+    // Retained/live identity precedes historical replay across reader retries.
+    // Recovery pins the same tuple when canonical events have not arrived yet.
+    const attempt = observed[turnId]?.runtimeAttempt ?? observed[turnId]?.recovery ??
+      activeProjection?.runtimeAttempt ?? activeProjection?.recovery ??
+      replayed[turnId]?.runtimeAttempt ?? replayed[turnId]?.recovery;
+    const candidates = attempt ? snapshots.filter(candidate => {
+      const captured = candidate.runtimeAttempt ?? candidate.recovery;
+      return captured && sameLifecycleAttempt(captured, attempt);
+    }) : snapshots;
     const newest = candidates.reduce((current, candidate) =>
       isProjectionNewer(candidate, current) ? candidate : current,
     );
@@ -31,13 +42,12 @@ export function mergeLifecycleProjections(
     let projection = newest;
     for (const candidate of candidates) {
       const recovery = candidate.recovery;
-      if (!recovery) continue;
+      if (!recovery || (attempt && !sameLifecycleAttempt(recovery, attempt))) continue;
       const terminal = candidates.find(value => value.terminal &&
-        value.runtimeAttempt?.threadId === recovery.threadId &&
-        value.runtimeAttempt.runAttemptId === recovery.runAttemptId);
+        value.runtimeAttempt && sameLifecycleAttempt(value.runtimeAttempt, recovery));
       if (terminal) {
-        const attempt = projection.runtimeAttempt;
-        if (!attempt || (attempt.threadId === recovery.threadId && attempt.runAttemptId === recovery.runAttemptId)) projection = terminal;
+        const projectionAttempt = projection.runtimeAttempt;
+        if (!projectionAttempt || sameLifecycleAttempt(projectionAttempt, recovery)) projection = terminal;
       } else {
         projection = applyConversationLifecycleRecovery(projection, recovery);
       }
