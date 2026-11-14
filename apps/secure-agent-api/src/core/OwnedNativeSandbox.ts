@@ -8,7 +8,8 @@ import {
 import { authorizeQualification, type QualificationAuthorization } from "../qualification/NativeBoundaryQualificationAuth";
 import { RESOURCE_POLICY, ResourceSetupBindingSchema, ResourceObservationSchema, ResourceProvisionReceiptSchema,
   ResourceObservationInputSchema, ResourceProvisionInputSchema, freezeQualification,
-  type ResourceSetupBinding } from "../qualification/contracts";
+  type ResourceSetupBinding, type QualificationRawAction, QualificationNamespaceInputSchema, QualificationFixtureSchema,
+  QualificationNamespaceReceiptSchema, QualificationMarkersSchema } from "../qualification/contracts";
 import type { Env } from "../index";
 
 const helper = "/usr/local/libexec/legioncode-command-supervisor";
@@ -28,20 +29,20 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
   }
 
   private async authorizeQualificationRaw(auth: QualificationAuthorization, binding: ResourceSetupBinding,
-    action: "observe" | "provision" | "retire"): Promise<void> {
+    action: QualificationRawAction): Promise<void> {
     authorizeQualification(this.nativeEnvironment, auth);
     const ownerId = this.nativeEnvironment.AGENT_RUNTIME.idFromString(binding.physicalOwnerId);
     const allowed = await this.nativeEnvironment.AGENT_RUNTIME.get(ownerId).qualificationAdmitRaw(
       auth, binding, this.nativeState.id.toString(), action);
-    if (!allowed || (action !== "retire" && binding.expiresAt <= Date.now())) throw unavailable();
+    if (!allowed || (!["retire", "verify"].includes(action) && binding.expiresAt <= Date.now())) throw unavailable();
   }
 
   private async continueQualificationRaw(auth: QualificationAuthorization, binding: ResourceSetupBinding,
-    action: "observe" | "provision"): Promise<void> {
+    action: Exclude<QualificationRawAction, "retire">): Promise<void> {
     const ownerId = this.nativeEnvironment.AGENT_RUNTIME.idFromString(binding.physicalOwnerId);
     const allowed = await this.nativeEnvironment.AGENT_RUNTIME.get(ownerId).qualificationContinueRaw(
       auth, binding, this.nativeState.id.toString(), action);
-    if (!allowed || binding.expiresAt <= Date.now()) throw unavailable();
+    if (!allowed || (action !== "verify" && binding.expiresAt <= Date.now())) throw unavailable();
   }
 
   async qualificationObserveResources(auth: QualificationAuthorization, value: unknown) {
@@ -79,6 +80,62 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
       if (result.exitCode !== 0 || result.stderr !== "") throw unavailable();
       return ResourceProvisionReceiptSchema.parse(JSON.parse(result.stdout));
     } finally { if (this.nativeOriginal === original) this.nativeOriginal = undefined; }
+  }
+
+  async qualificationFixture(auth: QualificationAuthorization, value: unknown, mode: "prepare" | "observe") {
+    const input = freezeQualification(QualificationNamespaceInputSchema.parse(value));
+    if (this.nativeOriginal || (mode !== "prepare" && mode !== "observe")) throw unavailable();
+    const action = mode === "prepare" ? "fixture" : "verify";
+    const original = Promise.resolve().then(async () => {
+      await this.authorizeQualificationRaw(auth, input.binding, action);
+      await this.continueQualificationRaw(auth, input.binding, action);
+      return this.runOriginal([helper, mode === "prepare" ? "--prepare-qualification-fixture" : "--observe-qualification-fixture"], input,
+        64 * 1024, mode === "prepare" ? input.binding.expiresAt : undefined);
+    });
+    this.nativeOriginal = original;
+    try {
+      const result = await original;
+      if (result.exitCode !== 0 || result.stderr !== "") throw unavailable();
+      return mode === "prepare" ? QualificationFixtureSchema.parse(JSON.parse(result.stdout)) : QualificationMarkersSchema.parse(JSON.parse(result.stdout));
+    } finally { if (this.nativeOriginal === original) this.nativeOriginal = undefined; }
+  }
+
+  async qualificationStartNamespace(auth: QualificationAuthorization, value: unknown) {
+    const input = freezeQualification(QualificationNamespaceInputSchema.parse(value));
+    if (this.nativeOriginal || !input.fixture || !input.controlToken) throw unavailable();
+    const original = Promise.resolve().then(async () => {
+      await this.authorizeQualificationRaw(auth, input.binding, "namespace");
+      await this.continueQualificationRaw(auth, input.binding, "namespace");
+      const enter = `printf '%s' "$$" > /sys/fs/cgroup/legioncode-native/control/cgroup.procs && exec ${helper} --qualify-namespace`;
+      return this.runOriginal(["/bin/sh", "-c", enter], input, 64 * 1024, input.binding.expiresAt);
+    });
+    this.nativeOriginal = original;
+    try {
+      const result = await original;
+      if (result.exitCode !== 0 || result.stderr !== "") throw unavailable();
+      return QualificationNamespaceReceiptSchema.parse(JSON.parse(result.stdout));
+    } finally { if (this.nativeOriginal === original) this.nativeOriginal = undefined; }
+  }
+
+  async qualificationNamespaceControl(auth: QualificationAuthorization, binding: ResourceSetupBinding, nonce: string,
+    token: string, identity: unknown, action: "status" | "start" | "stop" | "ack") {
+    authorizeQualification(this.nativeEnvironment, auth);
+    ResourceSetupBindingSchema.parse(binding);
+    if (!/^[a-f0-9]{64}$/.test(nonce) || !/^[a-f0-9]{64}$/.test(token) || !["status", "start", "stop", "ack"].includes(action)) throw unavailable();
+    const ownerId = this.nativeEnvironment.AGENT_RUNTIME.idFromString(binding.physicalOwnerId);
+    const allowed = await this.nativeEnvironment.AGENT_RUNTIME.get(ownerId).qualificationAuthorizeNamespaceControl(
+      auth, binding, nonce, token, identity, action, this.nativeState.id.toString());
+    if (!allowed || (action === "start" && binding.expiresAt <= Date.now())) throw unavailable();
+    // Nonwaking transport and full original body drain, including non-200s.
+    const response = await this.containerFetchIfRunning(new Request(`http://native-control/v1/${action}`, {
+      method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ binding: { qualification: binding, nonce }, ...(identity ? { identity } : {}) }),
+    }), 3101);
+    const body = await readBounded(response.body, 256 * 1024);
+    if (!response.ok) throw unavailable();
+    const receipt = QualificationNamespaceReceiptSchema.parse(JSON.parse(body));
+    if (JSON.stringify(receipt.binding) !== JSON.stringify({ qualification: binding, nonce })) throw unavailable();
+    return receipt;
   }
 
   async qualificationDestroy(auth: QualificationAuthorization, binding: ResourceSetupBinding): Promise<void> {

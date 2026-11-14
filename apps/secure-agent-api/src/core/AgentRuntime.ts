@@ -47,7 +47,7 @@ import { snapshotExecutionDomain } from "@repo/worker-protocol/private/execution
 
 import { NativeBoundaryQualificationOwner } from "../qualification/NativeBoundaryQualificationOwner";
 import { isQualificationEnvironment, type QualificationAuthorization } from "../qualification/NativeBoundaryQualificationAuth";
-import { isQualificationRecord, type QualificationRecord, type QualificationCommand, type ResourceSetupBinding } from "../qualification/contracts";
+import { isQualificationRecord, type QualificationRecord, type QualificationCommand, type ResourceSetupBinding, type QualificationRawAction } from "../qualification/contracts";
 
 interface RuntimeSessionRecord extends NativeSessionFields, ExecutionDomainSessionFields {
   runId: string;
@@ -122,13 +122,18 @@ export class AgentRuntime extends DurableObject<Env> {
     return this.qualificationOwner().control(auth, command);
   }
   async qualificationAdmitRaw(auth: QualificationAuthorization, binding: ResourceSetupBinding, sandboxObjectId: string,
-    action: "observe" | "provision" | "retire"): Promise<boolean> {
+    action: QualificationRawAction): Promise<boolean> {
     return this.qualificationOwner().admitRaw(auth, binding, sandboxObjectId, action);
   }
 
   async qualificationContinueRaw(auth: QualificationAuthorization, binding: ResourceSetupBinding, sandboxObjectId: string,
-    action: "observe" | "provision"): Promise<boolean> {
+    action: Exclude<QualificationRawAction, "retire">): Promise<boolean> {
     return this.qualificationOwner().continueRaw(auth, binding, sandboxObjectId, action);
+  }
+
+  async qualificationAuthorizeNamespaceControl(auth: QualificationAuthorization, binding: ResourceSetupBinding, nonce: string,
+    token: string, identity: unknown, action: "status" | "start" | "stop" | "ack", sandboxObjectId: string): Promise<boolean> {
+    return this.qualificationOwner().authorizeNamespaceControl(auth, binding, nonce, token, identity, action, sandboxObjectId);
   }
 
   private createPluginRegistry(): Map<string, IPlugin> {
