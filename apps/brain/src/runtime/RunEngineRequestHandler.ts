@@ -1589,10 +1589,11 @@ export class RunEngineRequestHandler {
               artifactsSettled = true;
             }
             await taskCheckoutLifecycle?.release();
-            // Repository tools need their own original-operation closure receipt.
-            // Until that owner supplies it, retain ambiguous capacity and queue work.
-            const toolClosureProven = !resources.workspace || payload.input.mode === "plan";
-            if (providerDrained && bodyDrained && artifactsSettled && checkoutSettled && toolClosureProven) {
+            // A void checkout/session release (including HTTP 404) proves no
+            // physical closure. Repository Plan also acquired that owner, so
+            // retain its grant until an exact cleanup/retention receipt exists.
+            const physicalResourcesClosed = !resources.workspace && taskCheckoutLifecycle === undefined;
+            if (providerDrained && bodyDrained && artifactsSettled && checkoutSettled && physicalResourcesClosed) {
               nativeObserver?.cleanupSettled();
             }
           } finally {

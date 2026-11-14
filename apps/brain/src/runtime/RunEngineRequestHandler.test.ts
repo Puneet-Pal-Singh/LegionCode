@@ -2068,7 +2068,7 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", fa
     }
     await retained[0];
     expect(executionResponse?.status).toBe(outcome === "fulfilled" && failure !== "release" ? 200 : 500);
-    expect(physicallySettled).toHaveBeenCalledTimes(failure === "release" ? 0 : 1);
+    expect(physicallySettled).toHaveBeenCalledTimes(0);
     expect(settle).toHaveBeenCalledTimes(1);
     expect(release).toHaveBeenCalledTimes(1);
     expect(lockHeld).toBe(false);
