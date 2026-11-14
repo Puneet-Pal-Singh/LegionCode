@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { ProtocolTimestampSchema } from "./common.js";
+import { ThreadSchema } from "./conversation.js";
 import { WorkspaceIdSchema } from "./ids.js";
 
 export const LocalWorkspaceReadinessSchema = z.enum([
@@ -53,3 +54,32 @@ export const LocalWorkspaceGrantResponseSchema = z
 export type LocalWorkspaceGrantResponse = z.infer<
   typeof LocalWorkspaceGrantResponseSchema
 >;
+
+// Git's normalized identity does not retain the remote scheme. Navigation
+// therefore omits it; even a qualified host can originate from a file URI.
+/** Navigation metadata only; none of these records grants filesystem access. */
+export const LocalWorkspaceProjectSchema = z.discriminatedUnion("association", [
+  z.object({
+    association: z.literal("known"),
+    workspaceId: WorkspaceIdSchema,
+    displayName: LocalWorkspaceGrantSchema.shape.displayName,
+    repositoryIdentity: z.null(),
+    lastOpenedAt: ProtocolTimestampSchema,
+  }).strict(),
+  z.object({
+    association: z.literal("unlinked"),
+    workspaceId: WorkspaceIdSchema,
+    displayName: z.null(),
+    repositoryIdentity: z.null(),
+    lastOpenedAt: z.null(),
+  }).strict(),
+]);
+export type LocalWorkspaceProject = z.infer<typeof LocalWorkspaceProjectSchema>;
+
+/** Local navigation is separate from hosted workspace selection and live grants. */
+export const LocalWorkspaceProjectsResponseSchema = z.object({
+  projects: z.array(LocalWorkspaceProjectSchema),
+  threads: z.array(ThreadSchema),
+  selectedWorkspaceId: WorkspaceIdSchema.nullable(),
+}).strict();
+export type LocalWorkspaceProjectsResponse = z.infer<typeof LocalWorkspaceProjectsResponseSchema>;

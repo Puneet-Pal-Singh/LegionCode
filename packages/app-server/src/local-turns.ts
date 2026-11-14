@@ -4,7 +4,7 @@ import type { LocalTurnAttemptIdentity, LocalTurnAttemptInput } from "@legioncod
 import { ThreadInputConflictError, type StoredThreadInput, type ThreadInputScope } from "@repo/event-store";
 import { LocalWorkspaceWriterLeaseError } from "./local-workspace-writer-lease.js";
 import type { InputCommand } from "./thread-inputs/ports.js";
-import type { BYOKDiscoveredProviderModel } from "@repo/shared-types";
+import type { BYOKDiscoveredProviderModel, RuntimeCredentialReference } from "@repo/shared-types";
 import {
   TurnAdmissionSchema,
   parseLocalQueuedInputConfiguration,
@@ -48,6 +48,8 @@ import type { LocalTurnMediaPort, LocalTurnPreparedMedia } from "./local-turn-me
 import { localTurnImageReferences } from "./local-turn-images.js";
 import { captureLocalTurnModel } from "./local-turn-model.js";
 import { LocalTurnResources, type LocalTurnPreparation, type LocalTurnBindingClosure } from "./local-turn-resources.js";
+import { LocalThreadTitleGeneration } from "./local-thread-title-generation.js";
+import type { ThreadTitleGenerator } from "./thread-titles/index.js";
 import {
   LocalInterruptionService,
   LocalInterruptionAttemptNotActiveError,
@@ -79,6 +81,8 @@ export type LocalTurnServiceOptions = {
   onResourcesReleased?(admission: TurnAdmission): Promise<void>;
   runtime?: {
     readonly configurationOptions: LocalTurnConfigurationOptions;
+    /** Private metadata captured once and persisted by the sole admission owner. */
+    captureRuntimeCredentialReference(providerId: ProviderId, signal?: AbortSignal): Promise<Readonly<RuntimeCredentialReference>>;
     /** Startup-only reconciliation before new commands can acquire ownership. */
     reconcileLostTurn(admission: TurnAdmission): Promise<"settled" | "already_terminal" | "unsupported">;
     createAdmission(input: {
@@ -92,6 +96,8 @@ export type LocalTurnServiceOptions = {
       media?: { preparation: LocalTurnPreparedMedia; imageCount: number };
     }): Promise<TurnAdmission>;
     createExecutor(binding: LocalWorkspaceExecutionBinding, admission: TurnAdmission, model: BYOKDiscoveredProviderModel): LocalTurnExecutor;
+    /** Private auxiliary inference; the canonical first admission fixes its model. */
+    createTitleGenerator?(admission: TurnAdmission, model: BYOKDiscoveredProviderModel, credentialReference: Readonly<RuntimeCredentialReference>): ThreadTitleGenerator;
     /** Opaque same-writer acquisition, synchronously retained before ready(). */
     prepareQueuedExecution?(input: {
       binding: LocalWorkspaceExecutionBinding;
@@ -111,6 +117,8 @@ export class LocalTurnService {
   private readonly resources: LocalTurnResources;
   private readonly approvals: LocalApprovalService;
   private readonly interruption: LocalInterruptionService;
+  private readonly titles: LocalThreadTitleGeneration;
+  private shutdownPromise?: Promise<void>;
 
   constructor(private readonly options: LocalTurnServiceOptions) {
     this.approvals = new LocalApprovalService({
@@ -145,11 +153,30 @@ export class LocalTurnService {
         });
       },
     });
+    this.titles = new LocalThreadTitleGeneration({
+      threads: options.threads,
+      admissions: options.persistence.turnAdmissions,
+      getWorkspace: options.workspaces.getAuthorized.bind(options.workspaces),
+      createGenerator: options.runtime?.createTitleGenerator?.bind(options.runtime),
+    });
   }
 
-  get hasActiveExecutions(): boolean { return this.resources.hasActiveExecutions; }
+  get hasActiveExecutions(): boolean { return this.resources.hasActiveExecutions || this.titles.hasActiveWork; }
 
-  shutdown(): Promise<void> { return this.resources.shutdown(); }
+  initializeTitles(): Promise<void> { return this.titles.initialize(); }
+
+  shutdown(): Promise<void> {
+    if (this.shutdownPromise) return this.shutdownPromise;
+    this.titles.stop();
+    const runtimeShutdown = this.resources.shutdown();
+    this.shutdownPromise = Promise.allSettled([runtimeShutdown]).then(async ([runtime]) => {
+      // Preparation joins confirmAdmission, including pending claim and job registration.
+      // Only then is the set of title jobs closed to new admissions.
+      await this.titles.drain();
+      if (runtime?.status === "rejected") throw runtime.reason;
+    });
+    return this.shutdownPromise;
+  }
 
   getConfigurationOptions(): LocalTurnConfigurationOptions {
     return LocalTurnConfigurationOptionsSchema.parse(this.options.runtime?.configurationOptions);
@@ -235,7 +262,7 @@ export class LocalTurnService {
       // A receipt retry does not create records, acquire execution authority or resolve credentials.
       const imageFingerprint = queued?.item.mediaFingerprint ?? await this.submittedImageFingerprint(images);
       const currentThread = await this.options.threads.get(thread.id);
-      return validateSavedAdmission(previous, params, currentThread, imageFingerprint);
+      return await this.confirmAdmission(validateSavedAdmission(previous, params, currentThread, imageFingerprint));
     }
     if (thread.status !== "active") {
       throw new AppServerOperationError(
@@ -251,6 +278,7 @@ export class LocalTurnService {
         "server_unavailable",
         "Local turn execution is not configured",
       );
+    await this.initializeTitles();
     const configuration = LocalTurnConfigurationSchema.parse({
       mode: params.mode,
       productMode: params.productMode,
@@ -264,6 +292,7 @@ export class LocalTurnService {
     let preparedMedia: LocalTurnPreparedMedia | undefined;
     let candidate: TurnAdmission | undefined;
     let preparedExecutor: LocalTurnExecutor | undefined;
+    let credentialReference: Readonly<RuntimeCredentialReference> | undefined;
     try {
       this.resources.assertAcceptingAdmission();
       const binding = await this.options.workspaces.bindForExecution(
@@ -289,6 +318,9 @@ export class LocalTurnService {
         throw new AppServerOperationError(409, "conflict", "The selected model does not support image input", "local_image_model_unsupported", false);
       }
       const mediaSignal = AbortSignal.any([binding.signal, this.resources.admissionSignal]);
+      mediaSignal.throwIfAborted();
+      credentialReference = await runtime.captureRuntimeCredentialReference(selection.providerId, mediaSignal);
+      mediaSignal.throwIfAborted();
       preparedMedia = queued ? await queued.prepareMedia(mediaSignal) : await this.prepareImages(images, mediaSignal);
       binding.assertCurrent();
       this.resources.assertAcceptingAdmission();
@@ -340,9 +372,10 @@ export class LocalTurnService {
       const { admission, newlyAdmitted } =
         await (queued ? this.options.queuedInputs!.reserveQueuedStart({ ...queued.scope, itemId: queued.item.itemId,
           expectedVersion: queued.command.expectedVersion, expectedRevision: queued.command.expectedThreadRevision,
-          explicitStart: queued.explicitStart, expectedPredecessorTurnId: predecessorTurnId, candidate }) : this.options.persistence.turnAdmissions.admit(candidate));
+          explicitStart: queued.explicitStart, expectedPredecessorTurnId: predecessorTurnId, candidate,
+          credentialAcquisition: credentialReference }) : this.options.persistence.turnAdmissions.admit(candidate, credentialReference));
       if (newlyAdmitted) this.resources.ownExecution(preparation, admission, executor);
-      return admission;
+      return await this.confirmAdmission(admission, newlyAdmitted ? model : undefined);
     } catch (error) {
       // Another identical request can commit while this request prepares its
       // binding/provider or loses the repository's stricter fingerprint race.
@@ -366,11 +399,16 @@ export class LocalTurnService {
         const validated = validateSavedAdmission(saved, params, currentThread, imageFingerprint);
         // A lost publication ACK can be reconciled only to this exact prepared
         // candidate. Transfer its original executor/fence before returning it.
-        if (candidate && preparedExecutor && preparation.binding &&
-            isDeepStrictEqual(TurnAdmissionSchema.parse(saved), TurnAdmissionSchema.parse(candidate))) {
+        if (candidate && preparedExecutor && preparation.binding && credentialReference &&
+            isDeepStrictEqual(TurnAdmissionSchema.parse(saved), TurnAdmissionSchema.parse(candidate)) &&
+            await this.options.persistence.turnAdmissions.matchesCredentialAcquisition({
+              userId: saved.run.userId, workspaceId: saved.run.workspaceId,
+              threadId: saved.run.threadId, runId: saved.run.id,
+              turnId: saved.turn.id, runAttemptId: saved.runAttemptId,
+            }, credentialReference)) {
           this.resources.ownExecution(preparation, saved, preparedExecutor);
         }
-        return validated;
+        return await this.confirmAdmission(validated);
       }
       if (error instanceof EventStoreError && error.code === "idempotency_conflict") {
         throw new AppServerOperationError(409, "conflict", "Local Turn admission conflicts with its current thread state or request content", "local_admission_conflict", false);
@@ -431,6 +469,32 @@ export class LocalTurnService {
       afterCursor = page.nextCursor;
     } while (afterCursor !== null);
     return false;
+  }
+
+  private async confirmAdmission(admission: TurnAdmission, model?: BYOKDiscoveredProviderModel): Promise<TurnAdmission> {
+    try {
+      await this.options.threads.previewFirstAdmission(admission, async () => {
+        const page = await this.options.persistence.turnAdmissions.listByThread({
+          threadId: admission.turn.threadId, afterCursor: null, limit: 1,
+        });
+        return page.admissions[0] ?? null;
+      });
+      if (model) {
+        // Optional titles use only the durable admission capture. Legacy NULL
+        // receipts remain valid and never trigger a fresh credential capture.
+        const credentialReference = await this.options.persistence.turnAdmissions.readCredentialAcquisition({
+          userId: admission.run.userId, workspaceId: admission.run.workspaceId,
+          threadId: admission.run.threadId, runId: admission.run.id,
+          turnId: admission.turn.id, runAttemptId: admission.runAttemptId,
+        });
+        if (credentialReference) await this.titles.prepareFirstAdmission(admission, model, credentialReference);
+      }
+    } catch {
+      // Canonical admission/execution has already succeeded. Metadata failure
+      // cannot turn that receipt into an unconfirmed prompt or run failure.
+      console.warn("Local Thread title preview could not be persisted; admission remains confirmed");
+    }
+    return admission;
   }
 
   async getTurn(turnId: TurnId): Promise<TurnAdmission> {

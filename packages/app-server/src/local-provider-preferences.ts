@@ -13,7 +13,7 @@ import { ProviderIdSchema, type LocalWorkspaceGrant, type WorkspaceId } from "@r
 import type { LocalProviderService } from "./local-providers.js";
 
 export interface LocalProviderPreferencesOptions {
-  getWorkspace(): Promise<LocalWorkspaceGrant | null>;
+  getWorkspace(workspaceId?: WorkspaceId): Promise<LocalWorkspaceGrant | null>;
   store: {
     read(workspaceId: WorkspaceId): Promise<unknown | null>;
     write(workspaceId: WorkspaceId, preferences: unknown): Promise<void>;
@@ -71,7 +71,7 @@ export class LocalProviderPreferences {
           "Local provider preferences require an explicit workspace grant scope",
         ),
       );
-    const captured = this.requireWorkspace();
+    const captured = this.requireWorkspace(expected.data.workspaceId);
     const result = Promise.allSettled([this.queue, captured] as const).then(
       async ([, grant]) => {
         if (grant.status === "rejected") throw grant.reason;
@@ -166,16 +166,16 @@ export class LocalProviderPreferences {
       )) throw new Error("Default provider model is unavailable");
     }
   }
-  private async requireWorkspace(): Promise<LocalWorkspaceGrant> {
-    const grant = await this.options.getWorkspace();
-    if (!grant || grant.readiness !== "ready")
+  private async requireWorkspace(workspaceId?: WorkspaceId): Promise<LocalWorkspaceGrant> {
+    const grant = await this.options.getWorkspace(workspaceId);
+    if (!grant || grant.readiness !== "ready" || (workspaceId !== undefined && grant.workspaceId !== workspaceId))
       throw new Error(
         "A ready local workspace is required for provider preferences",
       );
     return grant;
   }
   private async assertCurrent(expected: LocalWorkspaceGrant): Promise<void> {
-    const current = await this.requireWorkspace();
+    const current = await this.requireWorkspace(expected.workspaceId);
     if (
       current.workspaceId !== expected.workspaceId ||
       current.grantedAt !== expected.grantedAt
