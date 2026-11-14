@@ -6,6 +6,7 @@ import type { LocalNativeFileIdentity, LocalNativeReleasedFence } from "@repo/ev
 import { acquireNativeWriterFence } from "@legioncode/execution-engine/runtime/desktop/NativeWriterFence";
 import type { SingleProcessMacExecution } from "@legioncode/execution-engine/runtime/desktop/SingleExecutableProcess";
 import type { NativeFilesystemExecution } from "@legioncode/execution-engine/runtime/desktop/NativeFilesystemBridge";
+import type { MacHostCommandResource } from "@legioncode/execution-engine/runtime/desktop/MacHostBrokerClient";
 import type { LocalMutationLease } from "@legioncode/execution-engine/runtime/desktop/LocalTurnExecutionCapability";
 import type {
   LocalTurnAttemptIdentity,
@@ -18,11 +19,15 @@ export interface LocalWorkspaceWriterAuthority extends LocalMutationLease {
   assertSettlementCurrent(): Promise<void>;
   readonly rootDirectory: FileHandle;
   readonly writerLease: FileHandle;
+  /** Original host-owned namespace handle, borrowed only with this authority. */
+  readonly namespaceDirectory: FileHandle;
   readonly filesystemRoot: string;
   /** Final capture/publication only; never substitutes for active tool authority. */
   readonly settlementSignal: AbortSignal;
   trackProcess(execution: SingleProcessMacExecution): void;
   trackFilesystem(execution: NativeFilesystemExecution): void;
+  /** Register the original resource.closed promise before broker preparation. */
+  trackHostResource(resource: MacHostCommandResource): void;
   /** Required when construction may have spawned a child without returning its execution. */
   markUnknown(): void;
 }
@@ -58,7 +63,7 @@ export interface LocalWorkspaceWriterReleaseReceipt {
 }
 
 type Resource = {
-  readonly execution: SingleProcessMacExecution | NativeFilesystemExecution;
+  readonly execution: SingleProcessMacExecution | NativeFilesystemExecution | MacHostCommandResource;
   readonly closed: Promise<boolean>;
 };
 type Entry = {
@@ -76,6 +81,7 @@ type Entry = {
   file?: FileHandle;
   fileIdentity?: BigIntStats;
   namespaceIdentity?: BigIntStats;
+  namespaceDirectory?: FileHandle;
   unknown: boolean;
   releasing: boolean;
   released: boolean;
@@ -194,7 +200,9 @@ export class LocalWorkspaceWriterLeaseOwner {
     let busy = false;
     try {
       await this.assertDirectory();
-      entry.namespaceIdentity = (await this.directory!).identity;
+      const namespace = await this.directory!;
+      entry.namespaceIdentity = namespace.identity;
+      entry.namespaceDirectory = namespace.handle;
       binding.assertCurrent();
       let initializeEmpty = false;
       try {
@@ -212,7 +220,7 @@ export class LocalWorkspaceWriterLeaseOwner {
         helperPath: this.options.helperPath,
         leaseFile: entry.file,
         rootDirectory: binding.rootDirectory,
-        fenceDirectory: (await this.directory!).handle,
+        fenceDirectory: entry.namespaceDirectory,
         initializeEmpty,
         signal: AbortSignal.any([binding.signal, entry.active.signal]),
       });
@@ -247,6 +255,7 @@ export class LocalWorkspaceWriterLeaseOwner {
 
   private authority(entry: Entry): LocalWorkspaceWriterLease {
     const writerLease = entry.file!;
+    const namespaceDirectory = entry.namespaceDirectory!;
     const markUnknown = () => this.markUnknown(entry);
     const track = (
       execution: Resource["execution"],
@@ -274,6 +283,7 @@ export class LocalWorkspaceWriterLeaseOwner {
       attempt: entry.attempt,
       rootDirectory: entry.binding.rootDirectory,
       writerLease,
+      namespaceDirectory,
       filesystemRoot: entry.binding.filesystemRoot,
       signal: AbortSignal.any([entry.binding.signal, entry.active.signal]),
       settlementSignal: entry.retained.signal,
@@ -283,6 +293,15 @@ export class LocalWorkspaceWriterLeaseOwner {
         track(execution, execution.result),
       trackFilesystem: (execution: NativeFilesystemExecution) =>
         track(execution, execution.closed),
+      trackHostResource: (resource: MacHostCommandResource) => {
+        // Observe the original promise and keep exposure sticky even when a
+        // caller registers late. No broker preparation may follow a seal.
+        track(resource, resource.closed);
+        if (entry.unknown || entry.executionSealed) {
+          markUnknown();
+          throw new LocalWorkspaceWriterLeaseError("workspace_writer_unavailable");
+        }
+      },
       markUnknown,
     });
     const borrow = <T>(
@@ -479,6 +498,10 @@ export class LocalWorkspaceWriterLeaseOwner {
     };
     check();
     await this.assertDirectory();
+    if ((await this.directory!).handle !== entry.namespaceDirectory) {
+      this.markUnknown(entry);
+      throw new LocalWorkspaceWriterLeaseError("workspace_writer_unavailable");
+    }
     const [root, file, named] = await Promise.all([
       entry.binding.rootDirectory.stat({ bigint: true }),
       entry.file.stat({ bigint: true }),
