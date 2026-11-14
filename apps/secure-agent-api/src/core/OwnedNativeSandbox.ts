@@ -5,6 +5,12 @@ import {
   type NativeCommandOriginal, type NativeCommandRequest, type OwnedNativeSandboxPort,
 } from "../toolbox/contracts/OwnedSandboxCommand";
 
+import { authorizeQualification, type QualificationAuthorization } from "../qualification/NativeBoundaryQualificationAuth";
+import { RESOURCE_POLICY, ResourceSetupBindingSchema, ResourceObservationSchema, ResourceProvisionReceiptSchema,
+  ResourceObservationInputSchema, ResourceProvisionInputSchema, freezeQualification,
+  type ResourceSetupBinding } from "../qualification/contracts";
+import type { Env } from "../index";
+
 const helper = "/usr/local/libexec/legioncode-command-supervisor";
 const enterControl = `printf '%s' "$$" > /sys/fs/cgroup/legioncode-native/control/cgroup.procs && exec ${helper} --serve`;
 const encoder = new TextEncoder();
@@ -12,11 +18,63 @@ const encoder = new TextEncoder();
 /** Same configured Sandbox DO and backend. AgentRuntime retains durable intent. */
 export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort {
   private readonly nativeState: DurableObjectState;
+  private readonly nativeEnvironment: Env;
   private nativeOriginal: Promise<NativeCommandOriginal> | undefined;
 
   constructor(state: DurableObjectState<Record<string, never>>, env: unknown) {
     super(state, env);
     this.nativeState = state;
+    this.nativeEnvironment = env as Env;
+  }
+
+  private async authorizeQualificationRaw(auth: QualificationAuthorization, binding: ResourceSetupBinding,
+    action: "observe" | "provision" | "retire"): Promise<void> {
+    authorizeQualification(this.nativeEnvironment, auth);
+    const ownerId = this.nativeEnvironment.AGENT_RUNTIME.idFromString(binding.physicalOwnerId);
+    const allowed = await this.nativeEnvironment.AGENT_RUNTIME.get(ownerId).qualificationAdmitRaw(
+      auth, binding, this.nativeState.id.toString(), action);
+    if (!allowed) throw unavailable();
+  }
+
+  async qualificationObserveResources(auth: QualificationAuthorization, value: unknown) {
+    const input = freezeQualification(ResourceObservationInputSchema.parse(value));
+    if (input.version !== 1 || input.policy !== RESOURCE_POLICY || this.nativeOriginal) throw unavailable();
+    const original = Promise.resolve().then(async () => {
+      await this.authorizeQualificationRaw(auth, input.binding, "observe");
+      if (!this.nativeState.container || this.nativeState.container.running) throw unavailable();
+      // The exclusive persisted operator grant precedes the SAME SDK startup,
+      // image entrypoint and default policy. No customer env or alternate engine.
+      await this.startAndWaitForPorts({ ports: this.defaultPort });
+      return this.runOriginal([helper, "--observe-resources"], input);
+    });
+    this.nativeOriginal = original;
+    try {
+      const result = await original;
+      if (result.exitCode !== 0 || result.stderr !== "") throw unavailable();
+      return ResourceObservationSchema.parse(JSON.parse(result.stdout));
+    } finally { if (this.nativeOriginal === original) this.nativeOriginal = undefined; }
+  }
+
+  async qualificationProvisionResources(auth: QualificationAuthorization, value: unknown) {
+    const input = freezeQualification(ResourceProvisionInputSchema.parse(value));
+    if (input.version !== 1 || input.policy !== RESOURCE_POLICY || this.nativeOriginal) throw unavailable();
+    const original = Promise.resolve().then(async () => {
+      await this.authorizeQualificationRaw(auth, input.binding, "provision");
+      return this.runOriginal([helper, "--provision-resources"], input);
+    });
+    this.nativeOriginal = original;
+    try {
+      const result = await original;
+      if (result.exitCode !== 0 || result.stderr !== "") throw unavailable();
+      return ResourceProvisionReceiptSchema.parse(JSON.parse(result.stdout));
+    } finally { if (this.nativeOriginal === original) this.nativeOriginal = undefined; }
+  }
+
+  async qualificationDestroy(auth: QualificationAuthorization, binding: ResourceSetupBinding): Promise<void> {
+    ResourceSetupBindingSchema.parse(binding);
+    await this.authorizeQualificationRaw(auth, binding, "retire");
+    if (this.nativeOriginal) throw unavailable();
+    await this.destroy();
   }
 
   async executeNativeCommand(value: NativeCommandRequest): Promise<NativeCommandOriginal> {

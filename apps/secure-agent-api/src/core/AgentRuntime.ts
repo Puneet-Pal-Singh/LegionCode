@@ -45,6 +45,10 @@ import { assertExecutionDomainAdmission, isRetiredExecutionSession, retiredExecu
 import { parseNativeCommandClosure } from "@repo/shared-types/native-command-closure";
 import { snapshotExecutionDomain } from "@repo/worker-protocol/private/execution-domain";
 
+import { NativeBoundaryQualificationOwner } from "../qualification/NativeBoundaryQualificationOwner";
+import { isQualificationEnvironment, type QualificationAuthorization } from "../qualification/NativeBoundaryQualificationAuth";
+import { isQualificationRecord, type QualificationRecord, type QualificationCommand, type ResourceSetupBinding } from "../qualification/contracts";
+
 interface RuntimeSessionRecord extends NativeSessionFields, ExecutionDomainSessionFields {
   runId: string;
   taskId: string;
@@ -66,6 +70,8 @@ interface RuntimeSessionRecord extends NativeSessionFields, ExecutionDomainSessi
   cleanupRetryAt?: number;
   cleanupInProgress?: boolean;
 }
+
+type PhysicalExecutionSessionRecord = RuntimeSessionRecord | RetiredExecutionSessionRecord | QualificationRecord;
 
 interface WorkspaceRuntimeEntry {
   readonly lease: SandboxExecutionLease;
@@ -90,7 +96,8 @@ const CLEANUP_RETRY_BASE_MS = 15_000;
 const CLEANUP_RETRY_MAX_MS = 5 * 60_000;
 const SANDBOX_DESTROY_TIMEOUT_MS = 15_000;
 
-export class AgentRuntime extends DurableObject {
+export class AgentRuntime extends DurableObject<Env> {
+  private qualificationAuthority?: NativeBoundaryQualificationOwner;
   private readonly nativeCommands = new Map<string, OwnedNativeCommandSession>();
   private readonly workspaceRuntimes = new Map<string, WorkspaceRuntimeEntry>();
   private readonly workspaceRuntimePromises = new Map<string, Promise<WorkspaceRuntimeEntry>>();
@@ -102,6 +109,21 @@ export class AgentRuntime extends DurableObject {
     super(ctx, env);
     this.artifactBucket = env.ARTIFACTS as unknown as ComposeRuntimeInput["r2Bucket"];
     this.storageService = new StorageService(env.ARTIFACTS);
+  }
+
+  private assertProductPlane(): void {
+    if (isQualificationEnvironment(this.env)) throw new Error("QUALIFICATION_PLANE_ONLY");
+  }
+  private qualificationOwner(): NativeBoundaryQualificationOwner {
+    if (!isQualificationEnvironment(this.env)) throw new Error("NATIVE_QUALIFICATION_UNAVAILABLE");
+    return this.qualificationAuthority ??= new NativeBoundaryQualificationOwner(this.ctx, this.env);
+  }
+  async qualificationControl(auth: QualificationAuthorization, command: QualificationCommand): Promise<unknown> {
+    return this.qualificationOwner().control(auth, command);
+  }
+  async qualificationAdmitRaw(auth: QualificationAuthorization, binding: ResourceSetupBinding, sandboxObjectId: string,
+    action: "observe" | "provision" | "retire"): Promise<boolean> {
+    return this.qualificationOwner().admitRaw(auth, binding, sandboxObjectId, action);
   }
 
   private createPluginRegistry(): Map<string, IPlugin> {
@@ -202,6 +224,7 @@ export class AgentRuntime extends DurableObject {
 
   // 3. SRP: Pure Protocol Handling (WebSocket Upgrade)
   async fetch(request: Request) {
+    this.assertProductPlane();
     const url = new URL(request.url);
 
     if (
@@ -223,6 +246,7 @@ export class AgentRuntime extends DurableObject {
     input: TaskExecutionInput,
     hooks?: TaskExecutionHooks,
   ): Promise<TaskExecutionResult> {
+    this.assertProductPlane();
     if (!input.lease) {
       return {
         taskId: input.taskId,
@@ -238,11 +262,12 @@ export class AgentRuntime extends DurableObject {
     }
     let nativeDomain = false;
     const runtime = await this.ctx.blockConcurrencyWhile(async () => {
-      const persisted = await this.ctx.storage.get<RuntimeSessionRecord>(
+      const persisted = await this.ctx.storage.get<PhysicalExecutionSessionRecord>(
         this.getExecutionSessionKey(sessionId),
       );
       if (
         !persisted ||
+        isQualificationRecord(persisted) ||
         isRetiredExecutionSession(persisted) ||
         persisted.cleanupInProgress ||
         hasUnsettledNativeCommand(persisted) ||
@@ -300,8 +325,8 @@ export class AgentRuntime extends DurableObject {
     if (nativeCommands && (!await nativeCommands.awaitClosure() || nativeCommandClosure?.state !== "settled")) {
       await this.ctx.blockConcurrencyWhile(async () => {
         const key = this.getExecutionSessionKey(sessionId);
-        const session = await this.ctx.storage.get<RuntimeSessionRecord | RetiredExecutionSessionRecord>(key);
-        if (session && !isRetiredExecutionSession(session) && this.matchesLease(session.lease, input.lease)) {
+        const session = await this.ctx.storage.get<PhysicalExecutionSessionRecord>(key);
+        if (session && !isQualificationRecord(session) && !isRetiredExecutionSession(session) && this.matchesLease(session.lease, input.lease)) {
           await this.markSandboxCleanupInProgress([[key, session]]);
           await this.persistSandboxCleanupRetry([[key, session]], Date.now(), "ORIGINAL_COMMAND_CLOSURE_UNKNOWN");
           await this.scheduleExecutionSessionAlarm();
@@ -320,8 +345,9 @@ export class AgentRuntime extends DurableObject {
   }
 
   async getNativeCommandClosure(sessionId: string, lease: SandboxExecutionLease, taskId: string) {
-    const session = await this.ctx.storage.get<RuntimeSessionRecord>(this.getExecutionSessionKey(sessionId));
-    if (!session || isRetiredExecutionSession(session) || !this.matchesLease(session.lease, lease) || (await validExecutionDomain(session))?.domain !== "legioncode_native") return undefined;
+    this.assertProductPlane();
+    const session = await this.ctx.storage.get<PhysicalExecutionSessionRecord>(this.getExecutionSessionKey(sessionId));
+    if (!session || isQualificationRecord(session) || isRetiredExecutionSession(session) || !this.matchesLease(session.lease, lease) || (await validExecutionDomain(session))?.domain !== "legioncode_native") return undefined;
     const runtime = this.workspaceRuntimes.get(workspaceLeaseKey(lease));
     const captured = await runtime?.composed.executionPort.getNativeCommandClosure?.(sessionId, lease, taskId);
     if (captured) return captured;
@@ -329,6 +355,7 @@ export class AgentRuntime extends DurableObject {
   }
 
   async cancelTask(leaseId: string, taskId: string): Promise<boolean> {
+    this.assertProductPlane();
     const nativeCommands = this.nativeCommands.get(`${leaseId}:${taskId}`);
     if (nativeCommands && !await nativeCommands.stop()) return false;
     for (const [workspaceKey, runtime] of this.workspaceRuntimes) {
@@ -344,6 +371,7 @@ export class AgentRuntime extends DurableObject {
   }
 
   async releaseLease(leaseId: string): Promise<void> {
+    this.assertProductPlane();
     await this.ctx.blockConcurrencyWhile(() =>
       this.releaseLeaseInLock(leaseId),
     );
@@ -411,17 +439,18 @@ export class AgentRuntime extends DurableObject {
     sessionId: string,
     expectedLease: SandboxExecutionLease,
   ): Promise<void> {
+    this.assertProductPlane();
     await this.ctx.blockConcurrencyWhile(async () => {
       const key = this.getExecutionSessionKey(sessionId);
-      const existing = await this.ctx.storage.get<RuntimeSessionRecord | RetiredExecutionSessionRecord>(key);
-      if (!existing || isRetiredExecutionSession(existing) || !this.matchesLease(existing.lease, expectedLease)) {
+      const existing = await this.ctx.storage.get<PhysicalExecutionSessionRecord>(key);
+      if (!existing || isQualificationRecord(existing) || isRetiredExecutionSession(existing) || !this.matchesLease(existing.lease, expectedLease)) {
         return;
       }
 
       await this.releaseLeaseInLock(expectedLease.leaseId);
 
-      const current = await this.ctx.storage.get<RuntimeSessionRecord | RetiredExecutionSessionRecord>(key);
-      if (!current || isRetiredExecutionSession(current) || !this.matchesLease(current.lease, expectedLease)) {
+      const current = await this.ctx.storage.get<PhysicalExecutionSessionRecord>(key);
+      if (!current || isQualificationRecord(current) || isRetiredExecutionSession(current) || !this.matchesLease(current.lease, expectedLease)) {
         return;
       }
       if (current.cleanupInProgress) {
@@ -452,6 +481,7 @@ export class AgentRuntime extends DurableObject {
   }
 
   getManifest() {
+    this.assertProductPlane();
     return Array.from(this.createPluginRegistry().values()).flatMap(
       (plugin) => plugin.tools,
     );
@@ -461,13 +491,15 @@ export class AgentRuntime extends DurableObject {
     sessionId: string,
     session: RuntimeSessionRecord,
   ): Promise<void> {
+    this.assertProductPlane();
     const incomingDomain = session.executionDomain ? snapshotExecutionDomain(session.executionDomain) : undefined;
     session = { ...session, workspaceScope: Object.freeze({ ...session.workspaceScope }),
       lease: { ...session.lease, workspaceScope: Object.freeze({ ...session.lease.workspaceScope }) },
       ...(incomingDomain ? { executionDomain: incomingDomain } : {}) };
     await this.ctx.blockConcurrencyWhile(async () => {
-      const bindings = await this.ctx.storage.list<RuntimeSessionRecord | RetiredExecutionSessionRecord>({ prefix: EXECUTION_SESSION_KEY_PREFIX });
-      await assertExecutionDomainAdmission([...bindings], this.getExecutionSessionKey(sessionId), session);
+      const bindings = await this.ctx.storage.list<PhysicalExecutionSessionRecord>({ prefix: EXECUTION_SESSION_KEY_PREFIX });
+      if ([...bindings.values()].some(isQualificationRecord)) throw new Error("QUALIFICATION_PLANE_ONLY");
+      await assertExecutionDomainAdmission([...bindings].filter((entry): entry is [string, RuntimeSessionRecord | RetiredExecutionSessionRecord] => !isQualificationRecord(entry[1])), this.getExecutionSessionKey(sessionId), session);
       const sessions = await this.listExecutionSessions();
       const sessionKey = this.getExecutionSessionKey(sessionId);
       if (
@@ -495,6 +527,7 @@ export class AgentRuntime extends DurableObject {
   }
 
   async alarm(): Promise<void> {
+    if (isQualificationEnvironment(this.env)) return; // No qualification wake/start/recreate path.
     await this.ctx.blockConcurrencyWhile(async () => {
       const records = await this.listExecutionSessions();
       const now = Date.now();
@@ -542,16 +575,18 @@ export class AgentRuntime extends DurableObject {
   async getExecutionSession(
     sessionId: string,
   ): Promise<RuntimeSessionRecord | null> {
-    const session = await this.ctx.storage.get<RuntimeSessionRecord | RetiredExecutionSessionRecord>(
+    this.assertProductPlane();
+    const session = await this.ctx.storage.get<PhysicalExecutionSessionRecord>(
       this.getExecutionSessionKey(sessionId),
     );
-    return session && !isRetiredExecutionSession(session) && !session.cleanupInProgress ? session : null;
+    return session && !isQualificationRecord(session) && !isRetiredExecutionSession(session) && !session.cleanupInProgress ? session : null;
   }
 
   async appendExecutionLog(
     sessionId: string,
     entry: RuntimeSessionLogEntry,
   ): Promise<void> {
+    this.assertProductPlane();
     await this.ctx.blockConcurrencyWhile(async () => {
       const key = this.getExecutionLogKey(sessionId, entry.timestamp);
       await this.ctx.storage.put(key, entry);
@@ -563,6 +598,7 @@ export class AgentRuntime extends DurableObject {
     since?: number,
     taskId?: string,
   ): Promise<RuntimeSessionLogEntry[]> {
+    this.assertProductPlane();
     const list = await this.ctx.storage.list<RuntimeSessionLogEntry>({
       prefix: this.getExecutionLogPrefix(sessionId),
     });
@@ -579,10 +615,11 @@ export class AgentRuntime extends DurableObject {
   private async listExecutionSessions(): Promise<
     Array<[string, RuntimeSessionRecord]>
   > {
-    const sessions = await this.ctx.storage.list<RuntimeSessionRecord | RetiredExecutionSessionRecord>({
+    const sessions = await this.ctx.storage.list<PhysicalExecutionSessionRecord>({
       prefix: EXECUTION_SESSION_KEY_PREFIX,
     });
-    return Array.from(sessions.entries()).filter((entry): entry is [string, RuntimeSessionRecord] => !isRetiredExecutionSession(entry[1]));
+    if ([...sessions.values()].some(isQualificationRecord)) throw new Error("QUALIFICATION_PLANE_ONLY");
+    return Array.from(sessions.entries()).filter((entry): entry is [string, RuntimeSessionRecord] => !isQualificationRecord(entry[1]) && !isRetiredExecutionSession(entry[1]));
   }
 
   private async scheduleExecutionSessionAlarm(): Promise<void> {
@@ -650,8 +687,8 @@ export class AgentRuntime extends DurableObject {
     group: Array<[string, RuntimeSessionRecord]>,
   ): Promise<void> {
     for (const [key] of group) {
-      const session = await this.ctx.storage.get<RuntimeSessionRecord>(key);
-      if (!session) continue;
+      const session = await this.ctx.storage.get<PhysicalExecutionSessionRecord>(key);
+      if (!session || isQualificationRecord(session) || isRetiredExecutionSession(session)) continue;
       await this.ctx.storage.put(key, { ...session, token: "", cleanupInProgress: true });
     }
   }
@@ -662,8 +699,8 @@ export class AgentRuntime extends DurableObject {
     code: RuntimeSessionRecord["cleanupFailureCode"] = "SANDBOX_CLEANUP_FAILED",
   ): Promise<void> {
     for (const [key] of group) {
-      const session = await this.ctx.storage.get<RuntimeSessionRecord>(key);
-      if (!session) continue;
+      const session = await this.ctx.storage.get<PhysicalExecutionSessionRecord>(key);
+      if (!session || isQualificationRecord(session) || isRetiredExecutionSession(session)) continue;
       const attempts = (session.cleanupAttempts ?? 0) + 1;
       const delay = Math.min(
         CLEANUP_RETRY_BASE_MS * 2 ** (attempts - 1),
@@ -759,6 +796,7 @@ export class AgentRuntime extends DurableObject {
     cursor?: string,
     limit: number = 50,
   ): Promise<{ messages: Message[]; nextCursor?: string }> {
+    this.assertProductPlane();
     const listOptions: { prefix: string; limit: number; start?: string } = {
       prefix: `chat:${runId}:`,
       limit: limit + 1,
@@ -793,6 +831,7 @@ export class AgentRuntime extends DurableObject {
     message: Message,
     idempotencyKey?: string,
   ): Promise<void> {
+    this.assertProductPlane();
     await this.ctx.blockConcurrencyWhile(async () => {
       const sessionId = this.ctx.id.toString();
 
@@ -867,6 +906,7 @@ export class AgentRuntime extends DurableObject {
     messages: Message[],
     idempotencyKey?: string,
   ): Promise<void> {
+    this.assertProductPlane();
     await this.ctx.blockConcurrencyWhile(async () => {
       const sessionId = this.ctx.id.toString();
 
