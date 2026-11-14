@@ -350,7 +350,7 @@ export {
   type ThreadSidebarWorkspaceGroup,
   type ThreadSidebarWorkspaceInput,
 } from "./navigation/thread-sidebar-projection.js";
-export { workspaceIdFromExternalId } from "@repo/platform-protocol";
+export { userIdFromExternalId, workspaceIdFromExternalId } from "@repo/platform-protocol";
 export {
   parseReadFileOutput,
   normalizeReadFileContent,

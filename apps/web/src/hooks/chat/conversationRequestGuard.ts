@@ -1,6 +1,5 @@
 import type { AppServerRequest, ConversationScope } from "@legioncode/sdk";
-import { sameConversationScope } from "@legioncode/sdk";
-import { workspaceIdFromExternalId } from "@repo/platform-protocol";
+import { sameConversationScope, workspaceIdFromExternalId } from "@legioncode/sdk";
 
 const MUTATIONS = new Set<AppServerRequest["method"]>([
   "turn/interrupt", "turn/approval", "turn/compact", "turn/steer", "turn/resume",

@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useRef } from "react";
-import { userIdFromExternalId, workspaceIdFromExternalId } from "@repo/platform-protocol";
+import { userIdFromExternalId, workspaceIdFromExternalId } from "@legioncode/sdk";
 import type { AppServerRequest, ConversationScope, LifecycleProjection, PlatformClient } from "@legioncode/sdk";
 import { useAuth } from "../../contexts/AuthContext";
 import type { ActiveTurnProjection } from "../useActiveTurnProjection";
