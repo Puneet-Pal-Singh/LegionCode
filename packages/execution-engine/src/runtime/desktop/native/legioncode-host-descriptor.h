@@ -5,7 +5,8 @@
 
 /* Nonsecret read-only projection of the SAME installed ROOT authority. It does
  * not grant execution, reveal the manifest, or claim sandbox qualification. The
- * actual installed broker is the only descriptor reader executable. */
+ * independently trusted CURRENT application-bundled broker is the reader;
+ * installed target bytes are inspected only and are NEVER executed here. */
 static inline bool lc_host_descriptor_requirement(char out[4097], SecRequirementRef *requirement) {
   int fd = lc_host_open_protected(LC_HOST_INSTALLED_BROKER, false);
   if (fd < 0) return false;
@@ -25,23 +26,16 @@ static inline bool lc_host_descriptor_requirement(char out[4097], SecRequirement
   if (text) CFRelease(text); if (info) CFRelease(info); if (code) CFRelease(code); if (url) CFRelease(url);
   if (close(fd)) okay = false; return okay;
 }
-static inline bool lc_host_descriptor_code(SecCodeRef code, SecRequirementRef requirement) {
-  CFURLRef path = NULL; char actual[PATH_MAX];
-  bool okay = code && SecCodeCheckValidity(code, kSecCSStrictValidate, requirement) == errSecSuccess &&
-    SecCodeCopyPath(code, kSecCSDefaultFlags, &path) == errSecSuccess &&
-    CFURLGetFileSystemRepresentation(path, true, (unsigned char *)actual, sizeof(actual)) &&
-    !strcmp(actual, LC_HOST_INSTALLED_BROKER);
-  if (path) CFRelease(path); return okay;
-}
 static inline xpc_object_t lc_host_descriptor_reply(lc_host_approval *approval, xpc_connection_t peer, xpc_object_t request) {
   static const char *const fields[] = { "version", "operation" };
-  char version[8], requirement_text[4097]; SecRequirementRef requirement = NULL; SecCodeRef code = NULL;
+  char version[8], requirement_text[4097]; SecRequirementRef requirement = NULL;
+  /* Same approved bundled bridge/actor and kernel audit-backed code identity
+   * as normal clients. This read-only projection is allowed before qualified;
+   * it cannot allocate, change access, install, or release a command. */
   bool okay = lc_host_fields(request, fields, 2) && lc_host_get(request, "version", version, sizeof(version)) &&
-    !strcmp(version, "1") && xpc_connection_get_euid(peer) == approval->actor &&
-    lc_host_installed_broker_valid(approval) && lc_host_bundle_valid(approval) &&
-    lc_host_descriptor_requirement(requirement_text, &requirement) &&
-    SecCodeCreateWithXPCMessage(request, kSecCSDefaultFlags, &code) == errSecSuccess && lc_host_descriptor_code(code, requirement);
-  if (code) CFRelease(code); if (requirement) CFRelease(requirement);
+    !strcmp(version, "1") && lc_host_authorize(approval, peer, request) &&
+    lc_host_installed_broker_valid(approval) && lc_host_descriptor_requirement(requirement_text, &requirement);
+  if (requirement) CFRelease(requirement);
   if (!okay) return lc_host_reply("unconfigured", "installedAuthorityUnavailable");
   xpc_object_t reply = lc_host_reply("configured", "okay");
   lc_host_put(reply, "serviceCodeRequirement", requirement_text); lc_host_put(reply, "bridgePath", approval->bridge);
@@ -51,10 +45,12 @@ static inline xpc_object_t lc_host_descriptor_reply(lc_host_approval *approval, 
   return reply;
 }
 static inline int lc_host_describe_installed(void) {
-  char requirement_text[4097]; SecRequirementRef requirement = NULL; SecCodeRef self = NULL;
-  bool okay = getuid() != 0 && geteuid() == getuid() && lc_host_descriptor_requirement(requirement_text, &requirement) &&
-    SecCodeCopySelf(kSecCSDefaultFlags, &self) == errSecSuccess && lc_host_descriptor_code(self, requirement);
-  if (self) CFRelease(self); if (requirement) CFRelease(requirement);
+  char requirement_text[4097]; SecRequirementRef requirement = NULL;
+  /* Main invokes this mode ONLY in its independently trusted CURRENT bundled
+   * helper. Validate the fixed ROOT target/ancestors/ACL/static code BEFORE
+   * contacting it, pin its actual cdhash, and never exec that installed path. */
+  bool okay = getuid() != 0 && geteuid() == getuid() && lc_host_descriptor_requirement(requirement_text, &requirement);
+  if (requirement) CFRelease(requirement);
   xpc_object_t reply = NULL;
   if (okay) {
     xpc_connection_t connection = xpc_connection_create_mach_service(LC_HOST_SERVICE, NULL, XPC_CONNECTION_MACH_SERVICE_PRIVILEGED);

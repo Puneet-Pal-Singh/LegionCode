@@ -54,13 +54,19 @@ export type MacHostInstalledDescriptor = Readonly<
     "installedAuthorityUnavailable" | "invalidInstalledDescriptor" | "installedDescriptorTimeout" }
 >;
 const INSTALLED_HOST_BROKER = "/Library/PrivilegedHelperTools/dev.legioncode.desktop.native-host";
-/** Fixed read-only C producer validates ROOT ancestor/ACL/code authority and
- * authenticates the SAME installed service. JS never treats a mode-bit check,
- * a caller descriptor, or this configured projection as runtime readiness. */
-export function readInstalledMacHostBrokerDescriptor(): Promise<MacHostInstalledDescriptor> {
+/** Main supplies ONLY the independently trusted CURRENT app helper from its
+ * private canonical resolveHelper owner, never renderer/config/descriptor input.
+ * Canonical/path assertions below do not establish executable/ACL trust. The
+ * trusted bundled C reader validates the fixed installed ROOT target BEFORE
+ * contact and NEVER executes that target. Configured is not runtime readiness. */
+export function readInstalledMacHostBrokerDescriptor(input: { readonly trustedReaderPath: string }): Promise<MacHostInstalledDescriptor> {
   if (process.platform !== "darwin") return Promise.resolve(Object.freeze({ state: "unconfigured", reason: "unsupportedPlatform" }));
+  try {
+    if (!isAbsolute(input.trustedReaderPath) || input.trustedReaderPath === INSTALLED_HOST_BROKER ||
+        realpathSync(input.trustedReaderPath) !== input.trustedReaderPath) throw new Error();
+  } catch { return Promise.resolve(Object.freeze({ state: "unconfigured", reason: "invalidInstalledDescriptor" })); }
   return new Promise((resolve) => {
-    const child = spawn(INSTALLED_HOST_BROKER, ["--describe-installed"], { stdio: ["ignore", "pipe", "pipe"], env: {}, shell: false, windowsHide: true });
+    const child = spawn(input.trustedReaderPath, ["--describe-installed"], { stdio: ["ignore", "pipe", "pipe"], env: {}, shell: false, windowsHide: true });
     let bytes = Buffer.alloc(0), diagnostics = 0, failed = false, timedOut = false, killed = false;
     const stop = () => { if (!killed) { killed = true; child.kill("SIGKILL"); } };
     const timer = setTimeout(() => { timedOut = true; stop(); }, 10000);
