@@ -102,14 +102,15 @@ describe("DefaultGitService", () => {
       workspaceRoot: "/workspace/repository",
     })).resolves.toEqual({ version: 1, workspaceRoot: "/workspace/repository",
       gitEntry: "/workspace/repository/.git", gitDirectory: "/workspace/repository/.git",
-      commonDirectory: "/workspace/repository/.git", backlinkPath: null });
+      commonDirectory: "/workspace/repository/.git", backlinkPath: null, backlinkRecordPath: null });
     expect(metadataExecutor.calls.every(call => call.runId === undefined && call.readOnlyProbe === true)).toBe(true);
 
     const linked = ["/workspace/repository", "/repos/main/.git/worktrees/task",
       "/repos/main/.git", "/repos/main/.git/worktrees/task"];
     await expect(new DefaultGitService(new QueueGitExecutor([...linked, ...linked].map(result)))
       .readRepositoryMetadataPaths({ workspaceRoot: "/workspace/repository" }))
-      .resolves.toMatchObject({ backlinkPath: "/repos/main/.git/worktrees/task/gitdir" });
+      .resolves.toMatchObject({ backlinkPath: "/workspace/repository/.git",
+        backlinkRecordPath: "/repos/main/.git/worktrees/task/gitdir" });
     for (const malformed of ["/workspace/repository\n/foreign", "/workspace/../repository", "relative", "/workspace/repository/"]) {
       await expect(new DefaultGitService(new QueueGitExecutor([result(malformed)]))
         .readRepositoryMetadataPaths({ workspaceRoot: "/workspace/repository" })).rejects.toMatchObject({ code: "git_command_failed" });

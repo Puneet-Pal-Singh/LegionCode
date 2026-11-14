@@ -236,7 +236,10 @@ export interface GitRepositoryMetadataPaths {
   readonly gitEntry: string;
   readonly gitDirectory: string;
   readonly commonDirectory: string;
+  /** Linked checkout's .git target, matching the native layout contract. */
   readonly backlinkPath: string | null;
+  /** Git-directory record whose association the physical owner must verify. */
+  readonly backlinkRecordPath: string | null;
 }
 
 export interface GitService {

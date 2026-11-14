@@ -36,18 +36,20 @@ export async function readGitRepositoryMetadataPaths(
     // Also bind Git's ambient discovery to this exact checkout's .git entry.
     if (resolved !== gitDirectory) throw unavailable();
     let backlinkPath: string | null = null;
+    let backlinkRecordPath: string | null = null;
     if (gitDirectory !== commonDirectory) {
       const parent = child(commonDirectory, "worktrees") + "/";
       const name = gitDirectory.slice(parent.length);
       if (!gitDirectory.startsWith(parent) || !name || name.includes("/")) throw unavailable();
-      backlinkPath = child(gitDirectory, "gitdir");
+      backlinkPath = gitEntry;
+      backlinkRecordPath = child(gitDirectory, "gitdir");
     }
-    return { version: 1, workspaceRoot, gitEntry, gitDirectory, commonDirectory, backlinkPath };
+    return { version: 1, workspaceRoot, gitEntry, gitDirectory, commonDirectory, backlinkPath, backlinkRecordPath };
   };
   const first = await read();
   const current = await read();
   if (first.gitDirectory !== current.gitDirectory || first.commonDirectory !== current.commonDirectory ||
-      first.backlinkPath !== current.backlinkPath) throw unavailable();
+      first.backlinkPath !== current.backlinkPath || first.backlinkRecordPath !== current.backlinkRecordPath) throw unavailable();
   return Object.freeze(current);
 }
 
