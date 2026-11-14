@@ -52,10 +52,14 @@ export class AIService {
   }
 
   getProvider(): string {
-    return this.providerConfigService?.getNativeProviderSelection?.()?.providerId ?? this.adapter.provider;
+    const native = this.providerConfigService?.getNativeProviderSelection?.();
+    if (native) return native.providerId;
+    return this.adapter.provider;
   }
   getDefaultModel(): string {
-    return this.providerConfigService?.getNativeProviderSelection?.()?.modelId ?? this.defaultModel;
+    const native = this.providerConfigService?.getNativeProviderSelection?.();
+    if (native) return native.modelId;
+    return this.defaultModel;
   }
 
   resolveModelSelection(
@@ -66,8 +70,8 @@ export class AIService {
     const native = resolveNativeProviderSelection(this.providerConfigService, providerId, modelId);
     const options = isByokOverride ? { isByokOverride } : undefined;
     return resolveModelSelection(
-      native?.providerId ?? providerId,
-      native?.modelId ?? modelId,
+      native ? native.providerId : providerId,
+      native ? native.modelId : modelId,
       this.adapter.provider,
       this.defaultModel,
       mapProviderIdToRuntimeProvider,
@@ -168,10 +172,11 @@ export class AIService {
       }
       sdkModelConfig = native.config;
     } else {
-      const overrideApiKey =
+      const acquiredKey =
         selection.providerId && selection.providerId !== AXIS_PROVIDER_ID
-          ? ((await this.providerConfigService?.getApiKey(selection.providerId)) ?? undefined)
+          ? await this.providerConfigService?.getApiKey(selection.providerId)
           : undefined;
+      const overrideApiKey = acquiredKey === null ? undefined : acquiredKey;
       const structuredRuntimeProvider = resolveStructuredRuntimeProvider(selection.runtimeProvider, providerTransport);
       const structuredBaseURLOverride = resolveStructuredBaseURLOverride(providerTransport, providerEndpoint);
       sdkModelConfig = getSDKModelConfig(
