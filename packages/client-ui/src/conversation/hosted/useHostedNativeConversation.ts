@@ -39,6 +39,7 @@ type Owner = { readonly identity: HostedConversationIdentity; readonly controlle
 interface DeliveryState {
   readonly identity: HostedConversationIdentity;
   readonly scope: ConversationScope | null;
+  readonly acceptedScope: ConversationScope | null;
   readonly pendingDraft: HostedNativeDraft | null;
   readonly optimisticDraft: HostedNativeDraft | null;
   readonly optimisticScope: ConversationScope | null;
@@ -110,7 +111,7 @@ export function useHostedNativeConversation(options: HostedNativeConversationOpt
   const updateDelivery = (captured: Owner, update: Partial<DeliveryState>) => {
     if (!active(captured)) return;
     setDelivery((previous) => ({
-      identity, scope: null, pendingDraft: null, optimisticDraft: null, optimisticScope: null, fingerprint: null, error: null, submitting: false, stopping: false,
+      identity, scope: null, acceptedScope: null, pendingDraft: null, optimisticDraft: null, optimisticScope: null, fingerprint: null, error: null, submitting: false, stopping: false,
       ...(previous?.identity === identity ? previous : {}), ...update,
     }));
   };
@@ -151,12 +152,22 @@ export function useHostedNativeConversation(options: HostedNativeConversationOpt
   const pendingDraft = visibleDelivery?.pendingDraft ?? null;
   const isSubmitting = visibleDelivery?.submitting === true;
   const isStopping = visibleDelivery?.stopping === true;
+  // Strict submit receipts and successful saved scope reads prove admission
+  // before sequence 1. A reserved-only scope read returns recovery-required,
+  // so neither the delivery reservation nor optimistic history is proof.
+  const hasAcceptedScope = Boolean(scope && [
+    visibleDelivery?.acceptedScope,
+    history.historyReady && !history.scopeRecoveryError ? history.scope : null,
+  ].some((acceptedScope) => acceptedScope &&
+    scope.sessionId === acceptedScope.sessionId && scope.runId === acceptedScope.runId &&
+    scope.workspaceId === acceptedScope.workspaceId && scope.threadId === acceptedScope.threadId &&
+    scope.turnId === acceptedScope.turnId && scope.runAttemptId === acceptedScope.runAttemptId));
   const canSubmit = identity.enabled && history.historyReady && !history.loading &&
     history.workspaceContext?.workspaceStatus !== "archived" && !missingRunningScope &&
     !history.scopeRecoveryError &&
     !pendingDraft && !isSubmitting && !isStopping && (!scope || Boolean(activeProjection?.terminal));
   const canStop = identity.enabled && !isStopping && (isSubmitting || Boolean(scope &&
-    !activeProjection?.terminal && ((activeProjection && activeProjection.lastSequence > 0) || pendingDraft)));
+    !activeProjection?.terminal && (hasAcceptedScope || (activeProjection && activeProjection.lastSequence > 0) || pendingDraft)));
 
   async function submit(draft: HostedNativeDraft): Promise<SubmissionOutcome> {
     const captured = owner.current;
@@ -204,7 +215,7 @@ export function useHostedNativeConversation(options: HostedNativeConversationOpt
       isStopPending: () => attempt.current?.owner === captured && attempt.current.attempt.stopRequested,
       onAttemptAcquired: (acquired) => {
         attempt.current = { owner: captured, attempt: acquired };
-        updateDelivery(captured, { pendingDraft: frozenDraft, optimisticDraft: frozenDraft, optimisticScope: null, fingerprint, submitting: true, error: null });
+        updateDelivery(captured, { acceptedScope: null, pendingDraft: frozenDraft, optimisticDraft: frozenDraft, optimisticScope: null, fingerprint, submitting: true, error: null });
       },
       reserveScope: async (acquired) => {
         const reserved = await client.reserveTurnScope({
@@ -243,6 +254,8 @@ export function useHostedNativeConversation(options: HostedNativeConversationOpt
       const confirmed = outcome.status === "accepted" || (outcome.status === "cancelled" && outcome.admission !== "unconfirmed");
       updateDelivery(captured, {
         submitting: false,
+        ...(outcome.status === "accepted" || (outcome.status === "cancelled" && outcome.admission === "accepted")
+          ? { acceptedScope: outcome.scope ?? null } : {}),
         ...(confirmed ? { pendingDraft: null, fingerprint: null, error: null, stopping: false } : {}),
         ...(outcome.status === "cancelled" && outcome.admission === "not-dispatched" ? { optimisticDraft: null } : {}),
         ...(outcome.status === "unconfirmed" ? { error: outcome.message } : {}),

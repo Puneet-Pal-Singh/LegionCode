@@ -246,6 +246,36 @@ describe("useChatPresentation", () => {
     await act(async () => { releaseNewAck(); await freshSubmission; });
     await waitFor(() => expect(sharedTask.result.current.scope?.turnId).toBe(shared.reservationScope.turnId));
     sharedTask.unmount();
+
+    // Admission ACKs and qualified saved scope reads enable exact Stop before
+    // sequence 1. A reserved-only read instead requires admission recovery.
+    const earlyAck = hostedFixture();
+    earlyAck.acknowledge = true;
+    earlyAck.publishLifecycle = false;
+    const admitted = renderHook(() => useHostedNativeConversation(earlyAck.options));
+    await waitFor(() => expect(admitted.result.current.canSubmit).toBe(true));
+    await act(async () => { expect(await admitted.result.current.submit(hostedDraft())).toMatchObject({ status: "accepted" }); });
+    await waitFor(() => expect(admitted.result.current.isSubmitting).toBe(false));
+    expect(admitted.result.current.pendingDraft).toBeNull();
+    expect(admitted.result.current.activeProjection?.lastSequence ?? 0).toBe(0);
+    expect(admitted.result.current.canStop).toBe(true);
+    const staleAcceptedStop = admitted.result.current.stop;
+    admitted.unmount();
+    const restoredAdmission = renderHook(() => useHostedNativeConversation(earlyAck.options));
+    await waitFor(() => expect(restoredAdmission.result.current.historyReady).toBe(true));
+    expect(restoredAdmission.result.current.activeProjection?.lastSequence ?? 0).toBe(0);
+    expect(restoredAdmission.result.current.canStop).toBe(true);
+    await act(async () => { await staleAcceptedStop(); });
+    expect(earlyAck.requests.filter((request) => request.method === "turn/interrupt")).toHaveLength(0);
+    restoredAdmission.unmount();
+    const reserved = hostedFixture();
+    reserved.reserved = true;
+    const reservedOnly = renderHook(() => useHostedNativeConversation(reserved.options));
+    await waitFor(() => expect(reservedOnly.result.current.historyReady).toBe(true));
+    expect(reservedOnly.result.current.scopeRecoveryError).not.toBeNull();
+    expect(reservedOnly.result.current.scope).toBeNull();
+    expect(reservedOnly.result.current.canStop).toBe(false);
+    reservedOnly.unmount();
   }, 15_000);
 
   it("reveals an optimistically admitted prompt while canonical replay hydrates", () => {
@@ -454,6 +484,7 @@ function hostedFixture() {
   type Envelope = { protocolVersion: string; method: string; params: Record<string, unknown> };
   const state = {
     acknowledge: false,
+    publishLifecycle: true,
     reserved: false,
     currentScope: scope,
     reservationScope: scope,
@@ -513,11 +544,13 @@ function hostedFixture() {
         expect(request).toMatchObject({ identity: state.currentScope, harnessMode: "platform_owned", authMode: "api_key" });
         if (state.acknowledge) {
           state.admitted = true;
-          state.events.push(event("turn.started", {}));
-          state.events.push(event("approval.requested", { question: "Run the project check?", options: [
-            { id: "allow_once", label: "Allow once", description: null },
-            { id: "deny", label: "Deny", description: null },
-          ] }, { itemId: "itm_hosted01", approvalId: "appr_hosted01" }));
+          if (state.publishLifecycle) {
+            state.events.push(event("turn.started", {}));
+            state.events.push(event("approval.requested", { question: "Run the project check?", options: [
+              { id: "allow_once", label: "Allow once", description: null },
+              { id: "deny", label: "Deny", description: null },
+            ] }, { itemId: "itm_hosted01", approvalId: "appr_hosted01" }));
+          }
           state.messages.push({ id: request.clientMessageId!, role: "user", content: "Inspect the project", createdAt: stamp,
             data: { metadata: { canonicalIdentity: state.currentScope } } });
         }
