@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import {
   ACTIVITY_PART_KINDS,
   RUN_EVENT_TYPES,
@@ -10,6 +11,7 @@ import {
   RunEventRecorder,
   RunEventRepository,
   RunRepository,
+  RuntimeKernelNativeRunner,
   type RuntimeDurableObjectState,
   type RuntimeStorage,
   createRunCompletedEvent,
@@ -39,6 +41,8 @@ import {
 } from "./RunEngineRequestHandler";
 import { RunInterruptIdentitySchema } from "./RunInterruptContract";
 import { InMemoryRunInterruptRegistry } from "./RunInterruptRegistry";
+import { AIService } from "../services/AIService";
+import * as executionResources from "./RuntimeExecutionResources";
 import { InMemoryRunApprovalResolutionRegistry } from "./RunApprovalResolutionRegistry";
 import type { RunApprovalResolutionRegistry } from "./RunApprovalResolutionRegistry";
 
@@ -1270,6 +1274,11 @@ describe("RunEngineRequestHandler", () => {
 
     expect(interruptResponse.status).toBe(409);
     expect(withExecutionLock).not.toHaveBeenCalled();
+
+    // The observer can time out or acknowledge Stop while the original SDK body
+    // is still pending. Both runner outcomes must retain the physical lease.
+    await assertOriginalProviderDrain("fulfilled");
+    await assertOriginalProviderDrain("rejected");
   });
 
   it("projects a typed activity feed snapshot", async () => {
@@ -1805,6 +1814,109 @@ describe("RunEngineRequestHandler", () => {
     }
   });
 });
+
+async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected") {
+  const ctx = new MockDurableObjectState();
+  const scope = RunInterruptIdentitySchema.parse({
+    runId: "run_123e4567e89b42d3a456426614174212",
+    workspaceId: "123e4567-e89b-42d3-a456-426614174111",
+    sessionId: "session-1", threadId: "thr_123456", turnId: "trn_123456",
+    runAttemptId: "attempt_123456",
+  });
+  await ctx.storage.put("turnToRunMap", { [scope.turnId]: scope.runId });
+  await ctx.storage.put("turnRuntimeIdentities", { [scope.turnId]: scope });
+  let settleOriginal!: (value: never) => void;
+  let rejectOriginal!: (reason: Error) => void;
+  const original = new Promise<never>((resolve, reject) => {
+    settleOriginal = resolve; rejectOriginal = reject;
+  });
+  const textProvider = vi.spyOn(AIService.prototype, "generateText").mockImplementation(() => original);
+  const structuredProvider = vi.spyOn(AIService.prototype, "generateStructured").mockImplementation(() => original);
+  const provider = outcome === "fulfilled" ? structuredProvider : textProvider;
+  const settle = vi.fn(async () => undefined);
+  const release = vi.fn(async () => undefined);
+  const prepare = executionResources.prepareRuntimeExecutionResources;
+  const resources = vi.spyOn(executionResources, "prepareRuntimeExecutionResources").mockImplementation(async (...args) => ({
+    ...await prepare(...args),
+    checkoutLifecycle: { isSettled: false, settle, release } as unknown as NonNullable<Awaited<ReturnType<typeof prepare>>["checkoutLifecycle"]>,
+  }));
+  let lockHeld = false;
+  const lock: RunEngineRequestLock = Object.assign(async <T>(_run: string, operation: () => Promise<T>) => {
+    lockHeld = true;
+    try { return await operation(); } finally { lockHeld = false; }
+  }, { hasQueuedOrActiveRun: () => lockHeld });
+  const registry = new InMemoryRunInterruptRegistry();
+  const interrupt = vi.spyOn(RuntimeKernelNativeRunner.prototype, "interrupt").mockResolvedValue(undefined);
+  let observerReady!: () => void;
+  const observer = new Promise<void>(resolve => { observerReady = resolve; });
+  const runner = vi.spyOn(RuntimeKernelNativeRunner.prototype, "execute").mockImplementation(async () => {
+    const dependencies = await resources.mock.results[0]!.value;
+    const request = {
+      context: { runId: scope.runId, sessionId: scope.sessionId, agentType: "planner", phase: "planning" as const },
+      providerId: "openai", model: "gpt-4o-mini", timeoutMs: 5,
+      messages: [{ role: "user" as const, content: "inspect" }],
+    };
+    const gateway = dependencies.runEngineDeps.llmGateway!;
+    await expect(outcome === "fulfilled"
+      ? gateway.generateStructured({ ...request, schema: z.object({ ok: z.boolean() }) })
+      : gateway.generateText(request)).rejects.toMatchObject({ name: "LLMTimeoutError" });
+    observerReady();
+    if (outcome === "rejected") throw new Error("observer stopped after timeout");
+    return new Response("done");
+  });
+  try {
+    const handler = new RunEngineRequestHandler(ctx as unknown as DurableObjectState, {
+      HYPERDRIVE: { connectionString: "postgres://fixture:fixture@127.0.0.1:1/fixture" },
+      BYOK_CREDENTIAL_ENCRYPTION_KEY: "test-only-credential-encryption-key",
+      AUTH_TRANSCRIPT_REPOSITORY: {
+        listSessions: async () => ({ sessions: [{ id: scope.sessionId, workspaceId: scope.workspaceId, repository: null }] }),
+        getCanonicalAssistantMessageId: async () => null,
+      },
+      AUTH_TURN_ADMISSION_REPOSITORY: {
+        claimExecution: async () => ({ status: "claimed" }),
+        markRecoveryRequired: async () => false,
+      },
+    } as unknown as Env, lock, undefined, {
+      interruptRegistry: registry,
+      lifecycleEventStore: { replay: async () => ({ events: [{ type: "turn.completed" }], nextSequence: null }) } as unknown as LifecycleEventStore,
+    });
+    let handlerSettled = false;
+    const execution = handler.handleExecuteRequest(new Request("https://brain.local/execute", {
+      method: "POST", body: JSON.stringify({
+        ...scope, identity: scope, userId: "user-1", correlationId: "drain-fixture",
+        input: { mode: "build", agentType: "coding", prompt: "inspect", sessionId: scope.sessionId,
+          providerId: "openai", modelId: "gpt-4o-mini", orchestratorBackend: "execution-engine-v1",
+          executionBackend: "cloudflare_sandbox", harnessMode: "platform_owned", authMode: "api_key" },
+        messages: [{ role: "user", content: "inspect" }],
+      }),
+    })).then(response => { handlerSettled = true; return response; });
+    await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(1));
+    // Await the runner observer (including the actual gateway timeout), not the raw request.
+    await observer;
+    expect(await registry.request(scope.turnId, "Stop")).toBe(true);
+    expect(interrupt).toHaveBeenCalledTimes(1);
+    expect(handlerSettled).toBe(false);
+    expect(lockHeld).toBe(true);
+    expect(registry.hasActiveOwner(scope.turnId)).toBe(true);
+    expect(settle).not.toHaveBeenCalled();
+    expect(release).not.toHaveBeenCalled();
+    const owned = await resources.mock.results[0]!.value;
+    await expect(owned.runEngineDeps.aiService!.generateText({ messages: [] })).rejects.toThrow("requests are closing");
+    expect(provider).toHaveBeenCalledTimes(1);
+    if (outcome === "fulfilled") settleOriginal({ ok: true } as never);
+    else rejectOriginal(new Error("original SDK body failed later"));
+    const response = await execution;
+    expect(response.status).toBe(outcome === "fulfilled" ? 200 : 500);
+    expect(settle).toHaveBeenCalledTimes(1);
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(lockHeld).toBe(false);
+    expect(registry.hasActiveOwner(scope.turnId)).toBe(false);
+  } finally {
+    settleOriginal(undefined as never);
+    runner.mockRestore(); interrupt.mockRestore(); resources.mockRestore();
+    textProvider.mockRestore(); structuredProvider.mockRestore();
+  }
+}
 
 const runImmediately: RunEngineRequestLock = Object.assign(
   async <T>(_runId: string, operation: () => Promise<T>) => await operation(),
