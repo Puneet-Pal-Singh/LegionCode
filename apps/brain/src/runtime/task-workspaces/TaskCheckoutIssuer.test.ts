@@ -74,6 +74,8 @@ describe("TaskCheckoutIssuer", () => {
             generation: 0,
           },
         })),
+        bootstrapNativeCheckout: vi.fn(async () => undefined),
+        verifyNativeCheckoutReady: vi.fn(async () => undefined),
         recoverAfterSandboxLoss: vi.fn(async () => {
           throw new Error("not expected");
         }),
@@ -134,6 +136,8 @@ describe("TaskCheckoutIssuer", () => {
             generation: 0,
           },
         })),
+        bootstrapNativeCheckout: vi.fn(async () => undefined),
+        verifyNativeCheckoutReady: vi.fn(async () => undefined),
         recoverAfterSandboxLoss: vi.fn(async () => {
           throw new Error("not expected");
         }),
@@ -180,6 +184,8 @@ describe("TaskCheckoutIssuer", () => {
             generation: 0,
           },
         })),
+        bootstrapNativeCheckout: vi.fn(async () => undefined),
+        verifyNativeCheckoutReady: vi.fn(async () => undefined),
         recoverAfterSandboxLoss: vi.fn(async () => {
           throw new Error("not expected");
         }),
@@ -249,6 +255,8 @@ describe("TaskCheckoutIssuer", () => {
       repository,
       () => ({
         acquire,
+        bootstrapNativeCheckout: vi.fn(async () => undefined),
+        verifyNativeCheckoutReady: vi.fn(async () => undefined),
         recoverAfterSandboxLoss: vi.fn(async () => {
           throw new Error("not expected");
         }),
@@ -299,6 +307,8 @@ describe("TaskCheckoutIssuer", () => {
             generation: 0,
           },
         })),
+        bootstrapNativeCheckout: vi.fn(async () => undefined),
+        verifyNativeCheckoutReady: vi.fn(async () => undefined),
         recoverAfterSandboxLoss: vi.fn(async () => {
           throw new Error("not expected");
         }),
@@ -338,6 +348,8 @@ describe("TaskCheckoutIssuer", () => {
         acquire: async () => {
           throw new Error("acquire response lost");
         },
+        bootstrapNativeCheckout: vi.fn(async () => undefined),
+        verifyNativeCheckoutReady: vi.fn(async () => undefined),
         recoverAfterSandboxLoss: async () => {
           throw new Error("not expected");
         },
@@ -370,6 +382,8 @@ describe("TaskCheckoutIssuer", () => {
             generation: 0,
           },
         })),
+        bootstrapNativeCheckout: vi.fn(async () => undefined),
+        verifyNativeCheckoutReady: vi.fn(async () => undefined),
         recoverAfterSandboxLoss: vi.fn(async () => {
           throw new Error("not expected");
         }),

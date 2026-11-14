@@ -1,3 +1,5 @@
+import { nativeCheckoutBootstrapIntent, bootstrapNativeCheckoutBeforeReady } from "./NativeCheckoutBootstrap";
+import type { NativeCheckoutBootstrapIntent } from "@repo/worker-protocol/private/native-checkout-bootstrap";
 import {
   snapshotExecutionDomain,
   serializeExecutionDomain,
@@ -66,6 +68,7 @@ export type SecureExecutionSessionFactory = (input: {
   readonly workspaceScope: SecureExecutionWorkspaceScope;
   readonly persistedReference?: PersistedSecureExecutionSessionReference;
   readonly executionDomain: ServerExecutionDomainBinding;
+  readonly nativeCheckoutIntent?: NativeCheckoutBootstrapIntent;
 }) => SecureExecutionSessionPort;
 
 export interface BeforeTaskCheckoutSessionAcquireInput {
@@ -100,6 +103,7 @@ export class TaskCheckoutIssuer {
         input.workspaceScope,
         input.persistedReference,
         input.executionDomain,
+        input.nativeCheckoutIntent,
       );
     },
   ) {}
@@ -281,13 +285,17 @@ export class TaskCheckoutIssuer {
           digest,
         }),
       );
+      const bootstrapIntent = executionDomain.domain === "legioncode_native"
+        ? nativeCheckoutBootstrapIntent(snapshot, checkoutId, filesystemRoot) : undefined;
       executionSession = this.sessionFactory({
+        nativeCheckoutIntent: bootstrapIntent,
         sessionId: payload.sessionId,
         runId: payload.runId,
         workspaceScope,
         executionDomain,
       });
       const session = await executionSession.acquire();
+      if (bootstrapIntent) await bootstrapNativeCheckoutBeforeReady(this.env, payload, workspaceScope, executionSession, bootstrapIntent);
       const checkout = TaskCheckoutSchema.parse({
         kind: "task_checkout",
         checkoutId,
@@ -747,6 +755,10 @@ export class TaskCheckoutIssuer {
         false,
         payload.correlationId,
       );
+    }
+    if (executionDomain.domain === "legioncode_native") {
+      if (!executionSession.verifyNativeCheckoutReady) throw new Error("NATIVE_BOOTSTRAP_OWNER_REQUIRED");
+      await executionSession.verifyNativeCheckoutReady(nativeCheckoutBootstrapIntent(snapshot, checkout.checkoutId, checkout.filesystemRoot));
     }
     const resumedCheckout = checkout;
     const issued: IssuedTaskCheckout = {

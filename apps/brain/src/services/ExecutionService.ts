@@ -121,6 +121,14 @@ export class ExecutionService {
       this.executeOwned(plugin, action, payload, capturedOptions, operation));
   }
 
+  /** Private setup uses the same stored Git auth owner, before any model work.
+   * Acquisition is already complete; this cannot recursively enter create(). */
+  async bootstrapNativeCheckout(): Promise<void> {
+    if (!this.executionSession.bootstrapNativeCheckout) throw new Error("NATIVE_BOOTSTRAP_OWNER_REQUIRED");
+    const payload = await this.prepareExecutionPayload("git", "git_clone", {});
+    await this.executionSession.bootstrapNativeCheckout(typeof payload.token === "string" ? payload.token : undefined);
+  }
+
   async awaitQuiescence(input: { readonly turnId: string; readonly timeoutMs: number }): Promise<boolean> {
     if (input.turnId !== this.workspaceScope.turnId) return false;
     return await this.nativeExecutionLifetime.awaitQuiescence(input.timeoutMs);
