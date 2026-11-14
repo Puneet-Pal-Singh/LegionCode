@@ -39,7 +39,11 @@ if (!isPrimaryInstance) app.quit();
 let credentialVault: DesktopCredentialVault | null = null;
 const localAppServer = new LocalAppServerSupervisor(
   (request) => providerRequestHeaders(request),
-  async (providerId) => credentialVault?.acquireRuntimeCredentialLease(providerId) ?? null,
+  async (providerId, signal) => credentialVault?.acquireRuntimeCredentialLease(providerId, signal) ?? null,
+  {
+    captureRuntimeCredentialReference: async (providerId, signal) => credentialVault?.captureRuntimeCredentialReference(providerId, signal) ?? null,
+    acquireRuntimeCredential: async (reference, signal) => credentialVault?.acquireRuntimeCredentialLease(reference, signal) ?? null,
+  },
 );
 const pendingWorkspaceSelections = new WorkspaceSelectionTokens();
 const expectedRendererUrls = new Map<number, string>();
