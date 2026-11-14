@@ -22,6 +22,7 @@ import {
   WORKSPACE_OPEN_REQUESTED_CHANNEL,
   CREDENTIAL_COMMAND_CHANNEL,
   DesktopCredentialCommandSchema,
+  type LocalAppServerHostConfig,
 } from "../shared/desktop-api";
 import { createWindowOptions } from "./window-options";
 import { installDesktopApplicationMenu } from "./application-menu";
@@ -29,6 +30,7 @@ import { LocalAppServerSupervisor } from "./local-app-server-supervisor";
 import { DesktopCredentialVault } from "./desktop-credential-vault";
 import { DesktopHostedAccount } from "./hosted-account";
 import { resolveDesktopNativeHostBrokerConfiguration } from "./native-host-broker-composition";
+import { DesktopNativeHostSetup } from "./native-host-setup";
 import { DesktopHostedAppServer } from "./hosted-app-server";
 import { HOSTED_REQUEST_CHANNEL, HOSTED_RESPONSE_CHANNEL } from "../shared/hosted-request";
 import { HOSTED_ACCOUNT_CHANNEL, HostedAccountCommandSchema } from "../shared/hosted-account";
@@ -59,7 +61,34 @@ const expectedRendererUrls = new Map<number, string>();
 let isQuitting = false;
 let shutdownPromise: Promise<void> | null = null;
 let desktopStartup: Promise<void> | null = null;
+let nativeHostSetup: DesktopNativeHostSetup | null = null;
+let resolveLocalHostConfiguration: (() => Promise<LocalAppServerHostConfig>) | null = null;
+let localRuntimeRestart: Promise<void> | null = null;
 let environmentGeneration = 0;
+
+async function restartLocalRuntime(): Promise<void> {
+  if (localRuntimeRestart) return await localRuntimeRestart;
+  const operation = Promise.resolve().then(refreshLocalRuntimeAfterStop);
+  localRuntimeRestart = operation;
+  try { await operation; }
+  finally { if (localRuntimeRestart === operation) localRuntimeRestart = null; }
+}
+
+async function refreshLocalRuntimeAfterStop(): Promise<void> {
+  if (shutdownPromise || isQuitting) throw new Error("Local runtime shutdown is pending");
+  await desktopStartup?.catch(() => undefined);
+  if (shutdownPromise || isQuitting || !resolveLocalHostConfiguration)
+    throw new Error("Local runtime configuration is unavailable");
+  environmentGeneration += 1;
+  pendingWorkspaceSelections.clear();
+  await localAppServer.stop();
+  if (shutdownPromise || isQuitting) return;
+  // Re-capture qualified configuration only after the OLD runtime closed.
+  // No admitted attempt is moved to another execution policy or generation.
+  const configuration = await resolveLocalHostConfiguration();
+  if (shutdownPromise || isQuitting) return;
+  await localAppServer.start(app.getVersion(), app.getPath("userData"), configuration);
+}
 
 app.on("second-instance", () => {
   if (!isPrimaryInstance || isQuitting || shutdownPromise) return;
@@ -140,12 +169,8 @@ handleNativeInvoke(HOSTED_ACCOUNT_CHANNEL, async (event, value) => {
   return hostedAccount.connect(parent, command.operation === "reauthorize");
 });
 handleNativeInvoke(ENVIRONMENT_RESTART_CHANNEL, async () => {
-  if (shutdownPromise || isQuitting) throw new Error("Local runtime shutdown is pending");
-  await desktopStartup?.catch(() => undefined);
-  if (shutdownPromise || isQuitting) throw new Error("Local runtime shutdown is pending");
-  environmentGeneration += 1;
-  pendingWorkspaceSelections.clear();
-  await localAppServer.restart(app.getVersion());
+  if (nativeHostSetup?.running) throw new Error("Local execution setup is still running");
+  await restartLocalRuntime();
 });
 handleNativeInvoke(WORKSPACE_PICK_CHANNEL, async (event) => {
   const requestGeneration = environmentGeneration;
@@ -304,6 +329,30 @@ desktopStartup = app.whenReady().then(async () => {
   };
   const nativeFilesystemHelperPath = resolveHelper("legioncode-fs-helper");
   const nativeProcessHelperPath = resolveHelper("legioncode-process-helper");
+  const bridgePath = resolveHelper("legioncode-host-broker");
+  const inspectorPath = resolveHelper("legioncode-native-installer");
+  resolveLocalHostConfiguration = async () => {
+    const nativeHostBroker = await resolveDesktopNativeHostBrokerConfiguration(bridgePath);
+    return {
+      protectedHostRoots: [...new Set(protectedHostRoots)], nativeWriterFenceDirectory,
+      nativeFilesystemHelperPath, nativeProcessHelperPath,
+      ...(nativeHostBroker === undefined ? {} : { nativeHostBroker }),
+    };
+  };
+  if (process.platform === "darwin" && app.isPackaged && bridgePath && inspectorPath && nativeWriterFenceDirectory) {
+    nativeHostSetup = new DesktopNativeHostSetup({
+      bundlePath: realpathSync(join(process.resourcesPath, "..", "..")),
+      bridgePath, inspectorPath, namespacePath: nativeWriterFenceDirectory,
+      getWindow: () => BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0],
+      canContinue: () => !isQuitting && !shutdownPromise && !localRuntimeRestart,
+      stopLocalRuntime: async () => {
+        await desktopStartup;
+        if (isQuitting || shutdownPromise) throw new Error("Local runtime shutdown is pending");
+        await localAppServer.stop();
+      },
+      refreshLocalRuntime: restartLocalRuntime,
+    });
+  }
   createWindow();
   installDesktopApplicationMenu(() => {
     const window = BrowserWindow.getFocusedWindow();
@@ -311,15 +360,15 @@ desktopStartup = app.whenReady().then(async () => {
     const expectedRendererUrl = expectedRendererUrls.get(window.webContents.id);
     if (!expectedRendererUrl || window.webContents.getURL() !== expectedRendererUrl) return;
     window.webContents.send(WORKSPACE_OPEN_REQUESTED_CHANNEL);
-  });
-  const nativeHostBroker = await resolveDesktopNativeHostBrokerConfiguration(resolveHelper("legioncode-host-broker"));
+  }, nativeHostSetup ? () => {
+    void nativeHostSetup?.run().catch((error: unknown) => {
+      if (!isQuitting && !shutdownPromise) dialog.showErrorBox("Local execution setup incomplete",
+        error instanceof Error ? error.message : "Local execution setup could not complete.");
+    });
+  } : undefined);
+  const hostConfiguration = await resolveLocalHostConfiguration();
   if (isQuitting || shutdownPromise) return;
-  await localAppServer.start(app.getVersion(), app.getPath("userData"), {
-    protectedHostRoots: [...new Set(protectedHostRoots)],
-    nativeWriterFenceDirectory,
-    nativeFilesystemHelperPath, nativeProcessHelperPath,
-    ...(nativeHostBroker === undefined ? {} : { nativeHostBroker }),
-  });
+  await localAppServer.start(app.getVersion(), app.getPath("userData"), hostConfiguration);
 });
 void desktopStartup.catch(() => {
   if (!isQuitting && !shutdownPromise) dialog.showErrorBox(
@@ -345,7 +394,8 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   if (!shutdownPromise) {
     pendingWorkspaceSelections.clear();
-    const stopLocal = (desktopStartup ?? Promise.resolve()).catch(() => undefined).then(() => localAppServer.stop());
+    const stopLocal = (desktopStartup ?? Promise.resolve()).catch(() => undefined).then(() =>
+      Promise.all([nativeHostSetup?.close(), localAppServer.stop()]));
     shutdownPromise = Promise.all([stopLocal, hostedAccount?.close()]).then(() => {
       isQuitting = true;
       app.quit();
