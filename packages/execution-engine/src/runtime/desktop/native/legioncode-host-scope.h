@@ -186,6 +186,11 @@ static inline bool lc_host_prepare_command_internal(int state, const lc_host_app
   CC_SHA256_Update(&digest, command, (CC_LONG)strlen(command) + 1); CC_SHA256_Update(&digest, cwd, (CC_LONG)strlen(cwd) + 1);
   CC_SHA256_Final(hash, &digest); lc_host_hex(hash, sizeof(hash), scope->command_digest, sizeof(scope->command_digest));
   strcpy(scope->command_id, id); CC_SHA256(id, (CC_LONG)strlen(id), scope->record.command_ids[scope->record.command_count++]);
+  scope->record.bootstrap_release_prepared = 0;
+  scope->record.bootstrap_pid = scope->record.bootstrap_uniqueid = 0;
+  memset(scope->record.bootstrap_command_id, 0, 32);
+  memset(scope->record.bootstrap_command_sha256, 0, 32);
+  memset(scope->record.bootstrap_release_nonce, 0, 32);
   scope->record.phase = LC_HOST_PREPARED;
   scope->child = 0; scope->reaped = false; scope->stdout_closed = scope->stderr_closed = true;
   scope->stdout_size = scope->stderr_size = 0; scope->timed_out = scope->truncated = false;
@@ -262,8 +267,31 @@ static inline bool lc_host_release_command_internal(int state, const lc_host_app
   if (!lc_host_launch_close(&error[1])) parent_closed = false;
   if (!lc_host_launch_close(&payload[0])) parent_closed = false;
   scope->stdout_fd = output[0]; output[0] = -1; scope->stderr_fd = error[0]; error[0] = -1;
-  bool sent = !fcntl(scope->stdout_fd, F_SETFL, O_NONBLOCK) && !fcntl(scope->stderr_fd, F_SETFL, O_NONBLOCK) &&
+  /* This original unreaped child cannot be reused. Persist its stable kernel
+   * lifetime BEFORE any payload/grant bytes. A daemon dying before the explicit
+   * token closes an incomplete grant, which the root bootstrap must reject. */
+  struct lc_proc_bsd_unique original; unsigned char boot[40], release[32];
+  bool prepared = parent_closed && lc_identity(child, &original) && original.bsd.pbi_uid == 0 &&
+    original.bsd.pbi_ruid == 0 && original.bsd.pbi_status != 5 && lc_boot(boot) &&
+    !memcmp(boot, scope->record.boot, sizeof(boot)) && lc_host_unhex(scope->command_digest, scope->record.bootstrap_command_sha256, 32);
+  if (prepared) {
+    scope->record.bootstrap_pid = (uint64_t)child; scope->record.bootstrap_uniqueid = original.unique.uniqueid;
+    memcpy(scope->record.bootstrap_command_id, scope->record.command_ids[scope->record.command_count - 1], 32);
+    arc4random_buf(scope->record.bootstrap_release_nonce, 32); scope->record.bootstrap_release_prepared = 1;
+    scope->bootstrap.binding = scope->record.binding; memcpy(scope->bootstrap.boot, boot, sizeof(boot));
+    scope->bootstrap.child_pid = (uint64_t)child; scope->bootstrap.child_uniqueid = original.unique.uniqueid;
+    scope->bootstrap.uid_slot_generation = scope->record.uid_slot_generation;
+    memcpy(scope->bootstrap.command_id, scope->record.bootstrap_command_id, 32);
+    memcpy(scope->bootstrap.command_sha256, scope->record.bootstrap_command_sha256, 32);
+    memcpy(scope->bootstrap.release_nonce, scope->record.bootstrap_release_nonce, 32);
+    prepared = lc_host_scope_save(state, scope);
+  }
+  bool sent = prepared && !fcntl(scope->stdout_fd, F_SETFL, O_NONBLOCK) && !fcntl(scope->stderr_fd, F_SETFL, O_NONBLOCK) &&
     lc_host_io(payload[1], &scope->bootstrap, sizeof(scope->bootstrap), true);
+  if (sent) {
+    lc_host_bootstrap_token(&scope->bootstrap, release);
+    sent = lc_host_io(payload[1], release, sizeof(release), true);
+  }
   if (!lc_host_launch_close(&payload[1])) parent_closed = false;
   if (!sent || !parent_closed) { lc_host_scope_unknown(state, scope); return false; }
   scope->launch_closed = true; return true;

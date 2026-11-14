@@ -2,7 +2,7 @@
 #define LEGIONCODE_HOST_SETUP_CONTRACT_H
 #include "legioncode-host-writer-contract.h"
 
-#define LC_HOST_RESOURCE_RECORD_VERSION 5U
+#define LC_HOST_RESOURCE_RECORD_VERSION 6U
 #define LC_HOST_RESOURCE_STATE_DIRECTORY "/Library/Application Support/LegionCode/NativeExecution/resources"
 typedef enum { LC_HOST_RESOURCE_NATIVE = 1, LC_HOST_RESOURCE_SETUP_QUALIFICATION = 2 } lc_host_resource_purpose;
 /* Fixed prefix shared with the setup-only physical writer adapter. digest_offset
