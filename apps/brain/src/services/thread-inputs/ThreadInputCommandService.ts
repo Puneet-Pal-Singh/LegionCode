@@ -402,6 +402,7 @@ export class ThreadInputCommandService {
       });
       const result = await withTurnAdmissionRepository(this.env, (repository) =>
         repository.reserveQueuedStart({
+          executionRoute: "native",
           ...scope,
           expectedRevision: command.expectedThreadRevision,
           expectedVersion: item.version,

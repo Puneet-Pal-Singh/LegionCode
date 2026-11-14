@@ -1297,6 +1297,14 @@ describe("RunEngineRequestHandler", () => {
     await assertOriginalProviderDrain("fulfilled", "handoff");
     await assertOriginalProviderDrain("fulfilled", "handoff_lost");
     await assertOriginalProviderDrain("fulfilled", "legacy");
+    await assertOriginalProviderDrain("fulfilled", undefined, "delegated");
+    await assertOriginalProviderDrain("fulfilled", undefined, "delegated", "missing");
+    await assertOriginalProviderDrain("fulfilled", undefined, "delegated", "foreign");
+    await assertOriginalProviderDrain("fulfilled", undefined, "delegated", "defaults");
+    await assertOriginalProviderDrain("fulfilled", undefined, "delegated", "workspace_alias");
+    await assertOriginalProviderDrain("fulfilled", undefined, "delegated", "canonical_alias");
+    await assertOriginalProviderDrain("fulfilled", undefined, "delegated", "selection_conflict");
+    await assertOriginalProviderDrain("fulfilled", undefined, "delegated", "runtime_override");
   });
 
   it("projects a typed activity feed snapshot", async () => {
@@ -1833,7 +1841,8 @@ describe("RunEngineRequestHandler", () => {
   });
 });
 
-async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", failure?: "release" | "ack" | "prepare" | "prepare_closed" | "unretained" | "handoff" | "handoff_lost" | "legacy") {
+async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", failure?: "release" | "ack" | "prepare" | "prepare_closed" | "unretained" | "handoff" | "handoff_lost" | "legacy",
+  harnessMode: "platform_owned" | "delegated" = "platform_owned", bindingKind: "valid" | "missing" | "foreign" | "defaults" | "workspace_alias" | "canonical_alias" | "selection_conflict" | "runtime_override" = "valid") {
   const ctx = new MockDurableObjectState();
   const scope = RunInterruptIdentitySchema.parse({
     runId: "run_123e4567e89b42d3a456426614174212",
@@ -1841,8 +1850,15 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", fa
     sessionId: "session-1", threadId: "thr_123456", turnId: "trn_123456",
     runAttemptId: "attempt_123456",
   });
+  const bindingScope = { ...scope, userId: "user-1" };
+  const binding = bindingKind === "missing" ? null : {
+    v: 1, kind: "byok", providerId: "openai", modelId: "gpt-4o-mini",
+    scope: bindingKind === "foreign" ? { ...bindingScope, turnId: "trn_foreign01" } : bindingScope,
+    credential: { connectionId: "123e4567-e89b-42d3-a456-426614174222", userId: "user-1",
+      providerId: "openai", ownerGeneration: 1, tokenMaterialVersion: 1 },
+  };
   await ctx.storage.put("turnToRunMap", { [scope.turnId]: scope.runId });
-  await ctx.storage.put("turnRuntimeIdentities", { [scope.turnId]: scope });
+  await ctx.storage.put("turnRuntimeIdentities", { [scope.turnId]: bindingKind === "canonical_alias" ? { ...scope, workspaceId: workspaceIdFromExternalId(scope.workspaceId) } : scope });
   let settleOriginal!: (value: never) => void;
   let rejectOriginal!: (reason: Error) => void;
   const original = new Promise<never>((resolve, reject) => {
@@ -1856,13 +1872,20 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", fa
     if (failure === "release") throw new Error("Physical release is unresolved");
   });
   const prepare = executionResources.prepareRuntimeExecutionResources;
+  let resourceIdentityWorkspace: string | undefined;
   const resources = vi.spyOn(executionResources, "prepareRuntimeExecutionResources").mockImplementation(async (...args) => {
     if (failure === "prepare_closed") {
-      args[3]?.({ kind: "no_exposure" });
+      args[4]?.({ kind: "no_exposure" });
       throw new Error("Preparation failed before exposure");
     }
     if (failure === "prepare") throw new Error("Preparation closure has no receipt");
-    return { ...await prepare(...args),
+    // The public bootstrap DTO remains UUID-only. Exercise the private resource
+    // boundary's canonical alias separately from that HTTP serialization contract.
+    const resourcePayload = ["canonical_alias", "workspace_alias"].includes(bindingKind)
+      ? { ...args[2], identity: { ...args[2].identity!, workspaceId: workspaceIdFromExternalId(args[2].identity!.workspaceId) } }
+      : args[2];
+    resourceIdentityWorkspace = resourcePayload.identity?.workspaceId;
+    return { ...await prepare(args[0], args[1], resourcePayload, args[3], args[4]),
       checkoutLifecycle: { isSettled: false, settle, release } as unknown as NonNullable<Awaited<ReturnType<typeof prepare>>["checkoutLifecycle"]> };
   });
   const quotaClaims: Record<string, unknown>[] = [];
@@ -1877,7 +1900,16 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", fa
   let responseBodyReading = false;
   let observerReady!: () => void;
   const observer = new Promise<void>(resolve => { observerReady = resolve; });
-  const runner = vi.spyOn(RuntimeKernelNativeRunner.prototype, "execute").mockImplementation(async () => {
+  const runner = vi.spyOn(RuntimeKernelNativeRunner.prototype, "execute").mockImplementation(async runtimeInput => {
+    expect(runtimeInput.input.providerId).toBe("openai");
+    expect(runtimeInput.input.modelId).toBe("gpt-4o-mini");
+    expect(runtimeInput.input.runtimeModelId).toBe("gpt-4o-mini");
+    expect(runtimeInput.input).toBe(resources.mock.calls[0]![2].input);
+    expect(resources.mock.calls[0]![3]?.scope.workspaceId).toBe(scope.workspaceId);
+    if (bindingKind === "canonical_alias") {
+      expect(resourceIdentityWorkspace).toBe(workspaceIdFromExternalId(scope.workspaceId));
+      expect(resources.mock.calls[0]![2].identity?.workspaceId).toBe(scope.workspaceId);
+    }
     const dependencies = await resources.mock.results[0]!.value;
     const request = {
       context: { runId: scope.runId, sessionId: scope.sessionId, agentType: "planner", phase: "planning" as const },
@@ -1895,6 +1927,7 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", fa
       pull() { responseBodyReading = true; },
     }, { highWaterMark: 0 }));
   });
+  const listSessions = vi.fn(async () => ({ sessions: [{ id: scope.sessionId, workspaceId: scope.workspaceId, repository: null }] }));
   try {
     const handler = new RunEngineRequestHandler(ctx as unknown as DurableObjectState, {
       HYPERDRIVE: { connectionString: "postgres://fixture:fixture@127.0.0.1:1/fixture" },
@@ -1905,12 +1938,12 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", fa
         return Response.json({ claimed: failure !== "handoff" });
       } }) },
       AUTH_TRANSCRIPT_REPOSITORY: {
-        listSessions: async () => ({ sessions: [{ id: scope.sessionId, workspaceId: scope.workspaceId, repository: null }] }),
+        listSessions,
         getCanonicalAssistantMessageId: async () => null,
       },
       AUTH_TURN_ADMISSION_REPOSITORY: {
         claimExecution: async () => ({ status: "claimed", admission: {
-          ...scope, userId: "user-1", clientMessageId: "client-1", state: "admitted", executionState: "running",
+          ...bindingScope, nativeProviderBinding: binding, clientMessageId: "client-1", state: "admitted", executionState: "running",
           revisionOfTurnId: null, continuationOfTurnId: null, originalPromptId: null, continuationTerminalSequence: null,
           requestFingerprint: null, admissionOrder: 1, createdAt: "2026-11-14T00:00:00Z", admittedAt: "2026-11-14T00:00:00Z",
         } }),
@@ -1924,16 +1957,17 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", fa
     const retained: Promise<unknown>[] = [];
     const physicallySettled = vi.fn(async () => {
       expect(lockHeld).toBe(false);
-      expect(release).toHaveBeenCalledTimes(failure === "prepare_closed" ? 0 : 1);
+      expect(release).toHaveBeenCalledTimes(failure === "prepare_closed" || bindingKind === "workspace_alias" ? 0 : 1);
     });
     let executionResponse: Response | undefined;
     const request = new Request("https://brain.local/execute", {
       method: "POST", body: JSON.stringify({
-        ...scope, identity: scope, userId: "user-1", correlationId: "drain-fixture",
+        ...scope, identity: bindingKind === "workspace_alias" ? { ...scope, workspaceId: "123e4567-e89b-42d3-a456-426614174999" } : scope, userId: "user-1", correlationId: "drain-fixture",
         admissionLease: { leaseId: `run-attempt:${scope.runAttemptId}`, ...(failure === "legacy" ? {} : { generation: "generation-fixture", created: true }) },
         input: { mode: "build", agentType: "coding", prompt: "inspect", sessionId: scope.sessionId,
-          providerId: "openai", modelId: "gpt-4o-mini", orchestratorBackend: "execution-engine-v1",
-          executionBackend: "cloudflare_sandbox", harnessMode: "platform_owned", authMode: "api_key" },
+          ...(bindingKind === "defaults" ? {} : { providerId: "openai", modelId: bindingKind === "selection_conflict" ? "gpt-4o" : "gpt-4o-mini" }), orchestratorBackend: "execution-engine-v1",
+          executionBackend: "cloudflare_sandbox", harnessMode, authMode: "api_key",
+          ...(bindingKind === "runtime_override" ? { runtimeModelId: "gpt-4o" } : {}) },
         messages: [{ role: "user", content: "inspect" }],
       }),
     });
@@ -1958,6 +1992,18 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", fa
       settled: physicallySettled,
       reportError: error => { throw error; },
     });
+    if (["missing", "foreign", "workspace_alias", "selection_conflict", "runtime_override"].includes(bindingKind)) {
+      const rejected = await acknowledgement;
+      await retained[0];
+      expect((executionResponse ?? rejected).status).toBe(bindingKind === "workspace_alias" ? 409 : ["selection_conflict", "runtime_override"].includes(bindingKind) ? 400 : 500);
+      expect(listSessions).not.toHaveBeenCalled();
+      expect(provider).not.toHaveBeenCalled();
+      expect(runner).not.toHaveBeenCalled();
+      expect(settle).not.toHaveBeenCalled();
+      expect(release).not.toHaveBeenCalled();
+      expect(lockHeld).toBe(false);
+      return;
+    }
     if (["handoff", "handoff_lost", "legacy"].includes(failure ?? "")) {
       expect((await acknowledgement).status).toBe(failure === "handoff_lost" ? 500 : 409);
       await retained[0];

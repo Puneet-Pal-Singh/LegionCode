@@ -9,6 +9,7 @@ import type {
   RunStatus,
   TranscriptRepository,
   TranscriptMessageRecord,
+  TurnAdmissionRecord,
   UpsertRunStepInput,
 } from "@repo/persistence";
 import { pruneToolResults } from "@legioncode/context-pruner";
@@ -24,6 +25,7 @@ import { persistChatMessageImages } from "./chat/ChatMessageImagePersistence";
 import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
 import { PostgresTurnAdmissionRepository } from "@repo/persistence";
 import { withBrainPersistenceRepository } from "./persistence/BrainPersistenceRepositoryFactory";
+import { createNativeProviderAdmissionCapture } from "./providers/NativeProviderAdmissionCapture";
 
 interface PersistMessageContext {
   userId?: string;
@@ -222,7 +224,7 @@ export class PersistenceService {
     providerId?: string | null;
     modelId?: string | null;
     branch?: string | null;
-  }): Promise<{ id: string; run: RunRecord }> {
+  }): Promise<{ id: string; run: RunRecord; admission: TurnAdmissionRecord }> {
     const clientMessageId = readClientMessageId(input.message);
     if (!clientMessageId) {
       throw new ValidationError(
@@ -254,9 +256,10 @@ export class PersistenceService {
     return await withBrainPersistenceRepository(
       this.env,
       this.env.AUTH_TURN_ADMISSION_REPOSITORY,
-      (client) => new PostgresTurnAdmissionRepository(client),
+      (client) => new PostgresTurnAdmissionRepository(client, createNativeProviderAdmissionCapture(this.env)),
       async (repository) => {
         const result = await repository.admitWithPrompt({
+          executionRoute: "native",
           sessionId: input.sessionId,
           clientMessageId,
           turnId: input.identity.turnId,
@@ -282,7 +285,7 @@ export class PersistenceService {
             ),
           },
         });
-        return { id: result.promptMessageId, run: result.run };
+        return { id: result.promptMessageId, run: result.run, admission: result.admission };
       },
     );
   }

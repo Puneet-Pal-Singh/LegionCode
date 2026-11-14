@@ -4,6 +4,7 @@ import {
 } from "@repo/persistence";
 import { withBrainPersistenceRepository } from "../persistence/BrainPersistenceRepositoryFactory";
 import type { Env } from "../../types/ai";
+import { createNativeProviderAdmissionCapture } from "../providers/NativeProviderAdmissionCapture";
 
 export async function withTurnAdmissionRepository<T>(
   env: Env,
@@ -12,7 +13,7 @@ export async function withTurnAdmissionRepository<T>(
   return await withBrainPersistenceRepository(
     env,
     env.AUTH_TURN_ADMISSION_REPOSITORY,
-    (client) => new PostgresTurnAdmissionRepository(client),
+    (client) => new PostgresTurnAdmissionRepository(client, createNativeProviderAdmissionCapture(env)),
     callback,
   );
 }
