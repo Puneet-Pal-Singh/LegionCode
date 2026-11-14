@@ -14,7 +14,8 @@ import {
   type SandboxExecutionLease,
   type SandboxExecutionLeaseRequest,
 } from "../ports/SandboxExecutionLease";
-import type { NativeCommandClosure } from "@repo/shared-types/native-command-closure";
+import { parseNativeCommandClosure, type NativeCommandClosure } from "@repo/shared-types/native-command-closure";
+import { nativeCommandScope } from "../core/OwnedNativeCommandSession";
 import { sanitizeLogText } from "../core/security/LogSanitizer";
 
 interface TaskActionMapping {
@@ -29,6 +30,7 @@ const SANDBOX_DESTROY_TIMEOUT_MS = 15_000;
 interface ActiveTaskExecution {
   leaseId: string;
   taskId: string;
+  readonly lease: SandboxExecutionLease;
   abortController: AbortController;
   terminationReason?: TerminationReason;
   readonly quiescence: Promise<void>;
@@ -125,7 +127,7 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
     let resolveQuiescence!: () => void;
     const quiescence = new Promise<void>(resolve => { resolveQuiescence = resolve; });
     const active: ActiveTaskExecution = {
-      leaseId, taskId: input.taskId, abortController: new AbortController(),
+      leaseId, taskId: input.taskId, lease: input.lease, abortController: new AbortController(),
       quiescence, resolveQuiescence, pluginSettled: false, executionSettled: false,
       nativeCommands: input.nativeCommands,
     };
@@ -133,7 +135,8 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
     // original loan with a duplicate read-only or borrowed task.
     this.activeExecutions.set(key, active);
     const execute = async () => {
-      try { return await this.executeTaskWithLease(input, active, hooks); }
+      let result: TaskExecutionResult;
+      try { result = await this.executeTaskWithLease(input, active, hooks); }
       finally {
         active.executionSettled = true;
         if (!active.pluginOperation) this.markPluginSettled(key, active);
@@ -149,6 +152,9 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
           this.taskTimeouts.delete(key);
         }
       }
+      // The immutable original A receipt crosses the return boundary even if
+      // task B reserves the current session slot as soon as this tail releases.
+      return { ...result, ...(active.nativeClosure ? { nativeCommandClosure: active.nativeClosure } : {}) };
     };
     return input.lease.mutationMode === "serialized"
       ? this.withWorkspaceMutationLock(input.lease, execute)
@@ -228,14 +234,23 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
     return { released: true, sandboxReleased };
   }
 
+  async getNativeCommandClosure(sessionId: string, lease: SandboxExecutionLease, taskId: string) {
+    const active = this.activeExecutions.get(this.executionKey(lease.leaseId, taskId));
+    if (!active || lease.owner !== sessionId || !sameRegisteredLease(active.lease, lease)) return undefined;
+    await this.refreshNativeClosure(active);
+    return active.nativeClosure;
+  }
+
   private async refreshNativeClosure(active: ActiveTaskExecution): Promise<void> {
     if (active.nativeClosure?.state === "settled" || !active.pluginSettled) return;
     try {
       // Seal the captured task's actual creator before reading evidence. The
       // stop boolean is ignored; only the typed physical receipt can release.
       await active.nativeCommands?.stop();
-      const receipt = await active.nativeCommands?.closureEvidence?.();
-      if (receipt?.state === "settled") active.nativeClosure = receipt;
+      const value = await active.nativeCommands?.closureEvidence?.();
+      const scope = nativeCommandScope(active.lease.owner, active.lease, active.taskId);
+      const receipt = scope ? parseNativeCommandClosure(value, scope) : null;
+      if (receipt?.state === "settled") active.nativeClosure = freezeDispatchData(receipt);
     } catch { /* Missing/corrupt/originally unknown evidence remains owned. */ }
   }
 

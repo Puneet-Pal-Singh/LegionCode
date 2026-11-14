@@ -38,10 +38,11 @@ import {
   type SandboxExecutionLease,
 } from "../ports/SandboxExecutionLease";
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
-import { OwnedNativeCommandSession, hasUnsettledNativeCommand, nativeClosureEvidence, sameExecutionLease, type NativeSessionFields } from "./OwnedNativeCommandSession";
+import { OwnedNativeCommandSession, hasUnsettledNativeCommand, nativeClosureEvidence, nativeCommandScope, sameExecutionLease, type NativeSessionFields } from "./OwnedNativeCommandSession";
 import type { OwnedNativeSandboxPort } from "../toolbox/contracts/OwnedSandboxCommand";
 import { assertExecutionDomainAdmission, isRetiredExecutionSession, retiredExecutionBinding, validExecutionDomain,
   type ExecutionDomainSessionFields, type RetiredExecutionSessionRecord } from "./ExecutionSessionDomain";
+import { parseNativeCommandClosure } from "@repo/shared-types/native-command-closure";
 import { snapshotExecutionDomain } from "@repo/worker-protocol/private/execution-domain";
 
 interface RuntimeSessionRecord extends NativeSessionFields, ExecutionDomainSessionFields {
@@ -281,6 +282,7 @@ export class AgentRuntime extends DurableObject {
       artifacts: runtime.composed.artifactPort,
     }) : undefined;
     if (nativeCommands) this.nativeCommands.set(commandKey, nativeCommands);
+    const expectedNativeScope = nativeCommands ? nativeCommandScope(sessionId, input.lease, input.taskId) : undefined;
     const result = await runtime.composed.executionPort.executeTask(
       input.lease.leaseId,
       { ...input, nativeCommands },
@@ -290,7 +292,11 @@ export class AgentRuntime extends DurableObject {
       if (result.status === "cancelled" || result.status === "timeout") await nativeCommands.stop();
       await nativeCommands.drainOriginalOperations();
     }
-    const nativeCommandClosure = nativeCommands ? await nativeCommands.closureEvidence() : undefined;
+    // Prefer the immutable exact-task result captured before the queue tail
+    // released. A later task's current session slot cannot revise this proof.
+    const nativeCommandClosure = nativeCommands && expectedNativeScope
+      ? parseNativeCommandClosure(result.nativeCommandClosure ?? await nativeCommands.closureEvidence(), expectedNativeScope) ?? undefined
+      : undefined;
     if (nativeCommands && (!await nativeCommands.awaitClosure() || nativeCommandClosure?.state !== "settled")) {
       await this.ctx.blockConcurrencyWhile(async () => {
         const key = this.getExecutionSessionKey(sessionId);
@@ -316,6 +322,9 @@ export class AgentRuntime extends DurableObject {
   async getNativeCommandClosure(sessionId: string, lease: SandboxExecutionLease, taskId: string) {
     const session = await this.ctx.storage.get<RuntimeSessionRecord>(this.getExecutionSessionKey(sessionId));
     if (!session || isRetiredExecutionSession(session) || !this.matchesLease(session.lease, lease) || (await validExecutionDomain(session))?.domain !== "legioncode_native") return undefined;
+    const runtime = this.workspaceRuntimes.get(workspaceLeaseKey(lease));
+    const captured = await runtime?.composed.executionPort.getNativeCommandClosure?.(sessionId, lease, taskId);
+    if (captured) return captured;
     return nativeClosureEvidence(sessionId, lease, taskId, session);
   }
 

@@ -2,7 +2,7 @@ import path from "node:path";
 import type { ArtifactStorePort } from "../ports/ArtifactStorePort";
 import type { SandboxExecutionLease } from "../ports/SandboxExecutionLease";
 import type { GitRepositoryMetadataPaths } from "@repo/git-service";
-import { NativeCommandClosureSchema, type NativeCommandClosure, type NativeCommandScope } from "@repo/shared-types/native-command-closure";
+import { NativeCommandClosureSchema, NativeCommandScopeSchema, type NativeCommandClosure, type NativeCommandScope } from "@repo/shared-types/native-command-closure";
 import { validExecutionDomain, type ExecutionDomainSessionFields } from "./ExecutionSessionDomain";
 import {
   NativeCommandReceiptSchema, NativeCommandRequestSchema, NativeWorkspaceStateSchema, NativeWorkspaceWriteReceiptSchema,
@@ -44,6 +44,13 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
   private original: Promise<unknown> | undefined;
   private readonly operations = new Set<Promise<unknown>>();
   private stopped = false;
+  // Evidence belongs to this retained original task, never to whichever task
+  // later occupies the session's current command slot. Keep its immutable R2
+  // reference alongside the exact physical receipt until this owner releases.
+  private settledOriginal?: Readonly<{
+    closure: NativeCommandClosure;
+    artifact: Readonly<NonNullable<NativeCommandIntent["receiptArtifact"]>>;
+  }>;
 
   constructor(private readonly input: {
     state: DurableObjectState; sessionId: string; lease: SandboxExecutionLease; taskId: string;
@@ -149,7 +156,19 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
       if (result.exitCode !== 0 || result.stderr !== "") throw unavailable();
       const final = NativeCommandReceiptSchema.parse(JSON.parse(result.stdout));
       if (await digest(new TextEncoder().encode(JSON.stringify(final))) !== sha256) throw unavailable();
-      await this.patch(intent.binding.nonce, { phase: "settled", originalTransportSettled: true });
+      await this.input.state.blockConcurrencyWhile(async () => {
+        const current = await this.read(true);
+        if (current.nativeCommand?.binding.nonce !== intent.binding.nonce) throw unavailable();
+        const settled = { ...current, nativeCommand: { ...current.nativeCommand,
+          phase: "settled" as const, originalTransportSettled: true as const } };
+        const closure = nativeClosureEvidence(this.input.sessionId, this.input.lease, this.input.taskId, settled);
+        if (closure?.state !== "settled" || !settled.nativeCommand.receiptArtifact) throw unavailable();
+        await this.input.state.storage.put(prefix + this.input.sessionId, settled);
+        this.settledOriginal = Object.freeze({
+          closure: freezeOriginalEvidence(closure),
+          artifact: Object.freeze({ ...settled.nativeCommand.receiptArtifact }),
+        });
+      });
       this.original = undefined;
       return {
         exitCode: receipt.exitCode ?? (receipt.admission ? 1 : 126),
@@ -204,6 +223,7 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
 
   async stop(): Promise<boolean> {
     this.stopped = true;
+    if (this.settledOriginal && !this.original && this.operations.size === 0) return true;
     const session = await this.read(true);
     const intent = session.nativeCommand;
     if (!intent || intent.phase === "settled") return true;
@@ -216,10 +236,13 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
   }
 
   async awaitClosure(): Promise<boolean> {
-    return !this.original && !hasUnsettledNativeCommand(await this.read(true));
+    return this.stopped && !this.original && this.operations.size === 0 && this.settledOriginal?.closure.state === "settled";
   }
 
   async closureEvidence(): Promise<NativeCommandClosure | undefined> {
+    if (this.stopped && !this.original && this.operations.size === 0 && this.settledOriginal) return this.settledOriginal.closure;
+    // Without the exact retained original snapshot, a different task's latest
+    // session slot is not evidence for this task. Recovery stays unknown.
     return nativeClosureEvidence(this.input.sessionId, this.input.lease, this.input.taskId, await this.read(true));
   }
 
@@ -236,6 +259,7 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
   }
   private track<T>(operation: () => Promise<T>): Promise<T> {
     if (this.stopped || this.original || this.operations.size > 0) return Promise.reject(unavailable());
+    this.settledOriginal = undefined;
     const original = Promise.resolve().then(operation);
     this.operations.add(original);
     const settled = () => { this.operations.delete(original); };
@@ -318,10 +342,8 @@ function unsettledNativeCommand(session: NativeSessionFields & { lease?: Sandbox
 export function nativeClosureEvidence(sessionId: string, lease: SandboxExecutionLease, taskId: string, session: NativeSessionFields & ExecutionDomainSessionFields): NativeCommandClosure | undefined {
   const intent = session.nativeCommand;
   if (!intent || intent.kind !== "command" || intent.binding.taskId !== taskId || !lease.executionDomainDigest || session.executionDomain?.domain !== "legioncode_native") return undefined;
-  const scope: NativeCommandScope = { executionDomainDigest: lease.executionDomainDigest, sessionId, leaseId: lease.leaseId, sandboxId: lease.sandboxId, generation: lease.generation,
-    workspaceId: lease.workspaceScope.workspaceId, workspaceRoot: lease.workspaceScope.root,
-    runId: lease.workspaceScope.runId, threadId: lease.workspaceScope.threadId,
-    turnId: lease.workspaceScope.turnId, runAttemptId: lease.workspaceScope.runAttemptId, taskId };
+  const scope = nativeCommandScope(sessionId, lease, taskId);
+  if (!scope) return undefined;
   const identity = intent.identity;
   if (hasUnsettledNativeCommand({ ...session, lease }) || intent.binding.sessionId !== sessionId || !identity || !intent.receiptArtifact ||
     !intent.receipt?.gateClosed || !intent.request || !sameNativeBinding(intent.binding, intent.request.binding) ||
@@ -335,6 +357,21 @@ export function nativeClosureEvidence(sessionId: string, lease: SandboxExecution
     root: identity.root, sandboxBootId: identity.bootId,
     namespace: { device: identity.namespaceDevice, inode: identity.namespaceInode, initHostPid: identity.initHostPid },
     cgroup: identity.cgroup, metadataIdentity: identity.metadataIdentity, receiptSha256: intent.receiptArtifact.sha256 });
+}
+export function nativeCommandScope(sessionId: string, lease: SandboxExecutionLease, taskId: string): NativeCommandScope | undefined {
+  if (!lease.executionDomainDigest) return undefined;
+  return NativeCommandScopeSchema.parse({ executionDomainDigest: lease.executionDomainDigest,
+    sessionId, leaseId: lease.leaseId, sandboxId: lease.sandboxId, generation: lease.generation,
+    workspaceId: lease.workspaceScope.workspaceId, workspaceRoot: lease.workspaceScope.root,
+    runId: lease.workspaceScope.runId, threadId: lease.workspaceScope.threadId,
+    turnId: lease.workspaceScope.turnId, runAttemptId: lease.workspaceScope.runAttemptId, taskId });
+}
+function freezeOriginalEvidence<T>(value: T): T {
+  if (value !== null && typeof value === "object") {
+    for (const child of Object.values(value)) freezeOriginalEvidence(child);
+    Object.freeze(value);
+  }
+  return value;
 }
 export function sameExecutionLease(actual: SandboxExecutionLease, expected: SandboxExecutionLease): boolean {
   return actual.leaseId === expected.leaseId && actual.sandboxId === expected.sandboxId && actual.owner === expected.owner &&
