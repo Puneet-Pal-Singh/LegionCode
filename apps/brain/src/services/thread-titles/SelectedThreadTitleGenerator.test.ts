@@ -27,6 +27,11 @@ const input = {
   providerId: "openai",
   modelId: "chosen-model",
   providerTransport: "openai-responses" as const,
+  nativeExecution: {
+    service: { generateText, generateStructured }, signal: new AbortController().signal,
+    scope: { userId: "user", workspaceId: "workspace", sessionId: "session", threadId: "thread",
+      runId: "run", turnId: "trn_title", runAttemptId: "attempt_title" },
+  },
   nativeProviderCredentials: {
     scope: { userId: "user", workspaceId: "workspace", sessionId: "session", threadId: "thread",
       runId: "run", turnId: "trn_title", runAttemptId: "attempt_title" },

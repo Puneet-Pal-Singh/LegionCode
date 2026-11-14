@@ -49,6 +49,7 @@ import {
   SerializableToolDefinitionSchema,
   type ExecuteRunPayload,
 } from "./parsing/ExecuteRunPayloadSchema";
+import { scheduleClaimedInitialThreadTitle } from "../services/thread-titles/InitialThreadTitleScheduler";
 import { prepareRuntimeExecutionResources } from "./RuntimeExecutionResources";
 import { RunAdmissionService, settledAdmissionRejection } from "./RunAdmissionService";
 import type { NativeAttemptObserver, NativePreparationCleanupReceipt } from "./RetainedNativeAttempt";
@@ -1508,6 +1509,7 @@ export class RunEngineRequestHandler {
         const resources = await prepareRuntimeExecutionResources(this.ctx, this.env, effectivePayload, nativeCredentials, receipt => { preparationCleanup = receipt; });
         const taskCheckoutLifecycle = resources.checkoutLifecycle;
         const editArtifactCoordinator = resources.artifacts;
+        let titleOperation: Promise<unknown> | undefined;
         let providerDrained = false;
         let bodyDrained = false;
         let artifactsSettled = false;
@@ -1550,6 +1552,25 @@ export class RunEngineRequestHandler {
           this.contextCompactionRegistry.register(turnId, async () => {
             await runtimeRunner.compact(turnId);
           });
+          if (nativeObserver && resources.runEngineDeps.aiService && !attemptController.signal.aborted) {
+            await scheduleClaimedInitialThreadTitle(this.env, {
+              admission: claimedAdmission, identity, prompt: effectivePayload.input.prompt,
+              ...(effectivePayload.input.providerTransport && effectivePayload.input.providerEndpoint ? {
+                providerRuntimeRoute: {
+                  providerId: effectivePayload.input.providerId!, modelId: effectivePayload.input.modelId!,
+                  transport: effectivePayload.input.providerTransport, endpoint: effectivePayload.input.providerEndpoint,
+                },
+              } : {}),
+              modelCapabilities: effectivePayload.input.metadata?.modelCapabilities,
+              execution: Object.freeze({ service: resources.runEngineDeps.aiService,
+                scope: nativeCredentials.scope, signal: attemptController.signal }),
+              owner: { waitUntil: operation => {
+                if (titleOperation) throw new Error("Native title operation was registered twice");
+                titleOperation = operation;
+                void operation.catch(() => undefined);
+              } },
+            });
+          }
           // Kernel observers can settle before the original provider body. Keep
           // this attempt's checkout and execution ownership until that body drains.
           const executionResponse = await runtimeRunner.execute({
@@ -1567,6 +1588,7 @@ export class RunEngineRequestHandler {
             originalPromptId: identity.originalPromptId,
             workspace: resources.workspace,
           }).finally(async () => {
+            await titleOperation;
             await resources.drainProviderRequests();
             providerDrained = true;
           }).then(async response => {
@@ -1680,6 +1702,7 @@ export class RunEngineRequestHandler {
           throw error;
         } finally {
           try {
+            await titleOperation;
             await resources.drainProviderRequests();
             providerDrained = true;
             if (!artifactsSettled) {

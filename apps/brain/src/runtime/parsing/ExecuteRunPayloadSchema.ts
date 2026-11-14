@@ -9,6 +9,7 @@ import { ResumeWorkspaceSnapshotRefSchema, RunIdSchema, TurnScopeBootstrapSchema
 import {
   ApprovalDecisionKindSchema,
   BYOKModelPricingSchema,
+  BYOKModelCapabilitySchema,
   ProviderModelTransportSchema,
   ProductModeSchema,
   ReasoningEffortSchema,
@@ -107,6 +108,7 @@ export const ExecuteRunPayloadSchema = z.object({
         .object({
           contextWindowTokens: z.number().int().safe().positive().optional(),
           pricing: BYOKModelPricingSchema.optional(),
+          modelCapabilities: BYOKModelCapabilitySchema.optional(),
           reasoningEffort: ReasoningEffortSchema.optional(),
           featureFlags: z
             .object({
