@@ -130,6 +130,7 @@ export async function* followLifecycleEvents(
   const state = createLifecycleOrderingState(
     input.request.turnId,
     input.request.afterSequence ?? null,
+    input.options?.expectedLifecycleAttempt,
   );
 
   let terminal = false;

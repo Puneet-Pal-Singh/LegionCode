@@ -42,6 +42,7 @@ export async function followConversationLifecycleProjection(
     signal: input.signal,
     onLifecycleRecovery: recovery => {
       if (input.signal.aborted) return;
+      ordering.acceptRecovery(recovery);
       projection = applyConversationLifecycleRecovery(projection, recovery);
       if (resumed) input.onProjection(projection);
     },
@@ -89,11 +90,13 @@ export async function followConversationLifecycleProjection(
     return;
   }
 
+  operationOptions.expectedLifecycleAttempt = ordering.runtimeAttempt;
   for await (const event of input.lifecycleClient.followTurnLifecycle(
     { turnId: input.turnId, afterSequence: projection.lastSequence || null },
     operationOptions,
   )) {
     if (input.signal.aborted) return;
+    if (!ordering.accept(event)) continue;
     if (!resumed) {
       resumedEvents.push(event);
       continue;
