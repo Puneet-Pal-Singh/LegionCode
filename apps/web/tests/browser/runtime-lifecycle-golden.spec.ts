@@ -116,6 +116,14 @@ test("SDK replay/live lifecycle projection survives browser refresh", async ({
     releaseLiveReplay = resolve;
   });
 
+  await page.route("**/auth/session", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({
+      authenticated: true,
+      user: { id: "github_browser_golden", login: "browser-golden", avatar: "", email: null, name: null },
+    }),
+  }));
+
   await page.route("**/app-server/request", async (route) => {
     const request = route.request();
     const envelope = request.postDataJSON() as Record<string, unknown>;
