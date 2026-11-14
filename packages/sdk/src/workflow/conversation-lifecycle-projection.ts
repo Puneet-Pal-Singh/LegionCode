@@ -19,6 +19,8 @@ export type LifecycleProjectionTerminal = NonNullable<
 
 export interface LifecycleProjection extends TurnWorkflowProjection {
   readonly hookAudits: readonly HookInvocationAuditEvent[];
+  /** Canonical accepted/applied input invalidation; carries no message body. */
+  readonly inputSequence?: number;
 }
 
 export function createLifecycleProjection(
@@ -27,6 +29,7 @@ export function createLifecycleProjection(
   return {
     ...createTurnWorkflowProjection(turnId),
     hookAudits: createHookAuditProjection().events,
+    inputSequence: 0,
   };
 }
 
@@ -37,6 +40,9 @@ export function applyConversationLifecycleEvent(
   if (event.turnId !== projection.turnId) return projection;
   return {
     ...applySdkLifecycleEvent(projection, event),
+    inputSequence: event.type === "turn.input.accepted" || event.type === "turn.input.applied"
+      ? Math.max(projection.inputSequence ?? 0, event.sequence)
+      : projection.inputSequence ?? 0,
     hookAudits: applyHookAuditLifecycleEvent(
       { events: projection.hookAudits },
       event,
