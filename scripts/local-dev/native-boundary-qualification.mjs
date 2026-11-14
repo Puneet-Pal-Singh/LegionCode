@@ -488,14 +488,87 @@ function readState(fd) {
   if (!object(state)) throw unavailable("PROTECTED_STATE_MALFORMED");
   return state;
 }
-function validateReply(reply, config, operationId, action) {
+const exactKeys = (value, required, optional = []) => object(value) && required.every(key => Object.hasOwn(value, key)) && Object.keys(value).every(key => required.includes(key) || optional.includes(key));
+const physicalInteger = value => typeof value === "string" && /^(?:0|[1-9][0-9]{0,19})$/.test(value) && BigInt(value) <= 18446744073709551615n;
+const physicalIdentity = value => exactKeys(value, ["device", "inode"]) && physicalInteger(value.device) && physicalInteger(value.inode) && value.inode !== "0";
+const resourcePolicy = "linux-pid-namespace-cgroup-v2-512m-v1";
+
+function resourceBinding(reply) {
+  const { subject, lease } = reply;
+  return { purpose: "native_boundary_qualification", operatorAccountId: subject.operatorAccountId,
+    controlPrincipal: subject.controlPrincipal, environmentId: subject.environmentId, operationId: subject.operationId,
+    sessionId: lease.sessionId, leaseId: lease.leaseId, sandboxId: lease.sandboxId, generation: lease.generation,
+    physicalOwnerId: lease.ownerId, physicalAttemptKey: lease.physicalAttemptKey, authorityDigest: reply.authorityDigest,
+    parentAuthorityDigest: subject.authorityReceiptSha256, physicalOwnerAuditHash: subject.authorityReceiptSha256,
+    expiresAt: lease.expiresAt };
+}
+
+function validatePhysicalEvidence(reply) {
+  const binding = resourceBinding(reply);
+  const group = value => exactKeys(value, ["identity", "values"]) && physicalIdentity(value.identity) && object(value.values) && Object.values(value.values).every(item => typeof item === "string" && item.length <= 1024);
+  const observation = reply.observation;
+  if (observation !== undefined && (!exactKeys(observation, ["version", "operation", "binding", "policy", "sandboxBootId", "parent", "memTotal", "memAvailable", "helperSha256"]) || observation.version !== 1 || observation.operation !== "resource_observation" || !same(observation.binding, binding) || observation.policy !== resourcePolicy || !uuid.test(observation.sandboxBootId) || !group(observation.parent) || !physicalInteger(observation.memTotal) || !physicalInteger(observation.memAvailable) || observation.helperSha256 !== reply.pins.helperSha256)) throw unavailable("RESOURCE_OBSERVATION_UNAVAILABLE");
+  const provision = reply.receipt;
+  if (provision !== undefined && (!observation || !exactKeys(provision, ["version", "operation", "binding", "policy", "sandboxBootId", "parent", "boundary", "control", "commands", "memTotal", "memAvailable", "siblingProtectedBytes"]) || provision.version !== 1 || provision.operation !== "resource_provision" || !same(provision.binding, binding) || provision.policy !== resourcePolicy || provision.sandboxBootId !== observation.sandboxBootId || ![provision.parent, provision.boundary, provision.control, provision.commands].every(group) || !same(provision.parent.identity, observation.parent.identity) || ![provision.memTotal, provision.memAvailable, provision.siblingProtectedBytes].every(physicalInteger))) throw unavailable("RESOURCE_PROVISION_RECEIPT_UNAVAILABLE");
+  const scope = reply.namespace;
+  if (scope === undefined) return;
+  if (!provision || !exactKeys(scope, ["nonce", "payloadReady", "stopRequested", "stopControlSettled", "originalTransportSettled"], ["fixture", "identity", "receipt", "receiptSha256", "markers"]) || !sha.test(scope.nonce) || ![scope.payloadReady, scope.stopRequested, scope.stopControlSettled, scope.originalTransportSettled].every(value => typeof value === "boolean")) throw unavailable("NAMESPACE_EVIDENCE_UNAVAILABLE");
+  const fixture = scope.fixture;
+  if (fixture !== undefined && (!exactKeys(fixture, ["root", "identity", "sandboxBootId", "fingerprint", "helperSha256"]) || fixture.root !== `/home/sandbox/checkouts/operator-qualification-${scope.nonce}` || !physicalIdentity(fixture.identity) || fixture.sandboxBootId !== observation.sandboxBootId || !/^native-qualification-fixture-v1:[a-f0-9]{64}$/.test(fixture.fingerprint) || fixture.helperSha256 !== reply.pins.helperSha256)) throw unavailable("NAMESPACE_FIXTURE_UNAVAILABLE");
+  const identity = scope.identity;
+  if (identity !== undefined && (!fixture || !exactKeys(identity, ["bootId", "namespaceDevice", "namespaceInode", "initHostPid", "root", "cgroup", "limits", "metadataIdentity"]) || identity.bootId !== fixture.sandboxBootId || !physicalInteger(identity.namespaceDevice) || !physicalInteger(identity.namespaceInode) || identity.namespaceInode === "0" || !Number.isSafeInteger(identity.initHostPid) || identity.initHostPid <= 0 || !physicalIdentity(identity.root) || !same(identity.root, fixture.identity) || !physicalIdentity(identity.cgroup) || identity.cgroup.device !== provision.commands.identity.device || identity.cgroup.inode === provision.commands.identity.inode || identity.metadataIdentity !== fixture.fingerprint || !same(identity.limits, { memoryBytes: 536870912, pids: 128, cpuQuotaMicros: 100000, cpuPeriodMicros: 100000 }))) throw unavailable("NAMESPACE_IDENTITY_UNAVAILABLE");
+  const receipt = scope.receipt;
+  if (receipt !== undefined && (!identity || !exactKeys(receipt, ["version", "binding", "state", "gateClosed", "admission", "outputLimited"], ["identity", "exitCode", "reason", "stdout", "stderr"]) || receipt.version !== 1 || !same(receipt.binding, { qualification: binding, nonce: scope.nonce }) || !["preparing", "prepared", "running", "stopping", "closed", "not_started", "unknown"].includes(receipt.state) || !same(receipt.identity, identity) || ![receipt.gateClosed, receipt.admission, receipt.outputLimited].every(value => typeof value === "boolean") || (receipt.exitCode !== undefined && (!Number.isInteger(receipt.exitCode) || receipt.exitCode < -1 || receipt.exitCode > 255)) || (receipt.reason !== undefined && (typeof receipt.reason !== "string" || receipt.reason.length > 128)) || [receipt.stdout, receipt.stderr].some(value => value !== undefined && (typeof value !== "string" || value.length > 5592408 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value))) || scope.receiptSha256 !== hash(JSON.stringify(canonical(receipt))))) throw unavailable("NAMESPACE_RECEIPT_UNAVAILABLE");
+  if (receipt === undefined && scope.receiptSha256 !== undefined) throw unavailable("NAMESPACE_RECEIPT_UNAVAILABLE");
+  const markers = scope.markers;
+  if (markers !== undefined && (!fixture || !exactKeys(markers, ["binding", "nonce", "fixture", "stableIntervalMs", "markers"]) || !same(markers.binding, binding) || markers.nonce !== scope.nonce || !same(markers.fixture, fixture) || !Number.isSafeInteger(markers.stableIntervalMs) || markers.stableIntervalMs < 250 || markers.stableIntervalMs > 60000 || !Array.isArray(markers.markers) || markers.markers.length !== 3 || new Set(markers.markers.map(marker => marker?.name)).size !== 3 || !markers.markers.every(marker => exactKeys(marker, ["name", "identity", "bytes", "sha256"]) && ["detached", "double-fork", "clone-parent"].includes(marker.name) && physicalIdentity(marker.identity) && Number.isSafeInteger(marker.bytes) && marker.bytes > 0 && marker.bytes <= 16384 && sha.test(marker.sha256)))) throw unavailable("NAMESPACE_MARKERS_UNAVAILABLE");
+}
+
+function namespaceClosed(reply) {
+  const scope = reply.namespace;
+  return reply.originalTransportSettled === true && scope?.originalTransportSettled === true && scope.identity !== undefined && scope.receipt?.gateClosed === true && ["closed", "not_started"].includes(scope.receipt.state);
+}
+function recipeObserved(reply) {
+  const scope = reply.namespace;
+  return namespaceClosed(reply) && scope.receipt.state === "closed" && scope.receipt.admission === true && scope.receipt.reason === "user_stop" && scope.payloadReady === true && scope.stopRequested === true && scope.stopControlSettled === true && scope.markers !== undefined;
+}
+function canRetire(reply) {
+  return reply?.originalTransportSettled === true && reply.observation !== undefined && reply.receipt !== undefined &&
+    (reply.namespace === undefined ? reply.phase === "provisioned" : ["namespace_observed", "namespace_closed"].includes(reply.phase) && namespaceClosed(reply));
+}
+
+function validateReply(reply, config, operationId, action, original) {
   const subject = { ...qualificationControlProps(config), operationId };
   const pins = { imageDigest: config.vars.NATIVE_QUALIFICATION_IMAGE_DIGEST, helperSha256: config.vars.NATIVE_QUALIFICATION_HELPER_SHA256, policySha256: config.vars.NATIVE_QUALIFICATION_POLICY_SHA256 };
   const lease = reply?.lease;
-  const phases = ["reserved", "starting", "observed", "provisioning", "provisioned", "retiring", "retired", "unknown"];
-  if (!object(reply) || reply.purpose !== "native_boundary_qualification" || !same(reply.subject, subject) || !same(reply.pins, pins) || !object(lease) || lease.generation !== 0 || !Number.isSafeInteger(lease.expiresAt) || lease.expiresAt <= 0 || !sha.test(lease.sandboxObjectId) || !sha.test(lease.ownerId) || ![lease.sessionId, lease.leaseId, lease.sandboxId, lease.physicalAttemptKey].every(value => typeof value === "string" && /^[A-Za-z0-9_.:-]{1,256}$/.test(value)) || reply.authorityDigest !== hash(JSON.stringify(canonical({ subject, pins, lease }))) || !phases.includes(reply.phase) || typeof reply.originalTransportSettled !== "boolean" || reply.active !== (reply.phase !== "retired") || reply.runtimeQualified !== false) throw unavailable("PRIVATE_CONTROL_REPLY_UNAVAILABLE");
+  const phases = ["reserved", "starting", "observed", "provisioning", "provisioned", "retiring", "retired", "unknown", "qualifying_fixture", "qualifying_namespace", "namespace_running", "qualifying_verify", "namespace_observed", "namespace_closed"];
+  if (!object(reply) || reply.purpose !== "native_boundary_qualification" || !same(reply.subject, subject) || !same(reply.pins, pins) || !exactKeys(lease, ["sessionId", "leaseId", "sandboxId", "sandboxObjectId", "ownerId", "physicalAttemptKey", "generation", "expiresAt"]) || lease.generation !== 0 || !Number.isSafeInteger(lease.expiresAt) || lease.expiresAt <= 0 || !sha.test(lease.sandboxObjectId) || !sha.test(lease.ownerId) || ![lease.sessionId, lease.leaseId, lease.sandboxId, lease.physicalAttemptKey].every(value => typeof value === "string" && /^[A-Za-z0-9_.:-]{1,256}$/.test(value)) || reply.authorityDigest !== hash(JSON.stringify(canonical({ subject, pins, lease }))) || !phases.includes(reply.phase) || typeof reply.originalTransportSettled !== "boolean" || reply.active !== (reply.phase !== "retired") || reply.runtimeQualified !== false) throw unavailable("PRIVATE_CONTROL_REPLY_UNAVAILABLE");
   if (action === "reserve" ? !sha.test(reply.bearer) : reply.bearer !== undefined) throw unavailable("PRIVATE_CONTROL_BEARER_UNAVAILABLE");
+  if (action !== "reserve" && (reply.authorityDigest !== original?.authorityDigest || (original.lease !== undefined && !same(lease, original.lease)))) throw unavailable("ORIGINAL_LEASE_BINDING_CHANGED");
+  validatePhysicalEvidence(reply);
+  if ((reply.phase === "namespace_observed" && !recipeObserved(reply)) || (reply.phase === "namespace_closed" && (!namespaceClosed(reply) || reply.failureCode !== "QUALIFICATION_RECIPE_INCOMPLETE")) || (reply.phase === "retired" && (reply.originalTransportSettled !== true || !reply.receipt || !reply.observation || (reply.namespace !== undefined && !namespaceClosed(reply))))) throw unavailable("POSITIVE_CLOSURE_UNAVAILABLE");
   return reply;
+}
+
+/** Drain the ORIGINAL body to EOF even after overflow. Bounds/UTF-8 failures
+ * reject evidence; cancelling a reader or a timer would not prove closure. */
+async function originalReplyBody(response) {
+  if (!response.body) throw unavailable("PRIVATE_CONTROL_BODY_UNAVAILABLE");
+  const reader = response.body.getReader();
+  const chunks = [];
+  let bytes = 0;
+  let overflow = false;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes = Math.min(512 * 1024 + 1, bytes + value.byteLength);
+      if (bytes > 512 * 1024) overflow = true;
+      if (!overflow) chunks.push(Buffer.from(value));
+    }
+  } finally { reader.releaseLock(); }
+  if (overflow) throw unavailable("PRIVATE_CONTROL_BODY_LIMIT");
+  return new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks, bytes));
 }
 
 async function controlInventory(config, configPath) {
@@ -525,8 +598,28 @@ async function privateControl(config, action, operationId, inventory) {
   try {
     const targetAuthority = hash(JSON.stringify(canonical({ worker: config.name, account: config.account_id, props: qualificationControlProps(config), image: config.containers[0].image, helper: config.vars.NATIVE_QUALIFICATION_HELPER_SHA256, policy: config.vars.NATIVE_QUALIFICATION_POLICY_SHA256 })));
     const state = action === "reserve" ? { operationId, targetAuthority, phase: "unknown", pendingAction: "reserve" } : readState(stateFile.fd);
-    if (state.operationId !== operationId || state.targetAuthority !== targetAuthority || (action !== "status" && action !== "reserve" && state.pendingAction !== undefined) || (action === "provision" && state.phase !== "reserved") || (action === "retire" && (state.phase !== "provisioned" || state.originalTransportSettled !== true))) throw unavailable("ORIGINAL_RETAINED_NO_AUTOMATIC_RERUN");
-    saveState(stateFile.fd, { ...state, pendingAction: action === "status" ? state.pendingAction : action });
+    const stoppingRetainedQualify = action === "stop" && state.pendingAction === "qualify";
+    if (state.operationId !== operationId || state.targetAuthority !== targetAuthority ||
+      (action !== "status" && action !== "reserve" && ((state.pendingAction !== undefined && !stoppingRetainedQualify) || state.pendingStop === true)) ||
+      (action === "provision" && state.phase !== "reserved") ||
+      (action === "qualify" && (state.phase !== "provisioned" || state.originalTransportSettled !== true)) ||
+      (action === "stop" && !stoppingRetainedQualify && !["qualifying_namespace", "namespace_running", "unknown"].includes(state.phase))) throw unavailable("ORIGINAL_RETAINED_NO_AUTOMATIC_RERUN");
+    if (action !== "reserve" && (!sha.test(state.bearer) || !sha.test(state.authorityDigest))) throw unavailable("ORIGINAL_GRANT_UNAVAILABLE");
+    if (action !== "reserve" && action !== "status") {
+      if (!state.lease) throw unavailable("ORIGINAL_LEASE_UNAVAILABLE");
+      validateReply(state.reply, config, operationId, "status", state);
+    }
+    if (action === "qualify" || action === "retire") {
+      // A server ACK/boolean is insufficient: revalidate the retained exact
+      // resource/namespace evidence before opening another creator gate.
+      const previous = validateReply(state.reply, config, operationId, "status", state);
+      if (action === "qualify" ? previous.namespace !== undefined || previous.phase !== "provisioned" || !previous.observation || !previous.receipt || previous.originalTransportSettled !== true : !canRetire(previous)) throw unavailable("POSITIVE_CLOSURE_UNAVAILABLE");
+    }
+    const intent = { ...state, pendingAction: action === "status" || stoppingRetainedQualify ? state.pendingAction : action,
+      ...(action === "stop" ? { pendingStop: true } : {}) };
+    // This same-inode intent precedes fetch. In particular Stop does not
+    // replace a retained qualify obligation after its observer failed.
+    saveState(stateFile.fd, intent);
     callerPath = resolve(privateDirectory, `${operationId}.caller.json`);
     writeFileSync(callerPath, JSON.stringify({ name: `${config.name}-operator`, account_id: config.account_id, compatibility_date: config.compatibility_date, compatibility_flags: config.compatibility_flags, workers_dev: false, preview_urls: false, services: [{ binding: "NATIVE_QUALIFICATION_CONTROL", service: config.name, entrypoint: "NativeBoundaryQualificationControl", remote: true, props: qualificationControlProps(config) }] }), { flag: "wx", mode: 0o600 });
     callerCreated = true;
@@ -546,11 +639,27 @@ async function privateControl(config, action, operationId, inventory) {
     // transport, rerun provisioning, retire the grant, or invent cleanup proof.
     pendingTimer = setTimeout(() => console.error("Qualification original is still pending; its grant and cleanup obligation remain retained."), 10 * 60_000);
     pendingTimer.unref();
-    const response = await binding.fetch(new Request(`https://native-qualification.invalid/internal/native-boundary-qualification/v1/${action}`, { method: "POST", headers, body: JSON.stringify({ operationId, scenario: "resource_provision" }) }));
-    if (!response.ok) { await response.arrayBuffer(); throw unavailable("PRIVATE_CONTROL_ORIGINAL_UNKNOWN"); }
-    const reply = validateReply(await response.json(), config, operationId, action);
-    saveState(stateFile.fd, { ...state, operationId, phase: reply.phase, pendingAction: action === "status" ? state.pendingAction : undefined, originalTransportSettled: reply.originalTransportSettled, bearer: reply.bearer ?? state.bearer, authorityDigest: reply.authorityDigest });
-    console.log(JSON.stringify({ phase: reply.phase, active: reply.active, originalTransportSettled: reply.originalTransportSettled, runtimeQualified: false }));
+    const scenario = action === "qualify" || action === "stop" ? "namespace_subprocess_stop" : "resource_provision";
+    const response = await binding.fetch(new Request(`https://native-qualification.invalid/internal/native-boundary-qualification/v1/${action}`, { method: "POST", headers, body: JSON.stringify({ operationId, scenario }) }));
+    const body = await originalReplyBody(response);
+    if (!response.ok) throw unavailable("PRIVATE_CONTROL_ORIGINAL_UNKNOWN");
+    const reply = validateReply(JSON.parse(body), config, operationId, action, state);
+    const completed = action === "reserve" ? reply.phase === "reserved" : action === "provision" ? reply.phase === "provisioned" && reply.originalTransportSettled === true && reply.observation !== undefined && reply.receipt !== undefined : action === "qualify" ? ["namespace_observed", "namespace_closed"].includes(reply.phase) && namespaceClosed(reply) : action === "retire" ? reply.phase === "retired" : false;
+    const { bearer: _privateBearer, ...publicReply } = reply;
+    // Status never resolves a lost original, and a Stop ACK never clears the
+    // original qualify or its separately journaled Stop intent. No auto retry.
+    saveState(stateFile.fd, { ...intent, operationId, phase: reply.phase,
+      pendingAction: completed ? undefined : intent.pendingAction,
+      originalTransportSettled: reply.originalTransportSettled, bearer: reply.bearer ?? state.bearer,
+      authorityDigest: reply.authorityDigest, lease: reply.lease, reply: publicReply,
+      ...(action === "stop" ? { stopReplyObserved: true } : {}) });
+    console.log(JSON.stringify({ phase: reply.phase, active: reply.active, originalTransportSettled: reply.originalTransportSettled,
+      namespaceRecipeObserved: recipeObserved(reply), runtimeQualified: false }));
+    // The exclusive operation lock spans this original fetch and body. Thus
+    // separate CLI invocations cannot demonstrate interactive concurrent Stop;
+    // the first fixed recipe auto-Stops under the same server original owner.
+    if (action !== "status" && action !== "stop" && !completed) throw unavailable("PRIVATE_CONTROL_ORIGINAL_UNKNOWN");
+    if (action === "qualify" && reply.phase === "namespace_closed") throw unavailable("QUALIFICATION_RECIPE_INCOMPLETE");
   } finally {
     if (pendingTimer) clearTimeout(pendingTimer);
     // Disposal never follows a scenario timer. Transport failure retains the
@@ -596,7 +705,7 @@ async function main() {
     return await buildSource();
   }
   const inspection = action === "inspect" || action === "inspect-sealed";
-  if (extra.length || !["inspect", "inspect-sealed", "deploy-sealed", "activate", "reserve", "provision", "status", "retire"].includes(action) || (!inspection && !uuid.test(operationId)) || (inspection && operationId !== undefined)) throw unavailable("ARGUMENTS_INVALID");
+  if (extra.length || !["inspect", "inspect-sealed", "deploy-sealed", "activate", "reserve", "provision", "qualify", "stop", "status", "retire"].includes(action) || (!inspection && !uuid.test(operationId)) || (inspection && operationId !== undefined)) throw unavailable("ARGUMENTS_INVALID");
   const configPath = resolve(configArgument ?? qualificationConfigPath);
   const { errors, config } = validateNativeQualificationIsolation({ configPath, mode: action === "inspect-sealed" || action === "deploy-sealed" ? "sealed" : "active" });
   if (errors.length) throw unavailable("STATIC_QUALIFICATION_ISOLATION_BLOCKED");
