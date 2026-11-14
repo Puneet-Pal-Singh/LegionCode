@@ -23,7 +23,7 @@ describe("useStatusSync", () => {
     result.current.handleStopRun();
 
     expect(stop).toHaveBeenCalledTimes(1);
-    expect(onSessionStatusChange).toHaveBeenCalledWith("completed");
-    expect(onSessionStatusChange).not.toHaveBeenCalledWith("running");
+    expect(onSessionStatusChange).toHaveBeenCalledWith("run-123", "completed");
+    expect(onSessionStatusChange).not.toHaveBeenCalledWith("run-123", "running");
   });
 });
