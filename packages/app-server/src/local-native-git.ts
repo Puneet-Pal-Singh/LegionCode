@@ -29,7 +29,11 @@ const unavailable = (message: string) =>
   new GitServiceError("git_process_containment_unavailable", message);
 
 /** One OS binding shared by canonical capture and commit policies. */
-export function createNativeGitBinding(options: LocalNativeGitOptions) {
+export function createNativeGitBinding(
+  options: LocalNativeGitOptions,
+  mode: "capture" | "read_only" = "capture",
+) {
+  const readOnly = mode === "read_only";
   if (process.platform !== "darwin")
     throw unavailable("Native Git requires Darwin");
   for (const path of [
@@ -108,6 +112,35 @@ export function createNativeGitBinding(options: LocalNativeGitOptions) {
         readonly signal?: AbortSignal;
       }): Promise<GitCommandExecutionResult> {
         if (
+          readOnly &&
+          (input.indexFile !== undefined || input.stdin !== undefined)
+        )
+          throw unavailable(
+            "Read-only Native Git rejected private index or stdin authority",
+          );
+        if (
+          readOnly &&
+          !(
+            input.args[0] === "diff" ||
+            (input.args[0] === "--no-optional-locks" &&
+              input.args[1] === "status")
+          )
+        )
+          throw unavailable(
+            "Read-only Native Git requires a canonical status or diff query",
+          );
+        const args =
+          readOnly && input.args[0] === "diff"
+            ? ["diff", "--no-textconv", "--no-ext-diff", ...input.args.slice(1)]
+            : input.args;
+        const signal = readOnly
+          ? AbortSignal.any([
+              authority.signal,
+              authority.settlementSignal,
+              ...(input.signal ? [input.signal] : []),
+            ])
+          : (input.signal ?? authority.settlementSignal);
+        if (
           input.stdin !== undefined &&
           Buffer.byteLength(input.stdin) > 1_000_000
         )
@@ -119,8 +152,15 @@ export function createNativeGitBinding(options: LocalNativeGitOptions) {
           timeoutMs > 30_000
         )
           throw unavailable("Native Git deadline exceeds its bound");
+        const activePreDispatch = async () => {
+          signal.throwIfAborted();
+          await authority.assertCurrent();
+          signal.throwIfAborted();
+        };
         const deadline = performance.now() + timeoutMs;
+        if (readOnly) await activePreDispatch();
         const layout = await verifyMetadata();
+        if (readOnly) await activePreDispatch();
         const remaining = Math.ceil(deadline - performance.now());
         if (remaining < 1)
           return {
@@ -129,11 +169,15 @@ export function createNativeGitBinding(options: LocalNativeGitOptions) {
             stderr: "Native Git deadline expired before execution",
           };
         let operation: SingleProcessMacExecution | undefined;
+        // An already-cancelled query has not constructed a process. Keep this
+        // outside the uncertainty catch and immediately before the sync spawn.
+        if (readOnly) signal.throwIfAborted();
         try {
           operation = executeSingleProcessMac({
             executable: options.gitExecutable,
             args: [
               "--no-replace-objects",
+              ...(readOnly ? ["--literal-pathspecs"] : []),
               "-c",
               "maintenance.auto=false",
               "-c",
@@ -142,7 +186,7 @@ export function createNativeGitBinding(options: LocalNativeGitOptions) {
               "core.fsmonitor=false",
               `--git-dir=${layout.gitDirectory}`,
               "--work-tree=.",
-              ...input.args,
+              ...args,
             ],
             cwd: authority.filesystemRoot,
             cwdFd: authority.rootDirectory.fd,
@@ -153,13 +197,14 @@ export function createNativeGitBinding(options: LocalNativeGitOptions) {
             },
             processHelperPath: options.processHelperPath,
             trustedGitContext,
+            readOnlyProbe: readOnly ? true : undefined,
             environment: {
               GIT_OPTIONAL_LOCKS: "0",
               ...(input.indexFile ? { GIT_INDEX_FILE: input.indexFile } : {}),
             },
             stdin: input.stdin,
             timeoutMs: remaining,
-            signal: input.signal ?? authority.settlementSignal,
+            signal,
           });
           authority.trackProcess(operation);
         } catch (error) {
@@ -206,7 +251,7 @@ export function createNativeGitBinding(options: LocalNativeGitOptions) {
             after.gitDirectory !== layout.gitDirectory ||
             after.commonDirectory !== layout.commonDirectory ||
             after.backlinkPath !== layout.backlinkPath ||
-            performance.now() > deadline
+            (!readOnly && performance.now() > deadline)
           )
             throw new Error(
               "Git metadata association or deadline changed during execution",
@@ -224,6 +269,14 @@ export function createNativeGitBinding(options: LocalNativeGitOptions) {
             },
           );
         }
+        // A readonly query's elapsed delivery budget cannot undo the ORIGINAL
+        // positive process/pipe and metadata-identity closure proved above.
+        if (readOnly && performance.now() > deadline)
+          return {
+            exitCode: 124,
+            stdout: "",
+            stderr: "Native Git read deadline expired",
+          };
         if (result.truncated)
           return {
             exitCode: 1,
