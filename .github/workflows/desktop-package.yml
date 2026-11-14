@@ -61,6 +61,30 @@ jobs:
           pnpm --filter @legioncode/desktop package
           pnpm --filter @legioncode/desktop test:packaged --trace retain-on-failure
 
+      - name: Build native setup candidate without installing it
+        working-directory: apps/desktop
+        run: |
+          setup_arch="$(node -p 'process.arch')"
+          case "$setup_arch" in
+            arm64) setup_directory=mac-arm64 ;;
+            x64) setup_directory=mac ;;
+            *) exit 1 ;;
+          esac
+          node scripts/build-native-setup-package.mjs \
+            "$PWD/release/$setup_directory/LegionCode Desktop.app" \
+            "$PWD/release/LegionCode-Native-Setup-Candidate-$setup_arch.pkg" \
+            > "$PWD/release/native-setup-candidate.json"
+
+      - name: Upload unqualified native setup candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: legioncode-desktop-native-setup-candidate
+          path: |
+            apps/desktop/release/LegionCode-Native-Setup-Candidate-*.pkg
+            apps/desktop/release/native-setup-candidate.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Upload packaged acceptance diagnostics
         if: failure()
         uses: actions/upload-artifact@v4

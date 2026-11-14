@@ -6,6 +6,8 @@
 #define LC_INSTALL_APP "/Library/Application Support/LegionCode/Applications/LegionCode Desktop.app"
 #define LC_INSTALL_SELF "/Library/PrivilegedHelperTools/dev.legioncode.desktop.native-host-installer"
 #define LC_INSTALL_PARENT "/Library/Application Support/LegionCode"
+#define LC_INSTALL_APPLICATIONS LC_INSTALL_PARENT "/Applications"
+#define LC_INSTALL_SHORTCUT "/Applications/LegionCode Desktop.app"
 #define LC_INSTALL_DIRECTORY LC_INSTALL_PARENT "/NativeExecution"
 #define LC_INSTALL_LAUNCH "/Library/LaunchDaemons/dev.legioncode.desktop.native-host.plist"
 
@@ -72,9 +74,7 @@ static bool install_application_valid(void) {
     CFDictionaryContainsKey(information, kSecCodeInfoIdentifier) &&
     CFEqual(CFDictionaryGetValue(information, kSecCodeInfoIdentifier), CFSTR("dev.legioncode.desktop"));
   if (information) CFRelease(information); if (code) CFRelease(code); if (url) CFRelease(url);
-  return okay && install_same_bytes(LC_HOST_INSTALLED_BROKER,
-    LC_INSTALL_APP "/Contents/Resources/native/legioncode-host-broker") &&
-    install_same_bytes(LC_INSTALL_SELF, LC_INSTALL_APP "/Contents/Resources/native/legioncode-native-installer");
+  return okay;
 }
 
 static int install_directory(int parent, const char *name, mode_t mode) {
@@ -99,6 +99,69 @@ static bool install_write(int parent, const char *name, const void *bytes, size_
     lc_host_io(fd, (void *)bytes, count, true) && lc_host_sync(fd);
   if (close(fd)) okay = false;
   return okay && lc_host_sync(parent);
+}
+
+/* No common-system directory is carried in the package BOM or repaired. This
+ * preinstall program can create only our two private application parents. */
+static int install_preflight(void) {
+  if (getuid() || geteuid() || !install_absent(LC_INSTALL_DIRECTORY) || !install_absent(LC_HOST_WORK) ||
+      !install_absent(LC_INSTALL_LAUNCH) || !install_absent(LC_INSTALL_APP) || !install_absent(LC_INSTALL_SHORTCUT) ||
+      !install_absent(LC_HOST_INSTALLED_BROKER) || !install_absent(LC_INSTALL_SELF)) return 77;
+  int library = lc_host_open_protected("/Library/Application Support", true);
+  if (library < 0) return 77;
+  int parent = lc_host_open_protected(LC_INSTALL_PARENT, true);
+  if (parent < 0 && install_absent(LC_INSTALL_PARENT)) parent = install_directory(library, "LegionCode", 0755);
+  if (close(library) || parent < 0) { if (parent >= 0) close(parent); return 74; }
+  int applications = lc_host_open_protected(LC_INSTALL_APPLICATIONS, true);
+  if (applications < 0 && install_absent(LC_INSTALL_APPLICATIONS)) applications = install_directory(parent, "Applications", 0755);
+  bool okay = applications >= 0;
+  if (applications >= 0 && close(applications)) okay = false;
+  if (close(parent)) okay = false;
+  return okay ? 0 : 74;
+}
+
+static bool install_copy_helper(const char *name, const char *installed) {
+  char source[PATH_MAX];
+  if (snprintf(source, sizeof(source), "%s/Contents/Resources/native/%s", LC_INSTALL_APP, name) >= (int)sizeof(source)) return false;
+  int input = lc_host_open_protected(source, false);
+  int parent = lc_host_open_protected("/Library/PrivilegedHelperTools", true);
+  if (parent < 0 && install_absent("/Library/PrivilegedHelperTools")) {
+    int library = lc_host_open_protected("/Library", true);
+    if (library >= 0) { parent = install_directory(library, "PrivilegedHelperTools", 0755); if (close(library)) { if (parent >= 0) close(parent); parent = -1; } }
+  }
+  struct stat st;
+  bool okay = input >= 0 && parent >= 0 && !fstat(input, &st) && S_ISREG(st.st_mode) &&
+    st.st_size > 0 && st.st_size <= 64 * 1024 * 1024 && (st.st_mode & 0111) && !(st.st_mode & 06000);
+  const char *leaf = strrchr(installed, '/');
+  int output = okay && leaf ? openat(parent, leaf + 1, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600) : -1;
+  if (output < 0) okay = false;
+  uint64_t copied = 0;
+  while (okay) {
+    unsigned char bytes[32768]; ssize_t count = read(input, bytes, sizeof(bytes));
+    if (count < 0 && errno == EINTR) continue;
+    if (count < 0) okay = false;
+    if (count <= 0) break;
+    copied += (uint64_t)count;
+    if (copied > (uint64_t)st.st_size || !lc_host_io(output, bytes, (size_t)count, true)) okay = false;
+  }
+  okay = okay && copied == (uint64_t)st.st_size && !fchmod(output, 0555) &&
+    lc_host_protected_fd(output, false) && lc_host_sync(output);
+  if (input >= 0 && close(input)) okay = false;
+  if (output >= 0 && close(output)) okay = false;
+  if (parent >= 0) { if (!lc_host_sync(parent)) okay = false; if (close(parent)) okay = false; }
+  return okay && install_same_bytes(installed, source);
+}
+
+static bool install_shortcut(void) {
+  /* /Applications may legitimately be admin-group writable. The shortcut is
+   * only navigation, never the trusted application or bridge identity. */
+  int parent = open("/Applications", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  if (parent < 0) return false;
+  struct stat st;
+  bool okay = !fstat(parent, &st) && S_ISDIR(st.st_mode) && !st.st_uid && !(st.st_mode & 0002) &&
+    !symlinkat(LC_INSTALL_APP, parent, "LegionCode Desktop.app") && lc_host_sync(parent);
+  if (close(parent)) okay = false;
+  return okay;
 }
 
 static bool install_launch_description(void) {
@@ -152,7 +215,8 @@ static bool install_register(void) {
 
 static int install_stage(void) {
   if (getuid() || geteuid() || !install_absent(LC_INSTALL_DIRECTORY) || !install_absent(LC_HOST_WORK) ||
-      !install_absent(LC_INSTALL_LAUNCH) || !install_application_valid()) return 77;
+      !install_absent(LC_INSTALL_LAUNCH) || !install_absent(LC_INSTALL_SHORTCUT) ||
+      !install_absent(LC_HOST_INSTALLED_BROKER) || !install_absent(LC_INSTALL_SELF) || !install_application_valid()) return 77;
   int library = lc_host_open_protected("/Library/Application Support", true);
   if (library < 0) return 77;
   int parent = lc_host_open_protected(LC_INSTALL_PARENT, true);
@@ -170,7 +234,9 @@ static int install_stage(void) {
   if (work < 0) okay = false;
   else if (close(work)) okay = false;
   if (temporary >= 0 && close(temporary)) okay = false;
-  okay = okay && install_launch_description() && install_register();
+  okay = okay && install_copy_helper("legioncode-host-broker", LC_HOST_INSTALLED_BROKER) &&
+    install_copy_helper("legioncode-native-installer", LC_INSTALL_SELF) && install_shortcut() &&
+    install_launch_description() && install_register();
   if (okay) okay = !renameat(state, "install.pending", state, "install.staged") && lc_host_sync(state);
   if (close(state)) okay = false;
   /* No approval, account, permit or qualification receipt is manufactured. A
@@ -179,6 +245,7 @@ static int install_stage(void) {
 }
 
 int main(int argc, char **argv) {
+  if (argc == 2 && !strcmp(argv[1], "--preflight")) return install_preflight();
   if (argc == 2 && !strcmp(argv[1], "--stage")) return install_stage();
   return 64;
 }
