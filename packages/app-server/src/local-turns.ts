@@ -4,7 +4,7 @@ import type { LocalTurnAttemptIdentity, LocalTurnAttemptInput } from "@legioncod
 import { ThreadInputConflictError, type StoredThreadInput, type ThreadInputScope } from "@repo/event-store";
 import { LocalWorkspaceWriterLeaseError } from "./local-workspace-writer-lease.js";
 import type { InputCommand } from "./thread-inputs/ports.js";
-import type { BYOKDiscoveredProviderModel } from "@repo/shared-types";
+import type { BYOKDiscoveredProviderModel, RuntimeCredentialReference } from "@repo/shared-types";
 import {
   TurnAdmissionSchema,
   parseLocalQueuedInputConfiguration,
@@ -79,6 +79,8 @@ export type LocalTurnServiceOptions = {
   onResourcesReleased?(admission: TurnAdmission): Promise<void>;
   runtime?: {
     readonly configurationOptions: LocalTurnConfigurationOptions;
+    /** Private metadata captured once and persisted by the sole admission owner. */
+    captureRuntimeCredentialReference(providerId: ProviderId, signal?: AbortSignal): Promise<Readonly<RuntimeCredentialReference>>;
     /** Startup-only reconciliation before new commands can acquire ownership. */
     reconcileLostTurn(admission: TurnAdmission): Promise<"settled" | "already_terminal" | "unsupported">;
     createAdmission(input: {
@@ -264,6 +266,7 @@ export class LocalTurnService {
     let preparedMedia: LocalTurnPreparedMedia | undefined;
     let candidate: TurnAdmission | undefined;
     let preparedExecutor: LocalTurnExecutor | undefined;
+    let credentialReference: Readonly<RuntimeCredentialReference> | undefined;
     try {
       this.resources.assertAcceptingAdmission();
       const binding = await this.options.workspaces.bindForExecution(
@@ -289,6 +292,9 @@ export class LocalTurnService {
         throw new AppServerOperationError(409, "conflict", "The selected model does not support image input", "local_image_model_unsupported", false);
       }
       const mediaSignal = AbortSignal.any([binding.signal, this.resources.admissionSignal]);
+      mediaSignal.throwIfAborted();
+      credentialReference = await runtime.captureRuntimeCredentialReference(selection.providerId, mediaSignal);
+      mediaSignal.throwIfAborted();
       preparedMedia = queued ? await queued.prepareMedia(mediaSignal) : await this.prepareImages(images, mediaSignal);
       binding.assertCurrent();
       this.resources.assertAcceptingAdmission();
@@ -340,7 +346,8 @@ export class LocalTurnService {
       const { admission, newlyAdmitted } =
         await (queued ? this.options.queuedInputs!.reserveQueuedStart({ ...queued.scope, itemId: queued.item.itemId,
           expectedVersion: queued.command.expectedVersion, expectedRevision: queued.command.expectedThreadRevision,
-          explicitStart: queued.explicitStart, expectedPredecessorTurnId: predecessorTurnId, candidate }) : this.options.persistence.turnAdmissions.admit(candidate));
+          explicitStart: queued.explicitStart, expectedPredecessorTurnId: predecessorTurnId, candidate,
+          credentialAcquisition: credentialReference }) : this.options.persistence.turnAdmissions.admit(candidate, credentialReference));
       if (newlyAdmitted) this.resources.ownExecution(preparation, admission, executor);
       return admission;
     } catch (error) {
@@ -366,8 +373,13 @@ export class LocalTurnService {
         const validated = validateSavedAdmission(saved, params, currentThread, imageFingerprint);
         // A lost publication ACK can be reconciled only to this exact prepared
         // candidate. Transfer its original executor/fence before returning it.
-        if (candidate && preparedExecutor && preparation.binding &&
-            isDeepStrictEqual(TurnAdmissionSchema.parse(saved), TurnAdmissionSchema.parse(candidate))) {
+        if (candidate && preparedExecutor && preparation.binding && credentialReference &&
+            isDeepStrictEqual(TurnAdmissionSchema.parse(saved), TurnAdmissionSchema.parse(candidate)) &&
+            await this.options.persistence.turnAdmissions.matchesCredentialAcquisition({
+              userId: saved.run.userId, workspaceId: saved.run.workspaceId,
+              threadId: saved.run.threadId, runId: saved.run.id,
+              turnId: saved.turn.id, runAttemptId: saved.runAttemptId,
+            }, credentialReference)) {
           this.resources.ownExecution(preparation, saved, preparedExecutor);
         }
         return validated;
