@@ -29,8 +29,11 @@ export function openCodeFailure(
     case "provider.unsupported-operation":
       code = "capability_unsupported";
       break;
-    case "provider.rate-limit":
     case "provider.quota":
+      // An exhausted balance is not a temporary usage window.
+      code = error.status === 402 ? fallback : "rate_limited";
+      break;
+    case "provider.rate-limit":
     case "provider.free-limit":
     case "provider.budget-limit":
     case "provider.model-budget-limit":
