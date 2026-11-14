@@ -49,6 +49,7 @@ export interface RuntimeToolGatewayInput {
 
 /** Canonical registry/manifest/scope tool dispatch for kernel turns. */
 export class RuntimeToolGateway {
+  private dispatchSealed = false;
   constructor(
     private readonly input: {
       readonly executor: RuntimeExecutionService;
@@ -57,10 +58,16 @@ export class RuntimeToolGateway {
     },
   ) {}
 
+  async awaitQuiescence(input: { readonly turnId: string; readonly timeoutMs: number }): Promise<boolean> {
+    if (input.turnId !== this.input.scope.executionScope.turnId) return false;
+    this.dispatchSealed = true;
+    return (await this.input.executor.awaitQuiescence?.(input)) === true;
+  }
+
   async execute(
     input: RuntimeToolGatewayInput,
   ): Promise<RuntimeToolExecutionResult> {
-    if (await input.isCancelled?.()) {
+    if (this.dispatchSealed || await input.isCancelled?.()) {
       return {
         kind: "cancelled",
         result: {
@@ -115,6 +122,9 @@ export class RuntimeToolGateway {
     }
 
     try {
+      // Validation/cancellation may have yielded while final settlement sealed
+      // creators. The executor independently rechecks its physical dispatch gate.
+      if (this.dispatchSealed) throw new Error("Native tool dispatch is closed");
       const result = await definition.execute(toolInput, {
         execute: async (plugin, action, payload) =>
           await this.input.executor.execute(plugin, action, payload, {

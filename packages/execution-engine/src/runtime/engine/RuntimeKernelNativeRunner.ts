@@ -959,7 +959,6 @@ function describeRuntimeErrorCause(error: unknown): string | null {
 class KernelToolWorker implements WorkerProtocolPort {
   private readonly preExecutionRejections = new Set<string>();
   private readonly activeToolOperations = new Map<Turn["id"], Set<Promise<unknown>>>();
-  private readonly uncertainCancelledTurns = new Set<Turn["id"]>();
   constructor(
     private readonly options: {
       runEventRecorder: RunEventRecorder;
@@ -973,18 +972,19 @@ class KernelToolWorker implements WorkerProtocolPort {
     readonly turnId: Turn["id"];
     readonly timeoutMs: number;
   }): Promise<boolean> {
-    if (this.uncertainCancelledTurns.has(input.turnId)) return false;
+    // Seal the real executor before waiting for observer promises. An empty
+    // observer set cannot prove that its original Secure request/body settled.
+    const originalClosure = this.options.toolGateway.awaitQuiescence(input).catch(() => false);
     const pending = [...(this.activeToolOperations.get(input.turnId) ?? [])];
-    if (pending.length === 0) return true;
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
-      await Promise.race([
-        Promise.allSettled(pending),
+      const settled = await Promise.race([
+        Promise.allSettled(pending).then(() => originalClosure),
         new Promise<never>((_, reject) => {
           timeout = setTimeout(() => reject(new Error("Tool quiescence timed out")), input.timeoutMs);
         }),
       ]);
-      return (this.activeToolOperations.get(input.turnId)?.size ?? 0) === 0;
+      return settled && (this.activeToolOperations.get(input.turnId)?.size ?? 0) === 0;
     } catch {
       return false;
     } finally {
@@ -1047,7 +1047,7 @@ class KernelToolWorker implements WorkerProtocolPort {
           isCancelled: this.options.isRunCancelled,
           signal: input.signal,
         });
-      this.trackToolOperation(input.turnId, operation, input.signal);
+      this.trackToolOperation(input.turnId, operation);
       const gatewayResult = await runWithNativeCancellationPolling(
         operation,
         this.options.isRunCancelled,
@@ -1213,7 +1213,6 @@ class KernelToolWorker implements WorkerProtocolPort {
   private trackToolOperation(
     turnId: Turn["id"],
     operation: Promise<unknown>,
-    signal?: AbortSignal,
   ): void {
     let pending = this.activeToolOperations.get(turnId);
     if (!pending) {
@@ -1221,17 +1220,7 @@ class KernelToolWorker implements WorkerProtocolPort {
       this.activeToolOperations.set(turnId, pending);
     }
     pending.add(operation);
-    let settled = false;
-    const onAbort = () => {
-      if (!settled) this.uncertainCancelledTurns.add(turnId);
-    };
-    if (signal?.aborted) onAbort();
-    else signal?.addEventListener("abort", onAbort, { once: true });
-    const remove = () => {
-      settled = true;
-      signal?.removeEventListener("abort", onAbort);
-      this.removeToolOperation(turnId, operation);
-    };
+    const remove = () => this.removeToolOperation(turnId, operation);
     void operation.then(remove, remove);
   }
 
