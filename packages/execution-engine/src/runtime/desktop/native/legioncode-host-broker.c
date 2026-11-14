@@ -5,13 +5,14 @@
 #include "legioncode-host-recovery.h"
 #include "legioncode-host-retirement.h"
 #include "legioncode-host-setup-auth.h"
-#include "legioncode-host-setup-metadata.h"
+#include "legioncode-host-qualification.h"
 #include <stdatomic.h>
 
 static lc_host_approval approval;
 static lc_host_scope scopes[LC_HOST_MAX_SCOPES];
 static xpc_connection_t owners[LC_HOST_MAX_SCOPES];
 static int state_directory = -1;
+static lc_host_qualification qualification;
 
 static const char *phase_name(lc_host_scope *scope) {
   if (scope->record.phase == LC_HOST_UNKNOWN) return "unknown";
@@ -63,8 +64,9 @@ static xpc_object_t serve_request(xpc_connection_t peer, xpc_object_t request, c
     lc_host_put(reply, "policyGeneration", approval.policy_generation); return reply;
   }
   if (!strcmp(operation, "setupQualificationDescribe") || !strcmp(operation, "setupQualificationStart") ||
-      !strcmp(operation, "setupQualificationStatus") || !strcmp(operation, "setupQualificationCancel"))
-    return lc_host_setup_request(&approval, request, operation);
+      !strcmp(operation, "setupQualificationStatus") || !strcmp(operation, "setupQualificationCancel") ||
+      !strcmp(operation, "setupQualificationBridgeClosed"))
+    return lc_host_setup_request(state_directory, &approval, request, operation, &qualification, scopes, owners, peer);
   if (!approval.qualified || !lc_host_writer_supported() ||
       !lc_host_get(request, "generation", generation, sizeof(generation)) || strcmp(generation, approval.generation)) return lc_host_reply("unavailable", "serviceGenerationChanged");
   if (!strcmp(operation, "recoveryDescribe") || !strcmp(operation, "recoverySeal")) {
@@ -207,11 +209,16 @@ static int serve(void) {
     xpc_connection_set_target_queue(peer, queue);
     xpc_connection_set_event_handler(peer, ^(xpc_object_t request) {
       if (xpc_get_type(request) == XPC_TYPE_ERROR) {
+        if (qualification.used && owners[qualification.resource_index] == peer) {
+          qualification.original_peer_disconnected = true;
+          if (qualification.resource) qualification.resource->owner_disconnected = true;
+        }
         for (size_t i = 0; i < LC_HOST_MAX_SCOPES; i++)
           if (history_queries[i].used && history_queries[i].peer == peer) history_drop(&history_queries[i]);
         for (size_t i = 0; i < LC_HOST_MAX_SCOPES; i++) if (owners[i] == peer && scopes[i].used) {
           scopes[i].owner_disconnected = true;
-          if (!scopes[i].released) (void)lc_host_scope_seal(state_directory, &scopes[i]);
+          if (!scopes[i].released && scopes[i].record.purpose == LC_HOST_RESOURCE_NATIVE)
+            (void)lc_host_scope_seal(state_directory, &scopes[i]);
         }
         return;
       }
@@ -229,6 +236,11 @@ static int serve(void) {
   dispatch_source_set_event_handler(timer, ^{
     for (size_t i = 0; i < LC_HOST_MAX_SCOPES; i++) lc_host_scope_tick(state_directory, &scopes[i]);
     history_tick();
+    lc_host_qualification_tick(state_directory, &approval, &qualification);
+    if (qualification.owner_releasable) {
+      if (owners[qualification.resource_index]) xpc_release(owners[qualification.resource_index]);
+      owners[qualification.resource_index] = NULL; qualification.owner_releasable = false;
+    }
   });
   dispatch_resume(timer); xpc_connection_resume(listener); dispatch_main();
 }

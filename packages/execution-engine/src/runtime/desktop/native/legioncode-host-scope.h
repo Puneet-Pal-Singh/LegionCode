@@ -7,13 +7,13 @@
 #include "legioncode-host-record.h"
 
 typedef struct {
-  bool used, sealed, released, owner_disconnected, retirement_unknown, stdout_closed, stderr_closed, access_ready;
+  bool used, sealed, released, owner_disconnected, retirement_unknown, launch_closed, stdout_closed, stderr_closed, access_ready;
   lc_host_scope_record record;
   const lc_host_approval *approval; int state_directory;
   char capability[65], command_id[257], command_digest[65], name[80];
   int root, namespace, fence, work, journal, stdout_fd, stderr_fd;
   pid_t child, signaler;
-  int wait_status; bool reaped, timed_out, truncated;
+  int wait_status; bool reaped, child_identity_lost, signaler_identity_lost, timed_out, truncated;
   uint64_t deadline, next_signal;
   unsigned char stdout_bytes[LC_HOST_MAX_OUTPUT], stderr_bytes[LC_HOST_MAX_OUTPUT];
   size_t stdout_size, stderr_size;
@@ -129,7 +129,8 @@ static inline bool lc_host_scope_open(int state, const lc_host_approval *approva
   bool created = !mkdirat(work_parent, directory, 0700) && !fchownat(work_parent, directory,
     scope->record.principal.uid, scope->record.principal.gid, AT_SYMLINK_NOFOLLOW) && lc_host_sync(work_parent);
   scope->work = created ? openat(work_parent, directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC) : -1;
-  close(work_parent);
+  int original_parent = work_parent; work_parent = -1;
+  if (close(original_parent)) { lc_host_scope_unknown(state, scope); return false; }
   if (scope->work < 0 || snprintf(scope->record.work_path, sizeof(scope->record.work_path), "%s/%s", LC_HOST_WORK, directory) >= (int)sizeof(scope->record.work_path)) {
     lc_host_scope_unknown(state, scope); return false;
   }
@@ -154,11 +155,12 @@ unused:
   scope->root = scope->fence = scope->namespace = -1; return false;
 }
 
-static inline bool lc_host_prepare_command(int state, const lc_host_approval *approval,
-                                          lc_host_scope *scope, xpc_object_t request) {
+static inline bool lc_host_prepare_command_internal(int state, const lc_host_approval *approval,
+    lc_host_scope *scope, xpc_object_t request, lc_host_resource_purpose purpose) {
   static const char *const fields[] = { "version", "operation", "generation", "capability", "commandId", "command", "cwd", LC_HOST_METADATA_FIELDS };
   char id[257], command[501], cwd[512]; lc_host_metadata metadata;
-  if (scope->record.purpose != LC_HOST_RESOURCE_NATIVE ||
+  if (scope->record.purpose != purpose ||
+      (purpose != LC_HOST_RESOURCE_NATIVE && purpose != LC_HOST_RESOURCE_SETUP_QUALIFICATION) ||
       !lc_host_fields(request, fields, sizeof(fields) / sizeof(fields[0])) || scope->sealed ||
       scope->record.phase != LC_HOST_IDLE || scope->record.command_count >= 256 || !lc_host_scope_current(scope) || !lc_host_scope_path_current(scope) ||
       !lc_host_uid_zero(scope->record.principal.uid) || !lc_host_get(request, "commandId", id, sizeof(id)) ||
@@ -199,19 +201,32 @@ static inline bool lc_host_prepare_command(int state, const lc_host_approval *ap
   scope->access_ready = true; return true;
 }
 
+/* External requests retain Native-only admission. The private setup runner may
+ * call the same implementation ONLY with its fixed internal recipe objects. */
+static inline bool lc_host_prepare_command(int state, const lc_host_approval *approval,
+    lc_host_scope *scope, xpc_object_t request) {
+  return lc_host_prepare_command_internal(state, approval, scope, request, LC_HOST_RESOURCE_NATIVE);
+}
+
 static inline bool lc_host_pipe(int pair[2]) {
   if (pipe(pair)) return false;
-  if (fcntl(pair[0], F_SETFD, FD_CLOEXEC) || fcntl(pair[1], F_SETFD, FD_CLOEXEC)) { close(pair[0]); close(pair[1]); return false; }
+  if (fcntl(pair[0], F_SETFD, FD_CLOEXEC) || fcntl(pair[1], F_SETFD, FD_CLOEXEC)) return false;
   return true;
 }
-static inline bool lc_host_release_command(int state, const lc_host_approval *approval, lc_host_scope *scope) {
-  if (scope->record.purpose != LC_HOST_RESOURCE_NATIVE || scope->sealed || scope->record.phase != LC_HOST_PREPARED || !scope->access_ready || !lc_host_scope_current(scope) || !lc_host_scope_path_current(scope) ||
+static inline bool lc_host_launch_close(int *descriptor) {
+  int original = *descriptor; *descriptor = -1;
+  return original >= 0 && close(original) == 0;
+}
+static inline bool lc_host_release_command_internal(int state, const lc_host_approval *approval, lc_host_scope *scope, lc_host_resource_purpose purpose) {
+  if (scope->record.purpose != purpose ||
+      (purpose != LC_HOST_RESOURCE_NATIVE && purpose != LC_HOST_RESOURCE_SETUP_QUALIFICATION) || scope->sealed || scope->record.phase != LC_HOST_PREPARED || !scope->access_ready || !lc_host_scope_current(scope) || !lc_host_scope_path_current(scope) ||
       !lc_host_metadata_current(&scope->record.metadata, &scope->metadata_pins) ||
       !lc_host_metadata_receipt_matches(&scope->record.metadata, &scope->metadata_pins, scope->root)) return false;
   lc_host_policy_buffer policy;
   CFArrayRef verified_executables;
   if (!lc_host_installed_broker_valid(approval) || !lc_host_paths(approval->executables, &verified_executables, true) ||
       !lc_host_build_policy(approval, scope->record.root_path, scope->record.work_path, &scope->record.metadata, &policy)) return false;
+  scope->launch_closed = false;
   int output[2] = {-1,-1}, error[2] = {-1,-1}, payload[2] = {-1,-1};
   if (!lc_host_pipe(output) || !lc_host_pipe(error) || !lc_host_pipe(payload)) goto failed;
   int root = fcntl(scope->root, F_DUPFD_CLOEXEC, 20), fence = fcntl(scope->fence, F_DUPFD_CLOEXEC, 20);
@@ -223,35 +238,55 @@ static inline bool lc_host_release_command(int state, const lc_host_approval *ap
   if (!lc_host_scope_save(state, scope) || !lc_host_monotonic(&scope->deadline)) {
     close(root); close(fence); close(input); close(out); close(err); goto failed;
   }
-  scope->deadline += 60000; scope->next_signal = 0; scope->reaped = scope->timed_out = scope->truncated = false;
+  scope->deadline += 60000; scope->next_signal = 0;
+  scope->reaped = scope->child_identity_lost = scope->signaler_identity_lost = scope->timed_out = scope->truncated = false;
   scope->stdout_size = scope->stderr_size = 0; scope->stdout_closed = scope->stderr_closed = false;
   pid_t child = fork();
   if (child == 0) {
     int null = open("/dev/null", O_RDONLY | O_CLOEXEC); long maximum = sysconf(_SC_OPEN_MAX);
     if (null < 0 || maximum < 21 || maximum > INT_MAX || dup2(null, 0) < 0 || dup2(out, 1) < 0 || dup2(err, 2) < 0 ||
         dup2(root, 5) < 0 || dup2(fence, 6) < 0 || dup2(input, 8) < 0) _exit(126);
-    for (int fd = 3; fd < maximum; fd++) if (fd != 5 && fd != 6 && fd != 8) close(fd);
+    for (int fd = 3; fd < maximum; fd++) if (fd != 5 && fd != 6 && fd != 8) {
+      errno = 0; int flags = fcntl(fd, F_GETFD);
+      if (flags < 0) { if (errno != EBADF) _exit(126); }
+      else if (close(fd)) _exit(126);
+    }
     char *argv[] = { "/usr/bin/sandbox-exec", "-p", policy.bytes, LC_HOST_INSTALLED_BROKER, "--bootstrap", NULL };
     char *env[] = { "PATH=/usr/bin:/bin", "LANG=C", "LC_ALL=C", NULL };
     execve(argv[0], argv, env); _exit(127);
   }
-  close(root); close(fence); close(input); close(out); close(err);
+  if (child > 0) scope->child = child;
+  bool parent_closed = true;
+  int *duplicates[] = { &root, &fence, &input, &out, &err };
+  for (size_t i = 0; i < sizeof(duplicates) / sizeof(duplicates[0]); i++)
+    if (!lc_host_launch_close(duplicates[i])) parent_closed = false;
   if (child < 0) goto failed;
-  scope->child = child;
-  close(output[1]); output[1] = -1; close(error[1]); error[1] = -1; close(payload[0]); payload[0] = -1;
+  if (!lc_host_launch_close(&output[1])) parent_closed = false;
+  if (!lc_host_launch_close(&error[1])) parent_closed = false;
+  if (!lc_host_launch_close(&payload[0])) parent_closed = false;
   scope->stdout_fd = output[0]; output[0] = -1; scope->stderr_fd = error[0]; error[0] = -1;
-  if (fcntl(scope->stdout_fd, F_SETFL, O_NONBLOCK) || fcntl(scope->stderr_fd, F_SETFL, O_NONBLOCK) ||
-      !lc_host_io(payload[1], &scope->bootstrap, sizeof(scope->bootstrap), true)) {
-    close(payload[1]); payload[1] = -1; lc_host_scope_unknown(state, scope); return false;
-  }
-  close(payload[1]); return true;
+  bool sent = !fcntl(scope->stdout_fd, F_SETFL, O_NONBLOCK) && !fcntl(scope->stderr_fd, F_SETFL, O_NONBLOCK) &&
+    lc_host_io(payload[1], &scope->bootstrap, sizeof(scope->bootstrap), true);
+  if (!lc_host_launch_close(&payload[1])) parent_closed = false;
+  if (!sent || !parent_closed) { lc_host_scope_unknown(state, scope); return false; }
+  scope->launch_closed = true; return true;
 failed:
-  for (int i = 0; i < 2; i++) { if(output[i]>=0)close(output[i]); if(error[i]>=0)close(error[i]); if(payload[i]>=0)close(payload[i]); }
+  for (int i = 0; i < 2; i++) {
+    if (output[i] >= 0) (void)lc_host_launch_close(&output[i]);
+    if (error[i] >= 0) (void)lc_host_launch_close(&error[i]);
+    if (payload[i] >= 0) (void)lc_host_launch_close(&payload[i]);
+  }
   lc_host_scope_unknown(state, scope); return false;
+}
+
+static inline bool lc_host_release_command(int state, const lc_host_approval *approval, lc_host_scope *scope) {
+  return lc_host_release_command_internal(state, approval, scope, LC_HOST_RESOURCE_NATIVE);
 }
 
 static inline bool lc_host_drain(int *fd, unsigned char *bytes, size_t *size, bool *closed, bool *truncated) {
   if (*fd < 0) return *closed;
+  int flags = fcntl(*fd, F_GETFL);
+  if (flags < 0 || !(flags & O_NONBLOCK)) return false;
   uint64_t start, now;
   if (!lc_host_monotonic(&start)) return false;
   unsigned char chunk[8192];
@@ -280,6 +315,10 @@ static inline bool lc_host_drain(int *fd, unsigned char *bytes, size_t *size, bo
 }
 static inline void lc_host_scope_tick(int state, lc_host_scope *scope) {
   if (!scope->used || scope->record.phase == LC_HOST_CLOSED) return;
+  /* Setup before canonical G has no private-UID creator. Only its setup owner
+   * may settle the original H/control child or the typed unexposed cancellation;
+   * do not infer G/U/V/access cleanup from empty metadata. */
+  if (scope->record.purpose == LC_HOST_RESOURCE_SETUP_QUALIFICATION && !scope->record.setup_metadata_inspected) return;
   /* A stale projection/late callback cannot signal or alter ACLs belonging to a
    * later generation, even if its numerical UID has since been reused. */
   if (!scope->approval || !lc_host_reservation_current(state, scope->approval,
@@ -287,15 +326,15 @@ static inline void lc_host_scope_tick(int state, lc_host_scope *scope) {
   if (scope->record.phase == LC_HOST_IDLE && !scope->sealed) return;
   uint64_t now;
   if (!lc_host_monotonic(&now)) { lc_host_scope_unknown(state, scope); return; }
-  if (scope->child && !scope->reaped) {
+  if (scope->child && !scope->reaped && !scope->child_identity_lost) {
     pid_t observed = waitpid(scope->child, &scope->wait_status, WNOHANG);
     if (observed == scope->child) scope->reaped = true;
-    else if (observed < 0 && errno != EINTR) { lc_host_scope_unknown(state, scope); return; }
+    else if (observed < 0 && errno != EINTR) { scope->child_identity_lost = true; lc_host_scope_unknown(state, scope); return; }
   }
-  if (scope->signaler) {
+  if (scope->signaler && !scope->signaler_identity_lost) {
     int status; pid_t done = waitpid(scope->signaler, &status, WNOHANG);
     if (done == scope->signaler) scope->signaler = 0;
-    else if (done < 0 && errno != EINTR) { lc_host_scope_unknown(state, scope); return; }
+    else if (done < 0 && errno != EINTR) { scope->signaler_identity_lost = true; lc_host_scope_unknown(state, scope); return; }
   }
   if ((scope->stdout_fd >= 0 && !lc_host_drain(&scope->stdout_fd, scope->stdout_bytes, &scope->stdout_size, &scope->stdout_closed, &scope->truncated)) ||
       (scope->stderr_fd >= 0 && !lc_host_drain(&scope->stderr_fd, scope->stderr_bytes, &scope->stderr_size, &scope->stderr_closed, &scope->truncated))) lc_host_scope_unknown(state, scope);
@@ -304,7 +343,7 @@ static inline void lc_host_scope_tick(int state, lc_host_scope *scope) {
   if (!cleanup) return;
   /* A pre-drop bootstrap is not yet represented by the UID census. Its exact
    * unreaped direct-child PID remains stable and must be reaped separately. */
-  if (scope->child && !scope->reaped) (void)kill(scope->child, SIGKILL);
+  if (scope->child && !scope->reaped && !scope->child_identity_lost) (void)kill(scope->child, SIGKILL);
   if (!scope->signaler && now >= scope->next_signal && !lc_host_uid_zero(scope->record.principal.uid)) {
     scope->signaler = lc_host_signal_uid(&scope->record.principal, scope->fence, SIGKILL);
     if (scope->signaler < 0) { scope->signaler = 0; lc_host_scope_unknown(state, scope); return; }
@@ -313,6 +352,7 @@ static inline void lc_host_scope_tick(int state, lc_host_scope *scope) {
   if ((scope->child && !scope->reaped) || scope->signaler || !lc_host_uid_zero(scope->record.principal.uid) ||
       (scope->child && (!scope->stdout_closed || !scope->stderr_closed))) return;
   if (scope->record.phase == LC_HOST_UNKNOWN) return;
+  if ((scope->child && !scope->launch_closed) || scope->access.unknown) { lc_host_scope_unknown(state, scope); return; }
   /* No UID member remains and no command can be released during restoration. */
   if (scope->access.count && !lc_host_access_restore(&scope->access, scope->root)) { lc_host_scope_unknown(state, scope); return; }
   scope->access_ready = false;

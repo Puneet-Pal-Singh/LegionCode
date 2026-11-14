@@ -109,7 +109,7 @@ static inline bool lc_host_setup_authorization(lc_host_approval *out) {
   if (!raw) return true;
   if (CFGetTypeID(raw) != CFDictionaryGetTypeID()) return false;
   uint32_t version; unsigned char permit[32], nonzero = 0;
-  if (!lc_host_number(CFDictionaryGetValue(raw, CFSTR("Version")), &version) || version != 1 ||
+  if (!lc_host_number(CFDictionaryGetValue(raw, CFSTR("Version")), &version) || (version != 1 && version != 2) ||
       !lc_host_text(CFDictionaryGetValue(raw, CFSTR("PermitId")), out->setup_permit_id, sizeof(out->setup_permit_id)) ||
       !lc_host_unhex(out->setup_permit_id, permit, sizeof(permit)) ||
       !lc_host_text(CFDictionaryGetValue(raw, CFSTR("WriterNamespacePath")), out->writer_namespace_path, sizeof(out->writer_namespace_path)) ||
@@ -118,7 +118,7 @@ static inline bool lc_host_setup_authorization(lc_host_approval *out) {
       !lc_host_manifest_u64(raw, CFSTR("WriterNamespaceInode"), &out->writer_namespace.inode) || !out->writer_namespace.inode) return false;
   for (size_t i = 0; i < sizeof(permit); i++) nonzero |= permit[i];
   if (!nonzero) return false;
-  out->setup_authorized = true; return true;
+  out->setup_authorized = version == 2; return true;
 }
 static inline bool lc_host_load_approval(lc_host_approval *out) {
   memset(out, 0, sizeof(*out));
