@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const HOSTED_ACCOUNT_CHANNEL = "desktop:hosted-account";
 export const HostedAccountCommandSchema = z.object({
-  operation: z.enum(["status", "connect", "disconnect"]),
+  operation: z.enum(["status", "connect", "reauthorize", "disconnect"]),
 }).strict();
 export const HostedAccountSnapshotSchema = z.object({
   target: z.literal("production"),

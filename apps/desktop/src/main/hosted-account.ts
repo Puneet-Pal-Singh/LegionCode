@@ -105,23 +105,23 @@ export class DesktopHostedAccount {
     }
   }
 
-  connect(parent: BrowserWindow): Promise<HostedAccountSnapshot> {
+  connect(parent: BrowserWindow, reauthorize = false): Promise<HostedAccountSnapshot> {
     if (this.closing) return Promise.reject(new Error("Desktop is closing"));
     if (this.disconnection) return Promise.reject(new Error("Hosted sign-out is pending"));
     if (this.snapshot.state === "sign_out_failed") return Promise.reject(new Error("Retry hosted sign-out first"));
     if (this.connection) return this.connection;
     const generation = ++this.generation;
     this.publish("connecting");
-    const operation = this.authorize(parent, generation);
+    const operation = this.authorize(parent, generation, reauthorize);
     this.connection = operation;
     void operation.finally(() => { if (this.connection === operation) this.connection = null; }).catch(() => undefined);
     return operation;
   }
 
-  private async authorize(parent: BrowserWindow, generation: number): Promise<HostedAccountSnapshot> {
+  private async authorize(parent: BrowserWindow, generation: number, reauthorize: boolean): Promise<HostedAccountSnapshot> {
     try {
       const existing = await this.readSession(generation);
-      if (existing.state === "signed_in") return existing;
+      if (existing.state === "signed_in" && !reauthorize) return existing;
       this.publish("connecting");
       await new Promise<void>((resolve, reject) => {
         const window = new BrowserWindow({

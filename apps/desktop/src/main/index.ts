@@ -131,7 +131,7 @@ handleNativeInvoke(HOSTED_ACCOUNT_CHANNEL, async (event, value) => {
   if (command.operation === "disconnect") return hostedAccount.disconnect();
   const parent = BrowserWindow.fromWebContents(event.sender);
   if (!parent) throw new Error("Desktop window is unavailable");
-  return hostedAccount.connect(parent);
+  return hostedAccount.connect(parent, command.operation === "reauthorize");
 });
 handleNativeInvoke(ENVIRONMENT_RESTART_CHANNEL, async () => {
   if (shutdownPromise || isQuitting) throw new Error("Local runtime shutdown is pending");
