@@ -63,9 +63,12 @@ export function applyConversationLifecycleRecovery(
   projection: LifecycleProjection,
   recovery: NativeExecutionRecoveryProjection | undefined,
 ): LifecycleProjection {
-  if (!recovery || recovery.turnId !== projection.turnId || projection.terminal) return projection;
+  if (!recovery || recovery.turnId !== projection.turnId) return projection;
   const attempt = projection.runtimeAttempt;
   if (attempt && (attempt.threadId !== recovery.threadId || attempt.runAttemptId !== recovery.runAttemptId)) return projection;
+  // A summary/legacy terminal with no captured attempt tuple cannot retire a
+  // known recovery obligation. Only that attempt's canonical terminal wins.
+  if (projection.terminal && attempt) return projection;
   if (projection.recovery && Object.keys(projection.recovery).some(key =>
       projection.recovery![key as keyof NativeExecutionRecoveryProjection] !== recovery[key as keyof NativeExecutionRecoveryProjection])) return projection;
   return { ...projection, recovery, activeThinking: false };

@@ -1,4 +1,4 @@
-import type { LifecycleProjection } from "./conversation-lifecycle-projection.js";
+import { applyConversationLifecycleRecovery, type LifecycleProjection } from "./conversation-lifecycle-projection.js";
 
 type ProjectionMap = Readonly<Record<string, LifecycleProjection>>;
 
@@ -25,7 +25,24 @@ export function mergeLifecycleProjections(
     const newest = candidates.reduce((current, candidate) =>
       isProjectionNewer(candidate, current) ? candidate : current,
     );
-    merged[turnId] = newest;
+    // Replay/live transport pages may omit optional recovery metadata. Do not
+    // let a newer event snapshot discard known ownership loss for the same
+    // attempt; an exact canonical terminal is the only implicit disposition.
+    let projection = newest;
+    for (const candidate of candidates) {
+      const recovery = candidate.recovery;
+      if (!recovery) continue;
+      const terminal = candidates.find(value => value.terminal &&
+        value.runtimeAttempt?.threadId === recovery.threadId &&
+        value.runtimeAttempt.runAttemptId === recovery.runAttemptId);
+      if (terminal) {
+        const attempt = projection.runtimeAttempt;
+        if (!attempt || (attempt.threadId === recovery.threadId && attempt.runAttemptId === recovery.runAttemptId)) projection = terminal;
+      } else {
+        projection = applyConversationLifecycleRecovery(projection, recovery);
+      }
+    }
+    merged[turnId] = projection;
   }
 
   return merged;
