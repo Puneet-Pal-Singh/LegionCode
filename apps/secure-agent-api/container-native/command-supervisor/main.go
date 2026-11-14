@@ -51,37 +51,40 @@ type resourceLimits struct {
 }
 
 type request struct {
-	Version      int               `json:"version"`
-	Binding      binding           `json:"binding"`
-	ControlToken string            `json:"controlToken"`
-	Root         string            `json:"root"`
-	ExpectedRoot rootIdentity      `json:"expectedRoot"`
-	Cwd          string            `json:"cwd"`
-	Argv         []string          `json:"argv"`
-	Environment  map[string]string `json:"environment"`
-	TimeoutMS    int64             `json:"timeoutMs"`
-	OutputLimit  int               `json:"outputLimit"`
-	Limits       resourceLimits    `json:"limits"`
+	Version      int                `json:"version"`
+	Binding      binding            `json:"binding"`
+	ControlToken string             `json:"controlToken"`
+	Root         string             `json:"root"`
+	ExpectedRoot rootIdentity       `json:"expectedRoot"`
+	Cwd          string             `json:"cwd"`
+	Argv         []string           `json:"argv"`
+	Environment  map[string]string  `json:"environment"`
+	TimeoutMS    int64              `json:"timeoutMs"`
+	OutputLimit  int                `json:"outputLimit"`
+	Limits       resourceLimits     `json:"limits"`
+	Metadata     metadataProtection `json:"metadata"`
 }
 
 // Only this non-credential subset crosses into the namespace init process.
 type initRequest struct {
-	Root        string            `json:"root"`
-	RootFS      string            `json:"rootfs"`
-	Cwd         string            `json:"cwd"`
-	Argv        []string          `json:"argv"`
-	Environment map[string]string `json:"environment"`
-	CgroupPath  string            `json:"cgroupPath"`
+	Root        string              `json:"root"`
+	RootFS      string              `json:"rootfs"`
+	Cwd         string              `json:"cwd"`
+	Argv        []string            `json:"argv"`
+	Environment map[string]string   `json:"environment"`
+	CgroupPath  string              `json:"cgroupPath"`
+	Metadata    []initMetadataEntry `json:"metadata"`
 }
 
 type namespaceIdentity struct {
-	BootID          string         `json:"bootId"`
-	NamespaceDevice uint64         `json:"namespaceDevice"`
-	NamespaceInode  uint64         `json:"namespaceInode"`
-	InitHostPID     int            `json:"initHostPid"`
-	Root            rootIdentity   `json:"root"`
-	Cgroup          rootIdentity   `json:"cgroup"`
-	Limits          resourceLimits `json:"limits"`
+	BootID           string         `json:"bootId"`
+	NamespaceDevice  uint64         `json:"namespaceDevice"`
+	NamespaceInode   uint64         `json:"namespaceInode"`
+	InitHostPID      int            `json:"initHostPid"`
+	Root             rootIdentity   `json:"root"`
+	Cgroup           rootIdentity   `json:"cgroup"`
+	Limits           resourceLimits `json:"limits"`
+	MetadataIdentity string         `json:"metadataIdentity"`
 }
 
 type receipt struct {
@@ -168,6 +171,13 @@ func validateRequest(value request) error {
 }
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--prepare-workspace" {
+		if prepareWorkspace() != nil {
+			_, _ = io.WriteString(os.Stderr, "native_workspace_preparation_unavailable\n")
+			os.Exit(70)
+		}
+		return
+	}
 	if len(os.Args) == 2 && os.Args[1] == "--namespace-init" {
 		os.Exit(runNamespaceInit())
 	}

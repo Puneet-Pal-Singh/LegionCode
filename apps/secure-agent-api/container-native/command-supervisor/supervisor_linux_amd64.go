@@ -16,7 +16,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"os/user"
 	"runtime"
 	"strings"
 	"sync"
@@ -44,13 +43,8 @@ type controlRequest struct {
 }
 
 func serveCommand(input request) error {
-	if os.Geteuid() != 0 || os.Getegid() != 0 {
-		return errors.New("protected_owner_required")
-	}
-	account, accountErr := user.LookupId("65533")
-	group, groupErr := user.LookupGroupId("65533")
-	if accountErr != nil || groupErr != nil || account.Username != "legion-native" || account.Gid != "65533" || group.Name != "legion-native" {
-		return errors.New("provisioned_tool_identity_required")
+	if err := requireToolIdentity(); err != nil {
+		return err
 	}
 	root, err := openHeldWorkspace(input.Root, input.ExpectedRoot)
 	if err != nil {
@@ -60,6 +54,15 @@ func serveCommand(input request) error {
 	if err := verifyHeldCwd(root, input.Cwd); err != nil {
 		return err
 	}
+	metadata, err := pinMetadata(input.Metadata)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		for _, file := range metadata {
+			_ = file.Close()
+		}
+	}()
 	domain, err := prepareCommandDomain(input)
 	if err != nil {
 		return err
@@ -111,7 +114,7 @@ func serveCommand(input request) error {
 	// From this point a failure retains the exact domain for reconciliation;
 	// only explicit settled-receipt ACK below may remove it.
 	beforeBirth = false
-	if err := owner.execute(root, rootfs); err != nil {
+	if err := owner.execute(root, rootfs, metadata); err != nil {
 		return err
 	}
 	// The owner first saves this exact closed receipt in the existing session
@@ -236,7 +239,7 @@ func (owner *supervisor) stop(reason string) {
 	}
 }
 
-func (owner *supervisor) execute(workspace *os.File, rootfs string) error {
+func (owner *supervisor) execute(workspace *os.File, rootfs string, metadata []*os.File) error {
 	// Pdeathsig is tied to the creating OS thread. Keep that thread alive until
 	// the namespace init has been waited, rather than relying on a Go goroutine.
 	runtime.LockOSThread()
@@ -289,6 +292,7 @@ func (owner *supervisor) execute(workspace *os.File, rootfs string) error {
 	child := exec.Command(executable, "--namespace-init")
 	child.Env = []string{"PATH=/usr/local/bin:/usr/bin:/bin", "LANG=C.UTF-8", "LC_ALL=C.UTF-8"}
 	child.ExtraFiles = []*os.File{configRead, gateRead, statusWrite, workspace}
+	child.ExtraFiles = append(child.ExtraFiles, metadata...)
 	child.Stdout, child.Stderr = stdoutWrite, stderrWrite
 	child.SysProcAttr = &syscall.SysProcAttr{
 		Cloneflags:                 syscall.CLONE_NEWUSER | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWNET | syscall.CLONE_NEWIPC | syscall.CLONE_NEWUTS,
@@ -331,6 +335,7 @@ func (owner *supervisor) execute(workspace *os.File, rootfs string) error {
 	identity, identityErr := readNamespaceIdentity(child.Process.Pid, owner.input.ExpectedRoot)
 	if identityErr == nil {
 		identity.value.Cgroup, identity.value.Limits = owner.domain.identity, owner.domain.limits
+		identity.value.MetadataIdentity = owner.input.Metadata.Identity
 		owner.mu.Lock()
 		owner.current.Identity, owner.nsfd = identity.value, identity.file
 		owner.mu.Unlock()
@@ -345,6 +350,9 @@ func (owner *supervisor) execute(workspace *os.File, rootfs string) error {
 		owner.stop("namespace_identity_unavailable")
 	}
 	config := initRequest{Root: owner.input.Root, RootFS: rootfs, Cwd: owner.input.Cwd, Argv: owner.input.Argv, Environment: owner.input.Environment, CgroupPath: commandCgroupPath + owner.input.Binding.Nonce}
+	for index, entry := range owner.input.Metadata.Entries {
+		config.Metadata = append(config.Metadata, initMetadataEntry{metadataEntry: entry, Descriptor: 7 + index})
+	}
 	if err := json.NewEncoder(configWrite).Encode(config); err != nil {
 		owner.stop("namespace_configuration_unavailable")
 	}

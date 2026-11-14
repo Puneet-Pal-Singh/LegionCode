@@ -20,7 +20,7 @@ func runNamespaceInit() int {
 	runtime.LockOSThread()
 	// ExtraFiles are intentionally available only to the trusted init. A tool
 	// exec must never inherit a root, namespace, creator-gate or receipt handle.
-	for descriptor := 3; descriptor <= 6; descriptor++ {
+	for descriptor := 3; descriptor <= 38; descriptor++ {
 		syscall.CloseOnExec(descriptor)
 	}
 	config := os.NewFile(3, "configuration")
@@ -176,6 +176,9 @@ func setupFilesystem(input initRequest, workspace *os.File) error {
 	if syscall.Mount("/proc/self/fd/6", destination, "", syscall.MS_BIND, "") != nil ||
 		syscall.Mount("", destination, "", syscall.MS_BIND|syscall.MS_REMOUNT|syscall.MS_NOSUID|syscall.MS_NODEV, "") != nil {
 		return errors.New("workspace_mount_unavailable")
+	}
+	if mountProtectedMetadata(input) != nil {
+		return errors.New("metadata_mount_unavailable")
 	}
 	if syscall.Mount("proc", rooted("/proc"), "proc", syscall.MS_NOSUID|syscall.MS_NODEV|syscall.MS_NOEXEC|syscall.MS_RDONLY, "") != nil {
 		return errors.New("private_proc_unavailable")
