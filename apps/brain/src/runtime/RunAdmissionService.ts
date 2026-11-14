@@ -57,7 +57,9 @@ export class RunAdmissionService {
     grant: RunAdmissionGrant | undefined,
     correlationId: string,
   ): Promise<void> {
-    if (!grant) return;
+    // A replay acquisition borrowed an existing submission generation. It
+    // cannot dispose that other request's grant before the runtime handoff.
+    if (grant?.lease.created !== true || !grant.lease.generation) return;
     try {
       await this.limiterClient.release(grant.lease, correlationId);
     } catch (error) {
