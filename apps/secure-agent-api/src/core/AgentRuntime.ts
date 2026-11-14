@@ -1,3 +1,7 @@
+import { CloudflareArtifactStoreAdapter } from "../adapters/CloudflareArtifactStoreAdapter";
+import { NativeCheckoutBootstrapIntentSchema, parseNativeCheckoutReadyEvidence, freezeBootstrap,
+  type NativeCheckoutBootstrapIntent } from "@repo/worker-protocol/private/native-checkout-bootstrap";
+import { NativeCommandBindingSchema, NativeWorkspaceStateSchema, sameNativeBinding } from "../toolbox/contracts/OwnedSandboxCommand";
 // apps/secure-agent-api/src/core/AgentRuntime.ts
 // RECONSTRUCTABILITY: Execution sessions and logs exist only in DO storage.
 // Chat history is dual-written to DO (runtime cache) and Postgres
@@ -50,6 +54,7 @@ import { isQualificationEnvironment, type QualificationAuthorization } from "../
 import { isQualificationRecord, type QualificationRecord, type QualificationCommand, type ResourceSetupBinding, type QualificationRawAction } from "../qualification/contracts";
 
 interface RuntimeSessionRecord extends NativeSessionFields, ExecutionDomainSessionFields {
+  nativeCheckoutIntent?: NativeCheckoutBootstrapIntent;
   runId: string;
   taskId: string;
   repoPath: string;
@@ -251,6 +256,101 @@ export class AgentRuntime extends DurableObject<Env> {
     return new Response("Not Found", { status: 404 });
   }
 
+  async bootstrapNativeCheckout(sessionId: string, lease: SandboxExecutionLease, gitToken?: string) {
+    this.assertProductPlane();
+    const runtime = await this.ctx.blockConcurrencyWhile(async () => {
+      const row = await this.ctx.storage.get<PhysicalExecutionSessionRecord>(this.getExecutionSessionKey(sessionId));
+      if (!row || isQualificationRecord(row) || isRetiredExecutionSession(row) || row.cleanupInProgress ||
+        !sameExecutionLease(row.lease, lease) || row.nativeCheckout?.phase !== "reserved" || hasUnsettledNativeCommand(row) ||
+        (await validExecutionDomain(row))?.domain !== "legioncode_native") throw new Error("NATIVE_BOOTSTRAP_UNAVAILABLE");
+      return this.ensureWorkspaceRuntime(lease, false);
+    });
+    const taskId = `bootstrap-${sessionId}`;
+    const key = `${lease.leaseId}:${taskId}`;
+    if (this.nativeCommands.has(key)) throw new Error("NATIVE_BOOTSTRAP_ALREADY_OWNED");
+    const original = new OwnedNativeCommandSession({ state: this.ctx, sessionId, lease, taskId,
+      sandbox: runtime.sandbox as unknown as OwnedNativeSandboxPort, artifacts: runtime.composed.artifactPort });
+    this.nativeCommands.set(key, original);
+    try {
+      // This existing Git owner alone interprets its private credential. No
+      // provider credential or arbitrary environment enters the bootstrap port.
+      const git = runtime.plugins.get("git");
+      if (!(git instanceof GitPlugin)) throw new Error("NATIVE_BOOTSTRAP_GIT_OWNER_REQUIRED");
+      const receipt = await original.materializeCheckout(git.nativeBootstrapAuthEnvironment(gitToken));
+      await original.drainOriginalOperations();
+      if (!await original.awaitClosure()) throw new Error("NATIVE_BOOTSTRAP_CLOSURE_UNKNOWN");
+      this.nativeCommands.delete(key);
+      return receipt;
+    } catch { throw new Error("NATIVE_BOOTSTRAP_ORIGINAL_UNKNOWN"); }
+  }
+
+  async authorizeNativeBootstrap(value: unknown, sandboxObjectId: string, intentValue: unknown): Promise<boolean> {
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const binding = NativeCommandBindingSchema.parse(value), key = this.getExecutionSessionKey(binding.sessionId);
+      const row = await this.ctx.storage.get<PhysicalExecutionSessionRecord>(key);
+      if (!row || isQualificationRecord(row) || isRetiredExecutionSession(row) || row.nativeCheckout?.rawStarted ||
+        !await this.nativeBootstrapMatches(row, binding, sandboxObjectId, intentValue)) return false;
+      await this.ctx.storage.put(key, { ...row, nativeCheckout: { ...row.nativeCheckout!, rawStarted: true } });
+      return true;
+    });
+  }
+  async continueNativeBootstrap(value: unknown, sandboxObjectId: string, intentValue: unknown): Promise<boolean> {
+    const binding = NativeCommandBindingSchema.parse(value);
+    const row = await this.ctx.storage.get<PhysicalExecutionSessionRecord>(this.getExecutionSessionKey(binding.sessionId));
+    return !!row && !isQualificationRecord(row) && !isRetiredExecutionSession(row) && row.nativeCheckout?.rawStarted === true &&
+      await this.nativeBootstrapMatches(row, binding, sandboxObjectId, intentValue);
+  }
+  private async nativeBootstrapMatches(row: RuntimeSessionRecord, binding: Parameters<typeof sameNativeBinding>[0], sandboxObjectId: string, intentValue: unknown) {
+    const intent = NativeCheckoutBootstrapIntentSchema.parse(intentValue);
+    return JSON.stringify(row.nativeCheckout?.intent) === JSON.stringify(intent) && !row.cleanupInProgress && row.expiresAt > Date.now() && row.lease.expiresAt > Date.now() &&
+      row.nativeCheckout?.phase === "dispatching" && !!row.nativeCommand && !row.nativeCommand.stopRequested && sameNativeBinding(row.nativeCommand.binding, binding) &&
+      row.lease.owner === binding.sessionId && row.lease.leaseId === binding.leaseId && row.lease.sandboxId === binding.sandboxId &&
+      row.lease.generation === binding.generation && row.lease.executionDomainDigest === binding.executionDomainDigest &&
+      this.env.Sandbox.idFromName(binding.sandboxId).toString() === sandboxObjectId &&
+      (await validExecutionDomain(row))?.domain === "legioncode_native";
+  }
+
+  async getNativeCheckoutReadyEvidence(sessionId: string, lease: SandboxExecutionLease) {
+    const row = await this.getExecutionSession(sessionId);
+    if (!row || !sameExecutionLease(row.lease, lease) || row.cleanupInProgress ||
+      row.nativeCheckout?.phase !== "materialized" || hasUnsettledNativeCommand(row) || row.expiresAt <= Date.now() ||
+      row.lease.expiresAt <= Date.now() || (await validExecutionDomain(row))?.domain !== "legioncode_native") throw new Error("NATIVE_BOOTSTRAP_UNAVAILABLE");
+    // Materialization cannot mint platform/image qualification. Until the real
+    // same-session runtime evidence producer joins, this strict parse rejects.
+    const evidence = parseNativeCheckoutReadyEvidence({ bootstrap: row.nativeCheckout.receipt,
+      artifact: row.nativeCheckout.artifact, runtime: row.nativeCheckout.runtime });
+    const binding = evidence.bootstrap.observation.binding;
+    const workspace = NativeWorkspaceStateSchema.parse(row.nativeWorkspace);
+    if (workspace.root.device !== evidence.bootstrap.observation.root.device || workspace.root.inode !== evidence.bootstrap.observation.root.inode ||
+      workspace.sandboxBootId !== evidence.bootstrap.observation.sandboxBootId || workspace.metadata.identity !== evidence.bootstrap.metadataIdentity ||
+      workspace.metadata.paths.workspaceRoot !== lease.workspaceScope.root) throw new Error("NATIVE_BOOTSTRAP_WORKSPACE_MISMATCH");
+    if (binding.sessionId !== sessionId || binding.leaseId !== lease.leaseId || binding.sandboxId !== lease.sandboxId ||
+      binding.generation !== lease.generation || binding.executionDomainDigest !== lease.executionDomainDigest ||
+      binding.workspaceId !== lease.workspaceScope.workspaceId || binding.runAttemptId !== lease.workspaceScope.runAttemptId ||
+      binding.runId !== lease.workspaceScope.runId || binding.threadId !== lease.workspaceScope.threadId || binding.turnId !== lease.workspaceScope.turnId ||
+      evidence.bootstrap.intent.root !== lease.workspaceScope.root) throw new Error("NATIVE_BOOTSTRAP_SCOPE_MISMATCH");
+    const artifacts = new CloudflareArtifactStoreAdapter(this.env.ARTIFACTS as unknown as ConstructorParameters<typeof CloudflareArtifactStoreAdapter>[0]);
+    const verifyArtifact = async (id: string, sha256: string, expected: unknown, size?: number) => {
+      const metadata = await artifacts.getMetadata(id, sessionId);
+      if (!metadata || metadata.size <= 0 || metadata.size > 128 * 1024 || (size !== undefined && metadata.size !== size))
+        throw new Error("NATIVE_BOOTSTRAP_ARTIFACT_UNAVAILABLE");
+      const bytes = await artifacts.download(id, sessionId);
+      if (!bytes || bytes.byteLength !== metadata.size) throw new Error("NATIVE_BOOTSTRAP_ARTIFACT_UNAVAILABLE");
+      const actual = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(byte => byte.toString(16).padStart(2, "0")).join("");
+      const canonical = (value: unknown): unknown => {
+        if (Array.isArray(value)) return value.map(canonical);
+        if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, child]) => [key, canonical(child)]));
+        return value;
+      };
+      if (actual !== sha256 || JSON.stringify(canonical(JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes)))) !== JSON.stringify(canonical(expected)))
+        throw new Error("NATIVE_BOOTSTRAP_ARTIFACT_MISMATCH");
+    };
+    await verifyArtifact(evidence.artifact.id, evidence.artifact.sha256, evidence.bootstrap, evidence.artifact.size);
+    const { receiptArtifactId, receiptSha256, ...runtimeProof } = evidence.runtime;
+    await verifyArtifact(receiptArtifactId, receiptSha256, runtimeProof);
+    return evidence;
+  }
+
   async executeTask(
     sessionId: string,
     input: TaskExecutionInput,
@@ -289,6 +389,10 @@ export class AgentRuntime extends DurableObject<Env> {
       const domain = await validExecutionDomain(persisted);
       if ((persisted.executionDomain || persisted.lease.executionDomainDigest) && !domain) return null;
       nativeDomain = domain?.domain === "legioncode_native";
+      if (nativeDomain) {
+        try { await this.getNativeCheckoutReadyEvidence(sessionId, input.lease); }
+        catch { return null; }
+      }
       return await this.ensureWorkspaceRuntime(
         input.lease,
         !input.borrowedLease,
@@ -524,10 +628,14 @@ export class AgentRuntime extends DurableObject<Env> {
       }
       const existing = sessions.find(([key]) => key === sessionKey)?.[1];
       // Session API updates cannot supply or transplant physical command proof.
-      const { nativeWorkspace: _workspace, nativeCommand: _command, ...incoming } = session;
+      const { nativeWorkspace: _workspace, nativeCommand: _command, nativeCheckout: _checkout,
+        nativeCheckoutIntent: requestedIntent, ...incoming } = session;
+      const intent = requestedIntent ? freezeBootstrap(NativeCheckoutBootstrapIntentSchema.parse(requestedIntent)) : undefined;
+      if (intent && (incomingDomain?.domain !== "legioncode_native" || intent.root !== session.workspaceScope.root)) throw new Error("NATIVE_BOOTSTRAP_SCOPE_MISMATCH");
+      if (existing && intent && JSON.stringify(existing.nativeCheckout?.intent) !== JSON.stringify(intent)) throw new Error("NATIVE_BOOTSTRAP_INTENT_IMMUTABLE");
       const native = existing && this.matchesLease(existing.lease, session.lease)
-        ? { nativeWorkspace: existing.nativeWorkspace, nativeCommand: existing.nativeCommand }
-        : {};
+        ? { nativeWorkspace: existing.nativeWorkspace, nativeCommand: existing.nativeCommand, nativeCheckout: existing.nativeCheckout }
+        : intent ? { nativeCheckout: { intent, phase: "reserved" as const } } : {};
       await this.ctx.storage.put(
         this.getExecutionSessionKey(sessionId),
         { ...incoming, ...native },

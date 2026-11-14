@@ -1,3 +1,6 @@
+import { gitCommandRunnerArgs, gitCommandRunnerEnvironment, parseGitIndexTransactionResult, type GitCommandExecutionInput } from "@repo/git-service/executor";
+import { NativeCheckoutBootstrapIntentSchema, type NativeCheckoutBootstrapReceipt } from "@repo/worker-protocol/private/native-checkout-bootstrap";
+import { materializeNativeCheckout } from "./NativeCheckoutMaterialization";
 import { Sandbox as CloudflareSandbox } from "@cloudflare/sandbox";
 import {
   NativeCommandBindingSchema, NativeCommandReceiptSchema, NativeCommandRequestSchema,
@@ -20,7 +23,7 @@ const encoder = new TextEncoder();
 export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort {
   private readonly nativeState: DurableObjectState;
   private readonly nativeEnvironment: Env;
-  private nativeOriginal: Promise<NativeCommandOriginal> | undefined;
+  private nativeOriginal: Promise<unknown> | undefined;
 
   constructor(state: DurableObjectState<Record<string, never>>, env: unknown) {
     super(state, env);
@@ -174,6 +177,43 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
     return receipt;
   }
 
+  async materializeNativeCheckout(input: Parameters<NonNullable<OwnedNativeSandboxPort["materializeNativeCheckout"]>>[0]) {
+    const binding = NativeCommandBindingSchema.parse(input.binding);
+    const intent = NativeCheckoutBootstrapIntentSchema.parse(input.intent);
+    if (this.nativeOriginal) throw unavailable();
+    const gitReceipts: NativeCheckoutBootstrapReceipt["git"] = [];
+    const owner = this.nativeEnvironment.AGENT_RUNTIME.get(this.nativeEnvironment.AGENT_RUNTIME.idFromString(input.physicalOwnerId));
+    const continueOriginal = async () => {
+      if (!await owner.continueNativeBootstrap(binding, this.nativeState.id.toString(), intent)) throw unavailable();
+    };
+    const operation = Promise.resolve().then(async () => {
+      if (!await owner.authorizeNativeBootstrap(binding, this.nativeState.id.toString(), intent)) throw unavailable();
+      await this.startAndWaitForPorts({ ports: this.defaultPort });
+      await continueOriginal();
+      return materializeNativeCheckout({
+      binding, intent, authEnvironment: input.authEnvironment, gitReceipts,
+      original: async (argv, body) => { await continueOriginal(); return this.runOriginal(argv, body); },
+      git: { execute: async (command: GitCommandExecutionInput) => {
+        if (command.cwd !== intent.root || gitReceipts.length >= 64) throw unavailable();
+        const args = gitCommandRunnerArgs(command), env = gitCommandRunnerEnvironment(command);
+        await continueOriginal();
+        const original = await this.runOriginal(["/usr/local/bin/node", ...args], {}, 64 * 1024, undefined, { cwd: intent.root, env });
+        if (original.exitCode !== 0 || original.stderr !== "") throw unavailable();
+        const result = parseGitIndexTransactionResult(original.stdout);
+        if (result.exitCode !== 0 || result.indexPublication || result.artifactConflict) throw unavailable();
+        const bytes = encoder.encode(JSON.stringify({ cwd: command.cwd, argv: ["/usr/local/bin/node", ...args] }));
+        const commandSha256 = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(byte => byte.toString(16).padStart(2, "0")).join("");
+        gitReceipts.push({ commandSha256, originalTransportSettled: true });
+        return result;
+      } },
+      });
+    });
+    this.nativeOriginal = operation;
+    const retained = this.nativeOriginal;
+    try { return await operation; }
+    finally { if (this.nativeOriginal === retained) this.nativeOriginal = undefined; }
+  }
+
   async prepareNativeWorkspace(input: Parameters<OwnedNativeSandboxPort["prepareNativeWorkspace"]>[0]) {
     NativeCommandBindingSchema.parse(input.binding);
     if (!/^\/home\/sandbox\/checkouts\/[A-Za-z0-9_.-]+$/.test(input.root) || this.nativeOriginal) throw unavailable();
@@ -202,7 +242,7 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
     return receipt;
   }
 
-  private async runOriginal(argv: string[], input: unknown, limit = 64 * 1024, expiresAt?: number): Promise<NativeCommandOriginal> {
+  private async runOriginal(argv: string[], input: unknown, limit = 64 * 1024, expiresAt?: number, trustedGit?: { cwd: string; env: Record<string, string> }): Promise<NativeCommandOriginal> {
     const container = this.nativeState.container;
     if (!container?.running || typeof container.exec !== "function") throw unavailable();
     const body = encoder.encode(JSON.stringify(input));
@@ -211,7 +251,7 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
     // authorization helper whose continuation may resume past the deadline.
     if (expiresAt !== undefined && expiresAt <= Date.now()) throw unavailable();
     const process = await container.exec(argv, {
-      user: "0:0", cwd: "/", env: { PATH: "/usr/local/bin:/usr/bin:/bin", LANG: "C.UTF-8", LC_ALL: "C.UTF-8" },
+      user: "0:0", cwd: trustedGit?.cwd ?? "/", env: { PATH: "/usr/local/bin:/usr/bin:/bin", LANG: "C.UTF-8", LC_ALL: "C.UTF-8", ...(trustedGit?.env ?? {}) },
       stdin: "pipe", stdout: "pipe", stderr: "pipe",
     });
     if (!process.stdin || !process.stdout || !process.stderr) throw unavailable();

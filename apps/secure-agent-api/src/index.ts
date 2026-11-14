@@ -128,6 +128,7 @@ import { Sandbox } from "./core/OwnedNativeSandbox";
 import { LaunchRateLimiter } from "./runtime/LaunchRateLimiter";
 import {
   handleCreateSession,
+  handleNativeCheckoutBootstrap,
   handleBorrowSession,
   handleResumeSession,
   handleExecuteTask,
@@ -273,6 +274,10 @@ export default {
             response = await handleCreateSession(request, stub);
           }
         }
+      } else if (url.pathname === "/api/v1/session/native-bootstrap" && request.method === "POST") {
+        const authResponse = enforceInternalServiceBinding(request, env);
+        const safetyResponse = authResponse ?? await enforceLaunchSafetyForRoute(request, env, "execute_task");
+        response = safetyResponse ?? await handleNativeCheckoutBootstrap(request, stub);
       } else if (
         /^\/api\/v1\/session\/[^/]+\/borrow$/u.test(url.pathname) &&
         request.method === "POST"
