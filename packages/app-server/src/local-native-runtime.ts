@@ -46,8 +46,14 @@ import { createNativeReadExecutionService } from "@legioncode/execution-engine/r
 import { NativeFilesystemBridge } from "@legioncode/execution-engine/runtime/desktop/NativeFilesystemBridge";
 import {
   createProtectedProviderGateway,
-  type ProtectedProviderGatewayOptions,
 } from "@legioncode/execution-engine/runtime/provider/ProtectedProviderGateway";
+import {
+  createLocalNativeCredentialResolver,
+  readLocalNativeCredentialReference,
+  requireLocalNativeCredentialReference,
+  type LocalNativeCredentialRuntime,
+  type LocalNativeRuntimeCredentialPorts,
+} from "./local-native-credential.js";
 import type { LocalTurnRuntime } from "./local-turns.js";
 import type { LocalWorkspaceExecutionBinding } from "./local-workspace.js";
 import type { LocalTurnMediaPort } from "./local-turn-media.js";
@@ -71,7 +77,7 @@ export interface LocalNativeQueuedPreparation {
   releaseUnadmitted(): Promise<boolean>;
 }
 
-export interface LocalNativeRuntimeOptions {
+export interface LocalNativeRuntimeOptions extends LocalNativeRuntimeCredentialPorts {
   readonly persistence: Pick<
     LocalPersistence,
     "turnAdmissions" | "lifecycleEvents" | "turnArtifacts"
@@ -80,7 +86,6 @@ export interface LocalNativeRuntimeOptions {
   readonly permissionProfileId: PermissionProfileId;
   readonly resolvePermissionPolicy: (productMode: ProductMode) => Promise<PermissionPolicy>;
   readonly nativeFilesystemHelperPath: string;
-  readonly resolveRuntimeCredential: ProtectedProviderGatewayOptions["resolveCredential"];
   readonly media?: LocalTurnMediaPort & Partial<LocalQueuedInputMediaPort>;
   readonly capability?: LocalTurnExecutionCapability<LocalWorkspaceExecutionBinding>;
   /** Same actual host writer; absence leaves queued execution unavailable. */
@@ -107,7 +112,7 @@ export interface LocalNativeRuntimeOptions {
 /** Concrete 6C composition. The host keeps the one root FD and closes it after execution. */
 export function createLocalNativeRuntime(
   options: LocalNativeRuntimeOptions,
-): LocalTurnRuntime {
+): LocalTurnRuntime & LocalNativeCredentialRuntime {
   const workerId = WorkerIdSchema.parse(options.workerId);
   const permissionProfileId = PermissionProfileIdSchema.parse(
     options.permissionProfileId,
@@ -222,6 +227,8 @@ export function createLocalNativeRuntime(
         },
         async createKernelPorts(admission, bound, signal, execution) {
           signal.throwIfAborted();
+          const credentialReference = await readLocalNativeCredentialReference(options.persistence.turnAdmissions, admission);
+          signal.throwIfAborted();
           await resolvePolicy();
           signal.throwIfAborted();
           const manifests = new MemoryWorkspaceManifestRepository();
@@ -248,7 +255,7 @@ export function createLocalNativeRuntime(
             providerId: admission.run.providerId,
             modelId: admission.run.modelId,
             model: modelSnapshot,
-            resolveCredential: options.resolveRuntimeCredential,
+            resolveCredential: createLocalNativeCredentialResolver(credentialReference, options.acquireRuntimeCredential),
           });
           const gateway = {
             generateText: (request: Parameters<typeof protectedGateway.generateText>[0]) =>
@@ -353,6 +360,12 @@ export function createLocalNativeRuntime(
       };
   };
   return {
+    async captureRuntimeCredentialReference(providerId, signal) {
+      signal?.throwIfAborted();
+      const reference = await options.captureRuntimeCredentialReference(providerId, signal);
+      signal?.throwIfAborted();
+      return requireLocalNativeCredentialReference(reference, providerId);
+    },
     reconcileLostTurn(admission) {
       return reconcileLocalNativePlanTurn({
         admission,
