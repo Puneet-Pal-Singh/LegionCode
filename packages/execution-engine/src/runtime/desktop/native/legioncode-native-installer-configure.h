@@ -4,6 +4,16 @@
 #include <dirent.h>
 
 #define LC_INSTALL_TOOLCHAIN LC_INSTALL_DIRECTORY "/toolchain"
+/* Fixed Recipe 2 bytes independently verified by the C qualification owner.
+ * No selected source text or ambient PATH participates in this launcher. */
+static bool cfg_install_npm_launcher(int toolchain) {
+  static const char launcher[] = "#!/bin/bash\nexec '" LC_INSTALL_TOOLCHAIN "/node' '"
+    LC_INSTALL_TOOLCHAIN "/npm/bin/npm-cli.js' \"$@\"\n";
+  int bin = install_directory(toolchain, "bin", 0755);
+  bool okay = bin >= 0 && install_write(bin, "npm", launcher, sizeof(launcher) - 1, 0555);
+  if (bin >= 0 && close(bin)) okay = false;
+  return okay;
+}
 static CFMutableDictionaryRef cfg_dictionary(void) {
   return CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
 }
@@ -152,9 +162,9 @@ static bool cfg_installed_helpers(void) {
 }
 static CFMutableDictionaryRef cfg_manifest(uid_t actor, const char *home, const char *namespace_path,
     const struct stat *namespace, CFArrayRef principals, const char *permit) {
-  CFMutableDictionaryRef manifest = cfg_dictionary(), resources = cfg_dictionary(), setup = cfg_dictionary(), toolchain = cfg_dictionary();
+  CFMutableDictionaryRef manifest = cfg_dictionary(), resources = cfg_dictionary(), setup = cfg_dictionary(), toolchain = cfg_dictionary(), core = cfg_dictionary();
   CFMutableArrayRef reads = cfg_array(), executables = cfg_array(), protected = cfg_array();
-  bool okay = manifest && resources && setup && toolchain && reads && executables && protected;
+  bool okay = manifest && resources && setup && toolchain && core && reads && executables && protected;
   char bridge[PATH_MAX], digest[65], cdhash[129], requirement[180], kernel[256]; size_t kernel_size = sizeof(kernel);
   snprintf(bridge, sizeof(bridge), "%s/Contents/Resources/native/legioncode-host-broker", LC_INSTALL_APP);
   if (okay) {
@@ -177,7 +187,7 @@ static CFMutableDictionaryRef cfg_manifest(uid_t actor, const char *home, const 
     if (key) CFRelease(key);
   }
   if (okay) {
-    cfg_put_number(toolchain, CFSTR("RecipeVersion"), 1);
+    cfg_put_number(toolchain, CFSTR("RecipeVersion"), 2);
     cfg_put_string(toolchain, CFSTR("NodePath"), LC_INSTALL_TOOLCHAIN "/node");
     okay = cfg_sha_path(LC_INSTALL_TOOLCHAIN "/node", digest) && cfg_code_identity(LC_INSTALL_TOOLCHAIN "/node", false, cdhash, requirement);
     if (okay) { cfg_put_string(toolchain, CFSTR("NodeSHA256"), digest); cfg_put_string(toolchain, CFSTR("NodeCDHash"), cdhash); }
@@ -186,12 +196,33 @@ static CFMutableDictionaryRef cfg_manifest(uid_t actor, const char *home, const 
     cfg_put_string(toolchain, CFSTR("NpmCliPath"), LC_INSTALL_TOOLCHAIN "/npm/bin/npm-cli.js");
     okay = okay && cfg_sha_path(LC_INSTALL_TOOLCHAIN "/npm/bin/npm-cli.js", digest);
     if (okay) cfg_put_string(toolchain, CFSTR("NpmCliSHA256"), digest);
+    cfg_put_string(toolchain, CFSTR("NpmLauncherPath"), LC_INSTALL_TOOLCHAIN "/bin/npm");
+    okay = okay && cfg_sha_path(LC_INSTALL_TOOLCHAIN "/bin/npm", digest);
+    if (okay) cfg_put_string(toolchain, CFSTR("NpmLauncherSHA256"), digest);
+    okay = okay && cfg_sha_path("/usr/bin/env", digest) && cfg_code_identity("/usr/bin/env", false, cdhash, requirement);
+    if (okay) {
+      cfg_put_string(toolchain, CFSTR("EnvSHA256"), digest);
+      cfg_put_string(toolchain, CFSTR("EnvCDHash"), cdhash);
+    }
     cfg_put_number(setup, CFSTR("Version"), 2); cfg_put_string(setup, CFSTR("PermitId"), permit);
     cfg_put_string(setup, CFSTR("WriterNamespacePath"), namespace_path);
     cfg_put_number(setup, CFSTR("WriterNamespaceDevice"), namespace->st_dev); cfg_put_number(setup, CFSTR("WriterNamespaceInode"), namespace->st_ino);
     CFDictionarySetValue(setup, CFSTR("QualificationToolchain"), toolchain);
     cfg_append(reads, LC_INSTALL_TOOLCHAIN); cfg_append(reads, "/System/Library"); cfg_append(reads, "/usr/lib"); cfg_append(reads, "/bin");
+    cfg_append(reads, "/usr/bin/env");
     cfg_append(executables, "/bin/bash"); cfg_append(executables, LC_INSTALL_TOOLCHAIN "/node");
+    cfg_append(executables, LC_INSTALL_TOOLCHAIN "/bin/npm"); cfg_append(executables, "/usr/bin/env");
+    const char *core_paths[] = { "/bin/sh", "/bin/ls", "/bin/cat", "/bin/cp", "/bin/mkdir", "/bin/rm", "/bin/mv" };
+    for (size_t i = 0; okay && i < sizeof(core_paths) / sizeof(core_paths[0]); i++) {
+      CFMutableDictionaryRef entry = cfg_dictionary(); CFStringRef path = cfg_string(core_paths[i]);
+      okay = entry && path && cfg_sha_path(core_paths[i], digest) &&
+        cfg_code_identity(core_paths[i], false, cdhash, requirement);
+      if (okay) {
+        cfg_put_string(entry, CFSTR("SHA256"), digest); cfg_put_string(entry, CFSTR("CDHash"), cdhash);
+        CFDictionarySetValue(core, path, entry); cfg_append(executables, core_paths[i]);
+      }
+      if (path) CFRelease(path); if (entry) CFRelease(entry);
+    }
     char library[PATH_MAX];
     int library_length = snprintf(library, sizeof(library), "%s/Library", home);
     okay = okay && library_length > 0 && library_length < (int)sizeof(library);
@@ -203,10 +234,11 @@ static CFMutableDictionaryRef cfg_manifest(uid_t actor, const char *home, const 
     okay = okay && !sysctlbyname("kern.osrelease", kernel, &kernel_size, NULL, 0) && kernel_size > 0 && kernel_size <= sizeof(kernel) && memchr(kernel, 0, kernel_size);
     if (okay) cfg_put_string(manifest, CFSTR("KernelRelease"), kernel);
     CFDictionarySetValue(manifest, CFSTR("ResourceSHA256"), resources); CFDictionarySetValue(manifest, CFSTR("Principals"), principals);
+    CFDictionarySetValue(manifest, CFSTR("CoreExecutables"), core);
     CFDictionarySetValue(manifest, CFSTR("ReadRoots"), reads); CFDictionarySetValue(manifest, CFSTR("Executables"), executables);
     CFDictionarySetValue(manifest, CFSTR("ProtectedRoots"), protected); CFDictionarySetValue(manifest, CFSTR("SetupAuthorization"), setup);
   }
-  if (resources) CFRelease(resources); if (setup) CFRelease(setup); if (toolchain) CFRelease(toolchain); 
+  if (resources) CFRelease(resources); if (setup) CFRelease(setup); if (toolchain) CFRelease(toolchain); if (core) CFRelease(core);
   if (reads) CFRelease(reads); if (executables) CFRelease(executables); if (protected) CFRelease(protected);
   if (!okay) { if (manifest) CFRelease(manifest); return NULL; } return manifest;
 }
@@ -249,6 +281,7 @@ static int install_configure(const char *actor_uid, const char *namespace_path, 
   lc_install_copy_budget budget = { actor, 0, 0 };
   if (okay) okay = cfg_copy_file(node, toolchain, "node", &budget, 256U * 1024U * 1024U);
   if (okay) { npm_output = install_directory(toolchain, "npm", 0755); okay = npm_output >= 0 && cfg_copy_tree(npm, npm_output, &budget) && cfg_npm_package(npm_output, actor); }
+  if (okay) okay = cfg_install_npm_launcher(toolchain);
   char copied_hash[129], copied_requirement[180];
   if (okay) {
     int copied_node = lc_host_open_protected(LC_INSTALL_TOOLCHAIN "/node", false); struct stat copied;
