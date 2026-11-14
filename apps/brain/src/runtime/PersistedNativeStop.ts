@@ -75,4 +75,3 @@ function sameAdmissionIdentity(
         original.continuationTerminalSequence,
   );
 }
-
