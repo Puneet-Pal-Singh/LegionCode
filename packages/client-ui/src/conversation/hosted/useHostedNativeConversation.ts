@@ -22,6 +22,7 @@ import {
 import { useConversationTurnLifecycle } from "../chat-interface/useConversationTurnLifecycle.js";
 import type { Message } from "@ai-sdk/react";
 import {
+  captureHostedNativeDraft,
   hostedConversationIdentity,
   hostedConversationScope,
   hostedLifecycleClient,
@@ -32,6 +33,7 @@ import {
   type HostedNativeDraft,
 } from "./hostedNativeConversation.js";
 import { useHostedConversationHistory } from "./useHostedConversationHistory.js";
+import { buildChatAppendMessage } from "../chatImageAttachments.js";
 
 type ApprovalDecision = Pick<SubmitLifecycleApprovalRequest, "approvalId" | "decision" | "grantScope">;
 type ApprovalCommand = { readonly decision: ApprovalDecision; readonly operation: Promise<void> };
@@ -95,13 +97,16 @@ export function useHostedNativeConversation(options: HostedNativeConversationOpt
   const messages = useMemo(() => {
     const draft = visibleDelivery?.optimisticDraft;
     if (!draft || history.messages.some((message) => message.id === draft.id)) return history.messages;
-    const message: Message = { id: draft.id, role: "user", content: draft.prompt };
+    const appendMessage = buildChatAppendMessage(draft.prompt, [...draft.imageAttachments ?? []]);
+    const message: Message = { id: draft.id, role: appendMessage.role, content: appendMessage.content as Message["content"] };
     const reserved = visibleDelivery?.optimisticScope;
-    return [...history.messages, reserved ? Object.assign(message, {
-      data: { metadata: { canonicalIdentity: {
+    const metadata = {
+      ...(appendMessage.imageMetadata ? { imageAttachments: appendMessage.imageMetadata } : {}),
+      ...(reserved ? { canonicalIdentity: {
         workspaceId: reserved.workspaceId, threadId: reserved.threadId, turnId: reserved.turnId, runAttemptId: reserved.runAttemptId,
-      } } },
-    }) : message];
+      } } : {}),
+    };
+    return [...history.messages, Object.keys(metadata).length > 0 ? Object.assign(message, { data: { metadata } }) : message];
   }, [history.messages, visibleDelivery?.optimisticDraft, visibleDelivery?.optimisticScope]);
   const conversationTurns = useMemo(() => buildConversationTurns(messages), [messages]);
   const active = (captured: Owner | null): captured is Owner => Boolean(
@@ -177,17 +182,8 @@ export function useHostedNativeConversation(options: HostedNativeConversationOpt
       isStopping || context.workspaceStatus === "archived" || command.current) {
       return { status: "inactive" };
     }
-    if (!draft.id.trim() || !draft.prompt.trim() || !draft.configuration.providerId ||
-      !draft.configuration.modelId || !["build", "plan"].includes(draft.configuration.mode ?? "")) {
-      throw new Error("Choose a model and Build or Plan, then enter a prompt.");
-    }
     // Capture caller-owned data before any await. A retry cannot replace this snapshot.
-    const configuration = ChatRequestBodySchema.pick({
-      providerId: true, modelId: true, mode: true, productMode: true, reasoningEffort: true,
-    }).parse(draft.configuration);
-    const frozenDraft: HostedNativeDraft = Object.freeze({
-      id: draft.id, prompt: draft.prompt, configuration: Object.freeze(configuration),
-    });
+    const frozenDraft = captureHostedNativeDraft(draft);
     const fingerprint = JSON.stringify([identity.submissionKey, frozenDraft]);
     if (pendingDraft && (visibleDelivery?.fingerprint !== fingerprint || pendingDraft.id !== draft.id)) {
       throw new Error("Delivery is unconfirmed. Retry the unchanged prompt or read its saved status first.");

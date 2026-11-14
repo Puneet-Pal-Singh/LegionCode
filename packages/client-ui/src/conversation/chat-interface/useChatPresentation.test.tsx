@@ -276,6 +276,28 @@ describe("useChatPresentation", () => {
     expect(reservedOnly.result.current.scope).toBeNull();
     expect(reservedOnly.result.current.canStop).toBe(false);
     reservedOnly.unmount();
+
+    const imageFixture = hostedFixture();
+    const imageController = renderHook(() => useHostedNativeConversation(imageFixture.options));
+    await waitFor(() => expect(imageController.result.current.canSubmit).toBe(true));
+    const image = { id: crypto.randomUUID(), name: "original.png", mediaType: "image/png" as const,
+      dataUrl: "data:image/png;base64,iVBORw0KGgo=", previewUrl: "blob:fixture-private-preview", byteSize: 8, source: "upload" as const };
+    const imageDraft = { ...hostedDraft(), prompt: "", imageAttachments: [image] };
+    let imageSubmission!: ReturnType<typeof imageController.result.current.submit>;
+    act(() => { imageSubmission = imageController.result.current.submit(imageDraft); });
+    image.dataUrl = "data:image/png;base64,Zm9yZWlnbg==";
+    image.name = "changed.png";
+    await act(async () => { expect(await imageSubmission).toMatchObject({ status: "unconfirmed" }); });
+    expect(imageFixture.submissions).toHaveLength(1);
+    const imageWire = ChatRequestBodySchema.parse(JSON.parse(imageFixture.submissions[0]!).params);
+    expect(imageWire.messages[0]?.content).toEqual([
+      { type: "text", text: "Analyze the attached image(s)." },
+      { type: "image", image: "data:image/png;base64,iVBORw0KGgo=", mimeType: "image/png", name: "original.png" },
+    ]);
+    expect(imageFixture.submissions[0]).not.toContain("blob:fixture-private-preview");
+    expect(imageController.result.current.pendingDraft?.imageAttachments?.[0]?.name).toBe("original.png");
+    await expect(imageController.result.current.submit(imageDraft)).rejects.toThrow("unchanged");
+    imageController.unmount();
   }, 15_000);
 
   it("reveals an optimistically admitted prompt while canonical replay hydrates", () => {

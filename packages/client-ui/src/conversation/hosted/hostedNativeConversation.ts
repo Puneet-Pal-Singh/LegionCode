@@ -6,11 +6,13 @@ import {
   type ConversationScope,
   type PlatformClient,
 } from "@legioncode/sdk";
-import type {
-  ChatRequestBody,
-  HostedSession,
-  HostedSessionWorkspaceContext,
+import {
+  ChatRequestBodySchema,
+  type ChatRequestBody,
+  type HostedSession,
+  type HostedSessionWorkspaceContext,
 } from "@repo/platform-protocol";
+import { buildChatAppendMessage, type ChatImageAttachment } from "../chatImageAttachments.js";
 
 /** Public host binding metadata only. Credentials and connection custody stay in the host. */
 export interface HostedNativeConversationBinding {
@@ -32,8 +34,34 @@ export interface HostedNativeDraft {
   /** A stable client message identity retained by the host until delivery is confirmed. */
   readonly id: string;
   readonly prompt: string;
+  readonly imageAttachments?: readonly ChatImageAttachment[];
   readonly configuration: Pick<ChatRequestBody,
     "providerId" | "modelId" | "mode" | "productMode" | "reasoningEffort">;
+}
+
+/** Capture the original browser draft before provider resolution or admission can yield. */
+export function captureHostedNativeDraft(draft: HostedNativeDraft): HostedNativeDraft {
+  const configuration = ChatRequestBodySchema.pick({
+    providerId: true, modelId: true, mode: true, productMode: true, reasoningEffort: true,
+  }).parse(draft.configuration);
+  const images = (draft.imageAttachments ?? []).map((image) => Object.freeze({
+    id: image.id, name: image.name, mediaType: image.mediaType, dataUrl: image.dataUrl,
+    previewUrl: image.previewUrl, byteSize: image.byteSize, source: image.source,
+  }));
+  let prompt = draft.prompt;
+  if (images.length > 0 && !prompt.trim()) {
+    const message = buildChatAppendMessage("", images);
+    prompt = typeof message.content === "string" ? message.content : message.content
+      .filter((part) => part.type === "text").map((part) => part.text).join("\n");
+  }
+  if (!draft.id.trim() || !prompt.trim() || !configuration.providerId || !configuration.modelId ||
+    !["build", "plan"].includes(configuration.mode ?? "")) {
+    throw new Error("Choose a model and Build or Plan, then enter a prompt.");
+  }
+  return Object.freeze({
+    id: draft.id, prompt, configuration: Object.freeze(configuration),
+    ...(images.length > 0 ? { imageAttachments: Object.freeze(images) } : {}),
+  });
 }
 
 export interface HostedConversationIdentity {
@@ -128,6 +156,7 @@ export function hostedNativeRequest(
   scope: ConversationScope,
   context: HostedSessionWorkspaceContext,
 ): ChatRequestBody {
+  const message = buildChatAppendMessage(draft.prompt, [...draft.imageAttachments ?? []]);
   return {
     providerId: draft.configuration.providerId,
     modelId: draft.configuration.modelId,
@@ -138,7 +167,7 @@ export function hostedNativeRequest(
     sessionId: scope.sessionId,
     runId: scope.runId,
     identity: TurnScopeBootstrapSchema.parse(scope),
-    messages: [{ id: draft.id, role: "user", content: draft.prompt }],
+    messages: [{ id: draft.id, role: message.role, content: message.content }],
     harnessMode: "platform_owned",
     authMode: "api_key",
     orchestratorBackend: "execution-engine-v1",

@@ -56,6 +56,7 @@ export { ApprovalDock } from "./conversation/approval/ApprovalDock.js";
 export { getDisplayedApprovalDecisions } from "./conversation/approval/approvalDecisions.js";
 export { ChatInputBar, type ChatInputBarProps } from "./conversation/ChatInputBar.js";
 export { useHostedNativeConversation } from "./conversation/hosted/useHostedNativeConversation.js";
+export { captureHostedNativeDraft } from "./conversation/hosted/hostedNativeConversation.js";
 export type {
   HostedNativeConversationBinding,
   HostedNativeConversationOptions,
