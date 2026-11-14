@@ -1,0 +1,162 @@
+name: Native container package
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [dev]
+    types: [opened, synchronize, reopened]
+    paths:
+      - .github/workflows/native-container-package.yml
+      - apps/secure-agent-api/Dockerfile
+      - apps/secure-agent-api/container-native/**
+      - apps/secure-agent-api/container-tools/**
+      - apps/secure-agent-api/container-requirements.txt
+      - scripts/gates/check-secure-container-image.mjs
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-container-package-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Package Linux native container
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build and run the existing image gate
+        run: node scripts/gates/check-secure-container-image.mjs
+
+      - name: Retain the exact checked image and installed helper
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_id="$(docker image inspect legioncode-secure-agent-api:image-gate --format '{{.Id}}')"
+          [[ "$image_id" =~ ^sha256:[a-f0-9]{64}$ ]]
+          image_tag="legioncode-native-source:${GITHUB_SHA}"
+          docker tag "$image_id" "$image_tag"
+          mkdir -p native-container-package
+          docker image inspect "$image_id" > native-container-package/docker-inspect.json
+          container_id="$(docker create --network none "$image_id")"
+          trap 'docker rm "$container_id" >/dev/null' EXIT
+          docker cp "$container_id:/usr/local/libexec/legioncode-command-supervisor" native-container-package/legioncode-command-supervisor
+          echo "image_id=$image_id" >> "$GITHUB_OUTPUT"
+          echo "image_tag=$image_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Export the checked image as OCI without publishing
+        env:
+          IMAGE_TAG: ${{ steps.image.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y skopeo
+          skopeo copy --format oci "docker-daemon:${IMAGE_TAG}" oci:native-container-package/oci:candidate
+
+      - name: Generate SBOM from the exact local image
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
+        with:
+          image: ${{ steps.image.outputs.image_tag }}
+          syft-version: v1.57.1
+          format: spdx-json
+          output-file: native-container-package/sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+          dependency-snapshot: false
+
+      - name: Verify OCI identity and record source evidence
+        env:
+          CHECKED_IMAGE_ID: ${{ steps.image.outputs.image_id }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, subprocess
+          root = pathlib.Path('native-container-package')
+          layout = root / 'oci'
+          digest = lambda data: hashlib.sha256(data).hexdigest()
+          def blob(descriptor):
+              algorithm, value = descriptor['digest'].split(':')
+              assert algorithm == 'sha256' and len(value) == 64 and all(char in '0123456789abcdef' for char in value)
+              data = (layout / 'blobs' / algorithm / value).read_bytes()
+              assert len(data) == descriptor['size'] and digest(data) == value
+              return data
+          assert json.loads((layout / 'oci-layout').read_text()) == {'imageLayoutVersion': '1.0.0'}
+          index = json.loads((layout / 'index.json').read_text())
+          assert index['schemaVersion'] == 2 and len(index['manifests']) == 1
+          descriptor = index['manifests'][0]
+          manifest = json.loads(blob(descriptor))
+          assert manifest['schemaVersion'] == 2
+          assert manifest['mediaType'] == 'application/vnd.oci.image.manifest.v1+json'
+          assert manifest['config']['digest'] == os.environ['CHECKED_IMAGE_ID']
+          config = json.loads(blob(manifest['config']))
+          assert config['architecture'] == 'amd64' and config['os'] == 'linux'
+          for layer in manifest['layers']:
+              blob(layer)
+          inspected, = json.loads((root / 'docker-inspect.json').read_text())
+          assert inspected['Id'] == os.environ['CHECKED_IMAGE_ID']
+          assert 0 < inspected['Size'] <= 1_350_000_000
+          sbom = json.loads((root / 'sbom.spdx.json').read_text())
+          assert sbom['spdxVersion'].startswith('SPDX-') and sbom['packages']
+          paths = subprocess.check_output(['git', 'ls-files', '--',
+              'apps/secure-agent-api/Dockerfile', 'apps/secure-agent-api/container-native',
+              'apps/secure-agent-api/container-tools', 'apps/secure-agent-api/container-requirements.txt',
+              'scripts/gates/check-secure-container-image.mjs', '.github/workflows/native-container-package.yml'],
+              text=True).splitlines()
+          assert paths
+          inputs = []
+          for path in sorted(paths):
+              data = pathlib.Path(path).read_bytes()
+              assert data == subprocess.check_output(['git', 'show', f'HEAD:{path}'])
+              inputs.append({'path': path, 'sha256': digest(data)})
+          policy_inputs = [item for item in inputs if '/container-native/' in item['path']]
+          assert policy_inputs
+          helper = (root / 'legioncode-command-supervisor').read_bytes()
+          assert helper[:6] == b'\x7fELF\x02\x01' and int.from_bytes(helper[18:20], 'little') == 62
+          receipt = {
+              'version': 1, 'sourceCommit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+              'workflowRunId': os.environ['GITHUB_RUN_ID'], 'workflowRunAttempt': os.environ['GITHUB_RUN_ATTEMPT'],
+              'platform': 'linux/amd64', 'checkedImageId': inspected['Id'], 'imageDigest': descriptor['digest'],
+              'imageBytes': inspected['Size'], 'helperSha256': digest(helper),
+              'policySourceSha256': digest(json.dumps(policy_inputs, sort_keys=True, separators=(',', ':')).encode()),
+              'sbomSha256': digest((root / 'sbom.spdx.json').read_bytes()), 'inputs': inputs,
+              'published': False, 'runtimeQualified': False,
+          }
+          (root / 'source-receipt.json').write_text(json.dumps(receipt, sort_keys=True, indent=2) + '\n')
+          PY
+          tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cf native-container-package/image.oci.tar -C native-container-package/oci .
+          python3 - <<'PY'
+          import hashlib, pathlib
+          root = pathlib.Path('native-container-package')
+          paths = sorted(path for path in root.iterdir() if path.is_file())
+          with (root / 'SHA256SUMS').open('x') as output:
+              for path in paths:
+                  value = hashlib.sha256()
+                  with path.open('rb') as stream:
+                      for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                          value.update(chunk)
+                  output.write(f'{value.hexdigest()}  {path.name}\n')
+          PY
+
+      - name: Upload immutable candidate package
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-container-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            native-container-package/image.oci.tar
+            native-container-package/legioncode-command-supervisor
+            native-container-package/source-receipt.json
+            native-container-package/docker-inspect.json
+            native-container-package/sbom.spdx.json
+            native-container-package/SHA256SUMS
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
