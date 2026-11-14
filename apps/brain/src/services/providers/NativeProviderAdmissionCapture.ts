@@ -17,7 +17,7 @@ const ModelId = z.string().trim().min(1).max(256);
 const CaptureInputSchema = z.object({
   scope: NativeProviderBindingScopeSchema,
   executionRoute: NativeProviderAdmissionRouteSchema,
-  providerId: ProviderIdSchema.nullable().optional(),
+  providerId: z.string().trim().min(1).max(256).nullable().optional(),
   modelId: ModelId.nullable().optional(),
 }).strict().superRefine((input, context) => {
   if (input.executionRoute === "native" && (input.providerId != null) !== (input.modelId != null)) {
