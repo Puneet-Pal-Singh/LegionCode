@@ -81,13 +81,15 @@ async function refreshLocalRuntimeAfterStop(): Promise<void> {
     throw new Error("Local runtime configuration is unavailable");
   environmentGeneration += 1;
   pendingWorkspaceSelections.clear();
-  await localAppServer.stop();
-  if (shutdownPromise || isQuitting) return;
   // Re-capture qualified configuration only after the OLD runtime closed.
   // No admitted attempt is moved to another execution policy or generation.
-  const configuration = await resolveLocalHostConfiguration();
-  if (shutdownPromise || isQuitting) return;
-  await localAppServer.start(app.getVersion(), app.getPath("userData"), configuration);
+  await localAppServer.restart(app.getVersion(), async () => {
+    if (shutdownPromise || isQuitting || !resolveLocalHostConfiguration)
+      throw new Error("Local runtime shutdown is pending");
+    const configuration = await resolveLocalHostConfiguration();
+    if (shutdownPromise || isQuitting) throw new Error("Local runtime shutdown is pending");
+    return configuration;
+  });
 }
 
 app.on("second-instance", () => {

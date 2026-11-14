@@ -223,9 +223,9 @@ export class LocalAppServerSupervisor {
     }
   }
 
-  async restart(serverVersion: string): Promise<void> {
+  async restart(serverVersion: string, resolveHostConfig?: () => Promise<LocalAppServerHostConfig>): Promise<void> {
     if (this.restartPromise) return await this.restartPromise;
-    const restartPromise = this.restartAfterStop(serverVersion);
+    const restartPromise = this.restartAfterStop(serverVersion, resolveHostConfig);
     this.restartPromise = restartPromise;
     try {
       await restartPromise;
@@ -234,7 +234,7 @@ export class LocalAppServerSupervisor {
     }
   }
 
-  private async restartAfterStop(serverVersion: string): Promise<void> {
+  private async restartAfterStop(serverVersion: string, resolveHostConfig?: () => Promise<LocalAppServerHostConfig>): Promise<void> {
     const stopped = this.stop();
     const stoppedGeneration = this.generation;
     await stopped;
@@ -242,7 +242,9 @@ export class LocalAppServerSupervisor {
     if (!this.storageDirectory) {
       throw new Error("Local App Server storage is not configured");
     }
-    await this.start(serverVersion, this.storageDirectory, this.hostConfig);
+    const hostConfig = resolveHostConfig ? await resolveHostConfig() : this.hostConfig;
+    if (this.generation !== stoppedGeneration) return;
+    await this.start(serverVersion, this.storageDirectory, hostConfig);
   }
 
   async request(envelope: AppServerRequest): Promise<unknown> {
