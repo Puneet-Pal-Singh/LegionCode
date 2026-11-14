@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z, type ZodSchema } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import type { CoreMessage, CoreTool } from "ai";
 import type { LLMUsage } from "../../cost/types.js";
@@ -117,6 +117,51 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
       toolCalls: extractResponsesToolCalls(payload.output),
       transcriptParts: extractResponsesReasoningSummary(payload.output),
     };
+  }
+
+  /** One buffered Responses request; the original Zod schema remains authoritative. */
+  async generateStructured<T>(
+    params: GenerationParams,
+    schema: ZodSchema<T>,
+  ): Promise<{ object: T; usage: LLMUsage }> {
+    try {
+      if (Object.keys(params.tools ?? {}).length > 0) {
+        throw new ProviderError(this.provider, "Structured Responses do not execute tools", undefined,
+          { code: "INVALID_PROVIDER_CONFIGURATION", retryable: false });
+      }
+      const jsonSchema = readJsonSchemaRecord(schema);
+      if (!jsonSchema || jsonSchema.type !== "object") {
+        throw new ProviderError(this.provider, "Structured Responses require an object schema", undefined,
+          { code: "INVALID_PROVIDER_CONFIGURATION", retryable: false });
+      }
+      const model = this.resolveModel(params.model);
+      const payload = await requestResponsesCompletion({
+        endpoint: this.endpoint,
+        apiKey: this.apiKey,
+        body: {
+          ...buildResponsesRequestBody(params, model),
+          text: { format: { type: "json_schema", name: "legioncode_response", schema: jsonSchema, strict: false } },
+        },
+        signal: params.signal,
+      });
+      if (params.signal?.aborted) throw structuredResponsesAborted();
+      const value: unknown = JSON.parse(readStructuredResponsesText(payload));
+      if (!value || typeof value !== "object" || Array.isArray(value)) throw invalidStructuredResponses();
+      const validated = await schema.safeParseAsync(value);
+      if (params.signal?.aborted) throw structuredResponsesAborted();
+      if (!validated.success) throw invalidStructuredResponses();
+      return { object: validated.data, usage: normalizeResponsesUsage(payload.usage, this.provider, model) };
+    } catch (error) {
+      // Neither provider bodies nor JSON/Zod failures may escape this boundary.
+      const failure = error instanceof ProviderError ? error : undefined;
+      const statusCode = failure?.statusCode;
+      throw new ProviderError(this.provider, "Responses structured generation failed", undefined, {
+        code: failure?.code ?? (statusCode === 401 || statusCode === 403 ? "AUTH_FAILED"
+          : statusCode !== undefined ? "PROVIDER_UNAVAILABLE" : "INVALID_RESPONSE_CONTRACT"),
+        statusCode: statusCode ?? (failure ? undefined : 502),
+        retryable: failure?.retryable ?? false,
+      });
+    }
   }
 
   async *generateStream(
@@ -292,6 +337,44 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
     }
     return resolvedModel;
   }
+}
+
+function structuredResponsesAborted(): ProviderError {
+  return new ProviderError("openai-responses", "Responses request was aborted", undefined,
+    { code: "ABORTED", retryable: false });
+}
+
+function invalidStructuredResponses(): ProviderError {
+  return new ProviderError("openai-responses", "Responses structured output failed contract validation", undefined,
+    { code: "INVALID_RESPONSE_CONTRACT", statusCode: 502, retryable: false });
+}
+
+function readStructuredResponsesText(payload: ResponsesPayload): string {
+  if (payload.status !== "completed" || !payload.output?.length ||
+      payload.error != null || payload.incomplete_details != null || payload.refusal != null) {
+    throw invalidStructuredResponses();
+  }
+  const text: string[] = [];
+  for (const item of payload.output) {
+    if (item.refusal != null || (item.status !== undefined && item.status !== "completed")) {
+      throw invalidStructuredResponses();
+    }
+    if (item.type === "reasoning") continue;
+    if (item.type !== "message" || (item.role !== undefined && item.role !== "assistant") || !item.content?.length) {
+      throw invalidStructuredResponses();
+    }
+    for (const part of item.content) {
+      if (part.type !== "output_text" || typeof part.text !== "string" || part.refusal != null) {
+        throw invalidStructuredResponses();
+      }
+      text.push(part.text);
+    }
+  }
+  const content = text.join("");
+  if (!content.trim() || (payload.output_text !== undefined && payload.output_text !== content)) {
+    throw invalidStructuredResponses();
+  }
+  return content;
 }
 
 function invalidResponsesStream(): ProviderError {

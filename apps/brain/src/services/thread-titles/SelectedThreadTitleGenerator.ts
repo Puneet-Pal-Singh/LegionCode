@@ -1,4 +1,5 @@
-import { builtinProviderRegistry } from "@repo/provider-core";
+import { builtinProviderRegistry, normalizeRuntimeModelId, resolveProviderRuntimeRoute } from "@repo/provider-core";
+import { parseNativeProviderBindingForAdmission } from "@repo/persistence";
 import { AIService } from "../AIService";
 import { createPostgresProviderConfigService } from "../providers/stores/PostgresStoreFactory";
 import type { Env } from "../../types/ai";
@@ -14,6 +15,23 @@ export function createSelectedThreadTitleGenerator(
   env: Env,
   input: GenerateThreadTitleInput,
 ): ThreadTitleGenerator {
+  const nativeCredentials = input.nativeProviderCredentials;
+  if (!nativeCredentials) throw new Error("Selected Native title generation requires its original admission");
+  const binding = parseNativeProviderBindingForAdmission(nativeCredentials.binding, { ...nativeCredentials.scope,
+    userId: input.userId, workspaceId: input.workspaceId, sessionId: input.sessionId, threadId: input.threadId, runId: input.runId });
+  if (input.providerId !== binding.providerId || input.modelId !== binding.modelId) {
+    throw new Error("Selected Native title generation must retain its admitted provider and model");
+  }
+  const fixedRoute = resolveProviderRuntimeRoute(binding.providerId, binding.modelId);
+  const assertFixedRoute = (candidate: Pick<GenerateThreadTitleInput, "providerTransport" | "providerEndpoint" | "runtimeModelId">) => {
+    if (fixedRoute &&
+        ((candidate.providerTransport !== undefined && candidate.providerTransport !== fixedRoute.providerTransport) ||
+         (candidate.providerEndpoint !== undefined && candidate.providerEndpoint !== fixedRoute.providerEndpoint) ||
+         (candidate.runtimeModelId !== undefined && normalizeRuntimeModelId(binding.providerId, candidate.runtimeModelId) !== fixedRoute.runtimeModelId))) {
+      throw new Error("Selected Native title generation must retain its canonical provider route");
+    }
+  };
+  assertFixedRoute(input);
   const provider = input.providerId
     ? builtinProviderRegistry.getProvider(input.providerId)
     : undefined;
@@ -25,9 +43,9 @@ export function createSelectedThreadTitleGenerator(
   const structured =
     capabilities?.supportsStructuredOutputs === true &&
     provider?.capabilities.structuredOutputs === true &&
-    // AIService's structured path currently wires explicit routes only for chat completions.
     (!input.providerTransport ||
-      input.providerTransport === "openai-chat-completions") &&
+      input.providerTransport === "openai-chat-completions" ||
+      (input.providerTransport === "openai-responses" && fixedRoute?.providerTransport === "openai-responses")) &&
     (provider.capabilities.jsonMode ||
       provider.adapterFamily === "anthropic-native" ||
       provider.adapterFamily === "google-native");
@@ -38,18 +56,21 @@ export function createSelectedThreadTitleGenerator(
       input.userId,
       input.workspaceId,
       input.runId,
+      nativeCredentials,
     ),
   );
 
   return {
     outputFormat: structured ? "json" : "text",
     async generateText(request) {
+      assertFixedRoute(request);
+      const selectedRequest = { ...request, ...fixedRoute };
       // Unknown/reasoning models need room for private reasoning before visible output.
       const providerOptions = resolveThreadTitleProviderOptions(request.maxOutputTokens, capabilities, model?.supportsReasoning);
       const maxTokens = providerOptions.maxOutputTokens;
       if (structured) {
         const result = await service.generateStructured({
-          ...request,
+          ...selectedRequest,
           schema: ThreadTitleOutputSchema,
           maxTokens,
           abortSignal: request.signal,
@@ -57,7 +78,7 @@ export function createSelectedThreadTitleGenerator(
         return { text: JSON.stringify(result.object), usage: result.usage };
       }
       return service.generateText({
-        ...request,
+        ...selectedRequest,
         maxOutputTokens: maxTokens,
         ...(providerOptions.reasoningEffort ? { reasoningEffort: providerOptions.reasoningEffort } : {}),
       });

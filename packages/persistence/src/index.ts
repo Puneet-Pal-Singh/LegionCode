@@ -72,6 +72,17 @@ export type {
   LegacyHistoryImportResult,
 } from "./sessions/types.js";
 export { PostgresTurnAdmissionRepository, TurnAdmissionConflictError } from "./turn-admissions/PostgresTurnAdmissionRepository.js";
+export {
+  NativeProviderBindingScopeSchema,
+  NativeProviderBindingSchema,
+  NativeProviderAdmissionRouteSchema,
+  parseNativeProviderBindingForAdmission,
+  type NativeProviderBindingScope,
+  type NativeProviderBinding,
+  type NativeProviderAdmissionRoute,
+  type NativeProviderAdmissionCaptureInput,
+  type NativeProviderAdmissionCapture,
+} from "./turn-admissions/native-provider-binding.js";
 export type {
   AdmitContinuationInput,
   AdmitTurnWithPromptInput,

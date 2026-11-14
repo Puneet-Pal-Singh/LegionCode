@@ -7,6 +7,7 @@ import {
   readWorkerDatabaseConfig,
   type SqlClient,
   type WorkerDatabaseConfig,
+  NativeProviderBindingScopeSchema,
 } from "@repo/persistence";
 import { ProviderConfigService } from "../ProviderConfigService";
 import {
@@ -19,13 +20,24 @@ import {
 import { DependencyError } from "../../../domain/errors";
 import type { Env } from "../../../types/ai";
 import { getProviderEncryptionConfig } from "./ProviderEncryptionConfig";
+import {
+  NativeProviderCredentialResolver,
+  type NativeProviderCredentialContext,
+} from "../NativeProviderCredentialResolver";
 
 export function createPostgresProviderConfigService(
   env: Env,
   userId: string,
   workspaceId: string,
   scopeKey?: string,
+  nativeContext?: NativeProviderCredentialContext,
 ): ProviderConfigService {
+  if (nativeContext) {
+    const scope = NativeProviderBindingScopeSchema.parse(nativeContext.scope);
+    if (scope.userId !== userId || scope.workspaceId !== workspaceId || scope.runId !== scopeKey) {
+      throw new Error("Native credential context does not match its provider store scope");
+    }
+  }
   const databaseConfig = readBrainDatabaseConfig(env);
   const sqlClient = createPostgresSqlClient(
     databaseConfig.connectionString,
@@ -34,19 +46,23 @@ export function createPostgresProviderConfigService(
   const encryptionConfig = getProviderEncryptionConfig(
     env as unknown as Record<string, unknown>,
   );
+  const credentialStore = new PostgresCredentialStore(
+    sqlClient,
+    userId,
+    workspaceId,
+    encryptionConfig.masterKey,
+    encryptionConfig.keyVersion,
+    encryptionConfig.previousMasterKey,
+  );
 
   return new ProviderConfigService({
     env,
     userId,
     workspaceId,
-    credentialStore: new PostgresCredentialStore(
-      sqlClient,
-      userId,
-      workspaceId,
-      encryptionConfig.masterKey,
-      encryptionConfig.keyVersion,
-      encryptionConfig.previousMasterKey,
-    ),
+    credentialStore,
+    ...(nativeContext ? { nativeCredentialResolver: new NativeProviderCredentialResolver({
+      context: nativeContext, credentials: credentialStore, env,
+    }) } : {}),
     preferenceStore: new PostgresPreferenceStore(
       sqlClient,
       userId,

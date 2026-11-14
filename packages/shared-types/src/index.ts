@@ -113,8 +113,10 @@ export {
 export {
   CredentialSecretSchema,
   CredentialAcquisitionSchema,
+  RuntimeCredentialReferenceSchema,
   type CredentialSecret,
   type CredentialAcquisition,
+  type RuntimeCredentialReference,
   type CredentialRefreshClaim,
   CredentialVaultSurfaceSchema,
   CredentialVaultEntrySchema,

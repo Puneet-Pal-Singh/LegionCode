@@ -49,6 +49,8 @@ import {
   type ExecuteRunPayload,
 } from "./parsing/ExecuteRunPayloadSchema";
 import { prepareRuntimeExecutionResources } from "./RuntimeExecutionResources";
+import { resolveNativeAdmissionExecutionInput } from "./NativeAdmissionExecutionInput";
+import type { NativeProviderCredentialContext } from "../services/providers/NativeProviderCredentialResolver";
 import {
   DomainError,
   isDomainError,
@@ -1320,7 +1322,7 @@ export class RunEngineRequestHandler {
         if (
           !storedIdentity ||
           storedRunId !== payload.runId ||
-          storedIdentity.workspaceId !== workspaceId.data ||
+          workspaceIdFromExternalId(storedIdentity.workspaceId) !== workspaceIdFromExternalId(workspaceId.data) ||
           storedIdentity.sessionId !== payload.sessionId ||
           storedIdentity.threadId !== identity.threadId ||
           storedIdentity.runAttemptId !== identity.runAttemptId ||
@@ -1377,18 +1379,32 @@ export class RunEngineRequestHandler {
         }
         executionClaim = { turnId, claimId };
         this.interruptRegistry.beginStartup(turnId);
+        if (!claimResult.admission) throw new Error("Claimed execution has no durable admission receipt");
+        const admission = Object.freeze({ ...claimResult.admission });
+        // This owner instantiates NativeRunner regardless of an input harness label.
+        // A genuine delegated path must dispatch to its own owner before this boundary.
+        const nativeCredentials: NativeProviderCredentialContext = Object.freeze({
+          binding: admission.nativeProviderBinding,
+          scope: Object.freeze({
+            userId: admission.userId, workspaceId: admission.workspaceId!, sessionId: admission.sessionId,
+            threadId: admission.threadId, runId: admission.runId, turnId: admission.turnId,
+            runAttemptId: admission.runAttemptId,
+          }),
+        });
+        const effectivePayload: ExecuteRunPayload = { ...payload,
+          input: resolveNativeAdmissionExecutionInput(payload.input, nativeCredentials, payload.correlationId) };
         const runtimeState = this.createRuntimeState();
-        const resources = await prepareRuntimeExecutionResources(this.ctx, this.env, payload);
+        const resources = await prepareRuntimeExecutionResources(this.ctx, this.env, effectivePayload, nativeCredentials);
         const taskCheckoutLifecycle = resources.checkoutLifecycle;
         const editArtifactCoordinator = resources.artifacts;
         try {
-          const userMessageId = readLatestUserMessageId(payload.messages);
+          const userMessageId = readLatestUserMessageId(effectivePayload.messages);
           editArtifactCoordinator?.setMessageContext({ userMessageId: userMessageId ?? undefined });
           const runtimeRunner = new RuntimeKernelNativeRunner(runtimeState, {
-            env: this.env, sessionId: payload.sessionId, runId: payload.runId, userId: payload.userId,
-            correlationId: payload.correlationId, requestOrigin: payload.requestOrigin,
+            env: this.env, sessionId: effectivePayload.sessionId, runId: effectivePayload.runId, userId: effectivePayload.userId,
+            correlationId: effectivePayload.correlationId, requestOrigin: effectivePayload.requestOrigin,
           }, resources.agent, resources.runEngineDeps);
-          const runtimeTools = resources.workspace ? toRuntimeCoreTools(payload.tools) : {};
+          const runtimeTools = resources.workspace ? toRuntimeCoreTools(effectivePayload.tools) : {};
           const hookOrchestration = resources.hooks;
           this.threadInputRegistry.register(turnId, async (threadInput) =>
             await runtimeRunner.acceptThreadInput(threadInput),
@@ -1420,8 +1436,8 @@ export class RunEngineRequestHandler {
           // Kernel observers can settle before the original provider body. Keep
           // this attempt's checkout and execution ownership until that body drains.
           const executionResponse = await runtimeRunner.execute({
-            input: payload.input,
-            messages: payload.messages as CoreMessage[],
+            input: effectivePayload.input,
+            messages: effectivePayload.messages as CoreMessage[],
             tools: runtimeTools,
             lifecycleEvents: this.createLifecycleEventStore(),
             hookOrchestration,
@@ -1436,9 +1452,9 @@ export class RunEngineRequestHandler {
           }).finally(() => resources.drainProviderRequests());
           console.log(
             formatDiagnosticLogLine("run/runtime", "engine-executed", {
-              correlationId: payload.correlationId,
-              runId: payload.runId,
-              sessionId: payload.sessionId,
+              correlationId: effectivePayload.correlationId,
+              runId: effectivePayload.runId,
+              sessionId: effectivePayload.sessionId,
               responseStatus: executionResponse.status,
             }),
           );
@@ -1447,17 +1463,17 @@ export class RunEngineRequestHandler {
             this.env,
             (repository) =>
               repository.getCanonicalAssistantMessageId?.({
-                sessionId: payload.sessionId,
-                userId: payload.userId!,
+                sessionId: effectivePayload.sessionId,
+                userId: effectivePayload.userId!,
                 turnId,
                 phase: "final_answer",
               }) ?? Promise.resolve(null),
           );
           console.log(
             formatDiagnosticLogLine("run/runtime", "post-execution-handled", {
-              correlationId: payload.correlationId,
-              runId: payload.runId,
-              sessionId: payload.sessionId,
+              correlationId: effectivePayload.correlationId,
+              runId: effectivePayload.runId,
+              sessionId: effectivePayload.sessionId,
               assistantMessageId: persistedAssistantMessageId,
             }),
           );
@@ -1480,7 +1496,7 @@ export class RunEngineRequestHandler {
               "Runtime completed without a canonical terminal lifecycle event.",
               502,
               false,
-              payload.correlationId,
+              effectivePayload.correlationId,
             );
           }
           await taskCheckoutLifecycle?.settle(
@@ -1496,9 +1512,9 @@ export class RunEngineRequestHandler {
           );
           console.log(
             formatDiagnosticLogLine("run/runtime", "artifacts-settled", {
-              correlationId: payload.correlationId,
-              runId: payload.runId,
-              sessionId: payload.sessionId,
+              correlationId: effectivePayload.correlationId,
+              runId: effectivePayload.runId,
+              sessionId: effectivePayload.sessionId,
             }),
           );
 
@@ -1520,7 +1536,7 @@ export class RunEngineRequestHandler {
                 "The task failed and its isolated checkout could not be settled. Retry after capacity recovery.",
                 503,
                 true,
-                payload.correlationId,
+                effectivePayload.correlationId,
                 {
                   checkoutId: resources.checkoutId,
                   runAttemptId,
