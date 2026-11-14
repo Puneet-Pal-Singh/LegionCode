@@ -1,7 +1,7 @@
-import { useCallback, useMemo, type MutableRefObject } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, type MutableRefObject } from "react";
 import {
   createConversationInputCommands,
-  ThreadInputConfigurationSchema,
+  createChatThreadInputConfiguration,
 } from "@legioncode/sdk";
 import type { ProductMode, RunMode, ReasoningEffort } from "@repo/shared-types";
 import type { ThreadInputReceipt } from "@legioncode/sdk";
@@ -33,8 +33,11 @@ export function useConversationInputCommands(input: {
   clearInput: () => void;
   setError: (error: string | null) => void;
   commitScope: (scope: ConversationScope) => void;
+  isMutationAllowed: (scope?: ConversationScope | null) => boolean;
 }) {
   const commands = useMemo(() => createConversationInputCommands(), []);
+  const current = useRef(input);
+  useLayoutEffect(() => { current.current = input; }, [input]);
   const submitFollowUp = useCallback(
     async (
       text: string,
@@ -51,11 +54,12 @@ export function useConversationInputCommands(input: {
         name: image.name,
         mediaType: image.mediaType,
       }));
-      if (!capturedScope || (!capturedText.trim() && images.length === 0)) {
+      if (!input.isMutationAllowed(capturedScope) || !current.current.isMutationAllowed(capturedScope) ||
+          !capturedScope || (!capturedText.trim() && images.length === 0)) {
         return false;
       }
 
-      let configuration: ReturnType<typeof ThreadInputConfigurationSchema.parse>;
+      let configuration: ReturnType<typeof createChatThreadInputConfiguration>;
       try {
         configuration = buildInputConfiguration(input);
       } catch {
@@ -80,6 +84,7 @@ export function useConversationInputCommands(input: {
         })),
       });
       try {
+        if (!input.isMutationAllowed(capturedScope) || !current.current.isMutationAllowed(capturedScope)) return false;
         const receipt = await commands.submitFollowUp(input.lifecycleClient, {
           fingerprint,
           scope: capturedScope,
@@ -154,8 +159,8 @@ export function useConversationInputCommands(input: {
       const capturedScope = input.scopeRef.current;
       const capturedRunScope = input.runScopeRef.current;
       const capturedGeneration = input.generationRef.current;
-      if (!capturedScope) return false;
-      let configuration: ReturnType<typeof ThreadInputConfigurationSchema.parse>;
+      if (!capturedScope || !input.isMutationAllowed(capturedScope) || !current.current.isMutationAllowed(capturedScope)) return false;
+      let configuration: ReturnType<typeof createChatThreadInputConfiguration>;
       try {
         configuration = buildInputConfiguration(input);
       } catch {
@@ -173,6 +178,7 @@ export function useConversationInputCommands(input: {
         configuration,
       });
       try {
+        if (!input.isMutationAllowed(capturedScope) || !current.current.isMutationAllowed(capturedScope)) return false;
         const receipt = await commands.resumeInterruptedTurn(input.lifecycleClient, {
           fingerprint,
           scope: capturedScope,
@@ -263,8 +269,8 @@ function buildInputConfiguration(input: {
   selectedModelId?: string | null;
   selectedModelEfforts?: readonly ReasoningEffort[];
 }) {
-  return ThreadInputConfigurationSchema.parse({
-    mode: input.mode === "build" ? "auto_edit" : input.mode,
+  return createChatThreadInputConfiguration({
+    mode: input.mode,
     ...(input.productMode ? { productMode: input.productMode } : {}),
     harnessId: resolveRuntimeHarnessId(input.sessionId),
     ...(input.selectedProviderId && input.selectedModelId

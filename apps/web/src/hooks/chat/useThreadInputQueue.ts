@@ -2,7 +2,6 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -14,15 +13,15 @@ import {
   type ThreadInputQueueSnapshot,
   type ThreadInputReceipt,
 } from "@legioncode/sdk";
-import type { ConversationScope } from "@legioncode/sdk";
-import { createWebPlatformClient } from "../../services/api/platformClient";
+import type { ConversationScope, PlatformClient } from "@legioncode/sdk";
 
 export function useThreadInputQueue(
   scope: ConversationScope | null,
   activeTarget: { turnId: string; runAttemptId: string } | null,
   invalidationKey: string,
+  isMutationAllowed: () => boolean,
+  client: PlatformClient,
 ) {
-  const client = useMemo(() => createWebPlatformClient(), []);
   const [snapshotState, setSnapshotState] = useState<{
     scopeKey: string;
     value: ThreadInputQueueSnapshot;
@@ -126,6 +125,7 @@ export function useThreadInputQueue(
     async (
       action: () => Promise<ThreadInputReceipt>,
     ): Promise<ThreadInputReceipt | null> => {
+      if (!scopeKey || scopeKeyRef.current !== scopeKey || !isMutationAllowed()) return null;
       const capturedKey = scopeKey;
       try {
         const receipt = await action();
@@ -150,7 +150,7 @@ export function useThreadInputQueue(
         return null;
       }
     },
-    [refresh, scopeKey],
+    [isMutationAllowed, refresh, scopeKey],
   );
 
   const update = useCallback(

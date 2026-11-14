@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -18,11 +19,13 @@ import type {
   PlatformClient,
 } from "@legioncode/sdk";
 import { getDisplayedApprovalDecisions } from "@legioncode/client-ui";
+import { CONVERSATION_RECOVERY_REASON } from "../../../hooks/chat/useConversationMutationAvailability";
 
 interface ApprovalControllerInput {
   lifecycleProjection: LifecycleProjection | null;
   sessionId: string;
   lifecycleClient?: Pick<PlatformClient, "submitLifecycleApproval">;
+  isMutationAllowed: () => boolean;
 }
 
 type PendingApprovalState = {
@@ -45,6 +48,8 @@ export function useApprovalController(input: ApprovalControllerInput) {
     null,
   );
   const submittingRef = useRef(false);
+  const current = useRef(input);
+  useLayoutEffect(() => { current.current = input; }, [input]);
   const pendingApprovalState = useMemo(
     () =>
       buildPendingApprovalState({
@@ -67,8 +72,13 @@ export function useApprovalController(input: ApprovalControllerInput) {
   );
 
   const resolve = useCallback(
-    (decision: ApprovalDecisionKind) =>
-      resolveDecision({
+    (decision: ApprovalDecisionKind) => {
+      if (!input.isMutationAllowed() || !current.current.isMutationAllowed() ||
+          current.current.sessionId !== input.sessionId ||
+          current.current.lifecycleProjection?.turnId !== pendingApprovalState?.turnId ||
+          current.current.lifecycleProjection?.pendingApproval?.approvalId !== pendingApprovalState?.approval.approvalId)
+        return Promise.resolve();
+      return resolveDecision({
         decision,
         lifecycleClient,
         pendingApprovalState,
@@ -77,19 +87,21 @@ export function useApprovalController(input: ApprovalControllerInput) {
         setError,
         setResolvedRequestId,
         resolvedApprovalIdentity: approvalIdentity,
-      }),
-    [approvalIdentity, lifecycleClient, pendingApprovalState],
+      });
+    },
+    [approvalIdentity, input, lifecycleClient, pendingApprovalState],
   );
+  const mutationAllowed = input.isMutationAllowed();
 
   return {
     pendingApproval,
-    decisions: getDisplayedApprovalDecisions(pendingApproval),
+    decisions: mutationAllowed ? getDisplayedApprovalDecisions(pendingApproval) : [],
     matchingInChatOption:
       pendingApprovalState?.approval.options.find(
         (option) => option.id === "allow_matching_in_chat",
       ) ?? null,
     busyDecision,
-    error,
+    error: mutationAllowed ? error : CONVERSATION_RECOVERY_REASON,
     resolve,
   };
 }
