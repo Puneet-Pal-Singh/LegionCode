@@ -1,6 +1,7 @@
 #ifndef LEGIONCODE_HOST_APPROVAL_H
 #define LEGIONCODE_HOST_APPROVAL_H
 #include "legioncode-host-contract.h"
+#include <stddef.h>
 #define LC_HOST_ENV_EXECUTABLE "/usr/bin/env"
 
 typedef struct { uid_t uid; gid_t gid; uuid_t guid; } lc_host_principal;
@@ -13,11 +14,76 @@ typedef struct {
   SecRequirementRef bundle_requirement, bridge_requirement;
   lc_host_principal principals[LC_HOST_MAX_PRINCIPALS];
   size_t principal_count;
-  bool qualified, platform_matches, setup_authorized;
+  bool qualified, platform_matches, setup_authorized, reauthorization_sealed;
   char setup_permit_id[65], writer_namespace_path[PATH_MAX];
   lc_host_file_identity writer_namespace;
   unsigned char manifest_sha256[32];
 } lc_host_approval;
+
+/* This is a deny-only configuration transition receipt in the SAME protected
+ * setup authority. It never authorizes execution, cleanup or UID reuse. The
+ * installer may rotate an exact immutable manifest only after READY. */
+#define LC_HOST_REAUTHORIZATION_SEAL_VERSION 1U
+#define LC_HOST_REAUTHORIZATION_PENDING 1U
+#define LC_HOST_REAUTHORIZATION_READY 2U
+typedef struct {
+  uint32_t version, bytes, actor, phase;
+  char boot[40], generation[65];
+  lc_host_file_identity namespace;
+  unsigned char configuration_sha256[32], policy_sha256[32], policy_generation[32];
+  uint64_t resource_count, slot_count, permit_count;
+  unsigned char history_sha256[32];
+  _Alignas(8) unsigned char digest[32];
+} lc_host_reauthorization_seal;
+_Static_assert(offsetof(lc_host_reauthorization_seal, digest) + 32 == sizeof(lc_host_reauthorization_seal),
+  "Reauthorization digest covers complete receipt");
+static inline bool lc_host_reauthorization_name(const unsigned char configuration[32], char name[96]) {
+  char digest[65]; return lc_host_hex(configuration, 32, digest, sizeof(digest)) &&
+    snprintf(name, 96, "setup-seal.%s", digest) < 96;
+}
+static inline bool lc_host_reauthorization_boot_field(const char boot[40]) {
+  if (boot[36] || boot[37] || boot[38] || boot[39]) return false;
+  for (size_t i = 0; i < 36; i++) {
+    if (i == 8 || i == 13 || i == 18 || i == 23) { if (boot[i] != '-') return false; }
+    else if (!((boot[i] >= '0' && boot[i] <= '9') || (boot[i] >= 'a' && boot[i] <= 'f'))) return false;
+  }
+  return true;
+}
+static inline bool lc_host_reauthorization_seal_read(const lc_host_approval *approval,
+    const unsigned char configuration[32], lc_host_reauthorization_seal *record, bool *present) {
+  char name[96], path[PATH_MAX]; struct stat st; *present = false;
+  if (!lc_host_reauthorization_name(configuration, name) ||
+      snprintf(path, sizeof(path), "%s/%s", LC_HOST_STATE, name) >= (int)sizeof(path)) return false;
+  errno = 0;
+  if (lstat(path, &st)) return errno == ENOENT;
+  *present = true; int fd = lc_host_open_protected(path, false); if (fd < 0) return false;
+  memset(record, 0, sizeof(*record));
+  bool okay = !fstat(fd, &st) && st.st_nlink == 1 && (st.st_mode & 07777) == 0600 &&
+    st.st_size == sizeof(*record) && lc_host_io(fd, record, sizeof(*record), false);
+  if (close(fd)) okay = false;
+  unsigned char hash[32], policy[32], generation[32], history = 0;
+  for (size_t i = 0; i < 32; i++) history |= record->history_sha256[i];
+  CC_SHA256(record, (CC_LONG)offsetof(lc_host_reauthorization_seal, digest), hash);
+  return okay && record->version == LC_HOST_REAUTHORIZATION_SEAL_VERSION && record->bytes == sizeof(*record) &&
+    record->actor == approval->actor && (record->phase == LC_HOST_REAUTHORIZATION_PENDING ?
+      !record->resource_count && !record->slot_count && !record->permit_count && !history :
+      record->phase == LC_HOST_REAUTHORIZATION_READY && history) &&
+    lc_host_reauthorization_boot_field(record->boot) &&
+    memchr(record->generation, 0, sizeof(record->generation)) && lc_host_unhex(record->generation, generation, 32) &&
+    lc_host_same(record->namespace, approval->writer_namespace) && !memcmp(record->configuration_sha256, configuration, 32) &&
+    lc_host_unhex(approval->policy, policy, 32) && !memcmp(record->policy_sha256, policy, 32) &&
+    lc_host_unhex(approval->policy_generation, generation, 32) && !memcmp(record->policy_generation, generation, 32) &&
+    !memcmp(record->digest, hash, 32);
+}
+static inline bool lc_host_reauthorization_load(lc_host_approval *approval) {
+  char name[96], next[PATH_MAX]; struct stat st;
+  if (!lc_host_reauthorization_name(approval->manifest_sha256, name) ||
+      snprintf(next, sizeof(next), "%s/%s.next", LC_HOST_STATE, name) >= (int)sizeof(next)) return false;
+  errno = 0; if (!lstat(next, &st) || errno != ENOENT) return false;
+  lc_host_reauthorization_seal record; bool present;
+  if (!lc_host_reauthorization_seal_read(approval, approval->manifest_sha256, &record, &present)) return false;
+  approval->reauthorization_sealed = present; return true;
+}
 
 static inline bool lc_host_sha_file(const char *path, const char *expected) {
   unsigned char digest[32], buffer[32768]; char hex[65];
@@ -182,7 +248,7 @@ static inline bool lc_host_load_approval(lc_host_approval *out) {
    * may publish/validate its current-boot receipt. Never revive prior instances. */
   out->qualified = false;
   unsigned char random[32]; arc4random_buf(random, sizeof(random)); lc_host_hex(random, sizeof(random), out->generation, sizeof(out->generation));
-  return true;
+  return lc_host_reauthorization_load(out);
 }
 static inline bool lc_host_authorize(lc_host_approval *approval, xpc_connection_t peer, xpc_object_t message) {
   uid_t uid = xpc_connection_get_euid(peer);

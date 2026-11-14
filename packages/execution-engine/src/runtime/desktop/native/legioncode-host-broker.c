@@ -11,6 +11,8 @@
 static lc_host_approval approval;
 static lc_host_scope scopes[LC_HOST_MAX_SCOPES];
 static xpc_connection_t owners[LC_HOST_MAX_SCOPES];
+static lc_host_reauthorization reauthorization;
+static bool reauthorization_originals_closed(void);
 static int state_directory = -1;
 static lc_host_qualification qualification;
 
@@ -57,16 +59,20 @@ static xpc_object_t serve_request(xpc_connection_t peer, xpc_object_t request, c
   if (!strcmp(operation, "status")) {
     static const char *const fields[] = { "version", "operation" };
     if (!lc_host_fields(request, fields, 2)) return lc_host_reply("unavailable", "invalidRequest");
-    bool ready = approval.qualified && lc_host_writer_supported();
-    xpc_object_t reply = lc_host_reply(ready ? "ready" : "unavailable", !approval.qualified ? "qualificationRequired" :
+    bool ready = approval.qualified && !approval.reauthorization_sealed && lc_host_writer_supported();
+    xpc_object_t reply = lc_host_reply(ready ? "ready" : "unavailable", approval.reauthorization_sealed ? "reauthorizationSealed" : !approval.qualified ? "qualificationRequired" :
       !lc_host_writer_supported() ? "writerABIUnavailable" : "okay");
     lc_host_put(reply, "generation", approval.generation); lc_host_put(reply, "policy", approval.policy);
     lc_host_put(reply, "policyGeneration", approval.policy_generation); return reply;
   }
+  if (!strcmp(operation, "setupReauthorizationSeal"))
+    return lc_host_reauthorization_request(state_directory, &approval, request, &reauthorization, &qualification, scopes);
   if (!strcmp(operation, "setupQualificationDescribe") || !strcmp(operation, "setupQualificationStart") ||
       !strcmp(operation, "setupQualificationStatus") || !strcmp(operation, "setupQualificationCancel") ||
       !strcmp(operation, "setupQualificationBridgeClosed"))
     return lc_host_setup_request(state_directory, &approval, request, operation, &qualification, scopes, owners, peer);
+  if (approval.reauthorization_sealed && (!strcmp(operation, "prepareScope") || !strcmp(operation, "prepareCommand") || !strcmp(operation, "releaseCommand")))
+    return lc_host_reply("unavailable", "reauthorizationSealed");
   if (!approval.qualified || !lc_host_writer_supported() ||
       !lc_host_get(request, "generation", generation, sizeof(generation)) || strcmp(generation, approval.generation)) return lc_host_reply("unavailable", "serviceGenerationChanged");
   if (!strcmp(operation, "recoveryDescribe") || !strcmp(operation, "recoverySeal")) {
@@ -148,6 +154,13 @@ typedef struct {
 } lc_host_history_query;
 static lc_host_history_query history_queries[LC_HOST_MAX_SCOPES];
 static size_t history_cursor;
+static bool reauthorization_originals_closed(void) {
+  if (qualification.used && (qualification.phase != LC_QUAL_PASSED && qualification.phase != LC_QUAL_CANCELLED)) return false;
+  if (qualification.owner_releasable || qualification.original_start) return false;
+  for (size_t i = 0; i < LC_HOST_MAX_SCOPES; i++)
+    if (scopes[i].used || owners[i] || history_queries[i].used) return false;
+  return true;
+}
 static void send_reply(xpc_connection_t peer, xpc_object_t envelope, xpc_object_t reply) {
   xpc_dictionary_apply(reply, ^bool(const char *key, xpc_object_t value) { xpc_dictionary_set_value(envelope, key, value); return true; });
   xpc_connection_send_message(peer, envelope); xpc_release(envelope); xpc_release(reply);
@@ -237,6 +250,7 @@ static int serve(void) {
     for (size_t i = 0; i < LC_HOST_MAX_SCOPES; i++) lc_host_scope_tick(state_directory, &scopes[i]);
     history_tick();
     lc_host_qualification_tick(state_directory, &approval, &qualification);
+    lc_host_reauthorization_tick(state_directory, &reauthorization, reauthorization_originals_closed());
     if (qualification.owner_releasable) {
       if (owners[qualification.resource_index]) xpc_release(owners[qualification.resource_index]);
       owners[qualification.resource_index] = NULL; qualification.owner_releasable = false;
