@@ -2,6 +2,7 @@
  * Build only; packaging/setup owns installation, approval and launchd. Never
  * setid this binary. Missing setup, writer ABI or qualification fails closed. */
 #include "legioncode-host-recovery.h"
+#include "legioncode-host-setup-auth.h"
 #include <stdatomic.h>
 
 static lc_host_approval approval;
@@ -53,6 +54,9 @@ static xpc_object_t serve_request(xpc_connection_t peer, xpc_object_t request) {
     lc_host_put(reply, "generation", approval.generation); lc_host_put(reply, "policy", approval.policy);
     lc_host_put(reply, "policyGeneration", approval.policy_generation); return reply;
   }
+  if (!strcmp(operation, "setupQualificationDescribe") || !strcmp(operation, "setupQualificationStart") ||
+      !strcmp(operation, "setupQualificationStatus") || !strcmp(operation, "setupQualificationCancel"))
+    return lc_host_setup_request(&approval, request, operation);
   if (!approval.qualified || !lc_host_writer_supported() ||
       !lc_host_get(request, "generation", generation, sizeof(generation)) || strcmp(generation, approval.generation)) return lc_host_reply("unavailable", "serviceGenerationChanged");
   if (!strcmp(operation, "recoveryDescribe") || !strcmp(operation, "recoverySeal"))
@@ -70,6 +74,7 @@ static xpc_object_t serve_request(xpc_connection_t peer, xpc_object_t request) {
   lc_host_scope *scope = NULL;
   for (size_t i = 0; i < LC_HOST_MAX_SCOPES; i++) if (scopes[i].used && !strcmp(scopes[i].capability, capability)) { scope = &scopes[i]; break; }
   if (!scope) return lc_host_reply("unknown", "resourceRecoveryRequired");
+  if (scope->record.purpose != LC_HOST_RESOURCE_NATIVE) return lc_host_reply("unavailable", "resourcePurposeConflict");
   if (!strcmp(operation, "retireScope")) {
     static const char *const fields[] = { "version", "operation", "generation", "capability" };
     if (!lc_host_fields(request, fields, 4) || !scope->released || scope->record.phase != LC_HOST_CLOSED)
@@ -164,6 +169,11 @@ static int bridge(const char *service_requirement) {
     if (!request || atomic_load(&broken)) { if (request) xpc_release(request); return 74; }
     char operation[40];
     if (!lc_host_get(request, "operation", operation, sizeof(operation))) { xpc_release(request); return 64; }
+    if (!strcmp(operation, "setupQualificationStart")) {
+      xpc_object_t namespace = xpc_fd_create(7);
+      if (!namespace) { xpc_release(request); return 64; }
+      xpc_dictionary_set_value(request, "namespaceFd", namespace); xpc_release(namespace);
+    }
     if (!strcmp(operation, "prepareScope")) {
       xpc_object_t root = xpc_fd_create(5), fence = xpc_fd_create(6), namespace = xpc_fd_create(7);
       if (!root || !fence || !namespace) { if(root)xpc_release(root); if(fence)xpc_release(fence); if(namespace)xpc_release(namespace); xpc_release(request); return 64; }

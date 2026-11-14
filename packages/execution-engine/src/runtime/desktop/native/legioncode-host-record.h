@@ -9,16 +9,15 @@
 typedef enum { LC_HOST_IDLE = 1, LC_HOST_PREPARED, LC_HOST_RUNNING, LC_HOST_CLOSING,
                LC_HOST_CLOSED, LC_HOST_UNKNOWN } lc_host_phase;
 typedef struct {
-  uint32_t version, bytes, phase, command_count, cleanup_closed;
-  char boot[40], origin_generation[65];
-  unsigned char cleanup_receipt[32];
-  lc_host_writer_binding binding;
+  LC_HOST_RESOURCE_PREFIX_FIELDS;
   lc_host_principal principal;
   lc_host_metadata metadata;
+  unsigned char setup_nonce[32], setup_manifest_sha256[32];
   char root_path[PATH_MAX], namespace_path[PATH_MAX], work_path[PATH_MAX];
   unsigned char command_ids[256][32];
   unsigned char digest[32];
 } lc_host_scope_record;
+_Static_assert(offsetof(lc_host_scope_record, principal) == sizeof(lc_host_resource_record_prefix), "Protected resource prefix ABI");
 
 static inline bool lc_host_boot_field(const char boot[40]) {
   if (boot[36] || boot[37] || boot[38] || boot[39]) return false;
@@ -53,10 +52,14 @@ static inline bool lc_host_record_read(int state, const char *name, lc_host_scop
   if (fd < 0) return false;
   bool okay = !fstat(fd, &st) && st.st_size == sizeof(*record) && lc_host_io(fd, record, sizeof(*record), false);
   if (close(fd)) okay = false;
-  unsigned char capability[32], receipt = 0, guid = 0;
+  unsigned char capability[32], receipt = 0, guid = 0, nonce = 0, manifest = 0;
   for (size_t i = 0; i < sizeof(record->cleanup_receipt); i++) receipt |= record->cleanup_receipt[i];
   for (size_t i = 0; i < sizeof(record->principal.guid); i++) guid |= record->principal.guid[i];
-  if (!okay || record->version != 3 || record->bytes != sizeof(*record) ||
+  for (size_t i = 0; i < 32; i++) { nonce |= record->setup_nonce[i]; manifest |= record->setup_manifest_sha256[i]; }
+  if (!okay || record->version != LC_HOST_RESOURCE_RECORD_VERSION || record->bytes != sizeof(*record) ||
+      record->digest_offset != offsetof(lc_host_scope_record, digest) ||
+      (record->purpose != LC_HOST_RESOURCE_NATIVE && record->purpose != LC_HOST_RESOURCE_SETUP_QUALIFICATION) ||
+      (record->purpose == LC_HOST_RESOURCE_NATIVE ? nonce || manifest : !nonce || !manifest) ||
       record->phase < LC_HOST_IDLE || record->phase > LC_HOST_UNKNOWN || record->command_count > 256 ||
       record->cleanup_closed > 1 || (record->cleanup_closed && (record->phase != LC_HOST_CLOSED || !receipt)) ||
       (!record->cleanup_closed && receipt) || !guid || record->binding.reserved ||

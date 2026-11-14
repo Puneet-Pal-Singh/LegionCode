@@ -5,6 +5,7 @@
  * The broker has no provider credentials and produces no lifecycle events. */
 #define _DARWIN_C_SOURCE 1
 #include "legioncode-host-writer-contract.h"
+#include "legioncode-host-setup-contract.h"
 #include <CoreFoundation/CoreFoundation.h>
 #include <CommonCrypto/CommonDigest.h>
 #include <Security/Security.h>
@@ -34,7 +35,7 @@
 
 #define LC_HOST_SERVICE "dev.legioncode.desktop.native-host"
 #define LC_HOST_APPROVAL "/Library/Application Support/LegionCode/NativeExecution/approval.plist"
-#define LC_HOST_STATE "/Library/Application Support/LegionCode/NativeExecution/resources"
+#define LC_HOST_STATE LC_HOST_RESOURCE_STATE_DIRECTORY
 #define LC_HOST_WORK "/private/var/legioncode-native-work"
 #define LC_HOST_INSTALLED_BROKER "/Library/PrivilegedHelperTools/dev.legioncode.desktop.native-host"
 #define LC_HOST_ABI 1U

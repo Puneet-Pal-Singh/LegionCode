@@ -12,7 +12,10 @@ typedef struct {
   SecRequirementRef bundle_requirement, bridge_requirement;
   lc_host_principal principals[LC_HOST_MAX_PRINCIPALS];
   size_t principal_count;
-  bool qualified;
+  bool qualified, platform_matches, setup_authorized;
+  char setup_permit_id[65], writer_namespace_path[PATH_MAX];
+  lc_host_file_identity writer_namespace;
+  unsigned char manifest_sha256[32];
 } lc_host_approval;
 
 static inline bool lc_host_sha_file(const char *path, const char *expected) {
@@ -96,6 +99,27 @@ static inline bool lc_host_paths(CFTypeRef value, CFArrayRef *out, bool executab
   }
   *out = value; return true;
 }
+static inline bool lc_host_manifest_u64(CFDictionaryRef values, CFStringRef key, uint64_t *out) {
+  CFTypeRef value = CFDictionaryGetValue(values, key); int64_t number;
+  if (!value || CFGetTypeID(value) != CFNumberGetTypeID() || !CFNumberGetValue(value, kCFNumberSInt64Type, &number) || number < 0) return false;
+  *out = (uint64_t)number; return true;
+}
+static inline bool lc_host_setup_authorization(lc_host_approval *out) {
+  CFTypeRef raw = CFDictionaryGetValue(out->manifest, CFSTR("SetupAuthorization"));
+  if (!raw) return true;
+  if (CFGetTypeID(raw) != CFDictionaryGetTypeID()) return false;
+  uint32_t version; unsigned char permit[32], nonzero = 0;
+  if (!lc_host_number(CFDictionaryGetValue(raw, CFSTR("Version")), &version) || version != 1 ||
+      !lc_host_text(CFDictionaryGetValue(raw, CFSTR("PermitId")), out->setup_permit_id, sizeof(out->setup_permit_id)) ||
+      !lc_host_unhex(out->setup_permit_id, permit, sizeof(permit)) ||
+      !lc_host_text(CFDictionaryGetValue(raw, CFSTR("WriterNamespacePath")), out->writer_namespace_path, sizeof(out->writer_namespace_path)) ||
+      !lc_host_absolute(out->writer_namespace_path) ||
+      !lc_host_manifest_u64(raw, CFSTR("WriterNamespaceDevice"), &out->writer_namespace.device) ||
+      !lc_host_manifest_u64(raw, CFSTR("WriterNamespaceInode"), &out->writer_namespace.inode) || !out->writer_namespace.inode) return false;
+  for (size_t i = 0; i < sizeof(permit); i++) nonzero |= permit[i];
+  if (!nonzero) return false;
+  out->setup_authorized = true; return true;
+}
 static inline bool lc_host_load_approval(lc_host_approval *out) {
   memset(out, 0, sizeof(*out));
   int fd = lc_host_open_protected(LC_HOST_APPROVAL, false); struct stat st;
@@ -104,6 +128,7 @@ static inline bool lc_host_load_approval(lc_host_approval *out) {
   unsigned char *bytes = malloc((size_t)st.st_size);
   if (!bytes) { close(fd); return false; }
   bool okay = lc_host_io(fd, bytes, (size_t)st.st_size, false); close(fd);
+  if (okay) CC_SHA256(bytes, (CC_LONG)st.st_size, out->manifest_sha256);
   CFDataRef data = okay ? CFDataCreate(NULL, bytes, st.st_size) : NULL; free(bytes);
   if (!data) return false;
   CFPropertyListRef values = CFPropertyListCreateWithData(NULL, data, kCFPropertyListImmutable, NULL, NULL); CFRelease(data);
@@ -138,8 +163,13 @@ static inline bool lc_host_load_approval(lc_host_approval *out) {
     out->principals[i].uid = (uid_t)uid; out->principals[i].gid = (gid_t)gid; out->principal_count++;
   }
   char kernel[256]; size_t size = sizeof(kernel);
-  out->qualified = CFDictionaryGetValue(values, CFSTR("Qualified")) == kCFBooleanTrue &&
-    !sysctlbyname("kern.osrelease", kernel, &size, NULL, 0) && !strcmp(kernel, out->kernel_release) && lc_host_bundle_valid(out);
+  out->platform_matches = !sysctlbyname("kern.osrelease", kernel, &size, NULL, 0) &&
+    memchr(kernel, 0, sizeof(kernel)) && !strcmp(kernel, out->kernel_release) && lc_host_bundle_valid(out);
+  if (!lc_host_setup_authorization(out)) return false;
+  /* A manifest boolean is not sandbox/process/cleanup evidence. Only the
+   * completed protected qualification receipt may authorize normal execution.
+   * Its producer/validator is not joined until canonical setup transport exists. */
+  out->qualified = false;
   unsigned char random[32]; arc4random_buf(random, sizeof(random)); lc_host_hex(random, sizeof(random), out->generation, sizeof(out->generation));
   return true;
 }

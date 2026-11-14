@@ -24,6 +24,7 @@ typedef struct {
 static inline bool lc_host_scope_save(int state, lc_host_scope *scope) {
   char temporary[96]; snprintf(temporary, sizeof(temporary), "%s.next", scope->name);
   scope->record.bytes = sizeof(scope->record);
+  scope->record.digest_offset = offsetof(lc_host_scope_record, digest);
   if (!lc_host_record_digest(&scope->record, false)) return false;
   int fd = openat(state, temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
   if (fd < 0) return false;
@@ -104,7 +105,8 @@ static inline bool lc_host_scope_open(int state, const lc_host_approval *approva
   if (!lc_host_unhex(policy, scope->record.binding.policy_sha256, 32) ||
       !lc_host_unhex(policy_generation, scope->record.binding.approved_policy_generation, 32) ||
       !lc_host_reserve_principal(state, approval, &scope->record.binding, &scope->record.principal)) goto unused;
-  scope->record.version = 3; scope->record.phase = LC_HOST_IDLE;
+  scope->record.version = LC_HOST_RESOURCE_RECORD_VERSION;
+  scope->record.purpose = LC_HOST_RESOURCE_NATIVE; scope->record.phase = LC_HOST_IDLE;
   if (!lc_host_boot(scope->record.boot)) goto unused;
   strcpy(scope->record.origin_generation, approval->generation);
   scope->record.binding.abi = LC_HOST_ABI; scope->record.binding.actor_uid = approval->actor;
@@ -152,7 +154,8 @@ static inline bool lc_host_prepare_command(int state, const lc_host_approval *ap
                                           lc_host_scope *scope, xpc_object_t request) {
   static const char *const fields[] = { "version", "operation", "generation", "capability", "commandId", "command", "cwd", LC_HOST_METADATA_FIELDS };
   char id[257], command[501], cwd[512]; lc_host_metadata metadata;
-  if (!lc_host_fields(request, fields, sizeof(fields) / sizeof(fields[0])) || scope->sealed ||
+  if (scope->record.purpose != LC_HOST_RESOURCE_NATIVE ||
+      !lc_host_fields(request, fields, sizeof(fields) / sizeof(fields[0])) || scope->sealed ||
       scope->record.phase != LC_HOST_IDLE || scope->record.command_count >= 256 || !lc_host_scope_current(scope) || !lc_host_scope_path_current(scope) ||
       !lc_host_uid_zero(scope->record.principal.uid) || !lc_host_get(request, "commandId", id, sizeof(id)) ||
       lc_host_command_seen(scope, id) || !lc_host_get(request, "command", command, sizeof(command)) ||
@@ -198,7 +201,7 @@ static inline bool lc_host_pipe(int pair[2]) {
   return true;
 }
 static inline bool lc_host_release_command(int state, const lc_host_approval *approval, lc_host_scope *scope) {
-  if (scope->sealed || scope->record.phase != LC_HOST_PREPARED || !scope->access_ready || !lc_host_scope_current(scope) || !lc_host_scope_path_current(scope) ||
+  if (scope->record.purpose != LC_HOST_RESOURCE_NATIVE || scope->sealed || scope->record.phase != LC_HOST_PREPARED || !scope->access_ready || !lc_host_scope_current(scope) || !lc_host_scope_path_current(scope) ||
       !lc_host_metadata_current(&scope->record.metadata, &scope->metadata_pins) ||
       !lc_host_metadata_receipt_matches(&scope->record.metadata, &scope->metadata_pins, scope->root)) return false;
   lc_host_policy_buffer policy;
