@@ -17,6 +17,7 @@ interface ThreadInputQueuePanelProps {
   snapshot: ThreadInputQueueSnapshot | null;
   error: string | null;
   onRetry?: () => void | Promise<unknown>;
+  mutationUnavailableReason?: string;
   active: boolean;
   queuingEnabled: boolean;
   onQueuingChange: (enabled: boolean) => void;
@@ -51,6 +52,8 @@ const ACTION_LABELS: Record<QueueActionKind, string> = {
 };
 
 export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
+  const mutationReason = useRef(props.mutationUnavailableReason);
+  mutationReason.current = props.mutationUnavailableReason;
   const scope = props.snapshot ? JSON.stringify([props.snapshot.workspaceId, props.snapshot.threadId]) : null;
   const scopeRef = useRef(scope);
   const mounted = useRef(false);
@@ -61,6 +64,7 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
   const editInputRef = useRef<HTMLTextAreaElement>(null);
   const [localError, setLocalError] = useState<{ scope: string | null; message: string } | null>(null);
   const pending = pendingState?.scope === scope ? pendingState : null;
+  const mutationsDisabled = Boolean(pending || props.mutationUnavailableReason);
   const editing = editState?.scope === scope ? editState : null;
   const editingItemId = editing?.itemId;
   const error = props.error ?? (localError?.scope === scope ? localError.message : null);
@@ -79,7 +83,8 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
   }, [scope]);
   useLayoutEffect(() => { if (editingItemId) editInputRef.current?.focus(); }, [scope, editingItemId]);
   async function runAction<T>(kind: QueueActionKind, itemId: string | null, action: () => Promise<T>, settle?: (result: T) => void) {
-    if (!mounted.current || scopeRef.current !== scope || pendingRef.current) return;
+    if (!mounted.current || scopeRef.current !== scope || pendingRef.current ||
+        (kind !== "retry" && mutationReason.current)) return;
     const request = { scope, itemId, kind };
     pendingRef.current = request;
     setPending(request);
@@ -127,6 +132,7 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
     <section
       aria-busy={Boolean(pending)}
       aria-label={`Queued follow-ups${queuedCount ? ` (${queuedCount})` : ""}`}
+      title={props.mutationUnavailableReason}
       className="relative rounded-t-2xl border border-zinc-800/80 border-b-0 bg-[#242425] px-2.5 py-1.5 sm:px-3"
     >
       {props.snapshot?.paused ? (
@@ -140,7 +146,7 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
           {items.length === 0 && props.queuingEnabled ? (
             <button
               type="button"
-              disabled={Boolean(pending)}
+              disabled={mutationsDisabled}
               className="shrink-0 rounded-md px-2 py-1 text-zinc-300 hover:bg-white/[0.06] hover:text-white focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400 disabled:cursor-wait disabled:opacity-50"
               onClick={() => props.onQueuingChange(false)}
             >
@@ -196,7 +202,7 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
                   <textarea
                     ref={editInputRef}
                     aria-label="Edit queued follow-up"
-                    disabled={Boolean(pending)}
+                    disabled={mutationsDisabled}
                     className="min-h-9 min-w-0 flex-1 resize-y rounded-lg border border-zinc-700 bg-zinc-900/80 p-2 text-xs text-zinc-100 outline-none focus-visible:border-zinc-500 focus-visible:ring-1 focus-visible:ring-zinc-500"
                     value={editing.draft}
                     onChange={(event) => {
@@ -218,7 +224,7 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
                   </button>
                   <button
                     type="button"
-                    disabled={Boolean(pending)}
+                    disabled={mutationsDisabled}
                     className="shrink-0 rounded-lg bg-zinc-700 px-2.5 py-1.5 text-xs text-white hover:bg-zinc-600 focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-300 disabled:cursor-wait disabled:opacity-50"
                     onClick={() => {
                       const captured = editRef.current;
@@ -279,7 +285,7 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
                     {props.active && canEditOrRemove && props.onSteer ? (
                       <button
                         type="button"
-                        disabled={Boolean(pending)}
+                        disabled={mutationsDisabled}
                         className="inline-flex min-h-8 items-center gap-1.5 rounded-full px-2.5 text-xs text-zinc-300 transition-colors hover:bg-white/[0.07] hover:text-white focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400 disabled:cursor-wait disabled:opacity-50 sm:px-3"
                         aria-label="Steer queued message"
                         title="Submit without interrupting the model"
@@ -294,7 +300,7 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
                       <button
                         type="button"
                         className="inline-flex min-h-8 items-center gap-1.5 rounded-full px-2.5 text-xs text-zinc-300 transition-colors hover:bg-white/[0.07] hover:text-white focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400 disabled:cursor-wait disabled:opacity-50 sm:px-3"
-                        disabled={!props.snapshot || Boolean(pending)}
+                        disabled={!props.snapshot || mutationsDisabled}
                         onClick={() =>
                           void mutate("start", item.itemId, () => props.onStart!(
                             item.itemId,
@@ -311,7 +317,7 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
                       <>
                         <button
                           type="button"
-                          disabled={Boolean(pending)}
+                          disabled={mutationsDisabled}
                           className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-white/[0.06] hover:text-zinc-200 focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400 disabled:cursor-wait disabled:opacity-50"
                           aria-label="Remove queued message"
                           title="Remove queued message"
@@ -322,7 +328,7 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
                           <Trash2 size={16} aria-hidden="true" />
                         </button>
                         <QueueActionsMenu
-                          disabled={Boolean(pending)}
+                          disabled={mutationsDisabled}
                           queuingEnabled={props.queuingEnabled}
                           onEdit={() => {
                             if (!scope || scopeRef.current !== scope || pendingRef.current) return;

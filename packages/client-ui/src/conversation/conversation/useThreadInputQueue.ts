@@ -44,7 +44,10 @@ export function useThreadInputQueue(
   activeTarget: ThreadInputQueueActiveTarget | null,
   invalidationKey: string,
   client: ThreadInputQueueClient,
+  isMutationAllowed?: () => boolean,
 ) {
+  const mutationPolicy = useRef(isMutationAllowed);
+  mutationPolicy.current = isMutationAllowed;
   const scopeKey = scope?.key ?? null;
   const binding = useMemo<QueueBinding>(() => ({ scopeKey, client }), [scopeKey, client]);
   const [snapshotState, setSnapshotState] = useState<{
@@ -152,7 +155,7 @@ export function useThreadInputQueue(
     async (
       action: () => Promise<ThreadInputReceipt>,
     ): Promise<ThreadInputReceipt | null> => {
-      if (!scope || bindingRef.current !== binding) return null;
+      if (!scope || bindingRef.current !== binding || mutationPolicy.current?.() === false) return null;
       const capturedBinding = binding;
       try {
         const receipt = await action();

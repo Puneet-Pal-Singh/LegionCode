@@ -74,12 +74,13 @@ export function DesktopHostedConversation({
   const rootMessageId = controller.conversationTurns.find((turn) => turn.turnId === projection?.turnId)
     ?.userMessage?.id ?? null;
   const review = useCompletedTurnReview(projection, rootMessageId);
-  const approval = projection?.terminal ? null : projection?.pendingApproval ?? null;
-  const approvalVisible = Boolean(active && controller.historyReady && !controller.loading && approval);
+  const mutationsAllowed = controller.isMutationAllowed();
+  const approval = projection?.terminal || controller.recoveryRequired ? null : projection?.pendingApproval ?? null;
+  const approvalVisible = Boolean(active && mutationsAllowed && controller.historyReady && !controller.loading && approval);
   const approvalKey = approval && controller.scope
     ? JSON.stringify([scopeKey, controller.scope.turnId, controller.scope.runAttemptId, approval.approvalId]) : null;
-  const current = useRef({ active, scopeKey, approvalKey });
-  current.current = { active, scopeKey, approvalKey };
+  const current = useRef({ active, scopeKey, approvalKey, controller });
+  current.current = { active, scopeKey, approvalKey, controller };
   const [decision, setDecision] = useState<{ key: string; value: ApprovalDecisionKind } | null>(null);
   const [commandError, setCommandError] = useState<{ key: string; message: string } | null>(null);
   const decisionRequest = useRef<{ key: string; operation: Promise<void> } | null>(null);
@@ -95,14 +96,15 @@ export function DesktopHostedConversation({
   const presentation = approval ? projectApprovalPresentation(approval) : null;
 
   const resolveApproval = (value: ApprovalDecisionKind): Promise<void> => {
-    if (!approval || !approvalKey || !current.current.active || current.current.approvalKey !== approvalKey) {
+    if (!approval || !approvalKey || !current.current.active || current.current.approvalKey !== approvalKey ||
+        !current.current.controller.isMutationAllowed()) {
       return Promise.resolve();
     }
     if (decisionRequest.current?.key === approvalKey) return decisionRequest.current.operation;
     const key = approvalKey;
     setDecision({ key, value });
     setCommandError(null);
-    const operation = controller.decideApproval({
+    const operation = current.current.controller.decideApproval({
       approvalId: approval.approvalId,
       decision: value === "deny" ? "denied" : value === "abort" ? "cancelled" : "approved",
       ...(value === "allow_persistent_rule" ? { grantScope: "matching_in_chat" as const } : {}),
@@ -117,10 +119,11 @@ export function DesktopHostedConversation({
     return operation;
   };
   const stopFromApproval = () => {
-    if (!current.current.active || !approvalKey || current.current.approvalKey !== approvalKey) return;
+    if (!current.current.active || !approvalKey || current.current.approvalKey !== approvalKey ||
+        !current.current.controller.isMutationAllowed()) return;
     const key = approvalKey;
     setCommandError(null);
-    void controller.stop().catch((error: unknown) => {
+    void current.current.controller.stop().catch((error: unknown) => {
       if (current.current.approvalKey === key) setCommandError({ key,
         message: error instanceof Error ? error.message : "Stop settlement could not be confirmed." });
     });
@@ -128,7 +131,7 @@ export function DesktopHostedConversation({
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastEntry = entries.at(-1);
-  const executionActive = Boolean(projection && projection.lastSequence > 0 && !projection.terminal);
+  const executionActive = Boolean(!controller.recoveryRequired && projection && projection.lastSequence > 0 && !projection.terminal);
   useChatAutoScroll({ activeRun: active && executionActive,
     latestMessageKey: lastEntry ? lastEntry.kind === "message" ? lastEntry.message.id : lastEntry.key : null,
     lifecycleSequence: projection?.lastSequence ?? 0,
@@ -138,8 +141,14 @@ export function DesktopHostedConversation({
   const unavailableArtifact = async (): Promise<never> => {
     throw new Error("Open this reply's captured canonical changes to review its files.");
   };
-  const continuation = controller.continuationStatus === "reconnecting" || controller.continuationStatus === "stopped"
+  const continuation = !controller.recoveryRequired &&
+    (controller.continuationStatus === "reconnecting" || controller.continuationStatus === "stopped")
     ? { status: controller.continuationStatus, onRetry: controller.reload } : null;
+  const stopPendingTurn = () => {
+    const selected = current.current;
+    if (!selected.active || selected.scopeKey !== scopeKey || !selected.controller.isMutationAllowed()) return;
+    return selected.controller.stop();
+  };
 
   return <ChatInterfaceView
     ref={scrollRef}
@@ -155,9 +164,13 @@ export function DesktopHostedConversation({
       actionLabel: "Reload saved history", onOpen: controller.reload,
     } : null}
     continuation={continuation}
-    canStopPendingTurn={active && controller.canStop}
-    onStopPendingTurn={active ? controller.stop : undefined}
+    canStopPendingTurn={active && mutationsAllowed && controller.canStop}
+    onStopPendingTurn={active && mutationsAllowed ? stopPendingTurn : undefined}
     renderComposer={(layout) => <>
+      {controller.recoveryRequired ? <ChatErrorNotice
+        message="This task needs recovery review. Work was not restarted."
+        remediation="Saved messages and changes remain available. Refreshing only reads the saved task status."
+        actionLabel="Refresh saved status" onOpen={controller.reload} /> : null}
       {controller.deliveryError ? <ChatErrorNotice message={controller.deliveryError}
         remediation="Your unchanged draft is retained. Read saved status before retrying."
         actionLabel="Reload saved history" onOpen={controller.reload} /> : null}
@@ -178,7 +191,7 @@ export function DesktopHostedConversation({
           : decisions.length === 0 ? "This request has no supported decision option. Stop remains available." : null}
         onResolve={resolveApproval}
         onStop={stopFromApproval}
-        canStop={controller.canStop}
+        canStop={mutationsAllowed && controller.canStop}
       /> : null}
       {renderComposer({ layout, controller, approvalVisible, ...queue })}
     </>}
@@ -215,6 +228,6 @@ export function DesktopHostedConversation({
     loadCompletedTurnFileDiff={review.loadFileDiff}
     completedTurnReview={review}
     lifecycleProjection={projection}
-    pendingWorkflow={Boolean(controller.scope && !projection && !controller.historyError && controller.continuationStatus !== "stopped")}
+    pendingWorkflow={Boolean(!controller.recoveryRequired && controller.scope && !projection && !controller.historyError && controller.continuationStatus !== "stopped")}
   />;
 }

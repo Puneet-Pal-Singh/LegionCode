@@ -86,7 +86,7 @@ function boundScope(controller: DesktopHostedConversationController | null, sess
 function admittedRunningScope(controller: DesktopHostedConversationController | null, session: HostedSession): ConversationScope | null {
   const scope = boundScope(controller, session);
   const projection = controller?.activeProjection;
-  if (!scope || !controller?.historyReady || controller.loading || controller.isStopping || projection?.turnId !== scope.turnId ||
+  if (!scope || !controller?.isMutationAllowed() || !controller.historyReady || controller.loading || controller.isStopping || projection?.turnId !== scope.turnId ||
     projection.lastSequence <= 0 || projection.terminal) return null;
   if (controller.isSubmitting || controller.pendingDraft) {
     const pending = controller.pendingDraft;
@@ -112,7 +112,8 @@ export function useDesktopHostedInputQueue(options: DesktopHostedInputQueueOptio
     return () => { mounted.current = false; };
   }, []);
   const isCurrent = () => custody.active && mounted.current && current.current.owner === owner;
-  const canAct = () => isCurrent() && current.current.options.active && session.archivedAt === null;
+  const canAct = () => isCurrent() && current.current.options.active && session.archivedAt === null &&
+    current.current.options.controller?.isMutationAllowed() === true;
   const scope = controller?.scope ?? null;
   const matchingScope = boundScope(controller, session);
   const projection = controller?.activeProjection;
@@ -127,8 +128,8 @@ export function useDesktopHostedInputQueue(options: DesktopHostedInputQueueOptio
     turnId: matchingScope.turnId, runAttemptId: matchingScope.runAttemptId,
   } : null, [running, matchingScope?.turnId, matchingScope?.runAttemptId]);
   const invalidation = JSON.stringify([scope?.turnId, scope?.runAttemptId, projection?.lastSequence,
-    session.activeRunId, session.latestRunId]);
-  const queue = useThreadInputQueue(readScope, target, invalidation, client);
+    session.activeRunId, session.latestRunId, controller?.recoveryRequired]);
+  const queue = useThreadInputQueue(readScope, target, invalidation, client, canAct);
   const imageReferences = useMemo(() => queue.snapshot?.items.flatMap((item) => item.mediaRefs) ?? [], [queue.snapshot]);
   const imagePreviews = useDesktopHostedImagePreviews(client, session.id, { references: imageReferences });
   const queueRef = useRef(queue);
@@ -156,11 +157,20 @@ export function useDesktopHostedInputQueue(options: DesktopHostedInputQueueOptio
   const deliver = (capture: CapturedInput): Promise<boolean> => {
     if (!canAct()) return Promise.resolve(false);
     if (owner.operation) return owner.operation;
+    const previousPending = owner.pending;
+    const previousError = owner.error;
     owner.pending = { capture, state: "sending" };
     owner.error = null;
     owner.notify();
     const operation: Promise<boolean> = Promise.resolve().then(async () => {
       try {
+        if (!canAct()) {
+          // Nothing was dispatched. Preserve any earlier uncertain command;
+          // the composer still owns a new draft that was not accepted.
+          owner.pending = previousPending;
+          owner.error = previousError;
+          return false;
+        }
         const receipt = await owner.commands.submitFollowUp(capture.client, {
           fingerprint: capture.fingerprint, scope: capture.scope, delivery: capture.delivery,
           content: { text: capture.draft.prompt, images: (capture.draft.imageAttachments ?? [])
@@ -220,20 +230,24 @@ export function useDesktopHostedInputQueue(options: DesktopHostedInputQueueOptio
   const allowed = () => canAct() && !owner.pending;
   const notice = owner.error;
   const pending = owner.pending;
+  const mutationUnavailableReason = controller?.recoveryRequired
+    ? "This task needs recovery review before queued inputs can be changed."
+    : undefined;
   return {
     pendingDelivery: pending !== null,
-    canFollowUp: active && running && pending === null && session.archivedAt === null,
+    canFollowUp: active && running && pending === null && session.archivedAt === null && controller?.isMutationAllowed() === true,
     onFollowUpSubmit,
     queuePanel: active ? <>
       {notice ? <ChatErrorNotice message={notice}
         remediation="The hosted runtime owns input delivery. Retry preserves the original input identity and target; refreshing does not resend it."
-        actionLabel={pending?.state === "uncertain" ? "Retry unchanged input" : "Refresh queue"}
+        actionLabel={pending?.state === "uncertain" && !mutationUnavailableReason ? "Retry unchanged input" : "Refresh queue"}
         onOpen={pending?.state === "sending" ? undefined : () => {
-          if (!canAct()) return;
-          if (owner.pending?.state === "uncertain") void deliver(owner.pending.capture);
+          if (!isCurrent() || !current.current.options.active) return;
+          if (owner.pending?.state === "uncertain" && canAct()) void deliver(owner.pending.capture);
           else { void queueRef.current.refresh(); refreshSession(); }
         }} /> : null}
       <ThreadInputQueuePanel snapshot={queue.snapshot} error={queue.error ?? imagePreviews.error}
+        mutationUnavailableReason={mutationUnavailableReason}
         onRetry={() => { imagePreviews.retry(); return queue.refresh(); }}
         resolveImageSource={imagePreviews.resolveAttachmentSource} resolveImageSourceId={imagePreviews.sourceId}
         active={Boolean(target)} queuingEnabled={preferences.followUpBehavior === "queue"}
