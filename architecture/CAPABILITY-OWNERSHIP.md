@@ -15,12 +15,7 @@ existing registry and gateway; `LocalReadOnlyExecutionService` resolves the
 same generation-bound grant handle before each operation and before returning bounded output.
 The host's private `LocalWorkspaceService.bindForExecution` owns grant/regrant
 invalidation. Its handle is shared with capture ports for the attempt, never a
-renderer/SDK field. Thread metadata uses this same grant owner's
-`getAuthorizedCurrent`: each existing serialization/revalidation check verifies
-persisted physical root/Git metadata identity, generation and held-root lifetime
-afresh without rerunning Git readiness. Public `getCurrent` retains live Git
-branch/status/config projection; no readiness cache or second grant authority is
-introduced. Stop checks the owned workspace/thread/run/turn/attempt tuple;
+renderer/SDK field. Stop checks the owned workspace/thread/run/turn/attempt tuple;
 terminal retries cannot enqueue a later Stop.
 
 The grant foundation retains the original root `FileHandle` in
@@ -43,53 +38,6 @@ still retains the original pin and quarantine semantics.
 Trusted Mac Git discovery resolves the explicitly selected developer tools to
 their canonical executable without launching a shell or xcrun. Discovery does
 not prove process containment; the same guardian and readiness gate still do.
-
-Local project retention belongs to `LocalPersistence.workspaceGrants`: versioned,
-path-free project metadata shares the existing SQLite metadata table and writer.
-Explicit, physically validated grants transactionally retain the private native
-Git metadata identity and descriptor while replacing only the singleton physical
-grant. Regrant uses that retained identity to preserve the logical Workspace ID
-across project switches. Restoring the current valid grant seeds its association
-only after the existing root/metadata verification. Historical canonical local
-Thread workspace IDs with no retained association remain `unlinked`; no folder,
-remote, name, or Thread history is used to guess their native association.
-The same repository retains a durable hidden marker for explicit Remove-project
-intent. `workspace/forgetLocalProject` invokes the existing revocation owner for
-the current grant before hiding; the SQLite transaction refuses to hide a still
-current project. Navigation omits hidden projects and their Thread metadata.
-Legacy seeding never overwrites a hidden row. Explicit validated native regrant
-restores the known association and stable ID. Revoke-access remains distinct and
-keeps navigation metadata. No Thread, artifact, filesystem, or history is deleted.
-
-`workspace/localProjects` and SDK `listLocalWorkspaceProjects` are local-only
-navigation reads, separate from hosted workspace selection. They return path-free
-project descriptors and the existing canonical local-user Thread metadata
-projection without reading admission or lifecycle history. Current-workspace
-list/get alone apply the existing canonical runtime-summary overlay. Navigation
-grants no history, message, file, mutation, or execution access;
-all existing current-grant checks remain in place. The Desktop consumer must
-regrant an inactive known project and match the returned logical Workspace ID
-before opening its Thread or creating a task. Explicit legacy association is a
-separate recovery contract and is not authorized by this navigation read.
-`DesktopSidebar` renders those projects through the existing shared sidebar;
-current-grant Thread reads remain separate. A volatile Desktop picker intent
-retains the expected project and Open/New-chat action. Cancellation or an
-identity mismatch preserves the unbound draft and blocks automatic task creation;
-only a matching canonical grant resumes the action. Every Desktop Thread-create
-request also carries that exact grant's Workspace ID and grant timestamp; the
-canonical Thread owner compares it and freshly revalidates physical scope before
-appending the creation event. Unlinked historical groups
-remain visible with the existing unknown-workspace/recovery presentation.
-The existing shared Remove-project menu calls the canonical forget operation;
-Desktop reloads navigation and the current grant before retaining a selected
-conversation. Native folder-picker Open now grants directly; the redundant
-workspace card and Revoke-access control are removed. Remove still revokes before
-hiding, and the existing SDK revoke operation retains its separate metadata semantics.
-The shared sidebar's optional per-row mutation-unavailable reason disables existing task mutation
-controls accessibly for inactive project rows while keeping Open available for
-normal native-picker recovery. Web omits this optional port. Desktop also checks
-that scope at callback entry; existing canonical metadata writers retain their
-physical grant and serialization checks.
 
 The Desktop utility process awaits `createDesktopNativeComposition` inside its
 existing positive-shutdown startup owner. Main supplies the private, owner-only
@@ -157,15 +105,6 @@ Actual mutator availability is still gated on the host lease implementation,
 worker05 guarded file worker, worker06 single-executable worker/guardian and
 worker07 real capture ports. No full-capture product consumer is declared wired
 until those owners supply and compose the real boundaries.
-
-
-Local App Server `turn/diff` dispatches only to `LocalTurnArtifactReads` for local
-composition. The startup owner injects the existing authorized Turn service and
-the same `LocalPersistence` instance; no hosted or live-Git fallback is used.
-The process factory now composes this reader with the actual LocalTurnService.
-Initialize advertises saved review only when that query is injected. A completed
-read-only Turn with no published immutable capture returns `diff: null`; the read
-capability does not claim that mutation, capture or selected commit is available.
 
 ## Unused Web run-summary reader retirement
 
@@ -755,8 +694,7 @@ pull-request mutation path.
 
 | Responsibility | Canonical owner | Active producers and consumers |
 | --- | --- | --- |
-| Provider catalog, discovered models/cache refresh | Server-only `@repo/provider-core/discovery` (`ProviderCatalogService`, `ProviderModelDiscoveryService`, existing adapters/ranking/metadata enrichment) | Hosted `ProviderConfigService` composes the extracted implementation with its existing cache and atomic CloudCredentialVault record lookup. Registry, cache and protected credential delivery are narrow ports; discovery is not exported from the browser-facing package root. Desktop composition injects its protected credential broker and the existing memory cache through the same ports. Local selection, preferences and Native admission consume that catalog; the renderer receives metadata only. |
-| Hosted provider policy and platform-managed models | Brain composition and existing Axis metadata owner | HostedProviderDiscovery retains verified cookie identity, authorized workspace claims and runtime proxying. ProviderConfigService injects Axis model behavior explicitly; portable discovery does not import Brain or activate Axis on Desktop. |
+| Provider catalog, discovered models/cache refresh and product policy | Existing RunEngine provider services and Brain product policy | HostedProviderDiscovery composes the existing runtime proxy with verified cookie identity and authorized workspace claims. |
 | Typed discovery transport | Existing AppServer provider/catalog and provider/models; provider/models/refresh | Existing SDK ProviderClient and Web ProviderApiClient use the hosted transport. Catalog adds optional canonical runId for hosted composition; models also accepts the existing BYOK query. Local operations retain their existing contracts. Refresh uses canonical runId/provider slug and the existing BYOK refresh result. |
 
 Results reuse ProviderRegistryEntry, BYOKDiscoveredProviderModelsResponse and
@@ -773,6 +711,7 @@ All provider discovery, credential, preference, and resolution consumers use
 the canonical App Server methods. Brain no longer registers standalone
 `/api/byok/*` routes; authenticated App Server composition remains the hosted
 boundary for these operations.
+
 
 ## Plan 058 hosted credential operations
 
@@ -795,6 +734,7 @@ returning success. Connect, default-on-connect, label writes, disconnect and
 label cleanup propagate normalized failures; a failed runtime mutation cannot
 be reported as a successful credential change. Existing runtime persistence
 remains authoritative if a later step fails after an earlier step committed.
+
 
 ## Plan 058 hosted provider preferences and resolution
 
@@ -852,14 +792,13 @@ The existing uncapped visibility-list request is preserved only for authenticate
 verifies the cookie before reading that body and rejects a mismatched envelope.
 Other methods retain the generic 32 KB request limit and streaming cancellation.
 The hint supplies no identity or permission and does not bypass provider scope.
-
 ## Project selection and projectless chat
 
 | Responsibility | Canonical owner | Active wiring and invariant |
 | --- | --- | --- |
 | Saved session repository | Brain transcript/session repository | Session creation accepts `repository: null`. Migration `0034_projectless_session_repository` normalizes the old `New Project` label. No new sentinel repository is written. |
 | Active chat repository context | Hosted session workspace context, projected by Web | Explicit project selection, SDK-backed session workspace context and session branch preferences supply repository/branch identity. Global browser context restoration and workspace-selection bootstrap are removed; a null repository cannot match a repository context. |
-| Projects and Recents | SDK sidebar projection over saved session metadata | Web opts into separate collapsible Projects and Recents sections in the shared ThreadSidebar. Recents presents the existing projectless selection group, including its empty state; it creates no workspace identity. Project groups, pinning, search, status and archive still use the SDK session projection. Desktop uses the same collapsible Projects presentation through DesktopSidebar, mapping actual local SDK thread metadata and pin/archive commands without adding a second session owner. |
+| Projects and Recents | SDK sidebar projection over saved session metadata | Web opts into separate collapsible Projects and Recents sections in the shared ThreadSidebar. Recents presents the existing projectless selection group, including its empty state; it creates no workspace identity. Project groups, pinning, search, status and archive still use the SDK session projection. Desktop retains its existing grouped presentation. |
 | Project onboarding | Existing authorized workspace selection service | The compact dialog stages repository and branch locally. Only Add project confirms selection. Closing or searching never selects a repository. Unsent text/images transfer through UI draft state on an explicit choice. Sidebar Add project reads the mounted composer through its draft reader port before switching sessions; the composer remains the unsent draft owner. The modal is portaled to the viewport with focus isolation and a light backdrop blur. Home keeps the centered composer and dynamic project/settings island; section expansion is local UI state. Setup uses the same sidebar header/tabs/Close controls as conversation and the shell owns panel width across both surfaces. |
 
 | Execution capability | Owned saved session → Brain runtime resource composition | A null session repository admits conversation execution without a checkout, Git snapshots, hooks or file tools. A repository session still requires its matching authorized checkout and Git owners. Payloads cannot attach a repository to a projectless chat. |
@@ -880,19 +819,10 @@ image-context boundaries changed by this work.
 
 | Responsibility                                      | Canonical owner                                            | Producers and consumers                                                                                      |
 | --------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Initial automatic title eligibility                 | Brain scheduler / LocalTurnService                         | Persisted first user message/run, or newly confirmed first local admission with its frozen model snapshot    |
-| Title inference                                     | Shared AppServer `ThreadTitleGenerationCoordinator`         | Hosted adapters and Native protected adapter inject the frozen first route and their actual background owner |
-| Title, version, and pending/ready/failed settlement | Hosted title repository / existing local Thread queue       | Canonical first-message/source/version CAS and title event; manual rename supersedes automatic results       |
-| Reload and live title display                       | Session and Thread projections                             | Both clients use the shared bounded pending-title projection refresh; no client-generated title state        |
-
-The AppServer `thread-titles` package owns the existing prompt, bounded input,
-output validation, attempt/correction policy and generation coordinator. Brain's
-old module paths forward to this owner; its thin coordinator supplies the existing
-selected provider adapter, platform OpenRouter fallback, session/event persistence
-and Worker lifetime. Generic scope ports permit local Thread identities without
-inventing hosted Session IDs. This extraction activates no local provider calls;
-local durable claim, grant revalidation and positive background drain must be
-wired before a Desktop generated-title consumer is enabled.
+| Initial automatic title eligibility                 | Brain `scheduleInitialThreadTitle`                         | `HandleChatRequest`, after the first user message and its run are persisted                                  |
+| Title inference                                     | Brain `ThreadTitleGenerationCoordinator`                   | Frozen first-run provider/model, existing provider adapters; bounded background job                          |
+| Title, version, and pending/ready/failed settlement | Brain `ThreadTitleService` through `ThreadTitleRepository` | Atomic session update and `thread.title.updated` event; user rename supersedes automatic results             |
+| Reload and live title display                       | Session and thread projections                             | Web renders persisted metadata and canonical events; it does not infer pending state from the preview source |
 
 Migration `0031_session_title_status` adds durable settlement to session reads.
 Existing rows become ready. New previews become pending only when a background
@@ -900,17 +830,6 @@ job is scheduled; unsuccessful jobs remain previews and settle failed.
 Web refreshes this projection once when the canonical workflow starts, then
 uses its existing bounded pending-title polling. A long chat response does not
 delay the first title read; Web still does not manufacture title state.
-
-The existing bounded pending-title projection refresh and title-version merge
-ordering live in shared client UI behind host-owned read/delivery ports. Web
-forwards its existing authenticated session reader to that hook. The hook only
-observes canonical pending statuses; it cannot claim attempts, infer generated
-titles or publish title events. Host scope changes suppress late deliveries.
-Desktop binds the same refresh hook to SDK Thread reads and a fresh matching
-workspace grant before delivery. It merges only canonical title fields into the
-existing Thread list/selection, retaining runtime and navigation state; SDK,
-grant generation and Thread-scope changes invalidate late reads. This display
-binding does not activate local inference or manufacture pending title status.
 
 The existing platform OpenRouter free route remains a coordinator-owned,
 sanitized fallback for a failed selected route. No new provider fallback is
@@ -1147,6 +1066,7 @@ never rendered as a successfully verified closed pull request.
 | Saved image source list | Authenticated transcript image references and ChatMediaStore | Web derives references only from restored user messages in the active `SessionConversationSurface`, validates the shared image-reference schema, deduplicates by attachment ID and resolves the existing authenticated image source. Draft and optimistic images are excluded; loading, partial and failed history remain explicit. Presentation reuses `ChatImageGallery`. |
 | Outputs, subagents and background processes | Their separately scoped capabilities | Summary sections remain hidden until their canonical capabilities exist; Web does not infer runtime state or fabricate counts. |
 
+
 ## Queued follow-up and resume command identity
 
 - The SDK `createConversationInputCommands` binding retains one captured queue or
@@ -1155,64 +1075,11 @@ never rendered as a successfully verified closed pull request.
   allocating client identity. A transport failure retains that exact request for
   explicit retry; a typed server receipt retires it. Each conversation creates
   its own binding; there is no global product cache or new lifecycle authority.
-- Shared client UI `useThreadInputQueue` owns the existing queue read/mutation
-  delivery hook through an injected SDK client and host read key. Web retains its
-  authenticated client and unchanged full hosted scope key in a thin wrapper.
-  Per-hook client/scope bindings fence displayed snapshots, read outcomes and
-  mutation completion; an older read failure cannot override a newer read.
-  The shared hook renders server snapshots/receipts; it does not admit turns,
-  store durable inputs, or dispatch queued work. Desktop mounting remains gated
-  on an actual local input capability and canonical server/runtime owner.
 - Web `useConversationInputCommands` keeps composer draft/version and active
   conversation generation checks, resolves current provider/harness settings,
   presents receipts/errors and applies server-returned scope. The SDK dispatches
   only through the existing PlatformClient methods; hosted admission, queue
   ordering, steering and resume settlement retain their server/runtime owners.
-
-The shared `ThreadInputQueuePanel` owns only scoped edit text and transient
-row-action delivery state. One synchronous in-flight fence disables queue-row
-actions while leaving the main composer editable. Completion checks the mounted
-thread/workspace, exact request and captured edit before closing that edit;
-failures and uncertain canonical receipts stay visible. The optional Retry port
-is bound to Web's existing queue refresh and never resubmits an uncertain mutation.
-The controlled queuing toggle changes only the existing shared composer preference;
-it does not delete queued items, resume a paused queue or drain it.
-
-`QueueActionsMenu` uses the existing shared VisualViewport placement, outside
-dismissal and IME-aware Escape/focus helpers, rather than owning a second popup
-geometry algorithm. This presentation adapts the captured-edit/save separation
-in [T3 Code's pinned queued edit owner](https://github.com/pingdotgg/t3code/blob/f86e21f7cce7324119dadf61064965d83c539455/packages/client-runtime/src/queuedRunEdit.ts#L194)
-and the composition-key guard in
-[OpenCode's pinned editor interaction](https://github.com/anomalyco/opencode/blob/05d347d75054bf27778750ad5f2cd30336e81d8f/packages/app/src/composer/editor/interaction.ts#L469).
-LegionCode's documented Enter-to-queue and Cmd/Ctrl+Enter-to-steer contract,
-versioned queue CAS, accepted/applied/unconfirmed receipts, approvals and Stop
-remain unchanged. This UI slice does not activate local queue execution.
-
-The SDK `buildConversationTurns` associates each canonical assistant message with
-the most recent preceding user message of that same canonical Turn. Shared
-`buildChatEntries` preserves all actual user leaves in source order and renders
-one unchanged whole-Turn workflow aggregate after the last corresponding user
-marker. The first user remains the logical prompt for revision lineage and
-continuation editing; continuation workflows group at the last marker without
-moving resumed output before steering leaves. This is transcript presentation,
-not a new Turn, lifecycle fragment, queue receipt, acknowledgement body fallback,
-or runtime event owner. Exact tool-fragment interleaving remains outside this
-whole-Turn aggregate presentation.
-
-Bounded history hosts may supply one optional canonical bounds map to shared
-`buildChatEntries`, containing each Turn's actual logical root and last user
-message IDs from the validated snapshot/admission. Supplying the map disables
-visible-window root/last inference, including when no active-Turn messages are
-visible. An aggregate requires its actual last user marker in the window; when
-absent, real assistant records remain visible and active-workflow fallback is
-suppressed. Revision and continuation lookup keeps the supplied root identity.
-Only that logical root can use the existing prompt-edit action; known steering
-leaves are not editable in complete transcripts either. The shared renderer
-consumes an explicit edit-unavailable presentation flag rather than a fabricated
-edit target. Complete-history callers may omit bounds. This adds no history
-reader, cursor DTO, message cache, runtime acknowledgement body or lifecycle
-producer; the Desktop host mount awaits the canonical bidirectional body-window
-contract.
 
 ## Plan 058 — Portable lifecycle projection continuation
 
@@ -1351,6 +1218,7 @@ new scope owner is introduced.
   retain their owners. A transition to the conversation cannot substitute the
   default Auto edits mode for an explicitly selected Supervised mode.
 
+
 ## Plan 057.6C — Local canonical lifecycle replay
 
 The local App Server composes `turn/lifecycleEvents` over the existing SQLite
@@ -1365,6 +1233,7 @@ It does not admit or execute turns, fabricate settlement after process loss, or
 advertise `turn-execution-v1`. Atomic admission, native read-only execution,
 protected provider delivery and the renderer binding remain separate integration
 dependencies. The mounted end-to-end Desktop execution path is not yet complete.
+
 
 ## Plan 057 — Canonical local turn command contracts
 
@@ -1396,6 +1265,7 @@ references. History cursors use the referenced run-created event cursor and are
 scoped to the requested thread. Runtime publication must follow the committed
 admission receipt; persistence does not publish live events or own another
 lifecycle state machine.
+
 
 ## Plan 057 — Native root-FD filesystem primitive
 
@@ -1474,6 +1344,16 @@ provider, startup path or execution capability; trusted main and utility
 composition consume it in their separate integration slices. It is not an HTTP
 credential transport or a renderer API.
 
+## Plan 057 — Structured executable tool registration
+
+The canonical coding tool registry owns the exact executable/argv schema,
+host-user authority disclosure, backend requirements and presentation for
+`run_executable`. The native permission policy requires exact-input approval;
+the existing grant matcher is exported for native receipt validation without a
+second hash implementation. Core-tool exports omit this definition unless the
+actual no-fork and approval capabilities are supplied. This registration does
+not activate a worker, acquire a writer lease or produce lifecycle events.
+
 ## Plan 057 — Local saved-turn diff query
 
 `LocalTurnArtifactReads` delegates grant/thread authorization to the existing turn
@@ -1493,16 +1373,6 @@ read, artifact store and Git implementation retain their owners. Protocol/SDK
 registration is shared; native mutation composition remains separate, and this
 adapter does not advertise or enable Git mutation capability.
 
-## Plan 057 — Structured executable tool registration
-
-The canonical coding tool registry owns the exact executable/argv schema,
-host-user authority disclosure, backend requirements and presentation for
-`run_executable`. The native permission policy requires exact-input approval;
-the existing grant matcher is exported for native receipt validation without a
-second hash implementation. Core-tool exports omit this definition unless the
-actual no-fork and approval capabilities are supplied. This registration does
-not activate a worker, acquire a writer lease or produce lifecycle events.
-
 ## Shared workspace file explorer presentation
 
 The tree renderer, loaded-file filtering, expansion, pagination and stale-request
@@ -1514,6 +1384,7 @@ remain explicit; symlinks, special and reserved entries are not openable. Runtim
 workspace grant, file execution and immutable artifact ownership are unchanged.
 The shared read port transports opaque string or numeric cursors without translating
 between native cursor and hosted offset models. No copied Web tree remains.
+
 
 ## Plan 057 — Local Thread pin metadata
 
@@ -1533,119 +1404,6 @@ activity status is introduced. Local App Server `thread/pin` and `thread/unpin`
 dispatch directly to this service; SDK `pinThread` and `unpinThread` use the typed
 request/result contract. Hosted dispatch rejects these local commands. Desktop
 sidebar callbacks and visible restart acceptance remain client integration work.
-
-
-### Plan 057 shared Web and Desktop presentation
-
-`packages/client-ui` owns the existing Web sidebar, conversation hero/transcript,
-composer, inline model picker, workspace panel header/tabs, file preview/tree
-drawer and review toolbar/file stack. Web consumes the moved source through thin
-wrappers, retaining its authenticated transport, account menu, provider policy and
-repository picker bindings. The shared picker overlay retains Web focus isolation.
-DesktopSidebar, DesktopConversation, DesktopComposer, DesktopModelPicker and the
-files/review adapters supply actual SDK state and callbacks to those same surfaces.
-The competing Desktop transcript, custom home, panel header/tabs and composer model
-button are removed. Native grant confirmation remains Desktop-owned content within
-the shared modal; it does not grant access before explicit native confirmation.
-The shared project removal confirmation invokes the existing local revoke command;
-native picker and revoke errors use the shared sidebar mutation notice.
-Shared workspace sizing preserves Web's existing viewport-based initial width and
-resize bounds; Desktop supplies that width to the frame and mounts the same
-Resizer, avoiding the narrow generic-frame default for the Web review toolbar.
-
-Local thread, grant, provider route, lifecycle replay/live continuation and immutable
-review identity remain their existing SDK/App Server owners. Desktop bootstrap owns
-only guarded initialize/grant reads and explicit retry presentation. The shared
-composer and New task action remain visible before workspace access is ready;
-their unsent text/configuration is volatile renderer state. A one-shot draft
-handoff adopts only the exact Thread returned by canonical SDK creation, preserves
-late typing, and never submits automatically or creates synthetic IDs. Explicit
-navigation suppresses automatic selection. Unavailable task reads render an error
-with known project metadata rather than an empty task list. Local capability
-availability still gates execution and saved
-review; this presentation migration does not activate an unwired backend or prove
-installed execution, immutable capture or safe commits.
-
-
-### Plan 057 shared workspace chrome and composer preferences
-
-`client-ui/workspace/EnvironmentSummaryMenu` renders one shared summary card,
-either in a reserved conversation column or its existing popup. `WorkspaceFrame`
-scopes the shared `WorkspaceSummaryProvider` transient visibility preference;
-`WorkspaceSummaryLayout` measures the actual chat space after surrounding rails.
-Web mounts that layout inside `Workspace` beside its nested review pane; Desktop
-mounts it around Main's existing conversation. A rem-resolved footprint and full
-VisualViewport containment determine inline availability, including zoom, pan and
-keyboard clipping. Wide hide preference is separate from popup visibility;
-resizing never opens the popup unasked. This presentation adapts the measured
-minimum-chat/card-clearance condition in
-[T3 Code's pinned card layout](https://github.com/pingdotgg/t3code/blob/871b00907d0bcf2705224de6c6e90de925c7cbb9/apps/web/src/components/chat/threadDetailsCardLayout.ts#L30)
-to LegionCode's existing card and tokens. Actual layout proof remains a delivery check.
-
-Web retains its authenticated branch loader and selector through the existing
-render port. Desktop supplies its actual granted branch as read-only metadata
-and explicitly unavailable pull request status for the real local thread.
-The Changes action uses Web's existing summary action request and Desktop's
-scoped right-panel callback, including when the file count is zero or unknown;
-unknown counts are not fabricated. `WorkspaceReviewControls` retains only the
-actual right-sidebar toggle, with review access inside the summary. Both hosts
-keep the summary toggle in the main chat header, immediately before the closed
-sidebar toggle. The pane header contains no summary mount. Its actual fixed DOM
-width registers a token-scoped inset with the same transient presentation owner,
-so the main header cannot be covered by the pane; inline mobile headers reserve
-no inset. Desktop's scoped presentation request preserves Changes navigation
-from an open file tab. Immutable versus live review owners remain unchanged.
-No runtime, SDK product-state, filesystem or Git authority is added.
-The existing Web fullscreen review overlay, close control and focus lifecycle live
-in `client-ui/workspace/ReviewDialogFrame`; both clients mount this source.
-Desktop fullscreen retains the same scoped SDK review/file adapters and tab state,
-with one visible content mount, rather than a copied review or filesystem owner.
-
-The existing Web composer preference cache moves unchanged into shared client UI.
-Web and Desktop settings/composer consume the same storage key, defaults, event
-subscription and value parser for these UI preferences. This cache does not own
-thread, runtime, provider credential or lifecycle persistence. Desktop context
-usage receives actual SDK lifecycle context-budget and usage snapshots; missing
-snapshots remain unavailable rather than estimated by the client.
-
-### Local workspace provider preferences
-
-`LocalProviderPreferences` owns secret-free model visibility and default metadata
-for the currently granted workspace. The existing SDK preferences read/update
-methods accept an optional canonical `localScope` tuple; the local service requires
-its WorkspaceId and grantedAt, captures physical authorization at enqueue, checks
-the same grant before persistence and before returning, and serializes mutations.
-Web retains its existing authenticated preference service and unchanged parameters.
-Local provider resolution remains unsupported; the explicit environment-level
-provider route remains `LocalProviderService`, separate from workspace visibility.
-
-`LocalProviderPreferencesRecords` stores versioned, bounded records in the existing
-process-owned SQLite metadata table, keyed by canonical WorkspaceId. It creates no
-second database or credential store. User identity reuses the existing
-`LocalThreadService.LOCAL_USER_ID` owner; local Turn admission already inherits that
-Thread principal. Foreign stored user/workspace/credential identities are rejected.
-Profile isolation remains the existing Desktop user-data SQLite owner. Runtime
-factory composition owns injecting this service with the same grant authority and
-SQLite instance. These source changes do not claim installed persistence proof.
-
-### Shared settings and protected Desktop provider adapters
-
-`client-ui` owns the moved Web SettingsDialog, ProviderDialog, ManageModelsDialog,
-composer preferences controls, archived-chat list, hook view and switch presentation.
-Thin Web adapters retain their authenticated provider store, canonical credential
-IDs, product policy, archive/hook services and browser UI-preference owner.
-
-`DesktopSettingsDialog` renders those same surfaces. Its one provider projection
-uses SDK catalog/model/route/preferences methods and protected main-process
-credential status/save/delete commands; it never reads a saved secret or creates
-synthetic hosted credential IDs. Native model visibility writes carry the captured
-workspace/grant revision through the canonical preferences port. Connect/model
-management routing is explicit, and composer values use the same shared UI-cache
-owner as Web. Archived tasks use real Thread reads/unarchive commands. Unsupported
-local permanent deletion and hook-definition management remain explicit, disabled
-capabilities; they do not fabricate empty server data or successful mutations.
-Runtime factory composition and installed UI/provider/persistence proof remain
-separate from this presentation adapter source.
 
 ## Plan 057 — Local immutable Turn artifact storage
 
@@ -1699,320 +1457,15 @@ Actual ordinary/linked layouts, private-index publication, retained objects,
 approval/Stop/settlement and installed-consumer proofs must pass before advertising
 capture or Git mutation. This decision alone does not set executor support flags.
 
-## Plan 057 — Native turn service composition
+## Private Git configuration selector
 
-`LocalTurnService` consumes the canonical admission repository and delegates
-approval and interruption to their existing adapters. A matching saved request
-returns its original admission without resolving a new provider or creating an
-executor. Runtime constructs records; the existing repository owns atomic admission
-and RuntimeKernel owns lifecycle events. Immutable admitted configuration selects
-Plan's read-only ports or Build's actually supplied captured ports. Build exposes
-all four existing permission modes through the same validated per-attempt policy;
-the same provider and registry remain execution owners.
-The runtime image helper persists references through the original-byte media port
-before admission and hydrates verified originals only for provider delivery.
-History reads use the canonical bounded repository and reauthorize before return.
-
-These modules do not activate Desktop execution. Read-only activation requires
-the actual grant-held root, protected provider and read-only Git host composition.
-Captured activation additionally requires a physical writer fence and actual
-capture/artifact ports. The same executor supplies positive resource-settlement
-proof; the host retains uncertain resources. Transport completion does not
-establish terminal or physical truth.
-The configuration, Engine admission, bounded history, image-start contract and
-original-byte media ports are real dependencies. Their presence and this service
-source do not advertise availability or wire startup, handshake or HTTP dispatch.
-
-The required startup reconciliation port delegates lost Native Plan admissions to
-its Engine adapter with the same trusted worker, permission profile and lifecycle
-store. The sole App Server startup owner must invoke it before command readiness;
-this port does not run providers, reexecute tools or release captured resources.
-
-Lifecycle replay reauthorizes its canonical Turn after the asynchronous store read
-before returning event bytes, matching history and image-read scope checks.
-
-Native manifest construction consumes the same read-only Git owner's tagged HEAD
-fact and verifies it against porcelain status, the named branch and held grant.
-Unborn repositories use its format-sized absent-HEAD guard, allowing the existing
-canonical capture/first-commit path without inventing a commit or widening the
-manifest schema. A changed or inconsistent HEAD fact aborts preparation.
-
-The canonical workspace owner retains pins whose directory close fails, and raw
-acquisition handles only when their close fails before a pin exists. Its narrow
-`hasUnsettledResources` fact distinguishes clean binding rejection from unknown
-physical ownership; no request failure or rejected Promise proves release.
-
-Native Turn shutdown uses the same single resource owner as ordinary completion.
-It fences preparation and admission dispatch, waits in-flight preparation, sends
-exact-admission Stop through the existing interruption adapter, and awaits the
-original execution cleanup promises. Runtime resource-release proof is required
-for every mode before one binding close; execution fulfillment or rejection is
-never release evidence. Unknown proof, failed binding close or workspace-owner
-quarantine rejects shutdown and retains the original resources. `shutdown()` and
-`hasActiveExecutions` let the generic server await this owner before SQLite close;
-that transport barrier is a separate integration dependency.
-
-A settled read-only preflight may release only with an explicit same-attempt
-factory quiescence proof: kernel ports never returned, no NativeFS tool could
-start, and every requested Git operation returned positive closure. The Engine
-still requires exact durable terminal evidence. Worker absence is not proof;
-unknown Git closure and the captured preparation proof path remain unchanged.
-
-Captured execution receives one immutable per-attempt registry authorization
-instance from the Native factory. The Engine forwards that same object to the
-captured worker factory and requires the identical object in its kernel ports;
-validated permission policy resolution is cached once for that admitted profile.
-The canonical guarded file worker validates write/edit authorization through that
-same instance, including before commit. Supervised file edits require approval;
-the other existing policies may authorize those edits directly. Run_executable
-continues to require explicit exact-command approval in every mode. The actual
-captured ports, writer fence, tool allowlist and no-fork constraints remain required.
-
-After exact saved-receipt reconciliation, atomic admission conflicts return typed
-non-retryable 409 `local_admission_conflict`. Stale parents or unsettled/changed
-intent never cause automatic reparenting, request rewriting or execution retry.
-
-Native Plan recovery refuses any defined opaque harness selection on the Run or
-immutable admitted user content before schema, worker, producer or history checks.
-Those records remain with their independent harness owner; no driver ID parsing,
-selection remapping or delegated lifecycle mutation is introduced.
-
-Native execution captures an available matching discovered model with an explicit
-runtime route, freezes the validated private snapshot and uses its capabilities
-for image admission. The same captured values reach protected inference; volatile
-catalog metadata is not persisted in admission or request fingerprints. Canonical
-provider discovery and inference retain selection and runtime-route validation.
-
-The trusted host may inject the shared ProviderCatalogService modelCatalog
-port independently of Native Git availability. LocalProviderService and its
-Native consumer share that discovery authority; each admitted executor receives
-a validated frozen model snapshot without adding discovery data to durable
-request fingerprints or resolving credentials in the renderer.
-
-The browser-safe SDK owns complete provider inventory pagination and curated
-picker hydration for both clients. Web retains its hosted transport and cache;
-Desktop binds the same loaders to its App Server client, scoped preferences and
-protected credential command. Discovery refresh follows a confirmed credential
-save, and obsolete deliveries cannot repopulate the current inventory.
-
-Saved local selection and preference reads retain validated saved intent without
-requiring network discovery. Newly selected models, newly introduced preference
-references and Native admission still validate against the canonical discovered
-catalog. Grant, user, workspace, provider and preference-size checks remain with
-the same local services.
-
-The client-ui lifecycle delivery hook and continuation notice are shared by Web
-and Desktop. The SDK remains the lifecycle ordering, replay and terminal owner;
-Desktop history pagination and admission delivery failures cannot replace that
-truth. Each admitted delivery invalidates stale submit handlers synchronously.
-Desktop's workspace/grant/Thread-scoped UI owner retains text, configuration and
-the existing image draft across hero/docked layout changes and history refresh.
-Web keeps its default local image owner. Native File/Open Folder dispatches only
-trusted no-payload intent to the existing picker and explicit grant flow.
-
-Known captured model capacity reaches the existing Native metadata port as
-contextWindowTokens. The canonical context assembly and compaction owners retain
-budget calculation; missing capacity stays unknown without a fabricated default.
-
-Concurrent exact image retries derive a validation-only submitted fingerprint
-when another request commits before their image preparation. They use the same
-codec as initial receipt retries without persisting media or resolving providers;
-current Thread authorization and immutable saved-intent checks still gate return.
-
-The actual Desktop utility and per-child supervisor consume that private
-shutdown control and closed receipt. Stop fences request/credential delivery;
-only the matching child's positive receipt clears the ownership obligation.
-Exit, error, timeout or notification loss retain that exact child and block
-restart. Late positive receipts remain valid across request-generation changes.
-The existing before-quit caller waits for this proof; no force-kill is substituted.
-Local lifecycle replay authorizes from the canonical saved Turn admission and
-its currently granted Thread, rather than requiring a first runtime event.
-An admitted Turn may return an actual empty event page while runtime preflight
-is pending. Unknown Turns remain not found; returned event Thread, Turn, attempt
-and admitted worker identity must agree. Authorization is checked again after
-the replay read. No status, event, terminal or retrying prompt is synthesized.
-
-Local first-message chat titles reuse the existing persistence title-preview
-algorithm; Brain forwards to that shared implementation. LocalThreadService
-serializes preview metadata from the first durable admission, protects explicit
-user titles and version changes, and records same-text manual renames as user
-ownership. Confirmed admission refreshes Desktop's canonical Thread list under
-the existing workspace/grant/Thread scope. Execution dispatch and lifecycle
-settlement retain their existing owners; title metadata cannot redispatch a
-receipt or prevent an admitted response. Generated-title provider work is not
-activated by this preview wiring.
-
-The local generated-title metadata adapter delegates claim and settlement to that
-same Thread mutation queue. Its one durable pending claim requires the exact
-first admission and canonical preview event identity/source/version; settlement
-checks the same first message, pending version and original grant generation
-again. Same-text manual renames retain user ownership and supersede a generated
-result. The explicit startup recovery path validates stored local user/workspace,
-first admission and canonical pending title event under the same metadata queue,
-then retains the preview and marks the old claim failed. Recovery needs no live
-filesystem grant, never runs inference and is never invoked from a read operation.
-Normal claims and publication still require their captured fresh grant.
-
-LocalTurnService owns lazy startup title recovery, pending claim preparation, title
-jobs and every original protected inference Promise. Only a newly confirmed first
-admission can schedule inference; receipt retries do not. The pending claim is
-awaited before admission ACK, while provider generation stays auxiliary. Native
-injects the existing protected adapter with the same frozen discovered model and
-credential resolver; it creates no public inference/session/key API or local
-platform fallback. Shutdown aborts title requests synchronously, joins existing
-admission preparations, then positively drains recovery, logical jobs and original
-provider Promises before its aggregate may release SQLite. A logical title timeout
-does not release an original request. Unknown drain retains actual owners and
-process liveness. Node startup retains one private deferred initializeTitles
-Promise on the attached shutdown owner and awaits it before listening. Private
-shutdown control remains available while initialization is pending; a referenced
-keepalive lasts until listening or positive closure. Normal new admissions also
-await that title initialization. This hook does not move the existing earlier
-Native reconciliation or establish ownership of that separate startup boundary.
-
-Shared client popovers measure the current VisualViewport, including pan,
-resize and keyboard-related offsets. Optional companion panels use the same
-bounds; the existing Settings and Workspace dialogs share focus lifetime and
-restoration behavior. Desktop's wide sidebar remains below the shared dialog
-layer. Packaged Electron always loads its bundled renderer, reuses the existing
-product icon, and focuses the existing window on a second launch.
-
-Native folder-picker Open now supplies the existing explicit project-grant
-intent directly to the SDK token flow. The redundant Desktop grant/card dialog
-and its copied workspace/settings controls are removed. Picker cancellation
-never grants access; canonical token, generation, native identity and workspace
-validation remain unchanged. The shared project's Remove action retains the
-existing revoke-before-hide flow without deleting chat or artifact records.
-Desktop hides passive submission-availability prose inside the shared composer
-while retaining canonical send guards, busy/Stop controls and actionable notices.
-
-The shared ComposerWorkspaceBar owns presentation and transient menu/focus state
-for project and execution-location controls below the new-chat welcome composer;
-existing-chat composers do not mount this bar. Desktop's actual
-Main picker/token/grant flow remains its project selection owner; Web retains
-the existing authorized repository picker and AgentSetup ProjectChooser with
-draft handoff. The shared optional trigger wrapper preserves saved-project,
-new-project and no-project actions instead of adding a second chooser. Duplicate
-standalone hero/footer project chips are omitted only at migrated mounts.
-Failed Desktop grants retain the mounted conversation and draft until a confirmed
-grant replaces the scope. Bound project changes without draft handoff are guarded.
-The bar does not persist execution placement, allocate resources or supply an
-environment identity. Desktop's current placement is local, Web's is hosted;
-unconnected destinations and environment setup remain explicitly unavailable
-until the canonical authenticated configuration/preparation ports are wired.
-No environment catalogue, preparation receipt, ready binding, script or secret
-setting is synthesized by either client. Versioned preparation belongs to the
-existing workspace/bootstrap owners; active admission keeps its frozen binding.
-
-DesktopWorkspaceReview consumes the actual workspace-git-reads-v1 SDK status/diff
-queries under the ready physical grant, including when no Thread is selected.
-The shared review scope selector defaults to saved Turn changes; live Git changes
-are explicit observations, with staged and unstaged patches shown separately.
-Client, grant generation, readiness and path fence asynchronous deliveries. Reads
-run serially only while the live review is visible. Saved artifact actions select
-the exact immutable Turn scope, and saved commit controls are absent in live mode.
-The existing saved-review reader and selected-artifact commit remain their sole
-owners; a live query never fills a missing or failed immutable diff.
-
-Executable approval presentation is emitted by the canonical registry from its
-validated executable, argv and workspace-relative cwd. The SDK validates and
-projects those exact display facts, escaping control and directional characters
-without shell parsing or input repair. Both clients feed the existing shared
-approval dock; executable host-access questions retain the canonical reason.
-Metadata presentation and category do not change policy, grant matching, options
-or decision delivery. Missing legacy executable details are explicit; ordinary
-non-executable approvals do not acquire an irrelevant command block.
-
-The canonical executable tool publishes its existing absolute-path restriction
-as a provider-visible JSON Schema pattern and description. All Native provider
-adapters consume that one registry definition; no PATH lookup, shell expansion,
-input repair or permission fallback is introduced.
-
-## Desktop current-file mention suggestions
-
-SDK `listWorkspaceFileMentions` uses local `workspace/fileMentions` over the
-existing `LocalWorkspaceFilesService` native read owner. One borrowed, revocable
-physical root covers the entire query and remains held through native cleanup.
-The catalog contains current regular-file names only, never Git objects, file
-contents or immutable review evidence. Symlinks, special and reserved entries are
-not traversed or offered. Candidate policy excludes `.git`, `.legioncode`,
-`node_modules`, `.pnpm-store`, `.yarn`, `.venv`, `__pycache__`, `.next`, `.nuxt`,
-`.turbo`, `.cache` and `coverage` directories at every level. It honors opaque
-native directory pages without retaining a server-side tree/index or cursor.
-Each query is bounded to 128 pages, 20,000 examined entries, 4,000 files, 256 KiB
-of serialized result, 24 nested directory levels and five seconds. A limit
-returns an explicit truncation reason; it never claims a complete empty tree.
-The Desktop-owned mention hook and composer binding remain separate consumer
-integration. This backend change introduces no renderer filesystem access,
-attachment contents or new persistent filename index.
-
-## Local chat image bytes and rehydration
-
-`LocalChatMediaStore` owns original image blobs below the App Server's private
-`storageDirectory/chat-media`, outside workspace grants. Shared `@repo/chat-media`
-validation and full normalization both succeed before persistence. Four images,
-five MiB each and ten MiB total are enforced; filenames are metadata only. Each
-exact user/workspace/thread/run/turn/attempt has an immutable ordered fingerprint
-and scope-hashed batch directory. New batches publish by atomic rename only after
-original files, manifest and directory are synced; the parent is synced before
-references return. Startup never imports profile/workspace images or data URLs.
-Canonical admission stores only attachment references and the image fingerprint.
-
-`LocalChatMediaReads` reaches the existing authorized Turn owner before and after
-every read, checks the admitted reference and fingerprint, then supplies verified
-original bytes through bounded `media/readImage` chunks. Reads verify full scope,
-reference, MIME, size and SHA-256. The SDK `readLocalChatImage` checks each range
-and the complete SHA-256 before returning bytes; clients own transient Blob URLs.
-No filesystem URL or source path reaches a renderer. Provider hydration uses the
-same original store and shared normalizer, with no durable provider data URLs.
-The private blob namespace assumes the trusted invoking-user host profile; it
-does not claim protection against another process controlling that namespace.
-
-Local media preparation tokens retain their exact bound record even when
-publication fails. The private resource journal reserves a batch before any
-original bytes are written, names one deterministic bounded staging directory,
-and bounds uncertain pending resources to eight batches plus a conservative
-80.25 MiB reservation (including staging and manifest allowances). Accepted
-images do not consume pending quota after canonical verification. Journal state
-tracks resource cleanup only; it never declares a Turn accepted or settled.
-
-The store's private `lookupAdmission` port reads the process-owned canonical
-admission repository independently of the currently granted workspace. A single
-initial recovery promise gates current-owner media writes. Full scope, admitted
-refs and image fingerprint must match before clearing an accepted batch's journal;
-its original bytes remain immutable. Fresh canonical absence permits disposal
-only for previous-owner or explicitly request-quiescent resources. Callers invoke
-`discardUnadmitted` only after their actual admission attempt settles or before it
-can start. Lookup failure or mismatched evidence retains the reservation. A
-durable discarding marker makes interrupted cleanup resumable, while unknown
-files are preserved and block new reservations. Provider hydration also requires
-the actual admitted image fingerprint before normalizing the original bytes.
-
-## Local bounded latest history
-
-`LocalTurnAdmissions.listByThread` remains the sole local history query over
-canonical admission/event references. Explicit `thread/history` `latest: true`
-selects at most the requested limit plus one identity in descending event
-insertion order, reconstructs bounded candidates and returns its newest fitting
-whole-Turn suffix chronologically.
-`hasEarlier` comes from the extra row; `nextCursor` is the real newest returned
-event cursor. A latest request cannot combine an `afterCursor`. The local service
-defaults latest reads to 25 and reauthorizes the current Thread after the query.
-Omitting latest retains forward pagination and its existing 50-row service
-default, cursor semantics and response shape. No separate history index, timestamp
-ordering, lifecycle producer or inferred UI cursor is introduced.
-
-Both forward and latest local history responses retain the shared one-MiB
-App Server JSON body budget. The query owner measures actual serialized rows,
-comma separators, opaque cursor and response envelope using the shared protocol
-byte helper. Forward pages keep a fitting prefix and return the last actual row's
-cursor, so continuation never skips a dropped row. Latest pages keep a fitting
-suffix, including the newest Turn, and report real omitted earlier rows. Limit is
-a maximum row count; callers never infer completion from fewer returned rows. A
-single next/newest row exceeding the budget fails explicitly with
-`history_row_too_large`; no partial Turn or fake empty history is returned. The
-App Server validates the final encoded history envelope against the same budget,
-and the SDK retains the existing response cap through the same shared constant.
+The host-only Git context and the existing guardian share
+`gitConfigurationHome` validation for the explicit host XDG selector. A nonempty
+selector keeps its exact spelling, including a relative or missing directory;
+empty means Git's normal fallback. NUL, invalid UTF-8 and oversized selectors
+are rejected. HOME and TMP remain canonical existing directories. No ambient
+environment spread, model-controlled override or filesystem authority is added;
+ordinary executable environments and process containment remain unchanged.
 
 ## Saved Turn artifact commit command boundary
 
@@ -2027,47 +1480,6 @@ The private handler remains the owner of authorized settled-Turn artifact
 selection and canonical Git mutation. Handler injection, local composition,
 capability advertisement and UI activation are not implemented by this boundary.
 No live-Git selector, fallback commit path or second artifact owner is introduced.
-
-Saved artifact commit requests explicitly select either all saved changes or a
-nonempty unique subset of saved file entries. The immutable query adapter checks
-membership and expands both sides of a saved rename; the private Git authorizer
-rechecks every derived path against the same artifact. No omitted selection or
-invalid subset falls back to all changes. Native capture and commit remain
-unavailable until the physical metadata namespace and transaction gates are met.
-
-## Desktop immutable saved-change commit presentation
-
-Web retains Git orchestration and defaults while `GitCommitDialogView` owns its
-shared presentation and surface styles. Desktop consumes the one selected saved
-review read, requires explicit author input, and submits only the settled Turn,
-message and explicit all/saved-entry-path selection through SDK
-`commitTurnArtifact`. Artifact identity and Git scope remain server-derived.
-Push and PR remain unavailable until their actual services are composed. A
-transient delivery record survives dialog close and temporary read reloads;
-uncertain commits never automatically retry and only a matching validated
-positive receipt clears that uncertainty. This UI does not advertise a command
-capability or stage/read current worktree contents.
-
-## Private Git configuration selector
-
-The host-only Git context and the existing guardian share
-`gitConfigurationHome` validation for the explicit host XDG selector. A nonempty
-selector keeps its exact spelling, including a relative or missing directory;
-empty means Git's normal fallback. NUL, invalid UTF-8 and oversized selectors
-are rejected. HOME and TMP remain canonical existing directories. No ambient
-environment spread, model-controlled override or filesystem authority is added;
-ordinary executable environments and process containment remain unchanged.
-
-## Desktop native Git executable selection
-
-`resolveTrustedMacGitExecutable` is the single host filesystem discovery owner.
-Workspace readiness resolves it lazily; native runtime composition resolves once
-and shares that executable across read-only, capture and immutable commit ports.
-Typed selection unavailability retains the existing files-only composition and
-provider startup, without turn execution, saved review or commit capabilities.
-Discovery does not prove containment: the original root authority, canonical
-readiness predicate, guardian and no-fork profile remain mandatory. No system
-shim, PATH, shell or xcrun process fallback is introduced.
 
 ## Plan 057 — Saved artifact commit composition
 
@@ -2086,10 +1498,26 @@ composition owners remain strongly retained and reject shutdown. The generic
 host must await this port alongside Native Turn shutdown before closing SQLite;
 no HTTP/SDK shutdown method or alternate settlement authority is introduced.
 
+## Desktop current-file mention suggestions
+
+SDK `listWorkspaceFileMentions` uses local `workspace/fileMentions` over the
+existing `LocalWorkspaceFilesService` native read owner. One borrowed, revocable
+physical root covers the entire query and remains held through native cleanup.
+The catalog contains current regular-file names only, never Git objects, file
+contents or immutable review evidence. Symlinks, special and reserved entries are
+not traversed or offered. Candidate policy excludes `.git`, `.legioncode`,
+`node_modules`, `.pnpm-store`, `.yarn`, `.venv`, `__pycache__`, `.next`, `.nuxt`,
+`.turbo`, `.cache` and `coverage` directories at every level. It honors opaque
+native directory pages without retaining a server-side tree/index or cursor.
+Each query is bounded to 128 pages, 20,000 examined entries, 4,000 files, 256 KiB
+of serialized result, 24 nested directory levels and five seconds. A limit
+returns an explicit truncation reason; it never claims a complete empty tree.
+The Desktop-owned mention hook and composer binding remain separate consumer
+integration. This backend change introduces no renderer filesystem access,
+attachment contents or new persistent filename index.
 ## Plan 057 — Read-only local Git service construction
 
-`createLocalReadOnlyGitService` exposes only `probeRepository`, `getStatus` and
-`readRepositoryHead`
+`createLocalReadOnlyGitService` exposes only `probeRepository` and `getStatus`
 from `DefaultGitService` through the existing canonical Node Git executor and
 verified Mac transport. Every command uses read-only probe policy; private-index
 requests are rejected. The original host lender retains root lifetime and
@@ -2346,7 +1774,6 @@ port independently of Native Git availability. LocalProviderService and its
 Native consumer share that discovery authority; each admitted executor receives
 a validated frozen model snapshot without adding discovery data to durable
 request fingerprints or resolving credentials in the renderer.
-
 ## Plan 057 — Native Plan process-loss reconciliation
 
 The runtime lifecycle coordinator remains the only terminal writer. Its shared
@@ -2468,7 +1895,6 @@ no commit, terminal or resource-proof authority.
 Private notification-channel or shutdown-observer failure is not a physical
 closure signal. Unknown shutdown remains retained even if fatal delivery throws;
 failed ready delivery requests the same owned shutdown barrier.
-
 ## Plan 057 — Shared discovered local provider models
 
 LocalProviderService consumes the server-only provider catalog port for model
@@ -2505,6 +1931,111 @@ Stop and process loss clear delivery timers and prevent late secret delivery.
 No credential-read renderer IPC, Native runtime activation, mode advertisement
 or competing vault is added. The existing packaged credential case remains
 unchanged and exercises this actual first catalog consumer.
+
+## Plan 057 — Native turn service composition
+
+`LocalTurnService` consumes the canonical admission repository and delegates
+approval and interruption to their existing adapters. A matching saved request
+returns its original admission without resolving a new provider or creating an
+executor. Runtime constructs records; the existing repository owns atomic admission
+and RuntimeKernel owns lifecycle events. Immutable admitted configuration selects
+Plan's read-only ports or Build's actually supplied captured ports. Build exposes
+all four existing permission modes through the same validated per-attempt policy;
+the same provider and registry remain execution owners.
+The runtime image helper persists references through the original-byte media port
+before admission and hydrates verified originals only for provider delivery.
+History reads use the canonical bounded repository and reauthorize before return.
+
+These modules do not activate Desktop execution. Read-only activation requires
+the actual grant-held root, protected provider and read-only Git host composition.
+Captured activation additionally requires a physical writer fence and actual
+capture/artifact ports. The same executor supplies positive resource-settlement
+proof; the host retains uncertain resources. Transport completion does not
+establish terminal or physical truth.
+The configuration, Engine admission, bounded history, image-start contract and
+original-byte media ports are real dependencies. Their presence and this service
+source do not advertise availability or wire startup, handshake or HTTP dispatch.
+
+The required startup reconciliation port delegates lost Native Plan admissions to
+its Engine adapter with the same trusted worker, permission profile and lifecycle
+store. The sole App Server startup owner must invoke it before command readiness;
+this port does not run providers, reexecute tools or release captured resources.
+
+Lifecycle replay reauthorizes its canonical Turn after the asynchronous store read
+before returning event bytes, matching history and image-read scope checks.
+
+Native manifest construction consumes the same read-only Git owner's tagged HEAD
+fact and verifies it against porcelain status, the named branch and held grant.
+Unborn repositories use its format-sized absent-HEAD guard, allowing the existing
+canonical capture/first-commit path without inventing a commit or widening the
+manifest schema. A changed or inconsistent HEAD fact aborts preparation.
+
+The canonical workspace owner retains pins whose directory close fails, and raw
+acquisition handles only when their close fails before a pin exists. Its narrow
+`hasUnsettledResources` fact distinguishes clean binding rejection from unknown
+physical ownership; no request failure or rejected Promise proves release.
+
+Native Turn shutdown uses the same single resource owner as ordinary completion.
+It fences preparation and admission dispatch, waits in-flight preparation, sends
+exact-admission Stop through the existing interruption adapter, and awaits the
+original execution cleanup promises. Runtime resource-release proof is required
+for every mode before one binding close; execution fulfillment or rejection is
+never release evidence. Unknown proof, failed binding close or workspace-owner
+quarantine rejects shutdown and retains the original resources. `shutdown()` and
+`hasActiveExecutions` let the generic server await this owner before SQLite close;
+that transport barrier is a separate integration dependency.
+
+A settled read-only preflight may release only with an explicit same-attempt
+factory quiescence proof: kernel ports never returned, no NativeFS tool could
+start, and every requested Git operation returned positive closure. The Engine
+still requires exact durable terminal evidence. Worker absence is not proof;
+unknown Git closure and the captured preparation proof path remain unchanged.
+
+Captured execution receives one immutable per-attempt registry authorization
+instance from the Native factory. The Engine forwards that same object to the
+captured worker factory and requires the identical object in its kernel ports;
+validated permission policy resolution is cached once for that admitted profile.
+The canonical guarded file worker validates write/edit authorization through that
+same instance, including before commit. Supervised file edits require approval;
+the other existing policies may authorize those edits directly. Run_executable
+continues to require explicit exact-command approval in every mode. The actual
+captured ports, writer fence, tool allowlist and no-fork constraints remain required.
+
+After exact saved-receipt reconciliation, atomic admission conflicts return typed
+non-retryable 409 `local_admission_conflict`. Stale parents or unsettled/changed
+intent never cause automatic reparenting, request rewriting or execution retry.
+
+Native Plan recovery refuses any defined opaque harness selection on the Run or
+immutable admitted user content before schema, worker, producer or history checks.
+Those records remain with their independent harness owner; no driver ID parsing,
+selection remapping or delegated lifecycle mutation is introduced.
+
+Native execution captures an available matching discovered model with an explicit
+runtime route, freezes the validated private snapshot and uses its capabilities
+for image admission. The same captured values reach protected inference; volatile
+catalog metadata is not persisted in admission or request fingerprints. Canonical
+provider discovery and inference retain selection and runtime-route validation.
+Known captured model capacity reaches the existing Native metadata port as
+contextWindowTokens. The canonical context assembly and compaction owners retain
+budget calculation; missing capacity stays unknown without a fabricated default.
+
+Concurrent exact image retries derive a validation-only submitted fingerprint
+when another request commits before their image preparation. They use the same
+codec as initial receipt retries without persisting media or resolving providers;
+current Thread authorization and immutable saved-intent checks still gate return.
+
+The actual Desktop utility and per-child supervisor consume that private
+shutdown control and closed receipt. Stop fences request/credential delivery;
+only the matching child's positive receipt clears the ownership obligation.
+Exit, error, timeout or notification loss retain that exact child and block
+restart. Late positive receipts remain valid across request-generation changes.
+The existing before-quit caller waits for this proof; no force-kill is substituted.
+Local lifecycle replay authorizes from the canonical saved Turn admission and
+its currently granted Thread, rather than requiring a first runtime event.
+An admitted Turn may return an actual empty event page while runtime preflight
+is pending. Unknown Turns remain not found; returned event Thread, Turn, attempt
+and admitted worker identity must agree. Authorization is checked again after
+the replay read. No status, event, terminal or retrying prompt is synthesized.
 
 ## Plan 057 / 048 — Shared local canonical Thread lineage
 
@@ -2606,29 +2137,6 @@ original operations through the existing combined server barrier. The read
 deadline requests abort only; unknown binding cleanup retains the exact binding,
 service and slot and prevents positive SQLite/process closure. No timeout, client
 disconnect, empty active map or forced exit releases those physical obligations.
-
-## Plan 062 — Native agent directory listing
-
-The existing canonical `list_files` definition is now consumed by both local
-Plan and captured Build through `LocalReadOnlyToolWorker`. The Native read
-adapter receives the real `NativeFilesystemBridge.listDirectory` method from
-the same held-root composition as file reads. The Build factory routes listing
-to that same reader and retains its existing policy, lease and capture owners.
-No shell, search tool, lifecycle producer or filesystem authority is added.
-
-The Linux read adapter enumerates only an authorized descriptor-opened directory,
-checks its identity and directory generation, and awaits directory/ancestor
-descriptor closure. It excludes entries identified by the unchanged NativeFS
-reserved-component predicate; Native listing retains its own reserved-entry
-projection. Symlinks are described without following their targets.
-
-Both adapters return a bounded first page of at most 200 entries and 24,000
-output bytes, with escaped filenames and explicit truncation. The existing
-path-only tool schema has no cursor argument, so truncated results request a
-narrower directory rather than fabricating resumability or restarting a stale
-cursor. Errors, revocation and cancellation propagate through the existing
-worker and canonical terminal settlement. Packaged Mac acceptance remains a
-separate delivery check.
 
 ## Plan 057 — Native predecessor resource settlement evidence
 
@@ -2823,91 +2331,6 @@ migrates its shared route and removes the old DTO; this foundation alone does no
 claim that client/runtime integration. Native capture, current byte paging and
 provider custody retain their existing owners and exports.
 
-## Plan 057 — Shared local execution details
-
-The existing local turn configuration handshake optionally describes command
-execution per product mode. The captured Native capability supplies its actual
-Build profile; Plan remains command-unavailable. Omitted metadata stays unknown.
-The shared environment summary renders this descriptor through one client-ui
-component, mounted by Desktop's existing ready Native binding. This is descriptive
-metadata only: the runtime tool registry, approval policy and process helper retain
-execution authority. Hosted Web callers omit it and retain their existing summary.
-A future harness selector must scope this descriptor to the selected backend;
-it does not describe Codex subscription execution or ordinary shell support.
-
-## Plan 057 — Explicit shared summary visibility
-
-The shared workspace summary provider owns one transient open state, initially
-closed. Only the user's summary toggle opens the card. Measured space chooses
-inline rail or popup presentation while preserving that explicit visibility;
-window width and resize never open a closed card. Web and Desktop use the same
-provider and menu. This replaces automatic wide-window expansion without changing
-environment data, Git review or runtime ownership.
-
-## Plan 057 — Native input safe-point prerequisite
-
-The existing Native executor exposes the published Desktop exact-attempt input
-port to its held RuntimeKernel. It snapshots provider message data before awaits
-and rejects superseded, stopped, finished or terminal attempts. Canonical accepted
-and applied events remain Kernel-owned. This optional private port alone enables
-no queue, route or client dispatch; the same-writer durable input service must
-admit the exact input before calling it. The existing preparation-resource proof
-and positive physical shutdown responsibilities remain unchanged.
-
-## Plan 057 — Shared durable input repository contract
-
-Event-store owns the placement-independent thread-input repository contract and
-its conflict error. Persistence reexports that same contract for hosted callers;
-its existing Postgres writer remains authoritative. Private optional input identity
-and immutable media batch fields support the same local image owner without
-adding public queue fields or storing image bytes in queue rows. Native SQLite
-and shared command-service activation follow in the same integration slice; this
-contract move alone does not enable local queue or steering.
-
-## Plan 057 / 061 — Atomic local admission composition
-
-LocalTurnAdmissions remains the canonical local admission writer. Its synchronous
-admitWithin port requires the original SQLite transaction; basic Native admission,
-queued-input consumption and private delegated preparation can compose their own
-CAS with the same canonical admission and event append, without nested asynchronous
-transactions or a second admission owner. Existing scope, fingerprint, parent and
-unsettled-turn checks are unchanged. Canonical Thread ownership reads are shared
-with the local queue adapter and retain one-record streaming memory.
-
-### Local Native queued input storage prerequisite
-
-- `LocalThreadInputRepository` is the SQLite adapter for the existing shared thread-input repository contract. It uses the same LocalPersistence connection and immediate transaction owner; no second lifecycle or admission writer is introduced.
-- Queued-start CAS and `LocalTurnAdmissions.admitWithin` commit together. Accepted/applied/unconfirmed receipts and the accepted canonical platform user message are projected in the existing lifecycle append transaction. Pending intent is not transcript content.
-- Startup validates scope, indexed rows, canonical delivery receipts and accepted user bodies. The current v1/v2 workspace-grant parser is extracted without changing its contract. Queue bytes remain metadata-only; the existing media owner stores attachments.
-- This is a storage prerequisite. Native command routing, positive physical-idle proof, provider history and the shared Hosted adapter must be composed before claiming Queue or Steer availability. No new tests or registrations.
-
-### Shared queued input command owner
-
-- AppServer `ThreadInputCommandService` owns enqueue/update/remove/CAS steering, authoritative receipt reread, unknown-delivery pause and completed/idle advancement behind storage, authorization, media and runtime ports.
-- Hosted AppServer commands and the existing Hosted terminal callback now use that owner. Brain retains the existing quota/admission/dispatch/model/image and PostgreSQL transaction adapters; no duplicate local policy is activated by this extraction.
-- Native transport composition and positive physical-idle/history integration remain pending. This commit alone does not advertise Native Queue/Steer. No new tests or registrations.
-
-### Native queued admission and safe-point input seams
-
-- Native queued starts reuse the existing LocalTurnService binding/model/image preparation and canonical admission path, substituting only the same-writer queue/admission CAS. Image promotion supplies the existing preparation token without data URL reconstruction.
-- Exact-attempt Steer forwards to the already published executor safe-point port; it does not write acceptance or application events itself. The existing resource owner invokes its completion callback only after physical release and binding closure, within the original tracked cleanup operation and behind the shutdown fence.
-- These are private caller seams. Native Queue remains unavailable until held successor-lease predecessor proof and complete transport/media/history composition are wired. No standalone idle boolean or missing-executor inference is introduced. No new tests.
-
-### Accepted Native input lineage
-
-- Thread read summaries use the actual same-Turn canonical accepted user item as the active user leaf, requiring its exact input/transcript identity, scope, parent chain and accepted lifecycle sequence. A settled assistant becomes the leaf only when completed after the latest accepted input.
-- Runtime resource-release notification requires the actual Native settlement issuer/receipt path, binding closure and original owner deletion; a custom executor without that capability cannot trigger queue advancement. No new tests or sequence/state writer.
-
-### Queue admission physical boundary
-
-- Shared advancement selects only logically eligible queue intent. Physical idle is not represented as a separate boolean predicate: the actual Native start adapter must verify predecessor settlement under its already-held successor lease before atomic queue/admission publication. Unknown physical authority must pause and reject, preserving intent.
-
-- Saved known input conflicts/cancellations are terminal command receipts and are never re-delivered by the shared command owner. SQLite startup rejects conflicting queue/Steer target, receipt/state and pause representations.
-
-- Completion-triggered queue reconciliation is registered with the existing preparation tracker before its first await, because the released executor is already removed. Shutdown drains this original operation before persistence closes. Receipt retries check the canonical stored delivery before requiring a still-active executor. Native inbox startup applies the same opaque delegated-owner boundary as its lifecycle projection.
-
-- Canonical terminal projection pauses queued advancement for both accepted-but-unapplied inputs and targeted pending/claimed inputs with no authoritative delivery receipt. It preserves the exact inbox row and never invents an accepted sequence or silently retries unknown delivery.
-
 ## Plans 048 / 061 — Same-writer local harness persistence foundation
 
 The existing exclusive LocalPersistence SQLite connection owns durable local
@@ -2926,57 +2349,6 @@ field before any public delegated admission is enabled. Missing capture never se
 or reconstructs external ownership. Final constructor/driver wiring remains
 separate. Current Native admission/lineage, immutable artifacts, lifecycle byte
 paging and provider custody retain their existing source and exports.
-
-## Hosted workspace configuration presentation
-
-The shared `HostedWorkspaceConfigurationEditor` reads and updates the existing
-saved project name and starting branch through the injected authenticated SDK.
-The host supplies its exact account/session/environment generation and workspace
-ID and retains modal mounting, project navigation and sign-in ownership. The
-controller keeps only an unsaved form draft; it owns no project registry or auth
-state. Scope/client changes hide prior data immediately and fence late reads,
-branch listings, save results and notifications. Writes retain the acknowledged
-configuration version; conflicts or uncertain responses require an explicit
-reload before another save, without automatically rebinding repository identity.
-
-`WorkspaceDialogFrame` and `WorkspaceBranchField` are extracted from the existing
-Web authorized repository picker, which now consumes those shared presentations.
-The frame consumes the existing `useModalFocus` owner for keyboard, visible-target
-focus and guarded restoration. `PickerModal` retains only portal/background-inert
-ownership; neither the overlay nor the editor adds another focus-restoration or
-late-load autofocus effect.
-The Web repository picker likewise leaves initial focus, trapping and restoration
-to the shared frame; successful inventory loads and retries update data without
-refocusing the search field or taking focus from a newer dialog.
-The Desktop saved-commit dialog also consumes that helper below `PickerModal`,
-retaining its mutation/receipt owner while removing its separate keyboard effect.
-GitHub inventory, branch authorization and account state remain with the existing
-Web/SDK/server owners. The new configuration leaf remains awaiting the host-owned
-Web/Desktop mount and installed acceptance; it exposes no scripts, secrets,
-allocation or machine-readiness controls. Saving settings is not preparation.
-
-## Shared saved-history chat conversion
-
-Client UI `convertConversationHistoryMessages` owns the existing pure conversion
-from SDK-classified history records to chat messages. Web's authenticated
-`ChatHydrationService` now uses this shared helper for complete and partial saved
-history. Source IDs, user/assistant roles, timestamps, projected text parts, the
-existing `create_code_artifact` result mapping and all source metadata (including
-canonical identity and image references) retain their existing behavior. SDK
-history projection remains UI-neutral; authentication, paging, replay, runtime
-state and durable transcript ownership remain with their existing owners. This
-extraction adds no Native history consumer or message content inferred from ACKs.
-
-## Shared hosted authentication response parsing
-
-`@repo/shared-types` owns the existing hosted GitHub cookie-session response
-schemas and public user/session response types, extracted unchanged from Web's
-`GitHubService`. Supporting commit identity validation retains its existing
-passthrough behavior and reuses the canonical `GitCommitIdentityState` type.
-Web keeps its public type reexports and validates `/auth/session` with the shared
-schema; cookie authorization, OAuth, session generation, HTTP reads and user state
-remain with their existing server and client owners. This extraction adds no
-Desktop authentication, credential forwarding, endpoint, session or transport.
 
 ## Plans 048 / 061 — Kernel delegated execution foundation
 
@@ -3021,22 +2393,6 @@ consumer yet. Its client facade exports protocol types only; Node SDK and proces
 services stay behind the server export. Final driver/constructor wiring is the
 activation boundary, and no Native provider fallback is introduced.
 
-## Shared hosted conversation dispatch
-
-`@legioncode/sdk` owns hosted submission wire freezing, reservation-envelope
-validation, transport cancellation binding and matching acknowledgement
-observation through `dispatchHostedConversationSubmission`. Web's existing
-`useChatCore` consumes that helper and retains only browser notifications and
-presentation. The existing SDK submission registry remains the sole owner of
-retry identity and frozen payloads; `submitConversationMessage` still confirms
-admission from the bound acknowledgement or exact canonical lifecycle replay.
-No new submission loop, recovery store or runtime lifecycle producer is added.
-
-Desktop can consume this same dispatch boundary with its environment-bound
-client. Hosted Desktop authentication, workspace/session mounting and installed
-Native Cloud acceptance remain unwired; extracting dispatch does not advertise
-Cloud readiness or transfer local credentials.
-
 ## Plans 048 / 061 — Private Codex RPC driver foundation
 
 The private harness-codex server adapter translates the pinned Codex app-server
@@ -3052,333 +2408,3 @@ The package is not registered by an active product constructor here. Binary/sche
 pins are not OS confinement or installed-feature acceptance; both remain explicitly
 unaccepted in the runtime manifest. Whole-scope quiescence requires actual injected
 proof, and missing evidence stays unknown. Native provider execution is unchanged.
-
-- Hosted queued-Steer target denial retains its original 409 error envelope and
-  operation code; direct Steer retains its conflict receipt. The shared target
-  validation port carries operation context only for this placement mapping.
-
-- Shared advancement propagates original start failures to the terminal observer.
-  Only enqueue suppresses/logs an automatic-start failure after durable intent
-  persistence, preserving its existing pending receipt. Native physical cleanup
-  callbacks retain their original tracked failure and pause owner.
-
-## Desktop hosted account connection
-
-Desktop main owns an isolated persistent production Electron Session for the
-existing hosted Web OAuth/cookie identity. Settings consumes only validated
-status/connect/disconnect IPC. Authentication windows have no preload or Desktop
-IPC trust, deny permissions/downloads/popups, and allow only the fixed hosted
-login/callback and GitHub navigation. Landing redirects trigger a bounded read
-of the existing `/auth/session`; they do not establish authentication themselves.
-Only the safe account id/login projection crosses preload. Cookies, OAuth codes,
-provider credentials and private network configuration remain in main/server.
-
-One connection/revocation operation owns its original requests. Generation
-checks fence stale session reads; failed revocation retains a retryable state.
-Quit drains those operations and flushes the persistent jar without cancelling
-hosted agent work. Local vault and local App Server routing remain independent.
-No challenge/redeem service or duplicate identity persistence is added.
-
-This connects the actual Settings action, not Cloud task execution. Hosted SDK
-workspace/session/provider/task composition and exact installed OAuth/restart/
-revocation acceptance remain required before Cloud can be advertised as ready.
-
-## Plan 057 — Queued input media ownership
-
-The existing LocalChatMediaStore owns queued original image bytes in the same
-private files and resource journal, with the same codec and bounded image/count,
-pending-byte and concurrent-I/O limits. Version-one Turn manifests, attachment
-identities and paths remain unchanged. Queued manifests bind actual canonical
-user/workspace/thread/input identity and immutable mediaRevision before any Run
-or Turn exists. Mutable queue metadata/receipt versions do not rename that batch.
-
-The existing SQLite queue owner supplies exact scope/fingerprint/reference
-lookups, including consumed history. Startup and pending cleanup use those actual
-receipts; missing lookup, conflicting or unknown ownership retains resources.
-Promotion verifies original bytes and current canonical queue ownership before
-and after reads and before/after publication into the actual Native Turn scope.
-Active steering borrows normalized provider images only after the same checks;
-no inline pixels become queue columns or lifecycle payloads.
-
-The existing authenticated image-request opt-in recognizes only image-bearing
-start, steer, enqueue and update methods under its unchanged byte limit. SDK and
-Desktop already consume that shared helper. Queue claims, durable publication,
-Native safe points and the constructor lookup wiring remain the existing queue
-and runtime owners' integration responsibility; this media leaf alone does not
-advertise queue or steering availability.
-
-### Native queue placement and applied-input history
-
-- The private Native command adapter uses shared policy, exact current Thread authorization, admitted-model vision checks, immutable queued media and the existing executor safe point. It requires an explicitly supplied queued-start owner; no optimistic default is composed or advertised.
-- Local media journal reconciliation reads the exact same SQLite input row/media revision. The actual Native runtime receives those existing ports and reconstructs applied Steer user messages in canonical lifecycle order; accepted-but-unapplied history is never silently delivered as a fresh prompt. Missing required canonical rows/media fail closed.
-- Full Queue activation still requires held-successor physical preparation before admission, accepted-image authenticated reads and final route/capability composition. No new tests or registrations.
-
-### Native queued successor preparation
-
-- Product responsibility: admit a queued Native successor only while its actual
-  physical writer is held and its exact predecessor has durable positive closure.
-- Canonical owners: the existing LocalTurnResources retains the original opaque
-  preparation before I/O; the injected Native host writer verifies predecessor
-  settlement; the same SQLite queue/admission transaction compares the verified
-  predecessor identity before consuming the queue row.
-- Producer/consumer wiring: LocalTurnService queued admission requires the private
-  prepareQueuedExecution port, with no fallback to ordinary executor construction.
-  The common Native executor constructor consumes the exact held capability;
-  read-only queued execution also releases that original writer through actual
-  executor proof before binding-close and immutable settlement publication.
-- Unknown acquisition/publication/cleanup retains the original binding. An exact
-  canonical candidate reconciles lost acknowledgement into its original executor;
-  another winner never inherits the candidate's physical authority.
-- Migration gate: the same lexical Desktop lease factory and actual local queue
-  route must be joined before advertising queue execution. Source ports alone do
-  not enable the product. No new lifecycle writer, state registry or tests.
-- Native queue admission explicitly rejects delegated captures. Native accepted-user enrichment applies only inside the same opaque ownership boundary; shared delegated terminal/assistant summaries remain with their original reader and are not forced to manufacture Native inbox/platform records.
-
-- First Native inbox migration applies the same canonical opaque delegated-owner boundary before refusing orphan Native input events. Existing delegated history does not falsely require a Native inbox.
-The same media owner exposes a private original-image read for canonical queued
-scope and its full reference set. Exact queue ownership is rechecked around the
-bounded file read, with original digest and metadata validation; originals are
-never normalized or reencoded for review. The existing media/readImage owner
-must resolve the accepted/applied/unconfirmed input under the actual Turn and
-attempt and reauthorize after the read. This port adds no public endpoint or
-renderer-supplied host path and does not manufacture a Turn scope for steering.
-
-### Accepted input original image reader
-
-- Existing media/readImage authorizes the actual Turn, resolves initial-prompt or accepted/applied/unconfirmed input attachment references through canonical owners, and reauthorizes after the bounded read. Accepted inputs use the same queued-media original-byte reader with full immutable scope/fingerprint/ref-set checks.
-- No synthetic Turn scope, normalized replacement bytes, renderer body fallback or new endpoint is introduced. Pending queue previews remain a separate strict-scope consumer; Native route activation still waits for held-successor admission. No new tests.
-
-### Queued successor admission race guard
-
-- The private queue/admission transaction requires the exact predecessor Turn ID returned by held-successor physical verification (null only for a fresh Thread). It rereads the latest canonical admission on the same immediate SQLite writer before admitWithin and rejects any intervening ordinary or queued admission. No public schema or physical-proof shortcut is added.
-
-### Frozen Native input model capability
-
-- Steer image eligibility comes from the actual executor's existing captured admitted model snapshot, checked before publication and again at exact-attempt delivery. Missing support fails closed; live discovery is not a second decision owner. Text and saved-receipt retries retain their paths.
-- Native applied-input history enrichment respects the same opaque delegated boundary as inbox projection and Thread lineage. Shared lifecycle scope/producer validation and historical assistant handling remain unchanged.
-
-- Native local process composition now injects the SAME SQLite inbox into its
-  Turn service and media owner, routes existing input RPCs through the shared
-  command service, and connects positive original resource settlement to queued
-  advancement. Routes are composed only with the actual private queued physical
-  preparation port; absent ports do not advertise an optimistic fallback. The
-  original HTTP operation drain owns all input command promises through shutdown.
-
-## Plan 057 — Canonical accepted-user history windows
-
-The existing local SQLite event connection projects initial admission user items
-and durable accepted input bodies into the shared ConversationHistoryMessage
-contract. The original append/lifecycle/inbox owners remain unchanged. Native
-accepted rows must match their exact durable acceptance receipt and immutable
-body/image references; pending queue rows and acknowledgement-only payloads do
-not become transcript messages. Opaque delegated admissions retain their own
-canonical producer without manufacturing a Native inbox.
-
-The existing thread/history endpoint preserves whole-Turn admission cursors and
-adds separately bounded user-message windows. A real canonical user-item cursor
-pins an immutable high-watermark over the authorized Turn set. Latest reads query
-the body tail directly; forward/backward continuation validates canonical anchors
-and never includes later appends. The response includes actual earlier/later
-bounds and the last canonical user-item ID per selected Turn at that snapshot, so
-thin clients place one workflow after its real last user without loading every
-older steering message. Root edit identity remains the admission's user item.
-
-Each page returns at most 100 messages within the complete one-MiB App Server
-frame, including admission and window metadata. Admission selection reuses its
-original cursor authority with a private byte budget when envelope overhead
-requires a smaller page. An initial empty message prefix explicitly continues;
-a continuation-only page must advance or fail explicitly for an oversized row.
-The SDK/renderer consumer owns cancellable bounded-window navigation; this source
-alone does not claim installed history/queue acceptance. No new tests or stores.
-
-The SDK `iterateLocalThreadHistory` consumer yields one canonical bounded page
-per caller request. It validates admission/message scope, immutable snapshot
-facts, typed message identities, cursor endpoints and continuation direction.
-Opaque cursors are never numerically or lexically ordered. A maximum 1,000-page
-iteration bounds cycle tracking; callers may resume from the last yielded
-continuation. It retains no transcript accumulator and never prefetches after
-yield, return or cancellation. Read cancellation fences late results and does
-not claim execution-resource closure. Desktop consumes this SDK iterator through its existing conversation read owner;
-there is no additional history watcher or persistence owner.
-
-The existing SDK conversation lifecycle projection retains the maximum sequence
-of canonical accepted/applied input events as body-free `inputSequence` read
-invalidation. Desktop's existing history owner can refresh a bounded tail from
-that fact; no additional subscription, acknowledgement-body reconstruction or
-input state owner is introduced.
-
-The existing shared chat auto-scroll hook also consumes explicit bounded-history
-navigation intent. Earlier/newer page replacements align to their adjoining end
-or start boundary and disable live bottom-follow; an explicit Latest restores
-bottom-follow. Hosts without navigation intent retain existing behavior. This
-keeps one scroll owner rather than layering Desktop-specific scroll effects.
-
-Desktop's existing `useDesktopConversation` remains the sole bounded history,
-replay and continuation read owner. Its focused reader separates whole-Turn
-admission paging from immutable body-window navigation, verifies the same
-admissions/attempts on continuation, and replaces the visible message window.
-It follows an explicit initial empty-body continuation once rather than draining
-history, and preserves its existing bounded latest-admission restoration and
-lookahead. Scope/generation cancellation fences late reads. Confirmed admission
-and canonical input invalidation reread the tail; neither acknowledgement nor
-queue metadata manufactures transcript rows. Public queue activation and installed
-acceptance remain separate runtime/product gates.
-
-Desktop mounts those canonical user records through the shared history converter
-and `buildChatEntries` with snapshot last-user IDs and admission root IDs. It no
-longer rebuilds the transcript from admission prompts alone. Accepted inputs retain
-their actual per-message immutable image references and Turn-authorized original
-reads; preview tokens include message identity, and page replacement revokes old
-URLs through the existing preview-cache lifetime. Existing history notices expose
-Earlier/Newer/Latest navigation; the shared scroll hook consumes only completed
-navigation intent. Web consumes the same shared presentation with its own unchanged
-hosted history/authentication owner.
-
-- Client-supplied history Turn sets that are missing, foreign, duplicated or
-  malformed are invalid snapshot selections, not database-corruption evidence.
-  The private reader returns its opaque cursor conflict; the public request
-  schema continues to reject malformed IDs/duplicate sets before storage reads.
-  Actual mismatched canonical rows/fingerprints remain corruption failures.
-
-- A workspace grant revoked or switched before the synchronous history read also
-  invalidates that snapshot selection; it is not classified as corrupt storage.
-  Malformed persisted grant content still fails through the storage guard.
-
-- Private queued-image consumers share one strict ownership-schema translation
-  from the durable queue row. Image preparation parses the actual scope before
-  processing bytes; provider history and original reads consume the same parsed
-  identity, fingerprint and references. Raw repository strings never substitute
-  for canonical branded scope, and no casts or alternate byte authority are used.
-
-- Accepted-input platform events take their branded Thread and workspace identity
-  from the same parsed canonical admission after its queue/attempt scope checks;
-  the durable row still owns the input body and receipt. No raw-ID cast is used.
-
-## Plans 048 / 061 — Private OpenCode v2 driver foundation
-
-The private harness-opencode server adapter translates pinned OpenCode v2 client,
-event and permission representations through the existing worker contracts.
-Canonical selection, policy resolution and effective-policy attestation are
-required injected authorities; the native permission mapper neither grants
-permissions nor certifies enforcement. Real full-scope quiescence and ordered
-stream-drain evidence remain separate from foreground process completion.
-
-This package and its matched dependency graph are an inactive driver foundation,
-not a local registration or route. RuntimeKernel remains the lifecycle/approval
-writer, harness-core retains host/journal ownership, and unsupported resume stays
-unavailable. The driver requires Node 22 and never falls back to Native execution.
-### Original Native provider request settlement
-
-The same Native attempt factory retains every original protected-gateway request
-before invocation. Kernel cancellation polling can settle its observer first;
-that result is not provider-request closure. After the original executor result
-and worker proof settle, the factory fences new requests and awaits all retained
-adapter promises before writer release, binding close and immutable resource
-settlement. A request that ignores cancellation keeps that original obligation;
-no abort acknowledgement, deadline or empty executor map substitutes for it.
-This is buffered-request resource ownership only; it does not invent streaming
-phases, output/retry semantics or another canonical lifecycle producer.
-
-## Plan 057 — Held Native queued preparation
-
-The existing Native writer owner acquires the candidate lease before queued
-admission. One synchronously returned preparation object retains the original
-acquisition and cleanup tasks. Under that held writer, the canonical latest
-Thread admission is read and its existing immutable Native resource-settlement
-receipt is verified; missing legacy evidence remains recovery-required. The
-verified predecessor identity is passed to the same SQLite queued-admission CAS.
-
-Captured Build uses the exact reserved lease and original binding after full
-admission/attempt identity checks, without reacquiring a writer. Queued Plan
-retains that same writer through the original executor's positive settlement.
-Unused cleanup first fences new work and drains original acquisition/publication;
-only canonical candidate absence or an exact known unused-acquisition proof can
-release it. Unknown closure retains the binding and lease. The existing Desktop
-ABI probe, lexical lease owner, capture and resource-receipt callbacks remain
-canonical. Public route availability still requires the actual runtime consumer
-and same-transaction predecessor guard; this port alone does not activate it.
-
-- Queued execution requires the actual same-entry writer-release callback before
-  accepting positive cleanup. The owner's ordinary pre-acquisition/missing-entry
-  fallback cannot certify a writer that was acquired before queued admission.
-
-### Captured Native queued configuration
-
-- The shared protocol owns one strict Native queued-configuration interpreter.
-  Existing queue fields capture Plan/Build mode, product policy and an optional
-  complete provider/model pair. Native maps canonical `auto_edit` to Build;
-  absent fields retain the explicit Plan/AskAlways defaults. Unsupported harness
-  and reasoning fields are rejected before queue publication or media effects.
-- The Native placement adapter validates enqueue and update intent through that
-  interpreter. LocalTurnService starts the immutable saved configuration and
-  forwards its explicit provider/model pair to the existing selection guard,
-  including same-request receipt reconciliation. A changed selected provider
-  cannot silently substitute for that saved pair.
-- The same immediate SQLite queue/admission transaction interprets the stored
-  configuration through the same helper and verifies candidate configuration,
-  Run mode and explicit selection before admission/queue consumption. It does
-  not infer policy from current UI state or introduce another queue writer.
-- Native Queue route activation still requires the reviewed held-writer and
-  bounded history consumer join. No new protocol fields or tests are added.
-
-
-### Hosted shared-input compatibility
-
-- Hosted update/remove known CAS conflict receipts retain their existing HTTP 200 wrapper. Direct Steer response denials retain the existing HTTP 502/THREAD_INPUT_NOT_CONFIRMED mapping through a private placement brand; queued-Steer and unknown Native delivery keep their existing 503 reconciliation path.
-- Shared policy still owns durable command/CAS/receipt decisions. Placement transport status does not become a second input state owner. No new tests.
-
-### Native queue while a predecessor writer is closing
-
-A canonical terminal may precede the original executor/provider/writer/binding
-cleanup. A queued input arriving in that interval remains pending: the physical
-writer acquisition still runs and can return a known busy refusal. Only after
-the ORIGINAL unused-candidate preparation proves its own acquisition quiescence
-and closes its original binding does LocalTurnService map that exact typed busy
-error to the existing thread_not_idle conflict. The Native placement adapter
-preserves the queue without pausing, consuming or resending it. The predecessor's
-actual positive settlement callback can subsequently advance the same queue via
-a new held-writer acquisition and exact predecessor receipt verification.
-
-Unknown acquisition/cleanup, lost publication acknowledgement and missing
-predecessor evidence retain their existing pause/reconciliation behavior. A busy
-writer owned by another Thread is described as workspace contention; this fix
-adds no cross-Thread dispatcher or automatic wake guarantee. Terminal history and
-logical idle never substitute for physical writer proof. No new tests or stores.
-## Shared immutable review after failed or interrupted turns
-
-The shared conversation review hook admits a settled repository turn only when
-its own canonical diff and captured snapshot state agree. Failed/interrupted
-terminal presentation now offers that same immutable review without inferring
-capture from terminal status or reading live Git. Missing or mismatched capture
-remains unavailable. Web and Desktop retain the same SDK projection and shared
-review selection owner; completed-response artifact presentation is unchanged.
-
-## Shared provider connection accessibility
-
-The shared provider chooser moves focus within its own view when selecting a
-provider replaces the search screen with credentials. Success and recovery
-messages expose status/alert semantics to assistive technology. Web and Desktop
-consume this same presentation; credential custody and modal focus restoration
-remain with their existing host and overlay owners.
-## Desktop hosted App Server session binding
-
-Desktop main's `DesktopHostedAccount` owns the private persistent Electron
-session. Its scope-checked `run` loan registers the original operation before
-invocation, validates production/account/generation before and after the request,
-and drains those operations before logout or quit. Neither detach nor shutdown
-issues a cloud Turn interrupt. The existing hosted server remains the only
-authentication, admission, lifecycle, credential and artifact authority.
-
-`DesktopHostedAppServer` adapts validated, explicitly allowlisted hosted App
-Server envelopes to the existing SDK HTTP transport and that private session's
-`fetch`. The renderer never receives a cookie, bearer token or arbitrary URL
-operation. Local grants, local Threads, local Turn start/history and OS-vault
-commands cannot cross this route. Method-derived ingress hints retain existing
-hosted large-body handling under a bounded IPC ceiling; responses use the SDK's
-existing one-MiB body limit.
-
-Only status and the four admission acknowledgement headers cross early metadata
-notifications. The same bounded receipt is retained in failure results when body
-parsing fails. Callback notification errors do not abandon the original SDK body
-read. Public Desktop hosted task mounting and installed Native Cloud acceptance
-remain separate consumers; this transport does not advertise execution readiness.
