@@ -34,9 +34,9 @@ export { useChatImageAttachmentDraft, type ChatImageAttachmentDraftBinding } fro
 export { useChatImagePreviews, type ChatImagePreviewSource, type ChatImageOriginalReader } from "./conversation/useChatImagePreviews.js";
 export {
   CHAT_IMAGE_MIME_TYPES, isChatImageMimeType, validateNextImageAttachment,
-  createChatImageAttachment, toImageParts, toRedactedImageMetadata,
+  createChatImageAttachment, toImageParts, toRedactedImageMetadata, buildChatAppendMessage,
   formatAttachmentSize, type ChatImageMimeType, type ChatImageAttachment,
-  type ChatSubmitAttachments,
+  type ChatSubmitAttachments, type ChatUserContent, type ChatAppendMessage,
 } from "./conversation/chatImageAttachments.js";
 export { ChangedFilesCard } from "./conversation/chat-message/ChangedFilesCard.js";
 export type { ChangedFilesSummary } from "./conversation/chat-message/changed-files-types.js";

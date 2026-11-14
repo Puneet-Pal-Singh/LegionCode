@@ -22,6 +22,45 @@ export interface ChatSubmitAttachments {
   imageAttachments: ChatImageAttachment[];
 }
 
+export type ChatUserContent =
+  | string
+  | Array<
+      | { type: "text"; text: string }
+      | {
+          type: "image";
+          image: string;
+          mimeType: string;
+          name: string;
+        }
+    >;
+
+export interface ChatAppendMessage {
+  id?: string;
+  role: "user";
+  content: ChatUserContent;
+  imageMetadata?: ReturnType<typeof toRedactedImageMetadata>;
+}
+
+export function buildChatAppendMessage(
+  text: string,
+  imageAttachments: ChatImageAttachment[],
+): ChatAppendMessage {
+  if (imageAttachments.length === 0) {
+    return { role: "user", content: text };
+  }
+  return {
+    role: "user",
+    content: [
+      {
+        type: "text",
+        text: text || "Analyze the attached image(s).",
+      },
+      ...toImageParts(imageAttachments),
+    ],
+    imageMetadata: toRedactedImageMetadata(imageAttachments),
+  };
+}
+
 const MAX_IMAGES_PER_MESSAGE = 4;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_TOTAL_IMAGE_BYTES = 10 * 1024 * 1024;

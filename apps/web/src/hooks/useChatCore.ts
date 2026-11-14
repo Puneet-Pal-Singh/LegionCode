@@ -42,9 +42,11 @@ import {
 import { resolveReasoningEffortForRequest } from "../lib/model-reasoning-preferences";
 import { loadSessionBranchPreference } from "../lib/session-branch-preference";
 import {
-  toImageParts,
+  buildChatAppendMessage,
   toRedactedImageMetadata,
   type ChatImageAttachment,
+  type ChatUserContent,
+  type ChatAppendMessage,
 } from "@legioncode/client-ui";
 import { createRunId } from "../lib/run-id";
 import {
@@ -65,24 +67,7 @@ import {
   type ActiveTurnProjection,
 } from "./useActiveTurnProjection.js";
 
-export type ChatUserContent =
-  | string
-  | Array<
-      | { type: "text"; text: string }
-      | {
-          type: "image";
-          image: string;
-          mimeType: string;
-          name: string;
-        }
-    >;
-
-export interface ChatAppendMessage {
-  id?: string;
-  role: "user";
-  content: ChatUserContent;
-  imageMetadata?: ReturnType<typeof toRedactedImageMetadata>;
-}
+export { buildChatAppendMessage, type ChatUserContent, type ChatAppendMessage } from "@legioncode/client-ui";
 
 interface ChatSubmitAttachments {
   imageAttachments?: ChatImageAttachment[];
@@ -1326,26 +1311,6 @@ export function useChatCore(
     reviseTurn,
     resumeInterruptedTurn,
     applyStartedQueueReceipt,
-  };
-}
-
-export function buildChatAppendMessage(
-  text: string,
-  imageAttachments: ChatImageAttachment[],
-): ChatAppendMessage {
-  if (imageAttachments.length === 0) {
-    return { role: "user", content: text };
-  }
-  return {
-    role: "user",
-    content: [
-      {
-        type: "text",
-        text: text || "Analyze the attached image(s).",
-      },
-      ...toImageParts(imageAttachments),
-    ],
-    imageMetadata: toRedactedImageMetadata(imageAttachments),
   };
 }
 
