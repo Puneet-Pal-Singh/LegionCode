@@ -1,6 +1,7 @@
 #ifndef LEGIONCODE_HOST_APPROVAL_H
 #define LEGIONCODE_HOST_APPROVAL_H
 #include "legioncode-host-contract.h"
+#define LC_HOST_ENV_EXECUTABLE "/usr/bin/env"
 
 typedef struct { uid_t uid; gid_t gid; uuid_t guid; } lc_host_principal;
 typedef struct {
@@ -89,15 +90,24 @@ static inline bool lc_host_bundle_valid(lc_host_approval *approval) {
   }
   return bridge_found;
 }
-static inline bool lc_host_paths(CFTypeRef value, CFArrayRef *out, bool executables) {
+static inline bool lc_host_declared_paths(CFTypeRef value, CFArrayRef *out, bool executables, bool env_read_leaf) {
   if (!value || CFGetTypeID(value) != CFArrayGetTypeID() || !CFArrayGetCount(value) || CFArrayGetCount(value) > 32) return false;
   for (CFIndex i = 0; i < CFArrayGetCount(value); i++) {
     char path[PATH_MAX]; struct stat st;
     if (!lc_host_text(CFArrayGetValueAtIndex(value, i), path, sizeof(path)) || !lc_host_absolute(path) ||
         stat(path, &st) || (st.st_mode & (S_ISUID | S_ISGID)) ||
-        (executables ? (!S_ISREG(st.st_mode) || !(st.st_mode & 0111)) : !S_ISDIR(st.st_mode))) return false;
+        (executables ? (!S_ISREG(st.st_mode) || !(st.st_mode & 0111)) :
+          (!S_ISDIR(st.st_mode) && !(env_read_leaf && !strcmp(path, LC_HOST_ENV_EXECUTABLE) && S_ISREG(st.st_mode))))) return false;
   }
   *out = value; return true;
+}
+static inline bool lc_host_paths(CFTypeRef value, CFArrayRef *out, bool executables) {
+  return lc_host_declared_paths(value, out, executables, false);
+}
+/* Only the fixed, explicitly pinned env interpreter may be a read leaf. Other
+ * read roots remain directories; protected roots do not acquire file semantics. */
+static inline bool lc_host_read_paths(CFTypeRef value, CFArrayRef *out) {
+  return lc_host_declared_paths(value, out, false, true);
 }
 static inline bool lc_host_manifest_u64(CFDictionaryRef values, CFStringRef key, uint64_t *out) {
   CFTypeRef value = CFDictionaryGetValue(values, key); int64_t number;
@@ -145,7 +155,7 @@ static inline bool lc_host_load_approval(lc_host_approval *out) {
       !lc_host_text(CFDictionaryGetValue(values, CFSTR("KernelRelease")), out->kernel_release, sizeof(out->kernel_release)) ||
       !lc_host_requirement(values, CFSTR("BundleRequirement"), &out->bundle_requirement) ||
       !lc_host_requirement(values, CFSTR("BridgeRequirement"), &out->bridge_requirement) ||
-      !lc_host_paths(CFDictionaryGetValue(values, CFSTR("ReadRoots")), &out->reads, false) ||
+      !lc_host_read_paths(CFDictionaryGetValue(values, CFSTR("ReadRoots")), &out->reads) ||
       !lc_host_paths(CFDictionaryGetValue(values, CFSTR("ProtectedRoots")), &out->protected_roots, false) ||
       !lc_host_paths(CFDictionaryGetValue(values, CFSTR("Executables")), &out->executables, true)) return false;
   out->actor = (uid_t)actor;
@@ -168,7 +178,8 @@ static inline bool lc_host_load_approval(lc_host_approval *out) {
   if (!lc_host_setup_authorization(out)) return false;
   /* A manifest boolean is not sandbox/process/cleanup evidence. Only the
    * completed protected qualification receipt may authorize normal execution.
-   * Its producer/validator is not joined until canonical setup transport exists. */
+   * Each daemon starts unqualified; only this instance's actual setup runner
+   * may publish/validate its current-boot receipt. Never revive prior instances. */
   out->qualified = false;
   unsigned char random[32]; arc4random_buf(random, sizeof(random)); lc_host_hex(random, sizeof(random), out->generation, sizeof(out->generation));
   return true;

@@ -48,10 +48,11 @@ static inline bool lc_host_build_policy(const lc_host_approval *approval, const 
     if (!lc_host_text(CFArrayGetValueAtIndex(approval->reads, i), path, sizeof(path)) ||
         lc_host_beneath(path, root) || lc_host_beneath(root, path) ||
         lc_host_beneath(path, LC_HOST_STATE) || lc_host_beneath(path, approval->bundle)) return false;
-    lc_host_policy_path(out, "allow file-read*", "subpath", path);
+    const char *filter = !strcmp(path, LC_HOST_ENV_EXECUTABLE) ? "literal" : "subpath";
+    lc_host_policy_path(out, "allow file-read*", filter, path);
     /* Trusted host mutation is outside this declared policy; tools cannot alter
      * their declared toolchains, executable permissions or code. */
-    lc_host_policy_path(out, "deny file-write*", "subpath", path);
+    lc_host_policy_path(out, "deny file-write*", filter, path);
   }
   bool bash = false;
   for (CFIndex i = 0; i < CFArrayGetCount(approval->executables); i++) {

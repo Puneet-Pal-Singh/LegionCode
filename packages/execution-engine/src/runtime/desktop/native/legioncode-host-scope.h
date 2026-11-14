@@ -3,6 +3,7 @@
 #include "legioncode-host-access.h"
 #include "legioncode-host-sandbox.h"
 #include "legioncode-host-wire.h"
+#include "legioncode-host-qualification-toolchain.h"
 
 #include "legioncode-host-record.h"
 
@@ -177,14 +178,10 @@ static inline bool lc_host_prepare_command_internal(int state, const lc_host_app
   bootstrap->magic = LC_HOST_BOOTSTRAP_MAGIC; bootstrap->uid = scope->record.principal.uid;
   bootstrap->gid = scope->record.principal.gid; bootstrap->root = scope->record.binding.root; bootstrap->fence = scope->record.binding.fence;
   strcpy(bootstrap->command, command); strcpy(bootstrap->cwd, cwd); strcpy(bootstrap->work, scope->record.work_path);
-  /* The actual approved executable list defines PATH. No ambient environment,
-   * provider values, shell initialization or arbitrary client PATH is copied. */
-  for (CFIndex i = 0; i < CFArrayGetCount(approval->executables); i++) {
-    char path[PATH_MAX]; if (!lc_host_text(CFArrayGetValueAtIndex(approval->executables, i), path, sizeof(path))) return false;
-    char *slash = strrchr(path, '/'); if (!slash) return false; if (slash == path) slash[1] = 0; else *slash = 0;
-    size_t used = strlen(bootstrap->path);
-    if (snprintf(bootstrap->path + used, sizeof(bootstrap->path) - used, "%s%s", used ? ":" : "", path) >= (int)(sizeof(bootstrap->path) - used)) return false;
-  }
+  /* Capture ONLY the protected approved Node/npm/env/bash role directories.
+   * The launcher environment below is private to sandbox-exec; target commands
+   * receive this exact path after sandbox, credential drop and descriptor close. */
+  if (!lc_host_command_path(approval, bootstrap->path, sizeof(bootstrap->path))) return false;
   CC_SHA256_CTX digest; unsigned char hash[32]; CC_SHA256_Init(&digest);
   CC_SHA256_Update(&digest, command, (CC_LONG)strlen(command) + 1); CC_SHA256_Update(&digest, cwd, (CC_LONG)strlen(cwd) + 1);
   CC_SHA256_Final(hash, &digest); lc_host_hex(hash, sizeof(hash), scope->command_digest, sizeof(scope->command_digest));

@@ -235,7 +235,7 @@ static inline int lc_host_bootstrap_target(void) {
   char path[sizeof(input.path) + 6], home[PATH_MAX + 6], temporary[PATH_MAX + 8];
   snprintf(path, sizeof(path), "PATH=%s", input.path); snprintf(home, sizeof(home), "HOME=%s", input.work);
   snprintf(temporary, sizeof(temporary), "TMPDIR=%s", input.work);
-  char *environment[] = { path, home, temporary, "LANG=C.UTF-8", "LC_ALL=C.UTF-8", NULL };
+  char *environment[] = { path, home, temporary, "LANG=C.UTF-8", "LC_ALL=C.UTF-8", "npm_config_script_shell=/bin/bash", NULL };
   char *args[] = { "/bin/bash", "--noprofile", "--norc", "-c", input.command, NULL };
   execve(args[0], args, environment); return 127;
 }

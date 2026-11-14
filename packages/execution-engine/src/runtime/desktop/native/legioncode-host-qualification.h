@@ -30,7 +30,7 @@ typedef struct {
   int fd[LC_QUAL_FDS]; bool fd_closed[LC_QUAL_FDS], fd_close_attempted[LC_QUAL_FDS];
   lc_host_file_identity parent_identity, work_identity;
   uint16_t port; size_t positive_sent, positive_received;
-  unsigned char positive_bytes[32], result_sha256[32], build_sha256[32], g_sha256[32];
+  unsigned char positive_bytes[32], result_sha256[32], build_sha256[32], package_bin_sha256[32], core_utils_sha256[32], g_sha256[32];
   bool package_test, package_build, detached_observed, detached_closed;
   pid_t detached_pid; uint64_t detached_start_seconds, detached_start_microseconds;
 } lc_host_qualification;
@@ -232,19 +232,18 @@ static inline bool lc_qualification_network_poll(lc_host_qualification *job) {
 static inline bool lc_qualification_package_files(const lc_host_approval *approval, lc_host_qualification *job) {
   lc_host_scope *scope = job->resource; struct passwd actor, *found = NULL; char account[16384];
   if (getpwuid_r(approval->actor, &actor, account, sizeof(account), &found) || !found || !lc_host_scope_current(scope)) return false;
-  char node[PATH_MAX * 2], shell_node[PATH_MAX * 4], script_test[PATH_MAX * 4 + 64], script_build[PATH_MAX * 4 + 64];
-  char json_test[PATH_MAX * 8 + 128], json_build[PATH_MAX * 8 + 128], package[PATH_MAX * 16 + 512];
-  if (!lc_qualification_json(job->tools.node, node, sizeof(node)) || !lc_qualification_quote(job->tools.node, shell_node, sizeof(shell_node)) ||
-      snprintf(script_test, sizeof(script_test), "%s .qualifier-test.cjs", shell_node) >= (int)sizeof(script_test) ||
-      snprintf(script_build, sizeof(script_build), "%s .qualifier-build.cjs", shell_node) >= (int)sizeof(script_build) ||
-      !lc_qualification_json(script_test, json_test, sizeof(json_test)) || !lc_qualification_json(script_build, json_build, sizeof(json_build)) ||
-      snprintf(package, sizeof(package), "{\"name\":\"native-qualification\",\"version\":\"1.0.0\",\"private\":true,\"scripts\":{\"test\":%s,\"build\":%s}}\n", json_test, json_build) >= (int)sizeof(package)) return false;
+  char node[PATH_MAX * 2], captured_path[8192], path_json[16386];
+  static const char package[] = "{\"name\":\"native-qualification\",\"version\":\"1.0.0\",\"private\":true,\"scripts\":{\"test\":\"node .qualifier-test.cjs\",\"build\":\"node .qualifier-build.cjs\"}}\n";
+  if (!lc_qualification_json(job->tools.node, node, sizeof(node)) || !lc_host_command_path(approval, captured_path, sizeof(captured_path)) ||
+      !lc_qualification_json(captured_path, path_json, sizeof(path_json)) ||
+      !lc_qualification_directory(scope->root, "node_modules", approval->actor, actor.pw_gid) ||
+      !lc_qualification_directory(scope->root, "node_modules/.bin", approval->actor, actor.pw_gid)) return false;
   char outside[PATH_MAX], outside_json[PATH_MAX * 2], nonce[65];
   if (snprintf(outside, sizeof(outside), "%s/%s", LC_HOST_WORK, job->outside_name) >= (int)sizeof(outside) ||
       !lc_qualification_json(outside, outside_json, sizeof(outside_json))) return false;
   lc_host_hex(scope->record.setup_nonce, 32, nonce, sizeof(nonce));
   char *configuration = calloc(1, 131072); if (!configuration) return false;
-  int count = snprintf(configuration, 131072, "{\"node\":%s,\"nonce\":\"%s\",\"port\":%u,\"outside\":%s,\"protected\":[", node, nonce, job->port, outside_json);
+  int count = snprintf(configuration, 131072, "{\"node\":%s,\"path\":%s,\"nonce\":\"%s\",\"port\":%u,\"outside\":%s,\"protected\":[", node, path_json, nonce, job->port, outside_json);
   bool okay = count > 0 && count < 131072; size_t at = okay ? (size_t)count : 0;
   for (CFIndex i = -2; okay && i < CFArrayGetCount(approval->protected_roots); i++) {
     char path[PATH_MAX], encoded[PATH_MAX * 2];
@@ -259,17 +258,18 @@ static inline bool lc_qualification_package_files(const lc_host_approval *approv
     lc_qualification_write(scope->root, "package.json", package, strlen(package), approval->actor, actor.pw_gid, 0644) &&
     lc_qualification_write(scope->root, ".qualifier-test.cjs", lc_qualification_test_script, sizeof(lc_qualification_test_script) - 1, approval->actor, actor.pw_gid, 0644) &&
     lc_qualification_write(scope->root, ".qualifier-build.cjs", lc_qualification_build_script, sizeof(lc_qualification_build_script) - 1, approval->actor, actor.pw_gid, 0644) &&
-    lc_qualification_write(scope->root, ".qualifier-flood.cjs", lc_qualification_flood_script, sizeof(lc_qualification_flood_script) - 1, approval->actor, actor.pw_gid, 0644) && lc_host_sync(scope->root);
+    lc_qualification_write(scope->root, ".qualifier-flood.cjs", lc_qualification_flood_script, sizeof(lc_qualification_flood_script) - 1, approval->actor, actor.pw_gid, 0644) &&
+    lc_qualification_write(scope->root, "node_modules/.bin/native-qualification-bin", lc_qualification_package_bin_script, sizeof(lc_qualification_package_bin_script) - 1, approval->actor, actor.pw_gid, 0755) &&
+    lc_qualification_write(scope->root, ".qualifier-core-script", lc_qualification_core_shell_script, sizeof(lc_qualification_core_shell_script) - 1, approval->actor, actor.pw_gid, 0755) && lc_host_sync(scope->root);
   free(configuration); return okay;
 }
 static inline bool lc_qualification_command(int state, const lc_host_approval *approval, lc_host_qualification *job, const char *recipe) {
-  char node[PATH_MAX * 4], npm[PATH_MAX * 4], command[501];
-  if (!lc_host_qualification_toolchain_current(approval, &job->tools) || !lc_qualification_quote(job->tools.node, node, sizeof(node)) ||
-      !lc_qualification_quote(job->tools.npm, npm, sizeof(npm))) return false;
+  char command[501];
+  if (!lc_host_qualification_toolchain_current(approval, &job->tools)) return false;
   int count;
-  if (!strcmp(recipe, "flood")) count = snprintf(command, sizeof(command), "%s .qualifier-flood.cjs", node);
+  if (!strcmp(recipe, "flood")) count = snprintf(command, sizeof(command), "node .qualifier-flood.cjs");
   else if (!strcmp(recipe, "test") || !strcmp(recipe, "build"))
-    count = snprintf(command, sizeof(command), "%s %s --offline --no-audit --no-fund --script-shell=/bin/bash run %s", node, npm, recipe);
+    count = snprintf(command, sizeof(command), "npm run %s", recipe);
   else return false;
   if (count < 0 || count >= (int)sizeof(command)) return false;
   xpc_object_t request = xpc_dictionary_create(NULL, NULL, 0); if (!request) return false;
@@ -349,6 +349,14 @@ static inline bool lc_qualification_evidence(const lc_host_approval *approval, l
       !lc_qualification_read(scope->root, ".qualifier-descendant", descendant, sizeof(descendant), approval->actor, scope->record.binding.root.device) ||
       memcmp(descendant, "LCQD", 4) || memcmp(descendant + 4, scope->record.setup_nonce, 32) ||
       lc_host_read32(descendant + 36) != (uint32_t)job->detached_pid || !job->detached_observed || !job->detached_closed) return false;
+  unsigned char package_bin[32];
+  if (!lc_qualification_read(scope->root, ".qualifier-package-bin", package_bin, sizeof(package_bin), approval->actor, scope->record.binding.root.device) ||
+      memcmp(package_bin, scope->record.setup_nonce, 32)) return false;
+  unsigned char core_utils[32];
+  if (!lc_qualification_read(scope->root, ".qualifier-core-utils", core_utils, sizeof(core_utils), approval->actor, scope->record.binding.root.device) ||
+      memcmp(core_utils, scope->record.setup_nonce, 32)) return false;
+  CC_SHA256(core_utils, sizeof(core_utils), job->core_utils_sha256);
+  CC_SHA256(package_bin, sizeof(package_bin), job->package_bin_sha256);
   CC_SHA256(result, sizeof(result), job->result_sha256);
   if (build) {
     unsigned char bytes[32];
@@ -361,14 +369,16 @@ static inline bool lc_qualification_evidence(const lc_host_approval *approval, l
 typedef struct {
   uint32_t version, bytes, recipe, purpose, actor, scenario_bits, original_closure_bits, reserved;
   char boot[40], kernel[256], generation[65], permit[65], qualification_id[65];
-  char bundle_cdhash[129], bridge_cdhash[129], helper_cdhash[129], node_cdhash[129];
-  unsigned char manifest_sha256[32], broker_sha256[32], node_sha256[32], npm_sha256[32], bash_sha256[32];
+  char bundle_cdhash[129], bridge_cdhash[129], helper_cdhash[129], node_cdhash[129], env_cdhash[129];
+  unsigned char manifest_sha256[32], broker_sha256[32], node_sha256[32], npm_sha256[32], bash_sha256[32], npm_launcher_sha256[32], env_sha256[32];
+  unsigned char core_sha256[LC_HOST_CORE_EXECUTABLE_COUNT][32];
+  char core_cdhash[LC_HOST_CORE_EXECUTABLE_COUNT][129];
   lc_host_writer_binding binding;
   uint64_t slot_generation, stop_stdout_bytes, detached_start_seconds, detached_start_microseconds;
   uint32_t detached_pid, detached_closed;
   unsigned char cleanup_receipt[32], retirement_receipt[32], metadata_sha256[32], g_sha256[32];
-  unsigned char snapshot_sha256[32], result_sha256[32], build_sha256[32], start_bridge_nonce[32];
-  lc_host_file_identity snapshot_identity, tool_identity[3];
+  unsigned char snapshot_sha256[32], result_sha256[32], build_sha256[32], package_bin_sha256[32], core_utils_sha256[32], start_bridge_nonce[32];
+  lc_host_file_identity snapshot_identity, tool_identity[LC_HOST_TOOLCHAIN_ROLES];
   _Alignas(8) unsigned char digest[32];
 } lc_host_qualification_receipt;
 _Static_assert(offsetof(lc_host_qualification_receipt, digest) + 32 == sizeof(lc_host_qualification_receipt), "Qualification digest covers complete receipt");
@@ -381,7 +391,7 @@ static inline bool lc_qualification_receipt_validate(int state, const lc_host_ap
   bool okay = !fstat(fd, &st) && st.st_size == sizeof(record) && st.st_nlink == 1 && (st.st_mode & 0777) == 0600 && lc_host_io(fd, &record, sizeof(record), false);
   if (close(fd)) okay = false;
   unsigned char digest[32], policy[32], generation[32]; CC_SHA256(&record, (CC_LONG)offsetof(lc_host_qualification_receipt, digest), digest);
-  return okay && record.version == 1 && record.bytes == sizeof(record) && record.recipe == 1 && !record.reserved &&
+  return okay && record.version == 2 && record.bytes == sizeof(record) && record.recipe == LC_HOST_TOOLCHAIN_RECIPE && !record.reserved &&
     record.purpose == LC_HOST_RESOURCE_SETUP_QUALIFICATION && record.actor == approval->actor && record.scenario_bits == 511 &&
     record.original_closure_bits == 0xfff && record.slot_generation && record.stop_stdout_bytes >= 32768 &&
     record.detached_pid > 1 && record.detached_closed == 1 && record.detached_start_seconds &&
@@ -409,24 +419,29 @@ static inline bool lc_qualification_publish(int state, lc_host_approval *approva
       !job->acquisition.control_write_closed || !job->acquisition.control_eof || !job->acquisition.report_valid ||
       job->acquisition.reservation_fd != -1 || job->acquisition.reservation_directory_fd != -1) return false;
   for (size_t i = 0; i < LC_QUAL_FDS; i++) if (!job->fd_closed[i]) return false;
-  for (size_t i = 0; i < 3; i++) if (!job->tools.closed[i]) return false;
+  for (size_t i = 0; i < LC_HOST_TOOLCHAIN_ROLES; i++) if (!job->tools.closed[i]) return false;
   for (size_t i = 0; i < 7; i++) if (job->metadata.descriptor_close[i] != 1) return false;
   lc_host_reservation slot;
   if (!lc_host_reservation_read(state, approval, scope->record.principal.uid, &slot) || slot.state != LC_HOST_SLOT_AVAILABLE ||
       slot.slot_generation != scope->record.uid_slot_generation || memcmp(&slot.binding, &scope->record.binding, sizeof(slot.binding)) ||
       memcmp(slot.cleanup_receipt, scope->record.cleanup_receipt, 32) || memcmp(slot.retirement_receipt, scope->record.retirement_receipt, 32)) return false;
   lc_host_qualification_receipt record; memset(&record, 0, sizeof(record));
-  record.version = 1; record.bytes = sizeof(record); record.recipe = 1; record.purpose = LC_HOST_RESOURCE_SETUP_QUALIFICATION;
+  record.version = 2; record.bytes = sizeof(record); record.recipe = LC_HOST_TOOLCHAIN_RECIPE; record.purpose = LC_HOST_RESOURCE_SETUP_QUALIFICATION;
   record.actor = approval->actor; record.scenario_bits = 511; record.original_closure_bits = 0xfff;
   memcpy(record.boot, scope->record.boot, 40); strcpy(record.kernel, approval->kernel_release); strcpy(record.generation, approval->generation);
-  strcpy(record.permit, approval->setup_permit_id); strcpy(record.qualification_id, job->id); strcpy(record.node_cdhash, job->tools.node_cdhash);
+  strcpy(record.permit, approval->setup_permit_id); strcpy(record.qualification_id, job->id); strcpy(record.node_cdhash, job->tools.node_cdhash); strcpy(record.env_cdhash, job->tools.env_cdhash);
   if (!lc_host_text(CFDictionaryGetValue(approval->manifest, CFSTR("BundleCDHash")), record.bundle_cdhash, sizeof(record.bundle_cdhash)) ||
       !lc_host_text(CFDictionaryGetValue(approval->manifest, CFSTR("BridgeCDHash")), record.bridge_cdhash, sizeof(record.bridge_cdhash)) ||
       !lc_host_text(CFDictionaryGetValue(approval->manifest, CFSTR("FilesystemHelperCDHash")), record.helper_cdhash, sizeof(record.helper_cdhash))) return false;
   char broker[65];
   if (!lc_host_text(CFDictionaryGetValue(approval->manifest, CFSTR("BrokerSHA256")), broker, sizeof(broker)) || !lc_host_unhex(broker, record.broker_sha256, 32) ||
       !lc_host_unhex(job->tools.node_sha, record.node_sha256, 32) || !lc_host_unhex(job->tools.npm_sha, record.npm_sha256, 32) ||
-      !lc_host_unhex(job->tools.bash_sha, record.bash_sha256, 32) || !lc_host_unhex(job->bridge_nonce, record.start_bridge_nonce, 32)) return false;
+      !lc_host_unhex(job->tools.bash_sha, record.bash_sha256, 32) || !lc_host_unhex(job->tools.launcher_sha, record.npm_launcher_sha256, 32) ||
+      !lc_host_unhex(job->tools.env_sha, record.env_sha256, 32) || !lc_host_unhex(job->bridge_nonce, record.start_bridge_nonce, 32)) return false;
+  for (size_t i = 0; i < LC_HOST_CORE_EXECUTABLE_COUNT; i++) {
+    if (!lc_host_unhex(job->tools.core_sha[i], record.core_sha256[i], 32)) return false;
+    strcpy(record.core_cdhash[i], job->tools.core_cdhash[i]);
+  }
   memcpy(record.manifest_sha256, approval->manifest_sha256, 32); record.binding = scope->record.binding;
   record.slot_generation = scope->record.uid_slot_generation; record.stop_stdout_bytes = scope->stdout_size;
   record.detached_pid = (uint32_t)job->detached_pid; record.detached_closed = 1;
@@ -434,7 +449,7 @@ static inline bool lc_qualification_publish(int state, lc_host_approval *approva
   memcpy(record.cleanup_receipt, scope->record.cleanup_receipt, 32); memcpy(record.retirement_receipt, scope->record.retirement_receipt, 32);
   memcpy(record.metadata_sha256, scope->record.metadata.digest, 32); memcpy(record.g_sha256, job->g_sha256, 32);
   memcpy(record.snapshot_sha256, job->metadata.image.sha256, 32); record.snapshot_identity = job->metadata.image.file_identity;
-  memcpy(record.tool_identity, job->tools.identity, sizeof(record.tool_identity)); memcpy(record.result_sha256, job->result_sha256, 32); memcpy(record.build_sha256, job->build_sha256, 32);
+  memcpy(record.tool_identity, job->tools.identity, sizeof(record.tool_identity)); memcpy(record.result_sha256, job->result_sha256, 32); memcpy(record.build_sha256, job->build_sha256, 32); memcpy(record.package_bin_sha256, job->package_bin_sha256, 32); memcpy(record.core_utils_sha256, job->core_utils_sha256, 32);
   CC_SHA256(&record, (CC_LONG)offsetof(lc_host_qualification_receipt, digest), record.digest);
   char name[96]; snprintf(name, sizeof(name), "qualification.%s", job->id);
   int fd = openat(state, name, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
@@ -694,7 +709,7 @@ static inline xpc_object_t lc_host_setup_request(int state, lc_host_approval *ap
     if (index == LC_HOST_MAX_SCOPES) return lc_host_reply("unavailable", "resourceLimit");
     memset(job, 0, sizeof(*job)); job->used = true; job->phase = LC_QUAL_UNKNOWN; job->resource_index = index; job->resource = &scopes[index];
     for (size_t i = 0; i < LC_QUAL_FDS; i++) job->fd[i] = -1;
-    for (size_t i = 0; i < 3; i++) job->tools.fd[i] = -1;
+    for (size_t i = 0; i < LC_HOST_TOOLCHAIN_ROLES; i++) job->tools.fd[i] = -1;
     job->acquisition.reservation_fd = job->acquisition.reservation_directory_fd = -1;
     unsigned char id[32], nonce[32], zero[32] = {0}; arc4random_buf(id, 32); arc4random_buf(nonce, 32);
     lc_host_hex(id, 32, job->id, sizeof(job->id)); lc_host_hex(nonce, 32, job->bridge_nonce, sizeof(job->bridge_nonce));
