@@ -1,8 +1,9 @@
 import { useCallback, useLayoutEffect, useRef } from "react";
 import { userIdFromExternalId, workspaceIdFromExternalId } from "@repo/platform-protocol";
-import type { ConversationScope, LifecycleProjection, PlatformClient } from "@legioncode/sdk";
+import type { AppServerRequest, ConversationScope, LifecycleProjection, PlatformClient } from "@legioncode/sdk";
 import { useAuth } from "../../contexts/AuthContext";
 import type { ActiveTurnProjection } from "../useActiveTurnProjection";
+import { prepareConversationRequestGuard } from "./conversationRequestGuard";
 
 export const CONVERSATION_RECOVERY_REASON = "This task needs recovery review. Work was not restarted.";
 
@@ -58,9 +59,13 @@ export function useConversationMutationAvailability(sessionId: string, runId: st
     const projection = selected.activeTurn.readCurrentProjection();
     return Boolean(projection?.recovery && mutationUnavailableReason(selected.accountId, target, projection));
   }, [ownerKey]);
+  const prepareMutationRequest = useCallback((envelope: AppServerRequest) =>
+    prepareConversationRequestGuard(envelope, current.current, () => current.current, isMutationAllowed),
+  [isMutationAllowed]);
   return {
     isMutationAllowed,
     requiresRecoveryReview,
+    prepareMutationRequest,
     unavailableReason: mutationUnavailableReason(accountId, scope, activeTurn.projection),
   };
 }
