@@ -13,6 +13,7 @@ import { RESOURCE_POLICY, ResourceSetupBindingSchema, ResourceObservationSchema,
   ResourceObservationInputSchema, ResourceProvisionInputSchema, freezeQualification,
   type ResourceSetupBinding, type QualificationRawAction, QualificationNamespaceInputSchema, QualificationFixtureSchema,
   QualificationNamespaceReceiptSchema, QualificationMarkersSchema } from "../qualification/contracts";
+import { NativeResourceSetupBindingSchema, NativeResourceObservationSchema, NativeResourceProvisionReceiptSchema, NativeRuntimePreparationSchema } from "../qualification/contracts";
 import type { Env } from "../index";
 
 const helper = "/usr/local/libexec/legioncode-command-supervisor";
@@ -24,6 +25,8 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
   private readonly nativeState: DurableObjectState;
   private readonly nativeEnvironment: Env;
   private nativeOriginal: Promise<unknown> | undefined;
+  private nativeBootstrapCreator?: <T>(binding: NativeCommandBinding, effect: (deadline: number) => Promise<T>, readOnly?: boolean) => Promise<T>;
+  private nativeRuntimeObserver?: (binding: NativeCommandBinding, preparation: unknown) => Promise<void>;
   private nativeBootstrap?: { binding: NativeCommandBinding; sealed: boolean; creators: Set<Promise<unknown>> };
 
   constructor(state: DurableObjectState<Record<string, never>>, env: unknown) {
@@ -158,13 +161,27 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
     // The parent enters its reserved control sibling before it creates any
     // untrusted process. The helper independently checks the real membership.
     // The fixed shell script contains no user data, credentials or identity.
-    const original = this.runOriginal(["/bin/sh", "-c", enterControl], input);
+    const runtimeProbe = input.argv.length === 2 && input.argv[0] === helper && input.argv[1] === "--native-runtime-payload";
+    if (runtimeProbe && !this.nativeBootstrapCreator) throw unavailable();
+    const original = this.nativeBootstrapCreator && runtimeProbe
+      ? this.nativeBootstrapCreator(input.binding, deadline => this.runOriginal(["/bin/sh", "-c", enterControl], input, 64 * 1024, deadline))
+      : this.runOriginal(["/bin/sh", "-c", enterControl], input);
     this.nativeOriginal = original;
     try { return await original; }
     finally { if (this.nativeOriginal === original) this.nativeOriginal = undefined; }
   }
 
   async controlNativeCommand(input: Parameters<OwnedNativeSandboxPort["controlNativeCommand"]>[0]) {
+    const binding = NativeCommandBindingSchema.parse(input.binding);
+    if (input.action === "start" && this.nativeBootstrap &&
+      sameNativeBinding(this.nativeBootstrap.binding, { ...binding, nonce: this.nativeBootstrap.binding.nonce })) {
+      if (!this.nativeBootstrapCreator) throw unavailable();
+      return this.nativeBootstrapCreator(binding, () => this.readNativeCommandControl(input));
+    }
+    return this.readNativeCommandControl(input);
+  }
+
+  private async readNativeCommandControl(input: Parameters<OwnedNativeSandboxPort["controlNativeCommand"]>[0]) {
     const binding = NativeCommandBindingSchema.parse(input.binding);
     if (!/^[a-f0-9]{64}$/.test(input.controlToken) || !["status", "start", "stop", "ack"].includes(input.action)) throw unavailable();
     // Do not wake a replacement container or retry an ambiguous creator gate.
@@ -178,10 +195,15 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
     return receipt;
   }
 
+  async verifyNativeRuntimeOriginal(binding: NativeCommandBinding, preparation: unknown): Promise<void> {
+    if (!this.nativeRuntimeObserver) throw unavailable();
+    await this.nativeRuntimeObserver(binding, preparation);
+  }
+
   async sealNativeBootstrap(value: NativeCommandBinding): Promise<void> {
     const binding = NativeCommandBindingSchema.parse(value);
     const current = this.nativeBootstrap;
-    if (current && !sameNativeBinding(current.binding, binding)) throw unavailable();
+    if (current && !sameNativeBinding(current.binding, { ...binding, nonce: current.binding.nonce })) throw unavailable();
     const gate = current ?? { binding, sealed: true, creators: new Set<Promise<unknown>>() };
     this.nativeBootstrap = gate;
     // Synchronous physical admission fence, before waiting for any creator.
@@ -198,22 +220,77 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
     this.nativeBootstrap = gate;
     const gitReceipts: NativeCheckoutBootstrapReceipt["git"] = [];
     const owner = this.nativeEnvironment.AGENT_RUNTIME.get(this.nativeEnvironment.AGENT_RUNTIME.idFromString(input.physicalOwnerId));
-    const createOriginal = async <T>(effect: (deadline: number) => Promise<T>): Promise<T> => {
+    const originalContainer = this.nativeState.container;
+    const inspect = async (): Promise<unknown> => {
+      // Feature detection is not evidence: validate each actual provider result.
+      const candidate: unknown = originalContainer;
+      if (!candidate || typeof candidate !== "object" || !("inspect" in candidate) || typeof candidate.inspect !== "function") throw unavailable();
+      return await candidate.inspect();
+    };
+    let observedImage: { reference: string; digest: string } | undefined;
+    const readImage = async () => {
+      const result = await inspect();
+      if (!result || typeof result !== "object" || !("image" in result) || typeof result.image !== "string" ||
+        result.image.length > 2048 || !/^(?:[A-Za-z0-9._:/-]+@)?sha256:[a-f0-9]{64}$/.test(result.image)) throw unavailable();
+      return { reference: result.image, digest: result.image.slice(-71) };
+    };
+    const physicalAdmission = (deadline: number) => {
+      if (gate.sealed || deadline <= Date.now() || this.nativeState.container !== originalContainer) throw unavailable();
+    };
+    const create = async <T>(creatorBinding: NativeCommandBinding, effect: (deadline: number) => Promise<T>, readOnly = false): Promise<T> => {
       // Register the entire pending authorization/creator before any effect.
       const creator = Promise.resolve().then(async () => {
-        const admission = await owner.continueNativeBootstrap(binding, this.nativeState.id.toString(), intent);
+        const admission = await owner.continueNativeBootstrap(creatorBinding, this.nativeState.id.toString(), intent, readOnly);
         if (!admission) throw unavailable();
         // No await between physical Stop/deadline admission and effect dispatch.
-        if (gate.sealed || admission.expiresAt <= Date.now()) throw unavailable();
+        if (observedImage) {
+          const image = await readImage();
+          if (image.reference !== observedImage.reference || !originalContainer?.running) throw unavailable();
+        }
+        physicalAdmission(admission.expiresAt);
         return effect(admission.expiresAt);
       });
       gate.creators.add(creator);
       try { return await creator; } finally { gate.creators.delete(creator); }
     };
+    this.nativeBootstrapCreator = create;
+    const createOriginal = <T>(effect: (deadline: number) => Promise<T>) => create(binding, effect);
     const operation = Promise.resolve().then(async () => {
       if (!await owner.authorizeNativeBootstrap(binding, this.nativeState.id.toString(), intent)) throw unavailable();
-      await createOriginal(() => this.startAndWaitForPorts({ ports: this.defaultPort }));
-      return materializeNativeCheckout({
+      await createOriginal(async deadline => {
+        if (!originalContainer || originalContainer.running || await inspect() !== null) throw unavailable();
+        if (originalContainer.running) throw unavailable();
+        physicalAdmission(deadline);
+        await this.startAndWaitForPorts({ ports: this.defaultPort });
+      });
+      observedImage = await readImage();
+      const resourceBinding = NativeResourceSetupBindingSchema.parse({ purpose: "legioncode_native", native: binding,
+        physicalOwnerId: input.physicalOwnerId, expiresAt: (await owner.continueNativeBootstrap(binding, this.nativeState.id.toString(), intent))?.expiresAt });
+      const fixed = async (mode: string, body: unknown) => {
+        const result = await createOriginal(deadline => this.runOriginal([helper, mode], body, 64 * 1024, deadline));
+        if (result.exitCode !== 0 || result.stderr !== "") throw unavailable();
+        return JSON.parse(result.stdout) as unknown;
+      };
+      const observation = NativeResourceObservationSchema.parse(await fixed("--observe-resources", { version: 1, binding: resourceBinding, policy: RESOURCE_POLICY }));
+      const resources = NativeResourceProvisionReceiptSchema.parse(await fixed("--provision-resources", { version: 1,
+        binding: resourceBinding, policy: RESOURCE_POLICY, expectedBootId: observation.sandboxBootId, expectedParent: observation.parent.identity }));
+      if (JSON.stringify(observation.binding) !== JSON.stringify(resourceBinding) || JSON.stringify(resources.binding) !== JSON.stringify(resourceBinding) ||
+        resources.sandboxBootId !== observation.sandboxBootId) throw unavailable();
+      const runtimePreparation = NativeRuntimePreparationSchema.parse({ imageReference: observedImage.reference, imageDigest: observedImage.digest,
+        sandboxObjectId: this.nativeState.id.toString(), observation, resources });
+      this.nativeRuntimeObserver = async (commandBinding, expected) => {
+        const preparation = NativeRuntimePreparationSchema.parse(expected);
+        if (JSON.stringify(preparation) !== JSON.stringify(runtimePreparation)) throw unavailable();
+        // Read-only original evidence observation: never call SDK startup here.
+        const result = await create(commandBinding, deadline => this.runOriginal([helper, "--observe-resources"],
+          { version: 1, binding: resourceBinding, policy: RESOURCE_POLICY }, 64 * 1024, deadline), true);
+        if (result.exitCode !== 0 || result.stderr !== "") throw unavailable();
+        const observed = NativeResourceObservationSchema.parse(JSON.parse(result.stdout));
+        if (observed.sandboxBootId !== observation.sandboxBootId || observed.helperSha256 !== observation.helperSha256 ||
+          JSON.stringify(observed.binding) !== JSON.stringify(resourceBinding) ||
+          JSON.stringify(observed.parent.identity) !== JSON.stringify(observation.parent.identity)) throw unavailable();
+      };
+      const materialized = await materializeNativeCheckout({
       binding, intent, authEnvironment: input.authEnvironment, gitReceipts,
       original: (argv, body) => createOriginal(deadline => this.runOriginal(argv, body, 64 * 1024, deadline)),
       git: { execute: async (command: GitCommandExecutionInput) => {
@@ -229,6 +306,8 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
         return result;
       } },
       });
+      if (materialized.receipt.observation.sandboxBootId !== observation.sandboxBootId || materialized.receipt.observation.helperSha256 !== observation.helperSha256) throw unavailable();
+      return { ...materialized, runtimePreparation };
     });
     this.nativeOriginal = operation;
     const retained = this.nativeOriginal;

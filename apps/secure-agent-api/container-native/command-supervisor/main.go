@@ -158,7 +158,7 @@ func validateRequest(value request) error {
 		plain := value.Binding
 		plain.Qualification = nil
 		plain.Nonce = ""
-		if plain != (binding{}) || validateResourceSetupBinding(*value.Binding.Qualification) != nil {
+		if plain != (binding{}) || value.Binding.Qualification.Purpose != "native_boundary_qualification" || value.Binding.Qualification.Native != nil || validateResourceSetupBinding(*value.Binding.Qualification) != nil {
 			return errors.New("qualification_scope_required")
 		}
 	} else if !hexadecimal.MatchString(value.Binding.ExecutionDomainDigest) {
@@ -252,6 +252,9 @@ func main() {
 			os.Exit(70)
 		}
 		return
+	}
+	if len(os.Args) == 2 && os.Args[1] == "--native-runtime-payload" {
+		os.Exit(runNativeRuntimePayload())
 	}
 	if len(os.Args) == 2 && os.Args[1] == "--namespace-init" {
 		os.Exit(runNamespaceInit())

@@ -277,12 +277,20 @@ export class AgentRuntime extends DurableObject<Env> {
       const git = runtime.plugins.get("git");
       if (!(git instanceof GitPlugin)) throw new Error("NATIVE_BOOTSTRAP_GIT_OWNER_REQUIRED");
       const receipt = await original.materializeCheckout(git.nativeBootstrapAuthEnvironment(gitToken));
-      await original.drainOriginalOperations();
       const settlement = original.bootstrapTransportSettlement();
       if (!settlement || settlement.receipt !== receipt) throw new Error("NATIVE_BOOTSTRAP_TRANSPORT_UNKNOWN");
-      this.nativeCommands.delete(key);
-      return receipt;
-    } catch { throw new Error("NATIVE_BOOTSTRAP_ORIGINAL_UNKNOWN"); }
+      await original.produceNativeRuntimeObservation();
+      await original.drainOriginalOperations();
+      if (!await original.awaitClosure()) throw new Error("NATIVE_RUNTIME_CLOSURE_UNKNOWN");
+      // inspect().image is only a provider START reference. The actual resource,
+      // namespace and closure observations above cannot manufacture its missing
+      // deployment/source association. Keep Ready blocked until that real owner
+      // supplies verifiable evidence; never promote expected pins or labels.
+      throw new Error("NATIVE_RUNTIME_DEPLOYMENT_BINDING_UNAVAILABLE");
+    } catch (error) {
+      if (error instanceof Error && error.message === "NATIVE_RUNTIME_DEPLOYMENT_BINDING_UNAVAILABLE") throw error;
+      throw new Error("NATIVE_BOOTSTRAP_ORIGINAL_UNKNOWN");
+    }
   }
 
   async authorizeNativeBootstrap(value: unknown, sandboxObjectId: string, intentValue: unknown): Promise<boolean> {
@@ -295,22 +303,29 @@ export class AgentRuntime extends DurableObject<Env> {
       return true;
     });
   }
-  async continueNativeBootstrap(value: unknown, sandboxObjectId: string, intentValue: unknown): Promise<{ expiresAt: number } | null> {
+  async continueNativeBootstrap(value: unknown, sandboxObjectId: string, intentValue: unknown, readOnly = false): Promise<{ expiresAt: number } | null> {
     return this.ctx.blockConcurrencyWhile(async () => {
       const binding = NativeCommandBindingSchema.parse(value);
       const row = await this.ctx.storage.get<PhysicalExecutionSessionRecord>(this.getExecutionSessionKey(binding.sessionId));
       if (!row || isQualificationRecord(row) || isRetiredExecutionSession(row) || row.nativeCheckout?.rawStarted !== true ||
-        !await this.nativeBootstrapMatches(row, binding, sandboxObjectId, intentValue)) return null;
+        !await this.nativeBootstrapMatches(row, binding, sandboxObjectId, intentValue, readOnly)) return null;
       return { expiresAt: Math.min(row.expiresAt, row.lease.expiresAt) };
     });
   }
-  private async nativeBootstrapMatches(row: RuntimeSessionRecord, binding: Parameters<typeof sameNativeBinding>[0], sandboxObjectId: string, intentValue: unknown) {
+  private async nativeBootstrapMatches(row: RuntimeSessionRecord, binding: Parameters<typeof sameNativeBinding>[0], sandboxObjectId: string, intentValue: unknown, readOnly = false) {
     const intent = NativeCheckoutBootstrapIntentSchema.parse(intentValue);
     if ((await validExecutionDomain(row))?.domain !== "legioncode_native") return false;
     const fresh = await this.ctx.storage.get<PhysicalExecutionSessionRecord>(this.getExecutionSessionKey(binding.sessionId));
     if (!fresh || JSON.stringify(fresh) !== JSON.stringify(row)) return false;
+    const continuation = readOnly
+      ? row.nativeCheckout?.phase === "materialized" && !!row.nativeCheckout.runtime &&
+        sameNativeBinding(row.nativeCheckout.runtime.commandBinding, binding)
+      : !!row.nativeCommand && sameNativeBinding(row.nativeCommand.binding, binding) &&
+        (row.nativeCheckout?.phase === "dispatching" || (row.nativeCheckout?.phase === "materialized" && !row.nativeCheckout.runtime &&
+          row.nativeCommand.kind === "command" && row.nativeCommand.request?.argv.length === 2 &&
+          row.nativeCommand.request.argv[0] === "/usr/local/libexec/legioncode-command-supervisor" && row.nativeCommand.request.argv[1] === "--native-runtime-payload"));
     return JSON.stringify(row.nativeCheckout?.intent) === JSON.stringify(intent) && !row.cleanupInProgress && row.expiresAt > Date.now() && row.lease.expiresAt > Date.now() &&
-      row.nativeCheckout?.phase === "dispatching" && !!row.nativeCommand && !row.nativeCommand.stopRequested && sameNativeBinding(row.nativeCommand.binding, binding) &&
+      continuation && !!row.nativeCommand && !row.nativeCommand.stopRequested &&
       row.lease.owner === binding.sessionId && row.lease.leaseId === binding.leaseId && row.lease.sandboxId === binding.sandboxId &&
       row.lease.generation === binding.generation && row.lease.executionDomainDigest === binding.executionDomainDigest &&
       this.env.Sandbox.idFromName(binding.sandboxId).toString() === sandboxObjectId;
@@ -321,8 +336,8 @@ export class AgentRuntime extends DurableObject<Env> {
     if (!row || !sameExecutionLease(row.lease, lease) || row.cleanupInProgress ||
       row.nativeCheckout?.phase !== "materialized" || hasUnsettledNativeCommand(row) || row.expiresAt <= Date.now() ||
       row.lease.expiresAt <= Date.now() || (await validExecutionDomain(row))?.domain !== "legioncode_native") throw new Error("NATIVE_BOOTSTRAP_UNAVAILABLE");
-    // Materialization cannot mint platform/image qualification. Until the real
-    // same-session runtime evidence producer joins, this strict parse rejects.
+    // Ready requires actual same-session image/resource/namespace evidence;
+    // materialization or expected deployment pins alone cannot satisfy it.
     const evidence = parseNativeCheckoutReadyEvidence({ bootstrap: row.nativeCheckout.receipt,
       artifact: row.nativeCheckout.artifact, runtime: row.nativeCheckout.runtime });
     const binding = evidence.bootstrap.observation.binding;
@@ -354,6 +369,17 @@ export class AgentRuntime extends DurableObject<Env> {
     await verifyArtifact(evidence.artifact.id, evidence.artifact.sha256, evidence.bootstrap, evidence.artifact.size);
     const { receiptArtifactId, receiptSha256, ...runtimeProof } = evidence.runtime;
     await verifyArtifact(receiptArtifactId, receiptSha256, runtimeProof);
+    await verifyArtifact(evidence.runtime.resourceArtifactId, evidence.runtime.resourceSha256, row.nativeCheckout.runtimePreparation);
+    await verifyArtifact(evidence.runtime.commandArtifactId, evidence.runtime.commandSha256, row.nativeCheckout.runtimeCommandReceipt);
+    const runtime = this.workspaceRuntimes.get(workspaceLeaseKey(lease));
+    const physical = runtime?.sandbox as unknown as OwnedNativeSandboxPort | undefined;
+    if (!physical?.verifyNativeRuntimeOriginal) throw new Error("NATIVE_RUNTIME_ORIGINAL_UNAVAILABLE");
+    await physical.verifyNativeRuntimeOriginal(evidence.runtime.commandBinding, row.nativeCheckout.runtimePreparation);
+    // Artifact/physical I/O is not a lasting Ready grant. Recheck the same row
+    // after it, with no lifecycle mutation or restart on this read-only path.
+    const fresh = await this.getExecutionSession(sessionId);
+    if (!fresh || JSON.stringify(fresh) !== JSON.stringify(row) || fresh.cleanupInProgress ||
+      fresh.expiresAt <= Date.now() || fresh.lease.expiresAt <= Date.now()) throw new Error("NATIVE_RUNTIME_ORIGINAL_UNAVAILABLE");
     return evidence;
   }
 

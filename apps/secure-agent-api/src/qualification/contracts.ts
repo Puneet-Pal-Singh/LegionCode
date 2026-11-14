@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { NativeBootstrapBindingSchema } from "@repo/worker-protocol/private/native-checkout-bootstrap";
 import { NativeCommandReceiptSchema, NativeCommandIdentitySchema } from "../toolbox/contracts/OwnedSandboxCommand";
 import { NativePhysicalIdentitySchema, NativePhysicalIntegerSchema } from "@repo/shared-types/native-command-closure";
 
@@ -37,6 +38,10 @@ export const ResourceSetupBindingSchema = z.object({
   expiresAt: z.number().int().positive().safe(),
 }).strict();
 export type ResourceSetupBinding = z.infer<typeof ResourceSetupBindingSchema>;
+// Real product admission remains distinct from operator authority.
+export const NativeResourceSetupBindingSchema = z.object({ purpose: z.literal("legioncode_native"),
+  native: NativeBootstrapBindingSchema, physicalOwnerId: id, expiresAt: z.number().int().positive().safe() }).strict();
+
 export const ResourceObservationInputSchema = z.object({ version: z.literal(1),
   binding: ResourceSetupBindingSchema, policy: z.literal(RESOURCE_POLICY) }).strict();
 export const ResourceProvisionInputSchema = ResourceObservationInputSchema.extend({
@@ -59,6 +64,15 @@ export const ResourceProvisionReceiptSchema = z.object({
   siblingProtectedBytes: NativePhysicalIntegerSchema,
 }).strict();
 export type ResourceProvisionReceipt = z.infer<typeof ResourceProvisionReceiptSchema>;
+export const NativeResourceObservationSchema = ResourceObservationSchema.extend({ binding: NativeResourceSetupBindingSchema });
+export const NativeResourceProvisionReceiptSchema = ResourceProvisionReceiptSchema.extend({ binding: NativeResourceSetupBindingSchema });
+export const NativeRuntimePreparationSchema = z.object({
+  imageReference: z.string().min(1).max(2048), imageDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  sandboxObjectId: z.string().regex(/^[a-f0-9]{64}$/),
+  observation: NativeResourceObservationSchema, resources: NativeResourceProvisionReceiptSchema,
+}).strict();
+export type NativeRuntimePreparation = z.infer<typeof NativeRuntimePreparationSchema>;
+
 export const QualificationFixtureSchema = z.object({
   root: z.string().regex(/^\/home\/sandbox\/checkouts\/operator-qualification-[a-f0-9]{64}$/),
   identity: NativePhysicalIdentitySchema, sandboxBootId: z.string().uuid(),

@@ -53,6 +53,8 @@ export const NativeCheckoutReadyEvidenceSchema = z.object({
   artifact: z.object({ id: artifactId, sha256: sha, size: z.number().int().positive().safe() }).strict(),
   runtime: z.object({
     imageDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/), helperSha256: sha, policySha256: sha,
+    binding: NativeBootstrapBindingSchema, commandBinding: NativeBootstrapBindingSchema,
+    resourceArtifactId: artifactId, resourceSha256: sha, commandArtifactId: artifactId, commandSha256: sha,
     sandboxBootId: z.string().uuid(), kernelRelease: z.string().min(1).max(256),
     executionDomainDigest: sha, sessionId: id, leaseId: id, sandboxId: id,
     generation: z.number().int().nonnegative().safe(),
@@ -67,6 +69,14 @@ export const NativeCheckoutReadyEvidenceSchema = z.object({
   }).strict(),
 }).strict();
 export type NativeCheckoutReadyEvidence = z.infer<typeof NativeCheckoutReadyEvidenceSchema>;
+/** Actual observations remain nonqualifying until a trusted deployment/source
+ * owner joins them. A provider START reference is deliberately named as such. */
+export const NativeRuntimeObservationSchema = NativeCheckoutReadyEvidenceSchema.shape.runtime.omit({
+  imageDigest: true, policySha256: true, receiptArtifactId: true, receiptSha256: true,
+}).extend({ observedPolicySha256: sha, sandboxObjectId: z.string().regex(/^[a-f0-9]{64}$/), providerImageReference: z.string().min(1).max(2048),
+  providerImageDigestReference: z.string().regex(/^sha256:[a-f0-9]{64}$/) }).strict();
+export type NativeRuntimeObservation = z.infer<typeof NativeRuntimeObservationSchema>;
+
 export function freezeBootstrap<T>(value: T): T {
   if (value && typeof value === "object") { for (const child of Object.values(value)) freezeBootstrap(child); Object.freeze(value); }
   return value;
@@ -77,7 +87,9 @@ export function parseNativeCheckoutReadyEvidence(value: unknown): NativeCheckout
   const { bootstrap, runtime } = evidence;
   const observed = bootstrap.observation, binding = observed.binding;
   if (bootstrap.head !== bootstrap.intent.authorizedCommitId || bootstrap.tree !== bootstrap.intent.authorizedTreeId ||
-    bootstrap.branch !== bootstrap.intent.workingBranch || runtime.helperSha256 !== observed.helperSha256 ||
+    bootstrap.branch !== bootstrap.intent.workingBranch || JSON.stringify(runtime.binding) !== JSON.stringify(binding) ||
+    JSON.stringify({ ...runtime.commandBinding, nonce: binding.nonce }) !== JSON.stringify(binding) ||
+    !runtime.resourceArtifactId.startsWith(`artifacts/${binding.sessionId}/`) || !runtime.commandArtifactId.startsWith(`artifacts/${binding.sessionId}/`) || runtime.helperSha256 !== observed.helperSha256 ||
     runtime.kernelRelease !== observed.kernelRelease || runtime.sandboxBootId !== observed.sandboxBootId ||
     runtime.executionDomainDigest !== binding.executionDomainDigest || runtime.sessionId !== binding.sessionId ||
     runtime.leaseId !== binding.leaseId || runtime.sandboxId !== binding.sandboxId || runtime.generation !== binding.generation || runtime.root.device !== observed.root.device || runtime.root.inode !== observed.root.inode ||

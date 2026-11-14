@@ -27,23 +27,37 @@ const resourceCommandPids = 128
 // The protected server caller must authorize the complete persisted physical
 // owner audit and creator freeze before invoking this fixed operation. Digests
 // identify that frozen authority; they are not bearer credentials or proof that
-// the caller owns a path. Conversation admission is not supported by this binding.
+// the caller owns a path. The product variant carries its real persisted binding.
 type resourceSetupBinding struct {
-	Purpose                string `json:"purpose"`
-	OperatorAccountID      string `json:"operatorAccountId"`
-	ControlPrincipal       string `json:"controlPrincipal"`
-	EnvironmentID          string `json:"environmentId"`
-	SessionID              string `json:"sessionId"`
-	LeaseID                string `json:"leaseId"`
-	SandboxID              string `json:"sandboxId"`
-	Generation             int64  `json:"generation"`
-	PhysicalOwnerID        string `json:"physicalOwnerId"`
-	PhysicalAttemptKey     string `json:"physicalAttemptKey"`
-	AuthorityDigest        string `json:"authorityDigest"`
-	ParentAuthorityDigest  string `json:"parentAuthorityDigest"`
-	PhysicalOwnerAuditHash string `json:"physicalOwnerAuditHash"`
-	OperationID            string `json:"operationId"`
-	ExpiresAt              int64  `json:"expiresAt"`
+	Native                 *binding `json:"native,omitempty"`
+	Purpose                string   `json:"purpose"`
+	OperatorAccountID      string   `json:"operatorAccountId"`
+	ControlPrincipal       string   `json:"controlPrincipal"`
+	EnvironmentID          string   `json:"environmentId"`
+	SessionID              string   `json:"sessionId"`
+	LeaseID                string   `json:"leaseId"`
+	SandboxID              string   `json:"sandboxId"`
+	Generation             int64    `json:"generation"`
+	PhysicalOwnerID        string   `json:"physicalOwnerId"`
+	PhysicalAttemptKey     string   `json:"physicalAttemptKey"`
+	AuthorityDigest        string   `json:"authorityDigest"`
+	ParentAuthorityDigest  string   `json:"parentAuthorityDigest"`
+	PhysicalOwnerAuditHash string   `json:"physicalOwnerAuditHash"`
+	OperationID            string   `json:"operationId"`
+	ExpiresAt              int64    `json:"expiresAt"`
+}
+
+func (value resourceSetupBinding) MarshalJSON() ([]byte, error) {
+	if value.Native != nil {
+		return json.Marshal(struct {
+			Purpose         string   `json:"purpose"`
+			Native          *binding `json:"native"`
+			PhysicalOwnerID string   `json:"physicalOwnerId"`
+			ExpiresAt       int64    `json:"expiresAt"`
+		}{value.Purpose, value.Native, value.PhysicalOwnerID, value.ExpiresAt})
+	}
+	type plain resourceSetupBinding
+	return json.Marshal(plain(value))
 }
 
 type resourceProvisionRequest struct {
@@ -212,6 +226,27 @@ func validateResourceSetupBinding(value resourceSetupBinding) error {
 	return validateResourceSetupIdentity(value)
 }
 func validateResourceSetupIdentity(value resourceSetupBinding) error {
+	if value.Purpose == "legioncode_native" {
+		if value.Native == nil || value.Native.Qualification != nil || value.ExpiresAt <= 0 || !opaqueID.MatchString(value.PhysicalOwnerID) ||
+			!hexadecimal.MatchString(value.Native.ExecutionDomainDigest) || !hexadecimal.MatchString(value.Native.Nonce) || value.Native.Generation < 0 {
+			return errors.New("invalid_product_resource_setup")
+		}
+		for _, id := range []string{value.Native.SessionID, value.Native.LeaseID, value.Native.SandboxID, value.Native.WorkspaceID, value.Native.RunID, value.Native.ThreadID, value.Native.TurnID, value.Native.RunAttemptID, value.Native.TaskID} {
+			if !opaqueID.MatchString(id) {
+				return errors.New("invalid_product_resource_setup")
+			}
+		}
+		copy := value
+		copy.Native, copy.Purpose, copy.PhysicalOwnerID, copy.ExpiresAt = nil, "", "", 0
+		if copy != (resourceSetupBinding{}) {
+			return errors.New("mixed_resource_authority")
+		}
+		return nil
+	}
+	if value.Native != nil {
+		return errors.New("mixed_resource_authority")
+	}
+
 	if value.Purpose != "native_boundary_qualification" || value.Generation != 0 || value.ExpiresAt <= 0 || len(value.OperatorAccountID) != 32 ||
 		!hexadecimal.MatchString(value.AuthorityDigest) || !hexadecimal.MatchString(value.ParentAuthorityDigest) ||
 		!hexadecimal.MatchString(value.PhysicalOwnerAuditHash) || !opaqueID.MatchString(value.OperationID) {

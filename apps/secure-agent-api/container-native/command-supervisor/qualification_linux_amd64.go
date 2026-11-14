@@ -221,7 +221,7 @@ func qualificationOperation(mode string) (resultErr error) {
 		return errors.New("protected_owner_required")
 	}
 	var input qualificationInput
-	if decodeBounded(os.Stdin, maxRequestBytes, &input) != nil || !hexadecimal.MatchString(input.Nonce) || validateResourceSetupIdentity(input.Binding) != nil {
+	if decodeBounded(os.Stdin, maxRequestBytes, &input) != nil || !hexadecimal.MatchString(input.Nonce) || input.Binding.Purpose != "native_boundary_qualification" || input.Binding.Native != nil || validateResourceSetupIdentity(input.Binding) != nil {
 		return errors.New("invalid_qualification_scope")
 	}
 	if mode != "--observe-qualification-fixture" && validateResourceSetupBinding(input.Binding) != nil {
@@ -393,4 +393,44 @@ func observeQualificationWriters(input qualificationInput, root *os.File) (resul
 		Markers          []marker             `json:"markers"`
 		StableIntervalMS int64                `json:"stableIntervalMs"`
 	}{input.Binding, input.Nonce, *input.Fixture, after, time.Since(started).Milliseconds()})
+}
+
+// Fixed product payload through the SAME namespace/security owner. No operator
+// identity, marker workload or repository executable participates.
+func runNativeRuntimePayload() int {
+	if os.Getpid() == 1 || os.Getuid() != 1 || os.Getgid() != 1 || verifyQualificationRestrictions() != nil {
+		return 125
+	}
+	status, err := os.ReadFile("/proc/self/status")
+	if err != nil {
+		return 125
+	}
+	observed := map[string]string{}
+	for _, line := range strings.Split(string(status), "\n") {
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		switch parts[0] {
+		case "CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb", "NoNewPrivs", "Seccomp":
+			observed[parts[0]] = strings.TrimSpace(parts[1])
+		}
+	}
+	policy, err := json.Marshal(struct {
+		Profile  string            `json:"profile"`
+		UID      int               `json:"uid"`
+		GID      int               `json:"gid"`
+		Observed map[string]string `json:"observed"`
+	}{resourcePolicy, os.Getuid(), os.Getgid(), observed})
+	if err != nil {
+		return 125
+	}
+	hash := sha256.Sum256(policy)
+	if json.NewEncoder(os.Stdout).Encode(struct {
+		Policy       json.RawMessage `json:"policy"`
+		PolicySHA256 string          `json:"policySha256"`
+	}{policy, hex.EncodeToString(hash[:])}) != nil {
+		return 125
+	}
+	return 0
 }
