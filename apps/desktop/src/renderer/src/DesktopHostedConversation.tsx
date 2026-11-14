@@ -8,11 +8,13 @@ import {
   useCompletedTurnReview,
   useHostedNativeConversation,
   type HostedNativeConversationBinding,
+  type HostedNativeDraft,
 } from "@legioncode/client-ui";
 import { projectApprovalPresentation, type AppServerClient } from "@legioncode/sdk";
 import type { GetTurnDiffResponse, HostedSession } from "@repo/platform-protocol";
 import type { ApprovalDecisionKind, DiffContent, FileStatus } from "@repo/shared-types";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useDesktopHostedInputQueue, type DesktopHostedInputQueueControls, type DesktopHostedInputQueueCustody } from "./DesktopHostedInputQueue";
 
 export type DesktopHostedConversationController = ReturnType<typeof useHostedNativeConversation>;
 export interface DesktopHostedReviewTurn {
@@ -22,7 +24,7 @@ export interface DesktopHostedReviewTurn {
   readonly error: string | null;
   readonly readDiff: () => Promise<GetTurnDiffResponse>;
 }
-export interface DesktopHostedComposerContext {
+export interface DesktopHostedComposerContext extends DesktopHostedInputQueueControls {
   readonly layout: "hero" | "docked";
   readonly controller: DesktopHostedConversationController;
   readonly approvalVisible: boolean;
@@ -40,14 +42,22 @@ export interface DesktopHostedConversationProps {
   readonly onReviewTurn?: (turn: DesktopHostedReviewTurn) => void;
   /** Observe the current controller through a host ref; submission intent stays with the host. */
   readonly onControllerReady?: (controller: DesktopHostedConversationController | null) => void;
+  readonly onAcceptedDraft: (draft: HostedNativeDraft) => void;
+  readonly onSessionRefresh: () => void | Promise<unknown>;
+  readonly inputQueueCustody: DesktopHostedInputQueueCustody;
 }
 
 /** Hosted transport/controller bindings only; shared components own the presentation. */
 export function DesktopHostedConversation({
   client, binding, session, runId, enabled = true, active, projectName,
-  renderComposer, onReviewTurn, onControllerReady,
+  renderComposer, onReviewTurn, onControllerReady, onAcceptedDraft, onSessionRefresh, inputQueueCustody,
 }: DesktopHostedConversationProps) {
   const controller = useHostedNativeConversation({ client, binding, session, runId, enabled });
+  const queue = useDesktopHostedInputQueue({ custody: inputQueueCustody, client, session, controller, active,
+    bindingKey: JSON.stringify([binding.target, binding.accountId, binding.generation,
+      session.workspaceId, session.id]),
+    onAcceptedDraft, onSessionRefresh,
+  });
   const scopeKey = JSON.stringify([binding.target, binding.accountId, binding.generation,
     session.id, session.workspaceId, session.threadId, runId]);
   const ready = useRef(onControllerReady);
@@ -168,7 +178,7 @@ export function DesktopHostedConversation({
         onStop={stopFromApproval}
         canStop={controller.canStop}
       /> : null}
-      {renderComposer({ layout, controller, approvalVisible })}
+      {renderComposer({ layout, controller, approvalVisible, ...queue })}
     </>}
     debugPanel={controller.historicalReplayError ? <ChatErrorNotice
       message={controller.historicalReplayError}
