@@ -28,6 +28,7 @@ import { installDesktopApplicationMenu } from "./application-menu";
 import { LocalAppServerSupervisor } from "./local-app-server-supervisor";
 import { DesktopCredentialVault } from "./desktop-credential-vault";
 import { DesktopHostedAccount } from "./hosted-account";
+import { resolveDesktopNativeHostBrokerConfiguration } from "./native-host-broker-composition";
 import { DesktopHostedAppServer } from "./hosted-app-server";
 import { HOSTED_REQUEST_CHANNEL, HOSTED_RESPONSE_CHANNEL } from "../shared/hosted-request";
 import { HOSTED_ACCOUNT_CHANNEL, HostedAccountCommandSchema } from "../shared/hosted-account";
@@ -57,6 +58,7 @@ const pendingWorkspaceSelections = new WorkspaceSelectionTokens();
 const expectedRendererUrls = new Map<number, string>();
 let isQuitting = false;
 let shutdownPromise: Promise<void> | null = null;
+let desktopStartup: Promise<void> | null = null;
 let environmentGeneration = 0;
 
 app.on("second-instance", () => {
@@ -138,6 +140,8 @@ handleNativeInvoke(HOSTED_ACCOUNT_CHANNEL, async (event, value) => {
   return hostedAccount.connect(parent, command.operation === "reauthorize");
 });
 handleNativeInvoke(ENVIRONMENT_RESTART_CHANNEL, async () => {
+  if (shutdownPromise || isQuitting) throw new Error("Local runtime shutdown is pending");
+  await desktopStartup?.catch(() => undefined);
   if (shutdownPromise || isQuitting) throw new Error("Local runtime shutdown is pending");
   environmentGeneration += 1;
   pendingWorkspaceSelections.clear();
@@ -257,7 +261,7 @@ handleNativeInvoke(BUILD_INFO_CHANNEL, () => ({
   packaged: app.isPackaged,
 }));
 
-void app.whenReady().then(() => {
+desktopStartup = app.whenReady().then(async () => {
   if (!isPrimaryInstance) return;
   hostedAccount = new DesktopHostedAccount();
   hostedAppServer = new DesktopHostedAppServer(hostedAccount);
@@ -300,11 +304,6 @@ void app.whenReady().then(() => {
   };
   const nativeFilesystemHelperPath = resolveHelper("legioncode-fs-helper");
   const nativeProcessHelperPath = resolveHelper("legioncode-process-helper");
-  void localAppServer.start(app.getVersion(), app.getPath("userData"), {
-    protectedHostRoots: [...new Set(protectedHostRoots)],
-    nativeWriterFenceDirectory,
-    nativeFilesystemHelperPath, nativeProcessHelperPath,
-  });
   createWindow();
   installDesktopApplicationMenu(() => {
     const window = BrowserWindow.getFocusedWindow();
@@ -313,6 +312,19 @@ void app.whenReady().then(() => {
     if (!expectedRendererUrl || window.webContents.getURL() !== expectedRendererUrl) return;
     window.webContents.send(WORKSPACE_OPEN_REQUESTED_CHANNEL);
   });
+  const nativeHostBroker = await resolveDesktopNativeHostBrokerConfiguration(resolveHelper("legioncode-host-broker"));
+  if (isQuitting || shutdownPromise) return;
+  await localAppServer.start(app.getVersion(), app.getPath("userData"), {
+    protectedHostRoots: [...new Set(protectedHostRoots)],
+    nativeWriterFenceDirectory,
+    nativeFilesystemHelperPath, nativeProcessHelperPath,
+    ...(nativeHostBroker === undefined ? {} : { nativeHostBroker }),
+  });
+});
+void desktopStartup.catch(() => {
+  if (!isQuitting && !shutdownPromise) dialog.showErrorBox(
+    "Local runtime unavailable", "LegionCode could not initialize its local runtime. Check local setup and try restarting it.",
+  );
 });
 
 localAppServer.subscribe((snapshot) => {
@@ -333,7 +345,8 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   if (!shutdownPromise) {
     pendingWorkspaceSelections.clear();
-    shutdownPromise = Promise.all([localAppServer.stop(), hostedAccount?.close()]).then(() => {
+    const stopLocal = (desktopStartup ?? Promise.resolve()).catch(() => undefined).then(() => localAppServer.stop());
+    shutdownPromise = Promise.all([stopLocal, hostedAccount?.close()]).then(() => {
       isQuitting = true;
       app.quit();
     }).catch(() => {
