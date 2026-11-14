@@ -15,6 +15,7 @@ import type {
   CreatePullRequestFromRunPayload,
   GitStatusResponse,
 } from "@repo/shared-types";
+import type { NativeCommandClosure } from "@repo/shared-types/native-command-closure";
 import type { ProtocolError } from "@repo/platform-protocol";
 import { resolveCommitIdentityForStoredOAuthSession } from "./git/GitCommitIdentityService";
 import {
@@ -59,6 +60,19 @@ interface LegacyExecutionResult {
   truncated?: boolean;
 }
 
+interface NativeExecutionOperation {
+  original: Promise<unknown>;
+  readonly transports: Set<Promise<unknown>>;
+  dispatched: boolean;
+  closure: NativeCommandClosure | null;
+}
+
+interface ExecutionOptions {
+  onOutput?: (chunk: { message: string; source?: "stdout" | "stderr"; timestamp?: number }) => Promise<void> | void;
+  scope?: SecureExecutionWorkspaceScope;
+  signal?: AbortSignal;
+}
+
 const secureRuntimeFailureMapper = new SecureRuntimeFailureMapper();
 
 interface GitHubAuthState {
@@ -77,6 +91,8 @@ interface GitHubAuthState {
 export class ExecutionService {
   private readonly workspaceScope: SecureExecutionWorkspaceScope;
   private readonly executionSession: SecureExecutionSessionPort;
+  private readonly nativeOperations = new Set<NativeExecutionOperation>();
+  private nativeDispatchSealed = false;
 
   constructor(
     private env: Env,
@@ -89,26 +105,52 @@ export class ExecutionService {
     if (!workspaceScope) {
       throw new Error("workspaceScope is required for secure execution");
     }
-    this.workspaceScope = workspaceScope;
+    this.workspaceScope = Object.freeze({ ...workspaceScope });
     this.executionSession =
       executionSession ??
       new SecureExecutionSessionClient(env, sessionId, runId, workspaceScope);
   }
 
-  async execute(
-    plugin: string,
-    action: string,
-    payload: Record<string, unknown>,
-    options?: {
-      onOutput?: (chunk: {
-        message: string;
-        source?: "stdout" | "stderr";
-        timestamp?: number;
-      }) => Promise<void> | void;
-      scope?: SecureExecutionWorkspaceScope;
-      signal?: AbortSignal;
-    },
-  ) {
+  execute(
+    plugin: string, action: string, payload: Record<string, unknown>, options?: ExecutionOptions,
+  ): Promise<LegacyExecutionResult> {
+    if (this.nativeDispatchSealed) return Promise.reject(new Error("Native execution dispatch is closed"));
+    // Retain the original public operation before auth, session acquisition or
+    // any dispatch can await. Observer completion never retires this evidence.
+    const operation: NativeExecutionOperation = {
+      original: Promise.resolve(), transports: new Set(), dispatched: false, closure: null,
+    };
+    this.nativeOperations.add(operation);
+    const capturedOptions = options ? {
+      ...options, scope: options.scope ? Object.freeze({ ...options.scope }) : undefined,
+    } : undefined;
+    operation.original = Promise.resolve().then(() => this.executeOwned(plugin, action, payload, capturedOptions, operation));
+    void operation.original.catch(() => undefined);
+    return operation.original as Promise<LegacyExecutionResult>;
+  }
+
+  async awaitQuiescence(input: { readonly turnId: string; readonly timeoutMs: number }): Promise<boolean> {
+    if (input.turnId !== this.workspaceScope.turnId) return false;
+    this.nativeDispatchSealed = true;
+    const originals = [...this.nativeOperations].map(operation => operation.original);
+    try {
+      await observeWithTimeout((async () => {
+        await Promise.allSettled(originals);
+        // Public operations may have created execute/cancel transports while
+        // draining. No new public operation or Secure dispatch can cross the seal.
+        await Promise.allSettled([...this.nativeOperations].flatMap(operation => [...operation.transports]));
+      })(), input.timeoutMs);
+    } catch {
+      return false;
+    }
+    return [...this.nativeOperations].every(operation =>
+      !operation.dispatched || operation.closure?.state === "settled");
+  }
+
+  private async executeOwned(
+    plugin: string, action: string, payload: Record<string, unknown>,
+    options: ExecutionOptions | undefined, operation: NativeExecutionOperation,
+  ): Promise<LegacyExecutionResult> {
     const scope = options?.scope ?? this.workspaceScope;
     if (!scope) {
       throw new SecureExecutionContractViolationError(
@@ -152,6 +194,7 @@ export class ExecutionService {
         payload,
         options,
         scope,
+        operation,
       );
       logExecutionFailure(
         this.runId,
@@ -368,17 +411,9 @@ export class ExecutionService {
     plugin: string,
     action: string,
     payload: Record<string, unknown>,
-    options:
-      | {
-          onOutput?: (chunk: {
-            message: string;
-            source?: "stdout" | "stderr";
-            timestamp?: number;
-          }) => Promise<void> | void;
-          signal?: AbortSignal;
-        }
-      | undefined,
+    options: ExecutionOptions | undefined,
     scope: SecureExecutionWorkspaceScope | undefined,
+    operation: NativeExecutionOperation,
   ): Promise<SecureExecutionTaskResult> {
     const timeoutMs = resolveExecutionTimeoutMs(plugin, action);
     const executionSession = await this.getExecutionSession(scope);
@@ -396,8 +431,11 @@ export class ExecutionService {
       }),
     );
     try {
-      const request = fetchWithTimeout(
-        this.env.SECURE_API,
+      // Acquisition/auth may have crossed the final drain seal. Recheck at
+      // the actual creator boundary, with no await before the original fetch.
+      if (this.nativeDispatchSealed) throw new Error("Native execution dispatch is closed");
+      operation.dispatched = true;
+      const original = this.env.SECURE_API.fetch(
         `http://internal/api/v1/execute?session=${encodeURIComponent(this.sessionId)}`,
         {
           method: "POST",
@@ -418,15 +456,32 @@ export class ExecutionService {
             timeout: timeoutMs,
           }),
         },
-        timeoutMs,
-      );
+      ).then(async response => {
+        const outcome = await parseSecureExecutionResponse(response, async body => {
+          const candidate = body && typeof body === "object" && "nativeCommandClosure" in body
+            ? body.nativeCommandClosure : undefined;
+          const closure = await this.executionSession.parseNativeClosure?.(candidate, taskId);
+          if (closure?.state === "settled") operation.closure = closure;
+        });
+        return { response, outcome };
+      });
+      operation.transports.add(original);
+      void original.catch(() => undefined);
+      const request = observeWithTimeout(original, timeoutMs);
       let removeCancellationListener = () => {};
       const signal = options?.signal;
       const cancellation = signal
         ? new Promise<never>((_, reject) => {
             const cancel = async () => {
               try {
-                await this.executionSession.cancelTask(taskId);
+                const originalCancel = this.executionSession.cancelTaskWithNativeClosure
+                  ? this.executionSession.cancelTaskWithNativeClosure(taskId).then(result => {
+                      if (result.nativeCommandClosure?.state === "settled") operation.closure = result.nativeCommandClosure;
+                    })
+                  : this.executionSession.cancelTask(taskId).then(() => undefined);
+                operation.transports.add(originalCancel);
+                void originalCancel.catch(() => undefined);
+                await originalCancel;
                 reject(new DOMException("Run was cancelled", "AbortError"));
               } catch (error) {
                 reject(error);
@@ -442,7 +497,7 @@ export class ExecutionService {
               signal.removeEventListener("abort", onAbort);
           })
         : null;
-      const res = cancellation
+      const observed = cancellation
         ? await (async () => {
             try {
               return await Promise.race([request, cancellation]);
@@ -451,7 +506,7 @@ export class ExecutionService {
             }
           })()
         : await request;
-      const executionResult = await parseSecureExecutionResponse(res);
+      const { response: res, outcome: executionResult } = observed;
       if (!res.ok) {
         const expectedBootstrapMiss =
           executionResult &&
@@ -676,6 +731,7 @@ function createExecutionTaskId(plugin: string, action: string): string {
 
 async function parseSecureExecutionResponse(
   response: Awaited<ReturnType<Env["SECURE_API"]["fetch"]>>,
+  onBody?: (body: unknown) => Promise<void>,
 ): Promise<SecureExecutionTaskResponse | null> {
   const text = await response.text();
   let body: unknown;
@@ -685,6 +741,7 @@ async function parseSecureExecutionResponse(
     return null;
   }
 
+  await onBody?.(body);
   const outcome = parseSecureExecutionOutcome(body);
   if (outcome && !response.ok && outcome.status !== "success") {
     return outcome;
@@ -982,12 +1039,9 @@ function assertPullRequestWorkspaceBinding(
   }
 }
 
-async function fetchWithTimeout(
-  service: Env["SECURE_API"],
-  input: string,
-  init: Parameters<Env["SECURE_API"]["fetch"]>[1],
-  timeoutMs: number,
-): Promise<Awaited<ReturnType<Env["SECURE_API"]["fetch"]>>> {
+async function observeWithTimeout<T>(
+  original: Promise<T>, timeoutMs: number,
+): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
@@ -995,7 +1049,7 @@ async function fetchWithTimeout(
     }, timeoutMs);
   });
   try {
-    return await Promise.race([service.fetch(input, init), timeoutPromise]);
+    return await Promise.race([original, timeoutPromise]);
   } finally {
     if (timeoutId) {
       clearTimeout(timeoutId);
