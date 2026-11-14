@@ -40,6 +40,7 @@ describe("ReasoningEffortPicker", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Reasoning effort" }));
+    const option = screen.getByRole("menuitemradio", { name: "High" });
     rerender(
       <ReasoningEffortPicker
         providerId="openai"
@@ -52,8 +53,8 @@ describe("ReasoningEffortPicker", () => {
     const picker = screen.getByRole("button", { name: "Reasoning effort" });
     expect(picker).toBeDisabled();
     expect(picker).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-    fireEvent.click(picker);
+    expect(option).not.toBeInTheDocument();
+    fireEvent.click(option);
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     expect(picker).toHaveTextContent("Default");
     expect(loadReasoningEffortSelection("openai", "gpt-5.6-luna")).toBe("default");
