@@ -3,7 +3,8 @@ import { createConversationInputCommands } from "./conversation-input-commands.j
 import { createAppServerLifecycleClient } from "./app-server-lifecycle.js";
 import { lifecycleEvent } from "@repo/contract-conformance";
 
-import { APP_SERVER_PROTOCOL_VERSION } from "@legioncode/app-server/protocol";
+import { APP_SERVER_PROTOCOL_VERSION, CHAT_IMAGE_CHUNK_MAX_BYTES, type ChatImageReadParams } from "@legioncode/app-server/protocol";
+import { readChatImage } from "./chat-image.js";
 import {
   InterruptTurnRequestSchema,
   LifecycleEventSchema,
@@ -195,6 +196,33 @@ describe("AppServerClient", () => {
       { method: "checkout/listFiles", params: { ...checkout, offset: 200 } },
       { method: "checkout/readFile", params: { ...checkout, path: "src/index.ts" } },
     ]);
+
+    const imageBytes = new Uint8Array(CHAT_IMAGE_CHUNK_MAX_BYTES + 3).fill(65);
+    const imageReference = Object.freeze({ type: "image_attachment" as const, attachmentId: "img_fixture_123456",
+      name: "saved.png", mediaType: "image/png" as const, byteSize: imageBytes.byteLength });
+    const imageDigest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", imageBytes)))
+      .map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    const imageSource = { sessionId: "550e8400-e29b-41d4-a716-446655440001", reference: { ...imageReference } };
+    const imageReads: ChatImageReadParams[] = [];
+    let releaseImage!: () => void;
+    const imageGate = new Promise<void>((resolve) => { releaseImage = resolve; });
+    const mediaClient = { readChatImageChunk: async (params: ChatImageReadParams) => {
+      imageReads.push(structuredClone(params));
+      await imageGate;
+      const end = Math.min(imageBytes.byteLength, params.offset + (params.limit ?? CHAT_IMAGE_CHUNK_MAX_BYTES));
+      return { reference: imageReference, sha256: imageDigest, offset: params.offset,
+        byteLength: end - params.offset, dataBase64: Buffer.from(imageBytes.subarray(params.offset, end)).toString("base64"),
+        nextOffset: end < imageBytes.byteLength ? end : null };
+    } };
+    const imageRead = readChatImage(mediaClient, imageSource);
+    imageSource.sessionId = "550e8400-e29b-41d4-a716-446655440099";
+    imageSource.reference.name = "changed.png";
+    mediaClient.readChatImageChunk = async () => { throw new Error("Changed reader must not replace an original image read"); };
+    releaseImage();
+    expect((await imageRead).bytes).toEqual(imageBytes);
+    expect(imageReads).toHaveLength(2);
+    expect(imageReads.every((params) => "sessionId" in params &&
+      params.sessionId === "550e8400-e29b-41d4-a716-446655440001" && params.reference.name === "saved.png")).toBe(true);
 
     // Admission may be acknowledged before runtime appends its first event.
     const started = lifecycleEvent(1);

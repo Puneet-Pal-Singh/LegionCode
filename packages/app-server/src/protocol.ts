@@ -441,12 +441,22 @@ export type LocalWorkspaceFileMentionsResult = z.infer<typeof LocalWorkspaceFile
 /** Original image preview bytes are transferred in chunks beneath the existing
  * response-body cap; no filesystem path or durable data URL crosses this port. */
 export const CHAT_IMAGE_CHUNK_MAX_BYTES = 256 * 1024;
-export const ChatImageReadParamsSchema = z.object({
-  turnId: TurnIdSchema,
-  attachmentId: ChatImageAttachmentRefSchema.shape.attachmentId,
+const ChatImageReadRangeShape = {
   offset: z.number().int().min(0).max(5 * 1024 * 1024),
   limit: z.number().int().min(1).max(CHAT_IMAGE_CHUNK_MAX_BYTES).optional(),
-}).strict();
+};
+export const ChatImageReadParamsSchema = z.union([
+  z.object({
+    turnId: TurnIdSchema,
+    attachmentId: ChatImageAttachmentRefSchema.shape.attachmentId,
+    ...ChatImageReadRangeShape,
+  }).strict(),
+  z.object({
+    sessionId: HostedSessionParamsSchema.shape.sessionId,
+    reference: ChatImageAttachmentRefSchema,
+    ...ChatImageReadRangeShape,
+  }).strict(),
+]);
 export const ChatImageReadResultSchema = z.object({
   reference: ChatImageAttachmentRefSchema,
   sha256: z.string().regex(/^[a-f0-9]{64}$/u),

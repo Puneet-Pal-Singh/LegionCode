@@ -25,6 +25,9 @@ export class LocalChatMediaReads {
 
   async readImage(input: ChatImageReadParams) {
     const request = ChatImageReadParamsSchema.parse(input);
+    if (!("turnId" in request)) {
+      throw new AppServerOperationError(400, "invalid_request", "Local conversation images require a turn scope", undefined, false);
+    }
     const admission = TurnAdmissionSchema.parse(await this.options.turns.getTurn(request.turnId));
     const prompt = admission.userMessage;
     if (admission.turn.id !== request.turnId || prompt.type !== "user_message") throw unavailable();
