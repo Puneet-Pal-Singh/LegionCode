@@ -89,6 +89,7 @@ export interface PersistedSecureExecutionSessionReference {
  */
 export class SecureExecutionSessionClient implements SecureExecutionSessionPort {
   private sessionPromise: Promise<SecureExecutionSessionHandle> | null = null;
+  private originalPromise: Promise<SecureExecutionSessionHandle> | null = null;
   private releasePromise: Promise<void> | null = null;
   private reference: PersistedSecureExecutionSessionReference | undefined;
   private readonly executionDomain: ServerExecutionDomainBinding | undefined;
@@ -104,6 +105,9 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
     this.reference = persistedReference ? Object.freeze({ ...persistedReference }) : undefined;
     this.workspaceScope = Object.freeze({ ...workspaceScope });
     this.executionDomain = executionDomain ? snapshotExecutionDomain(executionDomain) : undefined;
+    if (this.executionDomain && this.reference && !this.reference.executionDomainDigest) {
+      throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
+    }
     const scope = this.executionDomain?.scope;
     if (scope && (scope.brainSessionId !== brainSessionId || scope.runId !== runId || scope.workspaceId !== workspaceScope.workspaceId ||
       scope.threadId !== workspaceScope.threadId || scope.turnId !== workspaceScope.turnId || scope.runAttemptId !== workspaceScope.runAttemptId)) {
@@ -121,12 +125,24 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
       this.reference = toPersistedReference(session);
       return session;
     } catch (error) {
-      this.sessionPromise = null;
+      // A bound or explicitly borrowed original cannot be recreated after an
+      // observer failure. Its original rejected operation remains retained.
+      if (!this.executionDomain && !this.originalPromise) this.sessionPromise = null;
       throw error;
     }
   }
 
   async borrowOriginal(): Promise<SecureExecutionSessionHandle> {
+    if (!this.originalPromise) this.originalPromise = this.readOriginal();
+    // Seed before awaiting so tools/cancel cannot enter replacement-capable
+    // acquisition while the exact original borrow is still in flight.
+    if (!this.sessionPromise) this.sessionPromise = this.originalPromise;
+    const handle = await this.originalPromise;
+    this.reference = toPersistedReference(handle);
+    return handle;
+  }
+
+  private async readOriginal(): Promise<SecureExecutionSessionHandle> {
     const reference = this.reference;
     if (!reference) {
       throw new Error("Git borrowing requires the persisted checkout lease identity");
@@ -172,6 +188,9 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
   }
 
   async recoverAfterSandboxLoss(): Promise<SecureExecutionSessionHandle> {
+    if (this.executionDomain || this.originalPromise) {
+      throw new Error("SECURE_ORIGINAL_SESSION_RECOVERY_REQUIRED");
+    }
     const reference = this.reference;
     if (!reference) {
       await this.acquire();
@@ -260,12 +279,13 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
 
   private async create(): Promise<SecureExecutionSessionHandle> {
     if (this.reference) {
-      return await this.resume(this.reference);
+      return this.executionDomain ? await this.borrowOriginal() : await this.resume(this.reference);
     }
     const internalSecret = this.requireInternalSecret();
+    const maximumAttempts = this.executionDomain ? 1 : LOCAL_DEV_SESSION_RETRY_ATTEMPTS;
     for (
       let attempt = 1;
-      attempt <= LOCAL_DEV_SESSION_RETRY_ATTEMPTS;
+      attempt <= maximumAttempts;
       attempt += 1
     ) {
       const response = await fetchWithTimeout(
@@ -296,7 +316,7 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
       const message =
         (await response.text()) || "Failed to create secure execution session";
       if (
-        attempt < LOCAL_DEV_SESSION_RETRY_ATTEMPTS &&
+        attempt < maximumAttempts &&
         isLocalDevSessionProxyMiss(message)
       ) {
         console.log(
@@ -304,7 +324,7 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
             runId: this.runId,
             sessionId: this.brainSessionId,
             attempt,
-            maxAttempts: LOCAL_DEV_SESSION_RETRY_ATTEMPTS,
+            maxAttempts: maximumAttempts,
           }),
         );
         await sleep(LOCAL_DEV_SESSION_RETRY_DELAY_MS);
