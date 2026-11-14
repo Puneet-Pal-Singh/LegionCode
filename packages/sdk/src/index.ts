@@ -9,13 +9,14 @@ export {
   createAppServerClient,
   type AppServerClient,
   type AppServerClientOptions,
+  type AppServerRequest,
   type AppServerTransport,
   type HostedChatSubmissionAcknowledgement,
   type WorkspaceGrantSource,
   type ArtifactReviewLookupResult,
 } from "./platform/app-server-client.js";
 export { ConversationScopeHttpError } from "./platform/conversation-scope-error.js";
-export type { ConversationScope } from "./platform/conversation-scope.js";
+export { sameConversationScope, type ConversationScope } from "./platform/conversation-scope.js";
 export { createConversationInputCommands } from "./platform/conversation-input-commands.js";
 export { interruptAndAwaitTerminal } from "./platform/conversation-interruption.js";
 export {
@@ -341,7 +342,7 @@ export {
   type ThreadSidebarWorkspaceGroup,
   type ThreadSidebarWorkspaceInput,
 } from "./navigation/thread-sidebar-projection.js";
-export { workspaceIdFromExternalId } from "@repo/platform-protocol";
+export { userIdFromExternalId, workspaceIdFromExternalId } from "@repo/platform-protocol";
 export {
   parseReadFileOutput,
   normalizeReadFileContent,

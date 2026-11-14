@@ -1,3 +1,12 @@
+import { workspaceIdFromExternalId } from "@repo/platform-protocol";
+
+export function sameConversationScope(left: ConversationScope | null | undefined,
+  right: ConversationScope | null | undefined): boolean {
+  return Boolean(left && right && left.sessionId === right.sessionId && left.runId === right.runId &&
+    workspaceIdFromExternalId(left.workspaceId) === workspaceIdFromExternalId(right.workspaceId) &&
+    left.threadId === right.threadId && left.turnId === right.turnId && left.runAttemptId === right.runAttemptId);
+}
+
 export interface ConversationScope {
   readonly workspaceId: string;
   readonly threadId: string;
