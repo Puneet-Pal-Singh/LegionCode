@@ -37,9 +37,9 @@ export interface MacHostBrokerOptions {
   readonly expectedPolicySHA256: string;
   readonly expectedPolicyGeneration: string;
 }
-/** Structural port for the EXISTING physical writer owner's onReleased receipt.
- * Main passes onPhysicalWriterReleased only as releaseAttempt's callback after
- * the full captured/manifest Git proof. No new release registry or bool proof. */
+/** Structural port for the EXISTING physical writer owner's release receipt.
+ * Its tracked resource consumer runs after the full captured/manifest Git proof
+ * and original writer FD closure. No new release registry or boolean proof. */
 export interface MacHostPhysicalWriterReleaseReceipt {
   readonly root: Readonly<{ device: string; inode: string }>;
   readonly gitMetadataIdentity: string;
@@ -224,12 +224,41 @@ export type MacHostSetupObservation = Readonly<
   { state: "running" | "awaiting_bridge" | "passed" | "cancelled" | "unknown";
     generation: string; qualificationId: string; stage: string; receiptSHA256: string | null }
 >;
+/** Deny-only setup admission observation, never a permit or qualified runtime. */
+export type MacHostReauthorizationSealObservation = Readonly<{
+  state: "pending" | "ready" | "blocked";
+  generation: string; configurationSHA256: string; sealSHA256: string;
+}>;
 /** Private setup facade over the SAME authenticated bridge. It is neither a
  * qualified runtime client nor a replacement physical-writer proof owner. */
 export class MacHostBrokerSetupClient {
   private constructor(private readonly options: MacHostBrokerOptions) {}
   static create(options: MacHostBrokerOptions): MacHostBrokerSetupClient {
     return new MacHostBrokerSetupClient(validateOptions(options));
+  }
+  async sealForReauthorization(input: { generation: string; configurationSHA256: string }): Promise<MacHostReauthorizationSealObservation> {
+    const { generation, configurationSHA256 } = input;
+    this.digest(generation); this.digest(configurationSHA256);
+    return this.exchange("setupReauthorizationSeal", { generation, configurationSHA256 }, (reply) => {
+      const state = macHostText(reply, "state", 40), code = macHostText(reply, "code", 128);
+      if (state === "unavailable" && code === "reauthorizationIdentityChanged") {
+        this.validate(reply, ["version", "state", "code"]);
+        throw new MacHostBrokerError(code, true);
+      }
+      this.validate(reply, ["version", "state", "code", "generation", "configurationSHA256", "sealSHA256"]);
+      const states = { reauthorizationPending: "pending", reauthorizationReady: "ready", reauthorizationBlocked: "blocked" } as const;
+      if ((state !== "reauthorizationPending" && state !== "reauthorizationReady" && state !== "reauthorizationBlocked") ||
+          code !== (state === "reauthorizationBlocked" ? "reauthorizationRecoveryRequired" : "okay"))
+        throw new MacHostBrokerError("invalid_reauthorization_seal", true);
+      const returnedGeneration = macHostDigest(reply, "generation"), returnedConfiguration = macHostDigest(reply, "configurationSHA256");
+      const sealSHA256 = macHostDigest(reply, "sealSHA256");
+      if (returnedGeneration !== generation || returnedConfiguration !== configurationSHA256)
+        throw new MacHostBrokerError("reauthorization_identity_changed", true);
+      if (state === "reauthorizationReady" && /^0+$/u.test(sealSHA256))
+        throw new MacHostBrokerError("invalid_reauthorization_seal", true);
+      return Object.freeze({ state: states[state as keyof typeof states], generation: returnedGeneration,
+        configurationSHA256: returnedConfiguration, sealSHA256 });
+    });
   }
   async describe(): Promise<MacHostSetupDescription> {
     return this.exchange("setupQualificationDescribe", {}, (reply) => {
@@ -291,7 +320,8 @@ export class MacHostBrokerSetupClient {
     });
   }
   private digest(value: string): void {
-    if (!/^[a-f0-9]{64}$/u.test(value)) throw new MacHostBrokerError("invalid_setup_identity", false);
+    if (typeof value !== "string" || value.length !== 64 || !/^[a-f0-9]{64}$/u.test(value))
+      throw new MacHostBrokerError("invalid_setup_identity", false);
   }
   private validate(reply: Reply, keys: readonly string[]): void {
     if (reply.size !== keys.length || keys.some((key) => !reply.has(key)) || macHostText(reply, "version", 8) !== MAC_HOST_BROKER_ABI)
