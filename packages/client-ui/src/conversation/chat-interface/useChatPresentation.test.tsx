@@ -290,7 +290,9 @@ describe("useChatPresentation", () => {
     await act(async () => { expect(await imageSubmission).toMatchObject({ status: "unconfirmed" }); });
     expect(imageFixture.submissions).toHaveLength(1);
     const imageWire = ChatRequestBodySchema.parse(JSON.parse(imageFixture.submissions[0]!).params);
-    expect(imageWire.messages[0]?.content).toEqual([
+    const imageMessage = imageWire.messages?.[0];
+    expect(imageMessage && typeof imageMessage === "object" && "content" in imageMessage
+      ? imageMessage.content : undefined).toEqual([
       { type: "text", text: "Analyze the attached image(s)." },
       { type: "image", image: "data:image/png;base64,iVBORw0KGgo=", mimeType: "image/png", name: "original.png" },
     ]);
