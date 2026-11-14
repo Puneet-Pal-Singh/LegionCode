@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { spawn } from "node:child_process";
-import { constants, closeSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readlinkSync, writeFileSync, fsyncSync, unlinkSync, symlinkSync, rmdirSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { constants, chmodSync, closeSync, copyFileSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readlinkSync, readdirSync, realpathSync, writeFileSync, fsyncSync, unlinkSync, symlinkSync, rmdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { devNull } from "node:os";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { qualificationConfigPath, qualificationControlProps, validateNativeQualificationIsolation } from "../gates/check-native-qualification-isolation.mjs";
+import { readJsonc } from "./local-wrangler-config.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const app = resolve(root, "apps/secure-agent-api");
@@ -45,19 +46,35 @@ function nullLogSink() {
   } };
 }
 
-function configSnapshot(config) {
+function configSnapshot(config, main = resolve(app, "src/qualification.ts")) {
   ensurePrivateDirectory();
   const directory = mkdtempSync(resolve(privateDirectory, "config-"), { encoding: "utf8" });
   const directoryIdentity = lstatSync(directory);
   const path = resolve(directory, "wrangler.json");
   const fd = openSync(path, constants.O_NOFOLLOW | constants.O_RDWR | constants.O_CREAT | constants.O_EXCL, 0o600);
-  writeFileSync(fd, JSON.stringify({ ...config, main: resolve(app, "src/qualification.ts") }));
+  writeFileSync(fd, JSON.stringify({ ...config, main }));
   fsyncSync(fd);
   const identity = fstatSync(fd);
   return { path, close() {
     const current = lstatSync(path);
     const currentDirectory = lstatSync(directory);
     if (!current.isFile() || current.isSymbolicLink() || current.dev !== identity.dev || current.ino !== identity.ino || !currentDirectory.isDirectory() || currentDirectory.dev !== directoryIdentity.dev || currentDirectory.ino !== directoryIdentity.ino) throw unavailable("CONFIG_SNAPSHOT_IDENTITY_UNKNOWN");
+    // Pinned Wrangler leaves these two empty parent directories after draining
+    // its original build. Never recurse into or remove unexpected contents.
+    const scratch = resolve(directory, ".wrangler");
+    let scratchIdentity;
+    try { scratchIdentity = lstatSync(scratch); } catch (error) { if (error.code !== "ENOENT") throw error; }
+    if (scratchIdentity) {
+      if (!scratchIdentity.isDirectory() || scratchIdentity.isSymbolicLink() || scratchIdentity.uid !== process.getuid()) throw unavailable("CONFIG_SCRATCH_IDENTITY_UNKNOWN");
+      const temporary = resolve(scratch, "tmp");
+      let temporaryIdentity;
+      try { temporaryIdentity = lstatSync(temporary); } catch (error) { if (error.code !== "ENOENT") throw error; }
+      if (temporaryIdentity) {
+        if (!temporaryIdentity.isDirectory() || temporaryIdentity.isSymbolicLink() || temporaryIdentity.uid !== process.getuid()) throw unavailable("CONFIG_SCRATCH_IDENTITY_UNKNOWN");
+        rmdirSync(temporary);
+      }
+      rmdirSync(scratch);
+    }
     closeSync(fd);
     unlinkSync(path);
     rmdirSync(directory);
@@ -149,8 +166,181 @@ async function providerInventory(config, configPath, identity = cliIdentity()) {
   return { identity, originals: [deployments.original, version.original, containers.original], deployments: deployments.value, deployment, version: version.value, container, namespaces, principal };
 }
 
-function sourceIdentity(config) {
-  return { entrypointSha256: hash(readFileSync(resolve(app, "src/qualification.ts"))), packageSha256: hash(readFileSync(resolve(app, "package.json"))) };
+const beneath = (directory, path) => path.startsWith(`${directory}${sep}`);
+function filePin(path) {
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const before = fstatSync(fd, { bigint: true });
+    if (!before.isFile() || before.size > 64n * 1024n * 1024n) throw unavailable("BUILD_INPUT_TYPE_OR_SIZE_UNAVAILABLE");
+    const bytes = readFileSync(fd);
+    const after = fstatSync(fd, { bigint: true });
+    const current = lstatSync(path, { bigint: true });
+    if (before.dev !== after.dev || before.ino !== after.ino || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs || current.dev !== after.dev || current.ino !== after.ino) throw unavailable("BUILD_INPUT_CHANGED_DURING_CAPTURE");
+    return { bytes, identity: { dev: after.dev.toString(), ino: after.ino.toString(), sha256: hash(bytes), size: after.size.toString() } };
+  } finally { closeSync(fd); }
+}
+function committedBlob(path, bytes) {
+  const name = relative(root, path);
+  if (!beneath(realpathSync(root), path) || name.split(sep).some(part => part.startsWith("."))) throw unavailable("WORKSPACE_SOURCE_OUTSIDE_REVIEWED_TREE");
+  const env = { PATH: process.env.PATH, HOME: process.env.HOME, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: devNull, GIT_PAGER: "cat" };
+  let oid;
+  let committed;
+  try {
+    oid = execFileSync("git", ["-C", root, "rev-parse", "--verify", `HEAD:${name}`], { env, stdio: ["ignore", "pipe", "pipe"] }).toString("utf8").trim();
+    committed = execFileSync("git", ["-C", root, "cat-file", "blob", oid], { env, stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024 });
+  } catch { throw unavailable("WORKSPACE_SOURCE_NOT_COMMITTED"); }
+  if (hash(committed) !== hash(bytes)) throw unavailable("WORKSPACE_SOURCE_DIFFERS_FROM_REVIEWED_BLOB");
+  return oid;
+}
+function sourceGraph(metadata, map, base, identity) {
+  if (!object(metadata.inputs) || !Array.isArray(map.sources) || !Array.isArray(map.sourcesContent) || map.sources.length !== map.sourcesContent.length) throw unavailable("BUILD_RESOLVED_GRAPH_UNAVAILABLE");
+  const storeMarker = `${sep}node_modules${sep}.pnpm${sep}`;
+  const index = realpathSync(identity.entry).indexOf(storeMarker);
+  if (index < 0) throw unavailable("REVIEWED_DEPENDENCY_STORE_UNAVAILABLE");
+  const store = realpathSync(identity.entry).slice(0, index + storeMarker.length - 1);
+  const ownRoot = realpathSync(root);
+  const graph = new Map();
+  const add = path => {
+    if (graph.has(path)) return graph.get(path);
+    const physical = realpathSync(path);
+    const pin = filePin(physical);
+    const own = beneath(ownRoot, physical) && !physical.includes(`${sep}node_modules${sep}`);
+    if (!own && !beneath(store, physical)) throw unavailable("RESOLVED_SOURCE_OUTSIDE_REVIEWED_TREE_OR_STORE");
+    const record = { path, physical, ...pin.identity, kind: own ? "workspace" : "dependency", ...(own ? { blob: committedBlob(physical, pin.bytes) } : {}) };
+    graph.set(path, record);
+    return record;
+  };
+  for (const input of Object.keys(metadata.inputs)) {
+    const path = resolve(base, input);
+    const virtual = /^_virtual_unenv_global_polyfill-@cloudflare-unenv-preset-node-(console|process)$/.test(basename(path)) && dirname(path) === resolve(dirname(realpathSync(identity.entry)), "..");
+    if (virtual) {
+      const position = map.sources.indexOf(input);
+      if (position < 0 || typeof map.sourcesContent[position] !== "string") throw unavailable("BUILDER_VIRTUAL_INPUT_CONTENT_UNAVAILABLE");
+      graph.set(path, { path, kind: "wrangler-virtual", sha256: hash(map.sourcesContent[position]) });
+      continue;
+    }
+    const record = add(path);
+    if (record.kind === "workspace") {
+      const used = Object.values(metadata.outputs).some(output => output.inputs?.[input]?.bytesInOutput > 0);
+      const position = map.sources.indexOf(input);
+      if (used && (position < 0 || typeof map.sourcesContent[position] !== "string" || hash(map.sourcesContent[position]) !== record.sha256)) throw unavailable("COMPILED_WORKSPACE_SOURCE_MAP_MISMATCH");
+    }
+    let directory = dirname(record.physical);
+    for (;;) {
+      const packagePath = resolve(directory, "package.json");
+      try {
+        const pkg = JSON.parse(filePin(packagePath).bytes.toString("utf8"));
+        if (record.kind === "dependency" && typeof pkg.name === "string" && /^@(repo|legioncode)\//.test(pkg.name)) throw unavailable("WORKSPACE_PACKAGE_ADOPTED_FROM_DEPENDENCY_STORE");
+        add(packagePath);
+        break;
+      } catch (error) { if (error.code !== "ENOENT") throw error; }
+      const parent = dirname(directory);
+      if (parent === directory) throw unavailable("RESOLVED_PACKAGE_METADATA_UNAVAILABLE");
+      directory = parent;
+    }
+  }
+  for (const name of ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "apps/secure-agent-api/package.json", "apps/secure-agent-api/tsconfig.json"]) add(resolve(root, name));
+  const configs = new Set();
+  const tsconfig = path => {
+    if (configs.has(path)) return;
+    configs.add(path);
+    if (configs.size > 32) throw unavailable("BUILD_TSCONFIG_GRAPH_UNAVAILABLE");
+    const pin = add(path);
+    const config = readJsonc(pin.physical);
+    for (const parent of config.extends === undefined ? [] : Array.isArray(config.extends) ? config.extends : [config.extends]) {
+      if (typeof parent !== "string") throw unavailable("BUILD_TSCONFIG_GRAPH_UNAVAILABLE");
+      tsconfig(createRequire(pin.physical).resolve(parent));
+    }
+  };
+  tsconfig(resolve(app, "tsconfig.json"));
+  return [...graph.values()].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+}
+function outputPins(directory) {
+  const result = [];
+  const walk = path => {
+    for (const entry of readdirSync(path, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const child = resolve(path, entry.name);
+      if (entry.isDirectory()) walk(child);
+      else if (entry.isFile()) result.push({ name: relative(directory, child), ...filePin(child).identity });
+      else throw unavailable("BUILD_OUTPUT_LINK_OR_SPECIAL_FILE_FORBIDDEN");
+    }
+  };
+  walk(directory);
+  return result;
+}
+function verifySource(source, identity) {
+  if (!object(source) || source.version !== 1 || !beneath(privateDirectory, source.directory) || realpathSync(source.directory) !== source.directory || !same(source.builder, identity) || !same(outputPins(source.directory), source.outputs)) throw unavailable("PINNED_BUILD_OUTPUT_CHANGED");
+  const directory = lstatSync(source.directory);
+  if (directory.uid !== process.getuid() || (directory.mode & 0o077) !== 0 || (directory.mode & 0o200) !== 0) throw unavailable("PINNED_BUILD_DIRECTORY_UNAVAILABLE");
+  for (const input of source.graph) {
+    if (input.kind === "wrangler-virtual") continue;
+    if (realpathSync(input.path) !== input.physical || !same(filePin(input.physical).identity, { dev: input.dev, ino: input.ino, sha256: input.sha256, size: input.size })) throw unavailable("REVIEWED_SOURCE_GRAPH_CHANGED");
+  }
+}
+async function buildPinned(config, configPath, identity, registerIntent) {
+  ensurePrivateDirectory();
+  const directory = mkdtempSync(resolve(privateDirectory, "bundle-"), { encoding: "utf8" });
+  const build = resolve(directory, "build");
+  const deploy = resolve(directory, "deploy");
+  mkdirSync(build, { mode: 0o700 });
+  mkdirSync(deploy, { mode: 0o700 });
+  const metadataPath = resolve(directory, "metadata.json");
+  const command = ["deploy", "--dry-run", "--outdir", build, "--metafile", metadataPath, "--tsconfig", resolve(app, "tsconfig.json")];
+  registerIntent({ directory, command });
+  const compiled = await originalCli(identity, configPath, command, { format: "text" });
+  registerIntent({ directory, command, original: compiled.original });
+  const metadata = JSON.parse(filePin(metadataPath).bytes.toString("utf8"));
+  if (!object(metadata.outputs)) throw unavailable("BUILD_OUTPUT_METADATA_UNAVAILABLE");
+  for (const [path, output] of Object.entries(metadata.outputs)) {
+    const physical = resolve(dirname(configPath), path);
+    if (!beneath(build, physical) || filePin(physical).identity.size !== String(output.bytes)) throw unavailable("BUILD_OUTPUT_METADATA_MISMATCH");
+  }
+  const entries = Object.entries(metadata.outputs).filter(([, output]) => output.entryPoint !== undefined);
+  if (entries.length !== 1) throw unavailable("BUILD_SINGLE_ENTRYPOINT_REQUIRED");
+  const entry = resolve(dirname(configPath), entries[0][0]);
+  if (!beneath(build, entry) || !entry.endsWith(".js")) throw unavailable("BUILD_ENTRYPOINT_OUTSIDE_PRIVATE_OUTPUT");
+  const map = JSON.parse(filePin(`${entry}.map`).bytes.toString("utf8"));
+  const graph = sourceGraph(metadata, map, dirname(configPath), identity);
+  for (const output of Object.values(metadata.outputs)) for (const imported of output.imports ?? []) {
+    if (!imported.external || /^(node|cloudflare):/.test(imported.path)) continue;
+    if (!beneath(build, resolve(dirname(entry), imported.path))) throw unavailable("BUILD_EXTERNAL_IMPORT_OUTSIDE_PINNED_MODULES");
+    filePin(resolve(dirname(entry), imported.path));
+  }
+  for (const output of outputPins(build)) {
+    if (output.name === "README.md" || output.name.endsWith(".map")) continue;
+    const destination = resolve(deploy, output.name);
+    mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
+    copyFileSync(resolve(build, output.name), destination, constants.COPYFILE_EXCL);
+  }
+  const seal = path => {
+    for (const item of readdirSync(path, { withFileTypes: true })) {
+      const child = resolve(path, item.name);
+      if (item.isDirectory()) seal(child);
+      else if (item.isFile()) {
+        chmodSync(child, 0o400);
+        const fd = openSync(child, constants.O_RDONLY | constants.O_NOFOLLOW);
+        try { fsyncSync(fd); } finally { closeSync(fd); }
+      } else throw unavailable("BUILD_OUTPUT_LINK_OR_SPECIAL_FILE_FORBIDDEN");
+    }
+    chmodSync(path, 0o500);
+    const fd = openSync(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    try { fsyncSync(fd); } finally { closeSync(fd); }
+  };
+  seal(directory);
+  const parent = openSync(privateDirectory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+  try { fsyncSync(parent); } finally { closeSync(parent); }
+  const source = { version: 1, directory, entry: resolve(deploy, relative(build, entry)), builder: identity, graph, outputs: outputPins(directory), buildOriginal: compiled.original };
+  verifySource(source, identity);
+  return source;
+}
+async function deployPinned(config, source, identity) {
+  verifySource(source, identity);
+  const snapshot = configSnapshot(config, source.entry);
+  try {
+    const original = await originalCli(identity, snapshot.path, ["deploy", "--no-bundle", "--name", config.name, "--strict"], { format: "text" });
+    verifySource(source, identity);
+    return original;
+  } finally { snapshot.close(); }
 }
 async function authenticatedOperator(identity, config, configPath) {
   const whoami = await originalCli(identity, configPath, ["whoami", "--account", config.account_id], { format: "text" });
@@ -175,18 +365,20 @@ async function createSealed(config, configPath, attemptId) {
   if (!Array.isArray(before.value) || before.value.some(app => app.name === config.containers[0].name)) throw unavailable("EXISTING_CONTAINER_TARGET_COLLISION");
   const absence = await originalCli(identity, configPath, ["deployments", "list", "--name", config.name, "--json"], { absentWorker: { account: config.account_id, name: config.name } });
   if (absence.absent !== true) throw unavailable("EXISTING_WORKER_TARGET_COLLISION");
-  const source = sourceIdentity(config);
   const stateFile = openPrivateState(config.vars.NATIVE_QUALIFICATION_ENVIRONMENT_ID, true, "creation");
-  const intent = { version: 1, purpose: "native_boundary_qualification_creation", attemptId, worker: config.name, containerName: config.containers[0].name, accountId: config.account_id, environmentId: config.vars.NATIVE_QUALIFICATION_ENVIRONMENT_ID, expectedPrincipal: config.vars.NATIVE_QUALIFICATION_CONTROL_PRINCIPAL, operatorReceiptSha256: operator.receiptSha256, cli: identity, source, configSha256: hash(JSON.stringify(canonical(config))), image: config.containers[0].image, startedAt: Date.now(), phase: "unknown", pendingAction: "deploy-sealed", originals: [operator.original, before.original, absence.original] };
+  let intent = { version: 1, purpose: "native_boundary_qualification_creation", attemptId, worker: config.name, containerName: config.containers[0].name, accountId: config.account_id, environmentId: config.vars.NATIVE_QUALIFICATION_ENVIRONMENT_ID, expectedPrincipal: config.vars.NATIVE_QUALIFICATION_CONTROL_PRINCIPAL, operatorReceiptSha256: operator.receiptSha256, cli: identity, configSha256: hash(JSON.stringify(canonical(config))), image: config.containers[0].image, startedAt: Date.now(), phase: "unknown", pendingAction: "build-sealed", originals: [operator.original, before.original, absence.original] };
   saveState(stateFile.fd, intent);
   try {
-    const deployed = await originalCli(identity, configPath, ["deploy", "--name", config.name, "--strict"], { format: "text" });
+    const source = await buildPinned(config, configPath, identity, buildIntent => { intent = { ...intent, buildIntent }; saveState(stateFile.fd, intent); });
+    intent = { ...intent, source, pendingAction: "deploy-sealed", originals: [...intent.originals, source.buildOriginal] };
+    saveState(stateFile.fd, intent);
+    const deployed = await deployPinned(config, source, identity);
     const inventory = await providerInventory(config, configPath, identity);
     const creation = `Created application ${config.containers[0].name} (Application ID: ${inventory.container.id})`;
     const createdAt = Date.parse(inventory.container.created_at);
     if (!deployed.value.includes(creation) || inventory.deployments.length !== 1 || inventory.version.number !== 1 || createdAt < intent.startedAt - 60_000 || createdAt > Date.now() + 60_000 || Date.parse(inventory.version.metadata.created_on) < intent.startedAt - 60_000 || before.value.some(app => app.id === inventory.container.id || app.durable_objects?.namespace_id === inventory.namespaces.Sandbox || app.durable_objects?.namespace_id === inventory.namespaces.AGENT_RUNTIME)) throw unavailable("PROVIDER_NEW_ALLOCATION_RECEIPT_UNAVAILABLE");
     if (config.vars.NATIVE_QUALIFICATION_CONTROL_PRINCIPAL !== undefined && config.vars.NATIVE_QUALIFICATION_CONTROL_PRINCIPAL !== inventory.principal) throw unavailable("PROVIDER_CREATION_PRINCIPAL_MISMATCH");
-    if (!same(sourceIdentity(config), intent.source)) throw unavailable("CREATION_SOURCE_CHANGED");
+    verifySource(source, identity);
     const receipt = { version: 1, purpose: "native_boundary_qualification_creation", attemptId, worker: config.name, containerName: config.containers[0].name, accountId: config.account_id, environmentId: config.vars.NATIVE_QUALIFICATION_ENVIRONMENT_ID, operatorReceiptSha256: operator.receiptSha256, controlPrincipal: inventory.principal, namespaces: inventory.namespaces, applicationId: inventory.container.id, applicationCreatedAt: inventory.container.created_at, firstVersionId: inventory.version.id, firstDeploymentId: inventory.deployment.id, scriptEtag: inventory.version.resources.script.etag, image: config.containers[0].image, source: intent.source, cli: identity, originals: [...intent.originals, deployed.original, ...inventory.originals] };
     const receiptSha256 = hash(JSON.stringify(canonical(receipt)));
     saveState(stateFile.fd, { ...intent, phase: "created-sealed", pendingAction: undefined, receipt, receiptSha256 });
@@ -199,7 +391,8 @@ async function createSealed(config, configPath, attemptId) {
 
 function checkCreation(config, state, inventory) {
   const receipt = state.receipt;
-  if (!object(receipt) || state.pendingAction !== undefined || hash(JSON.stringify(canonical(receipt))) !== state.receiptSha256 || receipt.accountId !== config.account_id || receipt.worker !== config.name || receipt.environmentId !== config.vars.NATIVE_QUALIFICATION_ENVIRONMENT_ID || receipt.controlPrincipal !== config.vars.NATIVE_QUALIFICATION_CONTROL_PRINCIPAL || receipt.image !== config.containers[0].image || state.receiptSha256 !== config.vars.NATIVE_QUALIFICATION_AUTHORITY_RECEIPT_SHA256 || !same(receipt.cli, inventory.identity) || !same(receipt.source, sourceIdentity(config)) || receipt.applicationId !== inventory.container.id || receipt.applicationCreatedAt !== inventory.container.created_at || !same(receipt.namespaces, inventory.namespaces) || receipt.controlPrincipal !== inventory.principal || receipt.scriptEtag !== inventory.version.resources.script.etag) throw unavailable("CREATION_RECEIPT_OR_CURRENT_TARGET_MISMATCH");
+  if (!object(receipt) || state.pendingAction !== undefined || hash(JSON.stringify(canonical(receipt))) !== state.receiptSha256 || receipt.accountId !== config.account_id || receipt.worker !== config.name || receipt.environmentId !== config.vars.NATIVE_QUALIFICATION_ENVIRONMENT_ID || receipt.controlPrincipal !== config.vars.NATIVE_QUALIFICATION_CONTROL_PRINCIPAL || receipt.image !== config.containers[0].image || state.receiptSha256 !== config.vars.NATIVE_QUALIFICATION_AUTHORITY_RECEIPT_SHA256 || !same(receipt.cli, inventory.identity) || !same(receipt.source, state.source) || receipt.applicationId !== inventory.container.id || receipt.applicationCreatedAt !== inventory.container.created_at || !same(receipt.namespaces, inventory.namespaces) || receipt.controlPrincipal !== inventory.principal || receipt.scriptEtag !== inventory.version.resources.script.etag) throw unavailable("CREATION_RECEIPT_OR_CURRENT_TARGET_MISMATCH");
+  verifySource(receipt.source, inventory.identity);
   return receipt;
 }
 
@@ -225,10 +418,11 @@ async function activate(config, configPath, attemptId) {
       checkCreation(config, state, inventory);
       const operator = await authenticatedOperator(inventory.identity, config, configPath);
       if (operator.receiptSha256 !== state.operatorReceiptSha256) throw unavailable("AUTHENTICATED_CREATION_OPERATOR_CHANGED");
+      verifySource(state.source, inventory.identity);
       saveState(stateFile.fd, { ...state, phase: "unknown", pendingAction: "activate-secret" });
       const secretOriginal = await originalCli(inventory.identity, configPath, ["secret", "put", "INTERNAL_RUNTIME_EVENT_SECRET"], { format: "text", input: `${secret}\n` });
       saveState(stateFile.fd, { ...state, phase: "unknown", pendingAction: "activate-deploy", secretOriginal: secretOriginal.original });
-      const deployOriginal = await originalCli(inventory.identity, configPath, ["deploy", "--name", config.name, "--strict"], { format: "text" });
+      const deployOriginal = await deployPinned(config, state.source, inventory.identity);
       const active = await providerInventory(config, configPath, inventory.identity);
       checkCreation(config, state, active);
       saveState(stateFile.fd, { ...state, phase: "active", pendingAction: undefined, activeConfigSha256: hash(JSON.stringify(canonical(config))), activationOriginals: [operator.original, secretOriginal.original, deployOriginal.original, ...active.originals] });
