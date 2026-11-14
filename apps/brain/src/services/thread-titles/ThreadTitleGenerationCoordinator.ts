@@ -4,6 +4,7 @@ import type {
   ProviderModelTransport,
 } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
+import type { NativeProviderCredentialContext } from "../providers/NativeProviderCredentialResolver";
 import {
   ThreadTitleService,
   type PersistThreadTitleInput,
@@ -37,6 +38,8 @@ export interface GenerateThreadTitleInput extends Omit<
   providerTransport?: ProviderModelTransport;
   providerEndpoint?: string;
   modelCapabilities?: BYOKModelCapability;
+  /** Private original admission authority for the selected Native title route. */
+  nativeProviderCredentials?: NativeProviderCredentialContext;
 }
 
 export interface ThreadTitleGenerator {

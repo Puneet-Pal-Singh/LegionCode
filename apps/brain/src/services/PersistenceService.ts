@@ -9,6 +9,7 @@ import type {
   RunStatus,
   TranscriptRepository,
   TranscriptMessageRecord,
+  TurnAdmissionRecord,
   UpsertRunStepInput,
 } from "@repo/persistence";
 import { pruneToolResults } from "@legioncode/context-pruner";
@@ -223,7 +224,7 @@ export class PersistenceService {
     providerId?: string | null;
     modelId?: string | null;
     branch?: string | null;
-  }): Promise<{ id: string; run: RunRecord }> {
+  }): Promise<{ id: string; run: RunRecord; admission: TurnAdmissionRecord }> {
     const clientMessageId = readClientMessageId(input.message);
     if (!clientMessageId) {
       throw new ValidationError(
@@ -284,7 +285,7 @@ export class PersistenceService {
             ),
           },
         });
-        return { id: result.promptMessageId, run: result.run };
+        return { id: result.promptMessageId, run: result.run, admission: result.admission };
       },
     );
   }
