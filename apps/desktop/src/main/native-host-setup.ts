@@ -127,6 +127,9 @@ export class DesktopNativeHostSetup {
       const permit = await runNativeHostConfigure({
         installerPath: INSTALLED_INSTALLER, actorUid, namespacePath: options.namespacePath, nodePath, npmDirectory,
       });
+      // The positive configure receipt closes that original invocation. No
+      // qualification resource exists until this owner actually dispatches Start.
+      effectsMayExist = false;
       // Successful configuration created no qualification resources. A quit
       // during authorization must never create a new task after that seal.
       if (this.closing || this.cancelRequested || !options.canContinue()) {
@@ -145,6 +148,7 @@ export class DesktopNativeHostSetup {
         throw new NativeHostSetupUnconfirmedError();
       // Only this original root-authorized permit and held namespace can Start.
       this.continueBeforeEffect();
+      effectsMayExist = true;
       let observation = await client.start({ generation: descriptor.generation, setupPermitId: permit.setupPermitId, namespaceDirectory: namespace });
       if (observation.state === "not_started") throw new NativeHostSetupUnconfirmedError();
       this.qualification = { client, generation: observation.generation, qualificationId: observation.qualificationId };
@@ -158,8 +162,11 @@ export class DesktopNativeHostSetup {
       }
       observation = await this.waitForQualification(observation);
       terminal = true;
-      if (observation.state === "unknown" || observation.state === "not_started")
+      if (observation.state !== "passed" && observation.state !== "cancelled")
         throw new NativeHostSetupUnconfirmedError();
+      // Passed/cancelled are the C owner's positive resource-closure outcomes.
+      // Subsequent read-only readiness failure cannot turn them into live work.
+      effectsMayExist = false;
       if (observation.state === "passed") {
         if (!observation.receiptSHA256) throw new NativeHostSetupUnconfirmedError();
         const ready = await MacHostBrokerClient.connect(descriptor.options);
