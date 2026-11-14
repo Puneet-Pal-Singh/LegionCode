@@ -15,8 +15,14 @@ import type { RunStatus } from "../types.js";
 import { buildPlanningRecoveryMessage } from "./RunPlanningRecoveryPolicy.js";
 import {
   recordLifecycleStep,
+  recordOrchestrationTerminal,
   recordPhaseSelectionSnapshot,
 } from "./RunMetadataPolicy.js";
+import { applyFinalRunStatus } from "./RunStatusPolicy.js";
+import {
+  readCanonicalPlanTerminal,
+  type CanonicalPlanCompletion,
+} from "./CanonicalPlanCompletion.js";
 import { redactUserFacingOutput } from "./RunOutputRedactor.js";
 import {
   buildFinalAssistantMessage,
@@ -63,11 +69,54 @@ interface RunAssistantFinalizationParams {
   modelParts?: TranscriptPart[];
   metadata?: Record<string, unknown>;
   deps: RunCompletionDependencies;
+  /** Private Native Plan projection; never accepted from request metadata. */
+  canonicalPlanCompletion?: CanonicalPlanCompletion;
 }
 
 interface PersistFinalAssistantRunParams extends RunAssistantFinalizationParams {
   terminalState: RunTerminalState;
   terminalStatus: FinalizedRunTerminalStatus;
+}
+
+/** Project an already settled kernel Plan; this never appends lifecycle events. */
+export async function finalizeCanonicalPlanTurn(params: {
+  run: Run;
+  canonicalPlanCompletion: CanonicalPlanCompletion;
+  deps: RunCompletionDependencies;
+}): Promise<Response> {
+  const { run, deps } = params;
+  const observed = await readCanonicalPlanTerminal(run, params.canonicalPlanCompletion);
+  if (observed.terminal.type === "turn.completed") {
+    return await finalizeRunWithAssistantMessage({
+      ...params,
+      runtimeFinal: { kind: "runtime_final", text: observed.output },
+    });
+  }
+  if (observed.terminal.type === "turn.failed") {
+    return await finalizeRunWithAssistantMessage({
+      run, deps,
+      runtimeFinal: { kind: "runtime_final", text: observed.terminal.payload.outcome.failure.message },
+      metadata: { terminalState: RUN_TERMINAL_STATES.FAILED_RUNTIME },
+    });
+  }
+  const previousStatus = run.status;
+  applyFinalRunStatus(run, run.id, "CANCELLED", []);
+  run.output = { content: observed.output, finalSummary: observed.output };
+  run.metadata.terminalState = RUN_TERMINAL_STATES.INTERRUPTED;
+  run.metadata.terminalMessage = { terminalState: RUN_TERMINAL_STATES.INTERRUPTED, outcomeCode: "INTERRUPTED" };
+  const captured = params.canonicalPlanCompletion.captured;
+  if (captured && JSON.stringify(run.metadata.planArtifact) === captured.artifact) {
+    delete run.metadata.planArtifact;
+    delete run.metadata.planId;
+  }
+  recordLifecycleStep(run, "TERMINAL", "status=CANCELLED");
+  recordOrchestrationTerminal(run);
+  if (await deps.runRepo.updateUnlessStatus(run, ["PAUSED", "COMPLETED", "FAILED", "CANCELLED"])) {
+    await deps.runEventRecorder.recordRunStatusChanged(previousStatus, run.status, RUN_WORKFLOW_STEPS.PLANNING, "canonical_turn_interrupted");
+  }
+  // Partial output is already persisted by canonical lifecycle. Do not invent
+  // another assistant final merely because its read-only planner was stopped.
+  return createStreamResponse("");
 }
 
 export async function finalizeRunWithAssistantMessage(
@@ -125,11 +174,18 @@ async function persistFinalAssistantRun(
     events: canonicalEvents,
     metadata,
   });
-  const settlement = enforceTerminalFinalEvidence({
-    settlement: projectTerminalSettlement({
+  const projectedSettlement = projectTerminalSettlement({
       terminalState: params.terminalState,
       contract: finalization.contract,
-    }),
+  });
+  const canonicalPlan = params.canonicalPlanCompletion
+    ? await readCanonicalPlanTerminal(run, params.canonicalPlanCompletion) : null;
+  if (canonicalPlan && (canonicalPlan.terminal.type !== "turn.completed" ||
+    runtimeFinal?.text !== canonicalPlan.output || params.terminalState !== RUN_TERMINAL_STATES.COMPLETED)) {
+    throw new Error("Canonical Plan terminal does not match the requested projection.");
+  }
+  const settlement = canonicalPlan ? projectedSettlement : enforceTerminalFinalEvidence({
+    settlement: projectedSettlement,
     modelParts: params.modelParts,
   });
   const terminalState = settlement.terminalState;

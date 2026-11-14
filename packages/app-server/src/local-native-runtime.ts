@@ -54,7 +54,7 @@ import type { LocalTurnMediaPort } from "./local-turn-media.js";
 import { attachPreparedLocalImages, localUserProviderMessage } from "./local-turn-images.js";
 import { captureLocalTurnModel } from "./local-turn-model.js";
 import { prepareLocalNativeSettlement } from "./local-native-settlement.js";
-import { LocalNativeProviderRequests } from "./local-native-provider-requests.js";
+import { NativeProviderRequests } from "@legioncode/execution-engine/runtime/llm/NativeProviderRequests";
 import type { LocalWorkspaceWriterReleaseReceipt } from "./local-workspace-writer-lease.js";
 
 type LifecycleStore = LocalPersistence["lifecycleEvents"];
@@ -164,7 +164,7 @@ export function createLocalNativeRuntime(
         helperPath,
         rootDirectory: binding.rootDirectory,
       });
-      const providerRequests = new LocalNativeProviderRequests();
+      const providerRequests = new NativeProviderRequests();
       let manifestGitClosureUnknown = false;
       let kernelPortsReturned = false;
       let attempt: LocalTurnAttemptIdentity | undefined;
