@@ -2393,6 +2393,30 @@ consumer yet. Its client facade exports protocol types only; Node SDK and proces
 services stay behind the server export. Final driver/constructor wiring is the
 activation boundary, and no Native provider fallback is introduced.
 
+## Plan 057 — Shared durable input repository contract
+
+Event-store owns the placement-independent thread-input repository contract and
+its conflict error. Persistence reexports that same contract for hosted callers;
+its existing Postgres writer remains authoritative. Private optional input identity
+and immutable media batch fields support the same local image owner without
+adding public queue fields or storing image bytes in queue rows. Native SQLite
+and shared command-service activation follow in the same integration slice; this
+contract move alone does not enable local queue or steering.
+
+### Shared queued input command owner
+
+- AppServer `ThreadInputCommandService` owns enqueue/update/remove/CAS steering, authoritative receipt reread, unknown-delivery pause and completed/idle advancement behind storage, authorization, media and runtime ports.
+- Hosted AppServer commands and the existing Hosted terminal callback now use that owner. Brain retains the existing quota/admission/dispatch/model/image and PostgreSQL transaction adapters; no duplicate local policy is activated by this extraction.
+- Native transport composition and positive physical-idle/history integration remain pending. This commit alone does not advertise Native Queue/Steer. No new tests or registrations.
+
+### Queue admission physical boundary
+
+- Shared advancement selects only logically eligible queue intent. Physical idle is not represented as a separate boolean predicate: the actual Native start adapter must verify predecessor settlement under its already-held successor lease before atomic queue/admission publication. Unknown physical authority must pause and reject, preserving intent.
+
+### Hosted shared-input compatibility
+
+- Hosted update/remove known CAS conflict receipts retain their existing HTTP 200 wrapper, and updates to terminal/nonvisible rows retain the original 404. Direct Steer response denials retain the existing HTTP 502/THREAD_INPUT_NOT_CONFIRMED mapping through a private placement brand; queued-Steer and unknown Native delivery keep their existing 503 reconciliation path.
+- Shared policy still owns durable command/CAS/receipt decisions. Placement transport status does not become a second input state owner. No new tests.
 ## Plans 048 / 061 — Private Codex RPC driver foundation
 
 The private harness-codex server adapter translates the pinned Codex app-server
@@ -2408,3 +2432,36 @@ The package is not registered by an active product constructor here. Binary/sche
 pins are not OS confinement or installed-feature acceptance; both remain explicitly
 unaccepted in the runtime manifest. Whole-scope quiescence requires actual injected
 proof, and missing evidence stays unknown. Native provider execution is unchanged.
+
+- Hosted queued-Steer target denial retains its original 409 error envelope and
+  operation code; direct Steer retains its conflict receipt. The shared target
+  validation port carries operation context only for this placement mapping.
+
+- Shared advancement propagates original start failures to the terminal observer.
+  Only enqueue suppresses/logs an automatic-start failure after durable intent
+  persistence, preserving its existing pending receipt. Native physical cleanup
+  callbacks retain their original tracked failure and pause owner.
+## Plans 048 / 061 — Private OpenCode v2 driver foundation
+
+The private harness-opencode server adapter translates pinned OpenCode v2 client,
+event and permission representations through the existing worker contracts.
+Canonical selection, policy resolution and effective-policy attestation are
+required injected authorities; the native permission mapper neither grants
+permissions nor certifies enforcement. Real full-scope quiescence and ordered
+stream-drain evidence remain separate from foreground process completion.
+
+This package and its matched dependency graph are an inactive driver foundation,
+not a local registration or route. RuntimeKernel remains the lifecycle/approval
+writer, harness-core retains host/journal ownership, and unsupported resume stays
+unavailable. The driver requires Node 22 and never falls back to Native execution.
+### Original Native provider request settlement
+
+The same Native attempt factory retains every original protected-gateway request
+before invocation. Kernel cancellation polling can settle its observer first;
+that result is not provider-request closure. After the original executor result
+and worker proof settle, the factory fences new requests and awaits all retained
+adapter promises before writer release, binding close and immutable resource
+settlement. A request that ignores cancellation keeps that original obligation;
+no abort acknowledgement, deadline or empty executor map substitutes for it.
+This is buffered-request resource ownership only; it does not invent streaming
+phases, output/retry semantics or another canonical lifecycle producer.
