@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { createHash } from "node:crypto";
 import { fstatSync, lstatSync, realpathSync } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import { isAbsolute } from "node:path";
@@ -36,12 +37,27 @@ export interface MacHostBrokerOptions {
   readonly expectedPolicySHA256: string;
   readonly expectedPolicyGeneration: string;
 }
+/** Structural port for the EXISTING physical writer owner's onReleased receipt.
+ * Main passes onPhysicalWriterReleased only as releaseAttempt's callback after
+ * the full captured/manifest Git proof. No new release registry or bool proof. */
+export interface MacHostPhysicalWriterReleaseReceipt {
+  readonly root: Readonly<{ device: string; inode: string }>;
+  readonly gitMetadataIdentity: string;
+  readonly writerFence: Readonly<{
+    namespace: Readonly<{ device: string; inode: string }>;
+    lease: Readonly<{ device: string; inode: string }>;
+  }>;
+}
 export interface MacHostCommandResource {
   readonly closed: Promise<void>;
   readonly quiescent: boolean;
   readonly closure: Readonly<{ kind: "not_prepared" } | ({ kind: "broker_closed"; generation: string; policySHA256: string;
     scopeSHA256: string; capability: string; resourceId: string; resourceGeneration: string; policyGeneration: string } & Identity)> | null;
   seal(): Promise<void>;
+  /** Invoke ONLY from LocalWorkspaceWriterLeaseOwner.releaseAttempt(...,
+   * combinedCaptureAndGitProof, onReleased). closed/quiescent alone is not this
+   * final retirement barrier. Rejection leaves the root UID slot unavailable. */
+  onPhysicalWriterReleased(receipt: MacHostPhysicalWriterReleaseReceipt): Promise<void>;
 }
 
 /** Original bridge lifetime. Requests are serialized and every original reply is
@@ -317,6 +333,10 @@ export class MacHostCommandAttempt implements MacHostCommandResource {
   private unknown = false;
   private closedProof: MacHostCommandResource["closure"] = null;
   private physicallyClosed = false;
+  private retirement: Promise<void> | null = null;
+  private retirementNonce: string | null = null;
+  private cleanupReceipt: string | null = null;
+  private slotGeneration: bigint | null = null;
   constructor(private readonly options: MacHostBrokerOptions, private readonly generation: string,
     private readonly input: { attempt: LocalTurnAttemptIdentity; rootDirectory: FileHandle; writerLease: FileHandle; namespaceDirectory: FileHandle; metadataLayout: NativeGitMetadataLayout }) {
     const root = fstatSync(input.rootDirectory.fd, { bigint: true }), fence = fstatSync(input.writerLease.fd, { bigint: true });
@@ -395,11 +415,57 @@ export class MacHostCommandAttempt implements MacHostCommandResource {
         }
       }
       if (this.command) await this.command.catch(() => undefined);
-      if (this.capability) this.readScope(await this.scoped("retireScope"));
+      if (this.capability) {
+        const reply = await this.scoped("retireScope"); this.readScope(reply);
+        this.retirementNonce = macHostDigest(reply, "retirementNonce");
+        this.cleanupReceipt = macHostDigest(reply, "cleanupReceipt");
+        this.slotGeneration = macHostNumber(reply, "slotGeneration");
+        if (!this.slotGeneration || /^0+$/u.test(this.retirementNonce) || /^0+$/u.test(this.cleanupReceipt))
+          throw new MacHostBrokerError("invalid_retirement_authority", true);
+      }
       await this.bridge.end();
       this.physicallyClosed = true; this.resolveClosed();
     })().catch((error: unknown) => { this.markUnknown(error); throw error; });
     return this.closing;
+  }
+  /** Separate from seal(): the physical writer cannot release until closed is
+   * fulfilled, so putting this confirmation in closed would deadlock its owner.
+   * Original bridge.end includes its actual child 'close' and all stdio closure. */
+  onPhysicalWriterReleased(receipt: MacHostPhysicalWriterReleaseReceipt): Promise<void> {
+    const identities = [receipt.root, receipt.writerFence.namespace, receipt.writerFence.lease];
+    const expected = [this.identity.rootDevice, this.identity.rootInode, this.identity.namespaceDevice,
+      this.identity.namespaceInode, this.identity.fenceDevice, this.identity.fenceInode];
+    const values = identities.flatMap((value) => [value.device, value.inode]);
+    if (!this.quiescent || values.some((value, i) => !/^[0-9a-f]{1,16}$/u.test(value) || BigInt("0x" + value) !== expected[i]) ||
+        receipt.gitMetadataIdentity !== this.input.metadataLayout.identity)
+      return Promise.reject(new MacHostBrokerError("physical_writer_release_identity_changed", true));
+    this.retirement ??= (async () => {
+      if (!this.mayHaveScope) return;
+      if (!this.retirementNonce || !this.cleanupReceipt || !this.slotGeneration || !this.capability ||
+          !this.resourceId || !this.resourceGeneration) throw new MacHostBrokerError("retirement_authority_missing", true);
+      const hash = createHash("sha256").update("LegionCode/native-host/physical-retirement/v1\0");
+      for (const value of [this.retirementNonce, this.cleanupReceipt, this.resourceId, this.resourceGeneration]) hash.update(Buffer.from(value, "hex"));
+      for (const value of [this.slotGeneration, ...expected]) {
+        const bytes = Buffer.alloc(8); bytes.writeBigUInt64BE(value); hash.update(bytes);
+      }
+      hash.update(receipt.gitMetadataIdentity + "\0");
+      const fields = { ...base("confirmResourceRetirement", this.generation), capability: this.capability,
+        resourceId: this.resourceId, resourceGeneration: this.resourceGeneration, slotGeneration: this.slotGeneration.toString(),
+        cleanupReceipt: this.cleanupReceipt, retirementNonce: this.retirementNonce, hostReleaseSHA256: hash.digest("hex") };
+      const bridge = new Bridge(this.options);
+      try {
+        /* Repeating this metadata-only confirmation may ONLY observe the old
+         * receipt. No retry here can create a command, UID or physical writer. */
+        for (let i = 0; i < 50; i++) {
+          const state = response(await bridge.request(fields));
+          if (state === "retired") return;
+          if (state !== "retirementPending") throw new MacHostBrokerError("invalid_retirement_reply", true);
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        throw new MacHostBrokerError("original_bridge_disconnect_unconfirmed", true);
+      } finally { await bridge.end(); }
+    })();
+    return this.retirement;
   }
   private prepare(): Promise<void> {
     this.preparation ??= (async () => {

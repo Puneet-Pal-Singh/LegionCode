@@ -11,6 +11,9 @@ typedef enum { LC_HOST_IDLE = 1, LC_HOST_PREPARED, LC_HOST_RUNNING, LC_HOST_CLOS
 typedef struct {
   LC_HOST_RESOURCE_PREFIX_FIELDS;
   lc_host_principal principal;
+  uint64_t uid_slot_generation;
+  uint32_t retirement_requested, retirement_confirmed;
+  unsigned char retirement_nonce[32], retirement_receipt[32];
   lc_host_metadata metadata;
   unsigned char setup_nonce[32], setup_manifest_sha256[32];
   uint32_t setup_metadata_started, setup_metadata_inspected;
@@ -64,6 +67,10 @@ static inline bool lc_host_record_read(int state, const char *name, lc_host_scop
       (record->purpose == LC_HOST_RESOURCE_NATIVE ? nonce || manifest || record->setup_metadata_started || record->setup_metadata_inspected : !nonce || !manifest || record->setup_metadata_started > 1 || record->setup_metadata_inspected > 1 || (record->setup_metadata_inspected && !record->setup_metadata_started)) ||
       (record->purpose == LC_HOST_RESOURCE_SETUP_QUALIFICATION && !record->setup_metadata_inspected &&
         ((record->phase != LC_HOST_IDLE && record->phase != LC_HOST_UNKNOWN && record->phase != LC_HOST_CLOSING) || record->command_count || record->cleanup_closed)) ||
+      !record->uid_slot_generation || record->retirement_requested > 1 || record->retirement_confirmed > 1 ||
+      (record->retirement_requested ? !record->cleanup_closed || !lc_host_nonzero(record->retirement_nonce, 32) :
+        lc_host_nonzero(record->retirement_nonce, 32) || record->retirement_confirmed) ||
+      (record->retirement_confirmed ? !lc_host_nonzero(record->retirement_receipt, 32) : lc_host_nonzero(record->retirement_receipt, 32)) ||
       record->phase < LC_HOST_IDLE || record->phase > LC_HOST_UNKNOWN || record->command_count > 256 ||
       record->cleanup_closed > 1 || (record->cleanup_closed && (record->phase != LC_HOST_CLOSED || !receipt)) ||
       (!record->cleanup_closed && receipt) || !guid || record->binding.reserved ||
@@ -93,7 +100,7 @@ static inline bool lc_host_record_find(int state, uid_t actor, const unsigned ch
   if (independent < 0) return false;
   if (fstat(state, &held) || fstat(independent, &scan) || held.st_dev != scan.st_dev || held.st_ino != scan.st_ino) { close(independent); return false; }
   DIR *directory = fdopendir(independent); if (!directory) { close(independent); return false; }
-  bool okay = true; size_t count = 0; *present = false;
+  bool okay = true; *present = false;
   for (;;) {
     errno = 0; struct dirent *entry = readdir(directory);
     if (!entry) { if (errno) okay = false; break; }
@@ -106,7 +113,7 @@ static inline bool lc_host_record_find(int state, uid_t actor, const unsigned ch
       continue;
     }
     lc_host_scope_record record;
-    if (++count > LC_HOST_MAX_PRINCIPALS || !lc_host_record_read(state, entry->d_name, &record)) { okay = false; break; }
+    if (!lc_host_record_read(state, entry->d_name, &record)) { okay = false; break; }
     if (record.binding.actor_uid != actor || memcmp(record.binding.scope_sha256, scope, 32)) continue;
     if (*present) { okay = false; break; }
     *present = true; *found = record; strcpy(name, entry->d_name);

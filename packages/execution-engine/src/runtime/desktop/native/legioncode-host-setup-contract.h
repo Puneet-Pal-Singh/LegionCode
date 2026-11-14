@@ -2,7 +2,7 @@
 #define LEGIONCODE_HOST_SETUP_CONTRACT_H
 #include "legioncode-host-writer-contract.h"
 
-#define LC_HOST_RESOURCE_RECORD_VERSION 4U
+#define LC_HOST_RESOURCE_RECORD_VERSION 5U
 #define LC_HOST_RESOURCE_STATE_DIRECTORY "/Library/Application Support/LegionCode/NativeExecution/resources"
 typedef enum { LC_HOST_RESOURCE_NATIVE = 1, LC_HOST_RESOURCE_SETUP_QUALIFICATION = 2 } lc_host_resource_purpose;
 /* Fixed prefix shared with the setup-only physical writer adapter. digest_offset
@@ -39,7 +39,7 @@ typedef struct {
   uint64_t deadline_milliseconds;
 } lc_writer_setup_acquisition;
 
-/* Caller first persists+fsyncs a ROOT-protected v4 setup-purpose reservation and
+/* Caller first persists+fsyncs a ROOT-protected current-version setup-purpose reservation and
  * its directory, retaining those exact original descriptors and digest here.
  * The adapter MUST validate that record/named inode and actor/root/namespace/
  * fence binding BEFORE fork. Only a fully dropped actor child may invoke the

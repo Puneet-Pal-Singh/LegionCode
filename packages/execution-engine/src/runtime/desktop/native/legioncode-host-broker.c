@@ -2,6 +2,7 @@
  * Build only; packaging/setup owns installation, approval and launchd. Never
  * setid this binary. Missing setup, writer ABI or qualification fails closed. */
 #include "legioncode-host-recovery.h"
+#include "legioncode-host-retirement.h"
 #include "legioncode-host-setup-auth.h"
 #include "legioncode-host-setup-metadata.h"
 #include <stdatomic.h>
@@ -31,6 +32,9 @@ static xpc_object_t scope_reply(lc_host_scope *scope) {
   lc_host_hex(scope->record.binding.resource_id, 32, digest, sizeof(digest)); lc_host_put(reply, "resourceId", digest);
   lc_host_hex(scope->record.binding.broker_resource_generation, 32, digest, sizeof(digest)); lc_host_put(reply, "resourceGeneration", digest);
   lc_host_hex(scope->record.metadata.digest, 32, digest, sizeof(digest)); lc_host_put(reply, "metadataSHA256", digest);
+  lc_host_put_number(reply, "slotGeneration", scope->record.uid_slot_generation);
+  lc_host_hex(scope->record.cleanup_receipt, 32, digest, sizeof(digest)); lc_host_put(reply, "cleanupReceipt", digest);
+  lc_host_hex(scope->record.retirement_nonce, 32, digest, sizeof(digest)); lc_host_put(reply, "retirementNonce", digest);
   lc_host_put(reply, "commandId", scope->command_id); lc_host_put(reply, "commandDigest", scope->command_digest);
   lc_host_put(reply, "quiescent", scope->released ? "true" : "false");
   lc_host_put(reply, "commandClosed", scope->record.phase == LC_HOST_IDLE && scope->child && scope->reaped ? "true" : "false");
@@ -74,19 +78,35 @@ static xpc_object_t serve_request(xpc_connection_t peer, xpc_object_t request) {
   if (!lc_host_get(request, "capability", capability, sizeof(capability)) || strlen(capability) != 64) return lc_host_reply("unavailable", "invalidRequest");
   lc_host_scope *scope = NULL;
   for (size_t i = 0; i < LC_HOST_MAX_SCOPES; i++) if (scopes[i].used && !strcmp(scopes[i].capability, capability)) { scope = &scopes[i]; break; }
+  if (!scope && !strcmp(operation, "confirmResourceRetirement")) {
+    /* Repeated confirmation after a lost ACK is read-only historical lookup.
+     * It never examines the current occupant of this resource's former UID. */
+    unsigned char raw[32], hash[32]; char name[80], hex[65]; lc_host_scope_record record;
+    if (!lc_host_unhex(capability, raw, 32)) return lc_host_reply("unavailable", "invalidRequest");
+    CC_SHA256(raw, 32, hash); lc_host_hex(hash, 32, hex, sizeof(hex)); snprintf(name, sizeof(name), "resource.%s", hex);
+    if (!lc_host_record_read(state_directory, name, &record) || record.purpose != LC_HOST_RESOURCE_NATIVE ||
+        record.binding.actor_uid != approval.actor || strcmp(record.origin_generation, approval.generation) ||
+        !record.retirement_confirmed || !lc_host_retirement_matches(&record, request)) return lc_host_reply("unknown", "retirementUnconfirmed");
+    return lc_host_reply("retired", "okay");
+  }
   if (!scope) return lc_host_reply("unknown", "resourceRecoveryRequired");
   if (scope->record.purpose != LC_HOST_RESOURCE_NATIVE) return lc_host_reply("unavailable", "resourcePurposeConflict");
   if (!strcmp(operation, "retireScope")) {
     static const char *const fields[] = { "version", "operation", "generation", "capability" };
-    if (!lc_host_fields(request, fields, 4) || !scope->released || scope->record.phase != LC_HOST_CLOSED)
-      return lc_host_reply("unavailable", "resourceNotClosed");
-    xpc_object_t reply = scope_reply(scope);
+    if (!lc_host_fields(request, fields, 4) || !lc_host_retirement_begin(state_directory, scope))
+      return lc_host_reply("unknown", "retirementUnconfirmed");
+    /* Retain the original owner/projection and UID slot. This ACK only gives
+     * the host a one-shot nonce; it is NOT final physical-writer retirement. */
+    return scope_reply(scope);
+  }
+  if (!strcmp(operation, "confirmResourceRetirement")) {
+    if (!lc_host_retirement_matches(&scope->record, request)) return lc_host_reply("unknown", "retirementIdentityConflict");
+    if (!scope->owner_disconnected) return lc_host_reply("retirementPending", "okay");
+    if (!lc_host_retirement_finish(state_directory, &approval, scope, request)) return lc_host_reply("unknown", "retirementUnconfirmed");
     for (size_t i = 0; i < LC_HOST_MAX_SCOPES; i++) if (&scopes[i] == scope) {
       scope->used = false; if (owners[i]) xpc_release(owners[i]); owners[i] = NULL; break;
     }
-    /* Only the live projection slot is retired. Root reservation/tombstone and
-     * durable closed evidence remain intact; the UID is never reused. */
-    return reply;
+    return lc_host_reply("retired", "okay");
   }
   if (!strcmp(operation, "prepareCommand")) {
     if (!lc_host_prepare_command(state_directory, &approval, scope, request)) return lc_host_reply("unknown", "commandPreparationRejected");
@@ -129,8 +149,10 @@ static int serve(void) {
     xpc_connection_set_target_queue(peer, queue);
     xpc_connection_set_event_handler(peer, ^(xpc_object_t request) {
       if (xpc_get_type(request) == XPC_TYPE_ERROR) {
-        for (size_t i = 0; i < LC_HOST_MAX_SCOPES; i++) if (owners[i] == peer && scopes[i].used && !scopes[i].released)
-          (void)lc_host_scope_seal(state_directory, &scopes[i]);
+        for (size_t i = 0; i < LC_HOST_MAX_SCOPES; i++) if (owners[i] == peer && scopes[i].used) {
+          scopes[i].owner_disconnected = true;
+          if (!scopes[i].released) (void)lc_host_scope_seal(state_directory, &scopes[i]);
+        }
         return;
       }
       if (xpc_get_type(request) != XPC_TYPE_DICTIONARY) { xpc_connection_cancel(peer); return; }

@@ -48,10 +48,11 @@ static inline xpc_object_t lc_host_recovery(int state, const lc_host_approval *a
   bool reserved;
   if (!lc_host_reservation_seen(state, approval, scope, &reserved)) return lc_host_reply("unknown", "protectedReservationInvalid");
   if (present && record.purpose != LC_HOST_RESOURCE_NATIVE) return lc_host_reply("unavailable", "resourcePurposeConflict");
-  if (!present || !reserved) return lc_host_reply("unknown", "resourceRecoveryRequired");
-  lc_host_reservation reservation;
-  if (!lc_host_reservation_read(state, approval, record.principal.uid, &reservation) ||
-      memcmp(&reservation.binding, &record.binding, sizeof(record.binding))) return lc_host_reply("unknown", "protectedReservationInvalid");
+  if (!present || (!reserved && !record.retirement_confirmed)) return lc_host_reply("unknown", "resourceRecoveryRequired");
+  /* Historical closed receipts are observations of their original resources.
+   * They never inspect/signal/settle the current occupant of a reused UID. */
+  if (!record.retirement_confirmed && !lc_host_reservation_current(state, approval,
+      &record.binding, record.uid_slot_generation)) return lc_host_reply("unknown", "protectedReservationInvalid");
   if (strcmp(record.origin_generation, approval->generation)) return lc_host_reply("unknown", "daemonRestartRecoveryRequired");
   if (!lc_host_recovery_number(request, "rootDevice", record.binding.root.device) ||
       !lc_host_recovery_number(request, "rootInode", record.binding.root.inode) ||
