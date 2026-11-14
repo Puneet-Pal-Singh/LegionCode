@@ -236,8 +236,10 @@ export async function publishNativeOciImage({ verifiedPackage, accountId, reposi
   const acknowledged = () => recordIntent({ phase: "publishing", pendingAction: undefined });
   try {
     credential = await acquireCredential();
-    assert(Buffer.isBuffer(credential) && credential.length >= 20 && credential.length <= 16384 && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(credential.toString("ascii")), "OCI_TEMPORARY_CREDENTIAL_INVALID");
-    authorization = `Basic ${Buffer.concat([Buffer.from("v1:"), credential]).toString("base64")}`;
+    assert(Buffer.isBuffer(credential) && credential.length >= 1 && credential.length <= 16384 && !credential.some(byte => byte < 33 || byte > 126), "OCI_TEMPORARY_CREDENTIAL_INVALID");
+    const basicBytes = Buffer.concat([Buffer.from("v1:"), credential]);
+    try { authorization = `Basic ${basicBytes.toString("base64")}`; }
+    finally { basicBytes.fill(0); }
     const tagUrl = `${base}/manifests/${tag}`;
     const absent = await request("HEAD", tagUrl);
     await body(absent, 64 * 1024);

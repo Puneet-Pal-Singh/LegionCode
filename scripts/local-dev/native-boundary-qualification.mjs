@@ -21,6 +21,9 @@ const hash = value => createHash("sha256").update(value).digest("hex");
 const canonical = value => Array.isArray(value) ? value.map(canonical) : object(value) ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, child]) => [key, canonical(child)])) : value;
 const same = (a, b) => JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
 const unavailable = code => new Error(code);
+// Only this private credential owner can attach diagnostic metadata. Never
+// accept an arbitrary Error property/message as journal-safe evidence.
+const credentialFailures = new WeakMap();
 
 function cliIdentity() {
   for (const name of ["CLOUDFLARE_API_BASE_URL", "WRANGLER_API_ENVIRONMENT", "WRANGLER_AUTH_DOMAIN", "WRANGLER_AUTH_URL", "WRANGLER_TOKEN_URL", "CLOUDFLARE_CONTAINER_REGISTRY"]) if (process.env[name] !== undefined) throw unavailable("PROVIDER_ENDPOINT_OVERRIDE_FORBIDDEN");
@@ -99,6 +102,7 @@ async function originalCli(identity, configPath, command, { format = "json", abs
   let overflow = false;
   let spawnFailed = false;
   let inputFailed = false;
+  let streamFailed = false;
   const secretOutput = format === "secret";
   const stdoutHash = secretOutput ? null : createHash("sha256");
   const stderrHash = secretOutput ? null : createHash("sha256");
@@ -109,23 +113,46 @@ async function originalCli(identity, configPath, command, { format = "json", abs
     if (!overflow && (!secretOutput || stream === child.stdout)) chunks.push(chunk);
     else if (secretOutput) chunk.fill(0);
   });
-  if (input !== undefined) { child.stdin.on("error", () => { inputFailed = true; }); child.stdin.end(input); }
+  if (secretOutput) for (const stream of [child.stdout, child.stderr]) stream.on("error", () => { streamFailed = true; });
+  if (input !== undefined) { child.stdin.on("error", () => { inputFailed = true; }); try { child.stdin.end(input); } catch { inputFailed = true; child.stdin.destroy(); } }
   child.on("error", () => { spawnFailed = true; });
   const exit = await new Promise(resolveExit => child.on("close", (code, signal) => resolveExit({ code, signal })));
-  log.close();
   if (secretOutput) {
-    // Credential stdout and even stderr-derived hashes must never enter a
-    // receipt/error. Drain the original child completely before accepting it.
+    // 'close' follows termination and closure of the original child's stdios.
+    // Even failed/overflowed commands are drained before diagnostics exist.
+    let sourceIdentityChecked = false;
+    let sourceIdentityMatches = false;
+    const rejectCredential = (stage, errorCode) => {
+      const error = unavailable("REGISTRY_CREDENTIAL_ORIGINAL_UNKNOWN");
+      credentialFailures.set(error, Object.freeze({ stage, error: errorCode,
+        originalExitCode: Number.isSafeInteger(exit.code) ? exit.code : null,
+        originalSignal: exit.signal === null ? null : /^SIG[A-Z0-9]+$/.test(exit.signal) ? exit.signal : "unknown",
+        overflow, spawnFailed, inputFailed, streamFailed, sourceIdentityChecked, sourceIdentityMatches }));
+      throw error;
+    };
     try {
-      if (overflow || spawnFailed || inputFailed || exit.code !== 0 || exit.signal !== null || hash(readFileSync(identity.executable)) !== identity.executableSha256 || hash(readFileSync(identity.entry)) !== identity.entrySha256) throw unavailable("REGISTRY_CREDENTIAL_ORIGINAL_UNKNOWN");
+      try {
+        sourceIdentityMatches = hash(readFileSync(identity.executable)) === identity.executableSha256 && hash(readFileSync(identity.entry)) === identity.entrySha256;
+        sourceIdentityChecked = true;
+      } catch { /* Only fixed booleans describe an unavailable source check. */ }
+      try { log.close(); } catch { rejectCredential("log_sink", "REGISTRY_CREDENTIAL_LOG_SINK_UNCONFIRMED"); }
+      if (overflow || spawnFailed || inputFailed || streamFailed || exit.code !== 0 || exit.signal !== null) rejectCredential("command", "REGISTRY_CREDENTIAL_COMMAND_FAILED");
+      if (!sourceIdentityChecked || !sourceIdentityMatches) rejectCredential("source_identity", "REGISTRY_CREDENTIAL_SOURCE_IDENTITY_UNCONFIRMED");
       const raw = Buffer.concat(stdout);
       try {
-        const value = raw.toString("ascii").trim();
-        if (raw.some(byte => byte > 127) || value.length < 20 || value.length > 16384 || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value)) throw unavailable("REGISTRY_CREDENTIAL_OUTPUT_INVALID");
-        return { value: Buffer.from(value, "ascii") };
+        if (raw.some(byte => byte > 127)) rejectCredential("encoding", "REGISTRY_CREDENTIAL_ASCII_REQUIRED");
+        // The provider returns an opaque password, not a promised JWT. Require
+        // exactly one whole printable line and its single logger.log newline.
+        let end = raw.length;
+        if (raw[end - 1] !== 10) rejectCredential("framing", "REGISTRY_CREDENTIAL_LINE_FRAMING_INVALID");
+        end--;
+        if (raw[end - 1] === 13) end--;
+        if (end < 1 || end > 16384 || raw.subarray(0, end).some(byte => byte < 33 || byte > 126)) rejectCredential("framing", "REGISTRY_CREDENTIAL_LINE_FRAMING_INVALID");
+        return { value: Buffer.from(raw.subarray(0, end)) };
       } finally { raw.fill(0); }
     } finally { for (const chunk of stdout) chunk.fill(0); }
   }
+  log.close();
   const original = { command, stdoutSha256: stdoutHash.digest("hex"), stderrSha256: stderrHash.digest("hex"), exitCode: exit.code, signal: exit.signal, complete: !overflow && !spawnFailed && !inputFailed && exit.signal === null };
   const fail = code => { const error = unavailable(code); error.original = original; throw error; };
   if (!original.complete || hash(readFileSync(identity.executable)) !== identity.executableSha256 || hash(readFileSync(identity.entry)) !== identity.entrySha256) fail("PROVIDER_CLI_ORIGINAL_UNKNOWN");
@@ -765,7 +792,16 @@ async function publishImage(config, configPath, operationId, packageDirectory, e
         readIntent: () => intent, recordIntent,
         acquireCredential: async () => {
           recordIntent({ phase: "credential-pending", pendingAction: { method: "credential", expirationMinutes: 15 } });
-          const reply = await originalCli(identity, configPath, ["cloudchamber", "registries", "credentials", "registry.cloudflare.com", "--push", "--pull", "--expiration-minutes", "15"], { format: "secret" });
+          let reply;
+          try {
+            reply = await originalCli(identity, configPath, ["cloudchamber", "registries", "credentials", "registry.cloudflare.com", "--push", "--pull", "--expiration-minutes", "15"], { format: "secret" });
+          } catch (error) {
+            const metadata = credentialFailures.get(error);
+            // Preserve the pending credential intent. No output, secret hash,
+            // byte count, or arbitrary error message enters this same journal.
+            if (metadata) recordIntent({ credentialFailure: metadata });
+            throw unavailable("REGISTRY_CREDENTIAL_ORIGINAL_UNKNOWN");
+          }
           try { recordIntent({ phase: "prepared", pendingAction: undefined }); }
           catch (error) { reply.value.fill(0); throw error; }
           return reply.value;
