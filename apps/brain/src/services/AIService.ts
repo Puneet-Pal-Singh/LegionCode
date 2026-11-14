@@ -14,25 +14,18 @@ import {
   mapProviderIdToRuntimeProvider,
   getRuntimeProviderFromAdapter,
   type GenerateTextResult,
-  getSDKModelConfig,
   type SDKModelConfig,
   type GenerateStructuredResult,
   buildStructuredGenerationUsage,
   getStructuredGenerationMode,
 } from "./ai";
 import { resolveNativeProviderSelection, resolveSelectionWithPreferences } from "./ai/preference-selection";
-import { createNativeStructuredModelConfiguration } from "./ai/NativeStructuredModelConfiguration";
+import { resolveStructuredGenerationConfiguration } from "./ai/AIStructuredGenerationCoordinator";
 import { DefaultAdapterService } from "./ai/DefaultAdapterService";
-import { consumeAxisQuotaIfNeeded } from "./ai/axis-quota";
-import { AXIS_PROVIDER_ID } from "./providers/axis";
 import {
   createChatStreamWithSelection,
   generateTextWithSelection,
 } from "./ai/AITextGenerationCoordinator";
-import {
-  resolveStructuredBaseURLOverride,
-  resolveStructuredRuntimeProvider,
-} from "./ai/ProviderRouteMetadata";
 import type { StructuredGenerationInput } from "./ai/StructuredGenerationInput";
 import type { ChatStreamInput } from "./ai/ChatStreamInput";
 import { PROVIDER_SDK_MAX_RETRIES } from "@legioncode/execution-engine/runtime/provider/ProviderRequestPolicy";
@@ -152,39 +145,18 @@ export class AIService {
       resolveSelection: (selectedProviderId, selectedModelId) =>
         this.resolveModelSelection(selectedProviderId, selectedModelId),
     });
-    await consumeAxisQuotaIfNeeded(
-      selection.providerId,
-      this.providerConfigService,
-    );
-
-    const nativeStructured = Boolean(this.providerConfigService?.getNativeProviderSelection?.());
-    let sdkModelConfig: SDKModelConfig;
-    if (nativeStructured && this.providerConfigService) {
-      const native = await createNativeStructuredModelConfiguration({
-        credentials: this.providerConfigService, selection, runtimeModelId, providerTransport, providerEndpoint,
+    const configuration = await resolveStructuredGenerationConfiguration({
+      selection, env: this.env, providerConfigService: this.providerConfigService,
+      runtimeModelId, providerTransport, providerEndpoint,
+    });
+    if (configuration.kind === "responses") {
+      return createStructuredProviderInferenceAdapter(configuration.config).generate({
+        messages, schema, model: configuration.model, temperature,
+        ...(maxTokens !== undefined ? { maxOutputTokens: maxTokens } : {}),
+        ...(abortSignal ? { signal: abortSignal } : {}),
       });
-      if (native.kind === "responses") {
-        return createStructuredProviderInferenceAdapter(native.config).generate({
-          messages, schema, model: native.model, temperature,
-          ...(maxTokens !== undefined ? { maxOutputTokens: maxTokens } : {}),
-          ...(abortSignal ? { signal: abortSignal } : {}),
-        });
-      }
-      sdkModelConfig = native.config;
-    } else {
-      const acquiredKey =
-        selection.providerId && selection.providerId !== AXIS_PROVIDER_ID
-          ? await this.providerConfigService?.getApiKey(selection.providerId)
-          : undefined;
-      const overrideApiKey = acquiredKey === null ? undefined : acquiredKey;
-      const structuredRuntimeProvider = resolveStructuredRuntimeProvider(selection.runtimeProvider, providerTransport);
-      const structuredBaseURLOverride = resolveStructuredBaseURLOverride(providerTransport, providerEndpoint);
-      sdkModelConfig = getSDKModelConfig(
-        runtimeModelId ?? selection.model, structuredRuntimeProvider, this.env,
-        overrideApiKey, selection.providerId, structuredBaseURLOverride,
-      );
     }
-
+    const { config: sdkModelConfig, nativeStructured } = configuration;
     const sdkModel = this.createSDKModel(sdkModelConfig);
 
     const result = await generateObject({
