@@ -215,15 +215,17 @@ function response(reply: Reply): string {
 }
 
 export type MacHostSetupDescription = Readonly<{
-  state: "blocked";
-  reason: "setupAuthorizationRequired" | "setupPlatformMismatch" | "qualificationRunnerUnavailable";
+  state: "available" | "blocked";
+  reason: "okay" | "setupAuthorizationRequired" | "setupPlatformMismatch" | "qualificationRunnerUnavailable";
   generation: string; configurationSHA256: string;
 }>;
 export type MacHostSetupObservation = Readonly<
-  { state: "blocked"; reason: "qualificationRunnerUnavailable" } | { state: "not_started" }
+  { state: "not_started" } |
+  { state: "running" | "awaiting_bridge" | "passed" | "cancelled" | "unknown";
+    generation: string; qualificationId: string; stage: string; receiptSHA256: string | null }
 >;
 /** Private setup facade over the SAME authenticated bridge. It is neither a
- * qualified runtime client nor a source of resource/qualification proof. */
+ * qualified runtime client nor a replacement physical-writer proof owner. */
 export class MacHostBrokerSetupClient {
   private constructor(private readonly options: MacHostBrokerOptions) {}
   static create(options: MacHostBrokerOptions): MacHostBrokerSetupClient {
@@ -233,31 +235,60 @@ export class MacHostBrokerSetupClient {
     return this.exchange("setupQualificationDescribe", {}, (reply) => {
       const keys = ["version", "state", "code", "generation", "configurationSHA256", "policy", "policyGeneration"];
       this.validate(reply, keys);
-      const reason = macHostText(reply, "code", 128);
-      if (macHostText(reply, "state", 40) !== "setupBlocked" ||
-          !["setupAuthorizationRequired", "setupPlatformMismatch", "qualificationRunnerUnavailable"].includes(reason) ||
+      const reason = macHostText(reply, "code", 128), state = macHostText(reply, "state", 40);
+      if (!((state === "setupReady" && reason === "okay") || (state === "setupBlocked" &&
+          ["setupAuthorizationRequired", "setupPlatformMismatch", "qualificationRunnerUnavailable"].includes(reason))) ||
           macHostDigest(reply, "policy") !== this.options.expectedPolicySHA256 ||
-          macHostDigest(reply, "policyGeneration") !== this.options.expectedPolicyGeneration) {
+          macHostDigest(reply, "policyGeneration") !== this.options.expectedPolicyGeneration)
         throw new MacHostBrokerError("invalid_setup_description", true);
-      }
-      return Object.freeze({ state: "blocked", reason: reason as MacHostSetupDescription["reason"],
+      return Object.freeze({ state: state === "setupReady" ? "available" : "blocked", reason: reason as MacHostSetupDescription["reason"],
         generation: macHostDigest(reply, "generation"), configurationSHA256: macHostDigest(reply, "configurationSHA256") });
     });
   }
-  start(input: { generation: string; setupPermitId: string; namespaceDirectory: FileHandle }): Promise<MacHostSetupObservation> {
+  async start(input: { generation: string; setupPermitId: string; namespaceDirectory: FileHandle }): Promise<MacHostSetupObservation> {
     this.digest(input.generation); this.digest(input.setupPermitId);
     const namespace = fstatSync(input.namespaceDirectory.fd, { bigint: true });
     if (!namespace.isDirectory() || (namespace.mode & 0o777n) !== 0o700n) throw new MacHostBrokerError("invalid_setup_namespace", false);
-    return this.exchange("setupQualificationStart", { generation: input.generation, setupPermitId: input.setupPermitId },
-      (reply) => this.observation(reply), input.namespaceDirectory);
+    const original = await this.exchange("setupQualificationStart", { generation: input.generation, setupPermitId: input.setupPermitId },
+      (reply) => {
+        const observation = this.observation(reply, ["bridgeNonce"]);
+        if (observation.state === "not_started" || observation.generation !== input.generation) throw new MacHostBrokerError("setup_identity_changed", true);
+        return { observation, nonce: macHostDigest(reply, "bridgeNonce") };
+      }, input.namespaceDirectory);
+    /* exchange returns ONLY after ORIGINAL Start Bridge.end, child 'close' and
+     * all original stdio close. This private root nonce is never exposed to Main
+     * UI/renderer and cannot assert normal UID/physical writer settlement. */
+    if (original.observation.state === "unknown") return original.observation;
+    for (let i = 0; i < 50; i++) {
+      const acknowledgement = await this.exchange("setupQualificationBridgeClosed", {
+        generation: input.generation, qualificationId: original.observation.qualificationId, bridgeNonce: original.nonce,
+      }, (reply) => {
+        const observation = this.observation(reply, ["bridgeConfirmed"]);
+        if (observation.state === "not_started" || observation.qualificationId !== original.observation.qualificationId || observation.generation !== input.generation)
+          throw new MacHostBrokerError("setup_identity_changed", true);
+        const confirmation = macHostText(reply, "bridgeConfirmed", 5);
+        if (confirmation !== "true" && confirmation !== "false") throw new MacHostBrokerError("invalid_setup_reply", true);
+        return { observation, confirmed: confirmation === "true" };
+      });
+      if (acknowledgement.confirmed || acknowledgement.observation.state === "unknown") return acknowledgement.observation;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new MacHostBrokerError("original_setup_bridge_disconnect_unconfirmed", true);
   }
   status(input: { generation: string; qualificationId: string }): Promise<MacHostSetupObservation> {
-    this.digest(input.generation); this.digest(input.qualificationId);
-    return this.exchange("setupQualificationStatus", { generation: input.generation, qualificationId: input.qualificationId }, (reply) => this.observation(reply));
+    return this.observe("setupQualificationStatus", input);
   }
   cancel(input: { generation: string; qualificationId: string }): Promise<MacHostSetupObservation> {
+    return this.observe("setupQualificationCancel", input);
+  }
+  private observe(operation: string, input: { generation: string; qualificationId: string }): Promise<MacHostSetupObservation> {
     this.digest(input.generation); this.digest(input.qualificationId);
-    return this.exchange("setupQualificationCancel", { generation: input.generation, qualificationId: input.qualificationId }, (reply) => this.observation(reply));
+    return this.exchange(operation, input, (reply) => {
+      const observation = this.observation(reply);
+      if (observation.state !== "not_started" && (observation.generation !== input.generation || observation.qualificationId !== input.qualificationId))
+        throw new MacHostBrokerError("setup_identity_changed", true);
+      return observation;
+    });
   }
   private digest(value: string): void {
     if (!/^[a-f0-9]{64}$/u.test(value)) throw new MacHostBrokerError("invalid_setup_identity", false);
@@ -266,13 +297,20 @@ export class MacHostBrokerSetupClient {
     if (reply.size !== keys.length || keys.some((key) => !reply.has(key)) || macHostText(reply, "version", 8) !== MAC_HOST_BROKER_ABI)
       throw new MacHostBrokerError("invalid_setup_reply", true);
   }
-  private observation(reply: Reply): MacHostSetupObservation {
-    this.validate(reply, ["version", "state", "code"]);
+  private observation(reply: Reply, additional: readonly string[] = []): MacHostSetupObservation {
     const state = macHostText(reply, "state", 40), code = macHostText(reply, "code", 128);
-    if (state === "setupBlocked" && code === "qualificationRunnerUnavailable")
-      return Object.freeze({ state: "blocked", reason: "qualificationRunnerUnavailable" });
-    if (state === "unknown" && code === "setupQualificationNotStarted") return Object.freeze({ state: "not_started" });
-    throw new MacHostBrokerError(code, state === "unknown");
+    if (state === "unknown" && code === "setupQualificationNotStarted" && !additional.length) {
+      this.validate(reply, ["version", "state", "code"]); return Object.freeze({ state: "not_started" });
+    }
+    this.validate(reply, ["version", "state", "code", "generation", "qualificationId", "stage", "receiptSHA256", ...additional]);
+    const states = { setupRunning: "running", setupAwaitingBridge: "awaiting_bridge", setupPassed: "passed", setupCancelled: "cancelled", unknown: "unknown" } as const;
+    if (!(state in states) || (state === "unknown" ? code !== "qualificationRecoveryRequired" : code !== "okay")) throw new MacHostBrokerError(code, true);
+    const receipt = macHostDigest(reply, "receiptSHA256"), stage = macHostText(reply, "stage", 40);
+    const stages = ["history", "acquiringWriter", "inspectingMetadata", "networkControl", "packageTest", "packageBuild", "checkingStop", "closing", "awaitingBridge", "passed", "cancelled", "recoveryRequired"];
+    if (!stages.includes(stage) || (state === "setupPassed" ? /^0+$/u.test(receipt) || stage !== "passed" : !/^0+$/u.test(receipt)))
+      throw new MacHostBrokerError("invalid_setup_receipt", true);
+    return Object.freeze({ state: states[state as keyof typeof states], generation: macHostDigest(reply, "generation"),
+      qualificationId: macHostDigest(reply, "qualificationId"), stage, receiptSHA256: state === "setupPassed" ? receipt : null });
   }
   private async exchange<T>(operation: string, fields: Readonly<Record<string, string>>, decode: (reply: Reply) => T,
     namespace?: FileHandle): Promise<T> {

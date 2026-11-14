@@ -33,40 +33,4 @@ static inline bool lc_host_setup_namespace(const lc_host_approval *approval, xpc
     !fcntl(fd, F_GETPATH, path) && !strcmp(path, approval->writer_namespace_path);
   if (close(fd)) okay = false; return okay;
 }
-/* Installed actor/code/bundle authentication has already run. The reviewed
- * transports are not a qualification runner: no permit consumption, roots, UID
- * allocation or child is reachable until the owner joins the actual recipe. */
-static inline xpc_object_t lc_host_setup_request(const lc_host_approval *approval, xpc_object_t request, const char *operation) {
-  if (!strcmp(operation, "setupQualificationDescribe")) {
-    static const char *const fields[] = { "version", "operation" };
-    if (!lc_host_fields(request, fields, 2)) return lc_host_reply("unavailable", "invalidRequest");
-    xpc_object_t reply = lc_host_reply("setupBlocked", !approval->setup_authorized ? "setupAuthorizationRequired" :
-      !approval->platform_matches ? "setupPlatformMismatch" : "qualificationRunnerUnavailable");
-    lc_host_put(reply, "generation", approval->generation);
-    lc_host_put(reply, "policy", approval->policy); lc_host_put(reply, "policyGeneration", approval->policy_generation);
-    char digest[65]; lc_host_hex(approval->manifest_sha256, 32, digest, sizeof(digest));
-    lc_host_put(reply, "configurationSHA256", digest); return reply;
-  }
-  char generation[65];
-  if (!approval->setup_authorized || !approval->platform_matches || !lc_host_installed_broker_valid(approval) ||
-      !lc_host_get(request, "generation", generation, sizeof(generation)) || strcmp(generation, approval->generation))
-    return lc_host_reply("unavailable", "setupAuthorizationRequired");
-  if (!strcmp(operation, "setupQualificationStart")) {
-    static const char *const fields[] = { "version", "operation", "generation", "setupPermitId", "namespaceFd" };
-    char permit[65];
-    if (!lc_host_fields(request, fields, 5) || !lc_host_get(request, "setupPermitId", permit, sizeof(permit)) ||
-        strcmp(permit, approval->setup_permit_id) || !lc_host_setup_namespace(approval, request)) return lc_host_reply("unavailable", "setupAuthorizationRequired");
-    /* Do not burn the one-shot permit before required transports exist. Actual
-     * joining must durably consume it before its FIRST resource/child effect. */
-    return lc_host_reply("setupBlocked", "qualificationRunnerUnavailable");
-  }
-  if (!strcmp(operation, "setupQualificationStatus") || !strcmp(operation, "setupQualificationCancel")) {
-    static const char *const fields[] = { "version", "operation", "generation", "qualificationId" };
-    char id[65]; unsigned char bytes[32];
-    if (!lc_host_fields(request, fields, 4) || !lc_host_get(request, "qualificationId", id, sizeof(id)) || !lc_host_unhex(id, bytes, 32))
-      return lc_host_reply("unavailable", "invalidRequest");
-    return lc_host_reply("unknown", "setupQualificationNotStarted");
-  }
-  return lc_host_reply("unavailable", "unknownOperation");
-}
 #endif

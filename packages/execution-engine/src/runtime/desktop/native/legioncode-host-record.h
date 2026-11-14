@@ -66,7 +66,9 @@ static inline bool lc_host_record_read(int state, const char *name, lc_host_scop
       (record->purpose != LC_HOST_RESOURCE_NATIVE && record->purpose != LC_HOST_RESOURCE_SETUP_QUALIFICATION) ||
       (record->purpose == LC_HOST_RESOURCE_NATIVE ? nonce || manifest || record->setup_metadata_started || record->setup_metadata_inspected : !nonce || !manifest || record->setup_metadata_started > 1 || record->setup_metadata_inspected > 1 || (record->setup_metadata_inspected && !record->setup_metadata_started)) ||
       (record->purpose == LC_HOST_RESOURCE_SETUP_QUALIFICATION && !record->setup_metadata_inspected &&
-        ((record->phase != LC_HOST_IDLE && record->phase != LC_HOST_UNKNOWN && record->phase != LC_HOST_CLOSING) || record->command_count || record->cleanup_closed)) ||
+        (record->command_count || (record->phase == LC_HOST_CLOSED ?
+          !record->cleanup_closed || record->setup_metadata_started :
+          (record->phase != LC_HOST_IDLE && record->phase != LC_HOST_UNKNOWN && record->phase != LC_HOST_CLOSING) || record->cleanup_closed))) ||
       !record->uid_slot_generation || record->retirement_requested > 1 || record->retirement_confirmed > 1 ||
       (record->retirement_requested ? !record->cleanup_closed || !lc_host_nonzero(record->retirement_nonce, 32) :
         lc_host_nonzero(record->retirement_nonce, 32) || record->retirement_confirmed) ||
@@ -99,7 +101,7 @@ typedef enum { LC_HOST_SCAN_PENDING, LC_HOST_SCAN_COMPLETE, LC_HOST_SCAN_UNKNOWN
 typedef struct {
   DIR *directory; struct stat snapshot;
   uid_t actor; unsigned char scope[32];
-  lc_host_scan_phase phase; bool present;
+  lc_host_scan_phase phase; bool present, unsettled;
   lc_host_scope_record found; char name[80];
 } lc_host_record_scan;
 static inline bool lc_host_scan_snapshot(const struct stat *a, const struct stat *b) {
@@ -147,6 +149,7 @@ static inline void lc_host_scan_step(int state, lc_host_record_scan *scan) {
   if (!lc_host_record_read(state, access ? owner : entry->d_name, &record)) {
     scan->phase = LC_HOST_SCAN_UNKNOWN; (void)lc_host_scan_close(scan); return;
   }
+  if (!record.cleanup_closed || !record.retirement_confirmed) scan->unsettled = true;
   if (access || record.binding.actor_uid != scan->actor || memcmp(record.binding.scope_sha256, scan->scope, 32)) return;
   if (scan->present) { scan->phase = LC_HOST_SCAN_UNKNOWN; (void)lc_host_scan_close(scan); return; }
   scan->present = true; scan->found = record; strcpy(scan->name, entry->d_name);
