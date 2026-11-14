@@ -152,12 +152,13 @@ describe("Local App Server supervisor generation safety", () => {
     expect(supervisor.getEnvironment().status).toBe("ready");
     const credentialRequest = {
       type: "runtime-credential-request",
+      purpose: "discovery",
       requestId: "a05fc404-efca-4ab5-a421-8a77ae6d02bf",
       providerId: "openai",
     };
     child.emit("message", credentialRequest);
     await settleMessages();
-    expect(resolveCredential).toHaveBeenCalledWith("openai");
+    expect(resolveCredential).toHaveBeenCalledWith("openai", expect.any(AbortSignal));
     expect(child.messages.at(-1)).toEqual({
       ...credentialRequest,
       type: "runtime-credential-response",
@@ -207,8 +208,8 @@ describe("Local App Server supervisor generation safety", () => {
     expect(child.messages.slice(messagesBeforeStop)).toEqual([{ type: "shutdown" }]);
     child.emit("message", { type: "closed" });
     child.emit("exit");
-    await stopping;
     credentialResult.resolve({ credential: { apiKey: "fixture-stale-secret" }, canDeliver: () => true });
+    await stopping;
     await settleMessages();
     expect(child.messages).toHaveLength(messagesBeforeStop + 1);
     requestResult.resolve({ ok: true });
