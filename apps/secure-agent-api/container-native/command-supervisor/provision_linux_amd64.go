@@ -3,6 +3,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -26,11 +28,10 @@ const resourceCommandPids = 128
 // identify that frozen authority; they are not bearer credentials or proof that
 // the caller owns a path. Shared session admission is intentionally not wired.
 type resourceSetupBinding struct {
-	Kind                   string `json:"kind"`
-	UserID                 string `json:"userId"`
-	BrainSessionID         string `json:"brainSessionId"`
-	WorkspaceID            string `json:"workspaceId"`
-	SetupID                string `json:"setupId"`
+	Purpose                string `json:"purpose"`
+	OperatorAccountID      string `json:"operatorAccountId"`
+	ControlPrincipal       string `json:"controlPrincipal"`
+	EnvironmentID          string `json:"environmentId"`
 	SessionID              string `json:"sessionId"`
 	LeaseID                string `json:"leaseId"`
 	SandboxID              string `json:"sandboxId"`
@@ -194,20 +195,76 @@ func provisionResources() error {
 }
 
 func validateResourceSetup(input resourceProvisionRequest) error {
-	if input.Version != 1 || input.Policy != resourcePolicy || input.Binding.Kind != "native_resource_setup" ||
-		input.ExpectedParent.Inode == 0 || input.Binding.Generation < 0 || len(input.ExpectedBootID) != 36 ||
-		!hexadecimal.MatchString(input.Binding.AuthorityDigest) || !hexadecimal.MatchString(input.Binding.ParentAuthorityDigest) ||
-		!hexadecimal.MatchString(input.Binding.PhysicalOwnerAuditHash) ||
-		!hexadecimal.MatchString(input.Binding.OperationID) {
+	if input.Version != 1 || input.Policy != resourcePolicy || input.ExpectedParent.Inode == 0 || len(input.ExpectedBootID) != 36 {
 		return errors.New("invalid_resource_setup")
 	}
-	for _, id := range []string{input.Binding.UserID, input.Binding.BrainSessionID, input.Binding.WorkspaceID, input.Binding.SetupID,
-		input.Binding.SessionID, input.Binding.LeaseID, input.Binding.SandboxID, input.Binding.PhysicalOwnerID, input.Binding.PhysicalAttemptKey} {
+	return validateResourceSetupBinding(input.Binding)
+}
+func validateResourceSetupBinding(value resourceSetupBinding) error {
+	if value.Purpose != "native_boundary_qualification" || value.Generation < 0 || len(value.OperatorAccountID) != 32 ||
+		!hexadecimal.MatchString(value.AuthorityDigest) || !hexadecimal.MatchString(value.ParentAuthorityDigest) ||
+		!hexadecimal.MatchString(value.PhysicalOwnerAuditHash) || !opaqueID.MatchString(value.OperationID) {
+		return errors.New("invalid_resource_setup")
+	}
+	for _, id := range []string{value.OperatorAccountID, value.ControlPrincipal, value.EnvironmentID,
+		value.SessionID, value.LeaseID, value.SandboxID, value.PhysicalOwnerID, value.PhysicalAttemptKey} {
 		if !opaqueID.MatchString(id) {
 			return errors.New("invalid_resource_setup")
 		}
 	}
 	return nil
+}
+
+// Read-only metadata for an already persisted exclusive operator grant. It is
+// never an implicit probe, an arbitrary path operation or runtime readiness.
+func observeResourceRoot() error {
+	if requireToolIdentity() != nil {
+		return errors.New("protected_owner_required")
+	}
+	var input struct {
+		Version int                  `json:"version"`
+		Binding resourceSetupBinding `json:"binding"`
+		Policy  string               `json:"policy"`
+	}
+	if decodeBounded(os.Stdin, maxRequestBytes, &input) != nil || input.Version != 1 || input.Policy != resourcePolicy ||
+		validateResourceSetupBinding(input.Binding) != nil {
+		return errors.New("invalid_resource_setup")
+	}
+	parent, err := openProtectedCgroup("/sys/fs/cgroup")
+	if err != nil {
+		return err
+	}
+	defer parent.Close()
+	if requireVisibleCgroupRoot(parent) != nil {
+		return errors.New("complete_resource_ancestry_required")
+	}
+	observation, err := observeCgroup(parent, []string{"cgroup.type", "cgroup.controllers", "cgroup.subtree_control"})
+	if err != nil {
+		return err
+	}
+	total, available, err := provisionMemoryObservation()
+	if err != nil {
+		return err
+	}
+	boot, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil || len(strings.TrimSpace(string(boot))) != 36 {
+		return errors.New("resource_boot_unavailable")
+	}
+	helperHash, err := resourceHelperHash()
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(os.Stdout).Encode(struct {
+		Version       int                       `json:"version"`
+		Operation     string                    `json:"operation"`
+		Binding       resourceSetupBinding      `json:"binding"`
+		Policy        string                    `json:"policy"`
+		SandboxBootID string                    `json:"sandboxBootId"`
+		Parent        resourceCgroupObservation `json:"parent"`
+		MemTotal      uint64                    `json:"memTotal,string"`
+		MemAvailable  uint64                    `json:"memAvailable,string"`
+		HelperSha256  string                    `json:"helperSha256"`
+	}{1, "resource_observation", input.Binding, resourcePolicy, strings.TrimSpace(string(boot)), observation, total, available, helperHash})
 }
 
 // A namespace-relative mount can hide tighter ancestors and effective min
@@ -360,15 +417,40 @@ func resourceDirectoryNames(parent *os.File) ([]string, error) {
 	}
 	reader := os.NewFile(uintptr(fd), "resource-directory-list")
 	defer reader.Close()
-	entries, err := reader.Readdir(1025)
+	entries, err := reader.Readdirnames(1025)
 	if (err != nil && err != io.EOF) || len(entries) > 1024 {
 		return nil, errors.New("resource_ancestry_limit")
 	}
 	names := make([]string, 0)
-	for _, entry := range entries {
-		if entry.IsDir() {
-			names = append(names, entry.Name())
+	for _, name := range entries {
+		// Readdir with synthetic os.NewFile names can stat relative paths.
+		// Enumerate names only; every classification uses the held descriptor.
+		fd, openErr := syscall.Openat(int(parent.Fd()), name, syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+		if openErr == syscall.ENOTDIR {
+			// Interface files are expected, but disappearing/unexpected/symlink
+			// entries must not be mistaken for an ignorable controller file.
+			leaf, leafErr := syscall.Openat(int(parent.Fd()), name, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+			if leafErr != nil {
+				return nil, errors.New("resource_entry_changed")
+			}
+			var info syscall.Stat_t
+			statErr := syscall.Fstat(leaf, &info)
+			_ = syscall.Close(leaf)
+			if statErr != nil || info.Mode&syscall.S_IFMT != syscall.S_IFREG || info.Uid != 0 || info.Mode&0022 != 0 {
+				return nil, errors.New("resource_entry_changed")
+			}
+			continue
 		}
+		if openErr != nil {
+			return nil, errors.New("resource_entry_changed")
+		}
+		file := os.NewFile(uintptr(fd), "held-resource-entry")
+		_, identityErr := heldResourceIdentity(file)
+		_ = file.Close()
+		if identityErr != nil {
+			return nil, identityErr
+		}
+		names = append(names, name)
 	}
 	sort.Strings(names)
 	return names, nil
@@ -454,4 +536,23 @@ func closeResourceSiblings(siblings []resourceSibling) {
 	for _, sibling := range siblings {
 		_ = sibling.file.Close()
 	}
+}
+
+func resourceHelperHash() (string, error) {
+	file, err := os.Open("/proc/self/exe")
+	if err != nil {
+		return "", errors.New("installed_helper_identity_unavailable")
+	}
+	defer file.Close()
+	var before, after syscall.Stat_t
+	if syscall.Fstat(int(file.Fd()), &before) != nil || before.Uid != 0 || before.Mode&0022 != 0 ||
+		before.Mode&syscall.S_IFMT != syscall.S_IFREG || before.Size <= 0 || before.Size > 32*1024*1024 {
+		return "", errors.New("installed_helper_identity_unavailable")
+	}
+	digest := sha256.New()
+	count, err := io.Copy(digest, io.LimitReader(file, 32*1024*1024+1))
+	if err != nil || count != before.Size || syscall.Fstat(int(file.Fd()), &after) != nil || before != after {
+		return "", errors.New("installed_helper_identity_changed")
+	}
+	return hex.EncodeToString(digest.Sum(nil)), nil
 }
