@@ -3,11 +3,13 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +28,14 @@ type workspaceWriteRequest struct {
 }
 
 func writeWorkspaceFile() error {
+	var output bytes.Buffer
+	if err := writeWorkspaceFileOwned(&output); err != nil {
+		return err
+	}
+	_, err := os.Stdout.Write(output.Bytes())
+	return err
+}
+func writeWorkspaceFileOwned(output io.Writer) (failure error) {
 	if requireToolIdentity() != nil {
 		return errors.New("protected_owner_required")
 	}
@@ -44,14 +54,20 @@ func writeWorkspaceFile() error {
 	if err != nil {
 		return err
 	}
-	defer root.Close()
+	defer func() {
+		if root.Close() != nil {
+			failure = errors.New("workspace_close_unconfirmed")
+		}
+	}()
 	metadata, err := pinMetadata(input.Metadata, root)
 	if err != nil {
 		return err
 	}
 	defer func() {
 		for _, file := range metadata {
-			_ = file.Close()
+			if file.Close() != nil {
+				failure = errors.New("metadata_close_unconfirmed")
+			}
 		}
 	}()
 	parentFD, err := syscall.Dup(int(root.Fd()))
@@ -59,7 +75,11 @@ func writeWorkspaceFile() error {
 		return err
 	}
 	syscall.CloseOnExec(parentFD)
-	defer func() { _ = syscall.Close(parentFD) }()
+	defer func() {
+		if syscall.Close(parentFD) != nil {
+			failure = errors.New("parent_close_unconfirmed")
+		}
+	}()
 	parts := strings.Split(input.Path, "/")
 	if len(parts) > 128 {
 		return errors.New("workspace_path_limit")
@@ -92,7 +112,11 @@ func writeWorkspaceFile() error {
 	mode := uint32(0644)
 	previous, openErr := syscall.Openat(parentFD, name, 0x200000 /* O_PATH */ |syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
 	if openErr == nil {
-		defer syscall.Close(previous)
+		defer func() {
+			if syscall.Close(previous) != nil {
+				failure = errors.New("target_close_unconfirmed")
+			}
+		}()
 		if input.Exclusive || writableWorkspaceEntry(previous, filepath.Join(parentPath, name), input, false) != nil {
 			return errors.New("workspace_target_protected")
 		}
@@ -114,7 +138,11 @@ func writeWorkspaceFile() error {
 		return errors.New("workspace_write_unavailable")
 	}
 	file := os.NewFile(uintptr(fd), "workspace-write")
-	defer file.Close()
+	defer func() {
+		if file.Close() != nil {
+			failure = errors.New("file_close_unconfirmed")
+		}
+	}()
 	defer syscall.Unlinkat(parentFD, temporary)
 	if count, err := file.WriteString(input.Content); err != nil || count != len(input.Content) {
 		return errors.New("workspace_write_unsettled")
@@ -149,7 +177,7 @@ func writeWorkspaceFile() error {
 		return errors.New("workspace_write_identity_unavailable")
 	}
 	sum := sha256.Sum256([]byte(input.Content))
-	return json.NewEncoder(os.Stdout).Encode(struct {
+	return json.NewEncoder(output).Encode(struct {
 		Binding          binding      `json:"binding"`
 		Root             rootIdentity `json:"root"`
 		SandboxBootID    string       `json:"sandboxBootId"`

@@ -1,3 +1,4 @@
+import { NativeCheckoutBootstrapIntentSchema } from "@repo/worker-protocol/private/native-checkout-bootstrap";
 /**
  * HTTP API Schemas
  * Zod validation for all HTTP endpoints
@@ -42,6 +43,7 @@ export const SessionCreateRequestSchema = z
       ),
     workspaceScope: WorkspaceScopeSchema,
     executionDomain: ServerExecutionDomainBindingSchema.optional(),
+    nativeCheckoutIntent: NativeCheckoutBootstrapIntentSchema.optional(),
     metadata: z.record(z.unknown()).optional(),
   })
   .superRefine((value, context) => {
@@ -95,6 +97,7 @@ export type SessionResumeRequest = z.infer<typeof SessionResumeRequestSchema>;
 export const SessionBorrowRequestSchema = z.object({
   executionDomain: ServerExecutionDomainBindingSchema.optional(),
   runId: z.string().min(1),
+  requireNativeBootstrap: z.boolean().optional(),
   workspaceScope: WorkspaceScopeSchema,
   lease: z.object({
     leaseId: z.string().min(1),
@@ -110,6 +113,11 @@ export const SessionBorrowRequestSchema = z.object({
     });
   }
 });
+
+export const SessionNativeBootstrapRequestSchema = z.object({
+  sessionId: z.string().min(1),
+  gitToken: z.string().min(1).max(8192).optional(),
+}).strict();
 
 export type SessionBorrowRequest = z.infer<typeof SessionBorrowRequestSchema>;
 

@@ -1,3 +1,5 @@
+import { NativeCheckoutBootstrapIntentSchema, NativeCheckoutBootstrapReceiptSchema, freezeBootstrap,
+  type NativeCheckoutBootstrapIntent, type NativeCheckoutBootstrapReceipt, type NativeCheckoutReadyEvidence } from "@repo/worker-protocol/private/native-checkout-bootstrap";
 import path from "node:path";
 import type { ArtifactStorePort } from "../ports/ArtifactStorePort";
 import type { SandboxExecutionLease } from "../ports/SandboxExecutionLease";
@@ -28,7 +30,16 @@ export interface NativeCommandIntent {
   writeReceipt?: NativeWorkspaceWriteReceipt;
   writeIntent?: { path: string; bytes: number; sha256: string };
 }
+export interface NativeCheckoutState {
+  intent: NativeCheckoutBootstrapIntent;
+  phase: "reserved" | "dispatching" | "materialized" | "unknown";
+  receipt?: NativeCheckoutBootstrapReceipt;
+  artifact?: { id: string; sha256: string; size: number };
+  runtime?: NativeCheckoutReadyEvidence["runtime"];
+  rawStarted?: true;
+}
 export interface NativeSessionFields {
+  nativeCheckout?: NativeCheckoutState;
   nativeWorkspace?: NativeWorkspaceState;
   nativeCommand?: NativeCommandIntent;
 }
@@ -36,6 +47,13 @@ interface Session extends NativeSessionFields, ExecutionDomainSessionFields {
   lease: SandboxExecutionLease;
   workspaceScope: SandboxExecutionLease["workspaceScope"];
   cleanupInProgress?: boolean;
+  expiresAt?: number;
+}
+/** Trusted bootstrap transport/FD settlement is not untrusted containment closure. */
+export interface NativeBootstrapTransportSettlement {
+  readonly kind: "bootstrap_transport";
+  readonly receipt: NativeCheckoutBootstrapReceipt;
+  readonly artifact: Readonly<{ id: string; sha256: string; size: number }>;
 }
 const prefix = "execution:session:";
 
@@ -44,6 +62,7 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
   private original: Promise<unknown> | undefined;
   private readonly operations = new Set<Promise<unknown>>();
   private stopped = false;
+  private settledBootstrap?: NativeBootstrapTransportSettlement;
   // Evidence belongs to this retained original task, never to whichever task
   // later occupies the session's current command slot. Keep its immutable R2
   // reference alongside the exact physical receipt until this owner releases.
@@ -56,6 +75,60 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
     state: DurableObjectState; sessionId: string; lease: SandboxExecutionLease; taskId: string;
     sandbox: OwnedNativeSandboxPort; artifacts: ArtifactStorePort;
   }) {}
+
+  /** One-shot materialization of the plan admitted by the original session API.
+   * The Git credential owner supplies only its private canonical Git environment. */
+  materializeCheckout(authEnvironment?: Readonly<Record<string, string>>) {
+    return this.track(async () => {
+      const session = await this.read();
+      const checkout = session.nativeCheckout;
+      const materialize = this.input.sandbox.materializeNativeCheckout;
+      if (!checkout || checkout.phase !== "reserved" || !materialize) throw unavailable();
+      const intent = freezeBootstrap(NativeCheckoutBootstrapIntentSchema.parse(checkout.intent));
+      if (intent.root !== this.input.lease.workspaceScope.root) throw unavailable();
+      const command = this.intent("workspace_prepare");
+      await this.reserve(command);
+      await this.update(command.binding.nonce, current => {
+        if (current.nativeCheckout?.phase !== "reserved" || JSON.stringify(current.nativeCheckout.intent) !== JSON.stringify(intent)) throw unavailable();
+        return { ...current, nativeCheckout: { intent, phase: "dispatching" } };
+      });
+      try {
+        if (this.stopped || (await this.read()).nativeCommand?.stopRequested) throw unavailable();
+        const original = materialize.call(this.input.sandbox, { binding: command.binding, intent, authEnvironment, physicalOwnerId: this.input.state.id.toString() });
+        this.original = original;
+        const completed = await original;
+        if (this.stopped || (await this.read()).nativeCommand?.stopRequested) throw unavailable();
+        const receipt = freezeBootstrap(NativeCheckoutBootstrapReceiptSchema.parse(completed.receipt));
+        const workspace = NativeWorkspaceStateSchema.parse(completed.workspace);
+        if (!sameNativeBinding(receipt.observation.binding, command.binding) || JSON.stringify(receipt.intent) !== JSON.stringify(intent) ||
+          workspace.root.device !== receipt.observation.root.device || workspace.root.inode !== receipt.observation.root.inode ||
+          workspace.sandboxBootId !== receipt.observation.sandboxBootId || workspace.metadata.identity !== receipt.metadataIdentity) throw unavailable();
+        const bytes = new TextEncoder().encode(JSON.stringify(receipt)), sha256 = await digest(bytes);
+        const uploaded = await this.input.artifacts.upload({ sessionId: this.input.sessionId, contentType: "application/json", data: bytes });
+        const stored = await this.input.artifacts.download(uploaded.id, this.input.sessionId);
+        if (!stored || stored.byteLength !== bytes.byteLength || await digest(stored) !== sha256) throw unavailable();
+        const artifact = { id: uploaded.id, sha256, size: bytes.byteLength };
+        await this.update(command.binding.nonce, current => {
+          // Recheck after artifact I/O, inside the same serialized write that
+          // publishes materialization. Never overwrite a concurrent Stop fence.
+          if (this.stopped || current.cleanupInProgress || current.nativeCommand?.stopRequested ||
+            current.nativeCommand?.phase !== "dispatching" || current.nativeCheckout?.phase !== "dispatching" ||
+            JSON.stringify(current.nativeCheckout.intent) !== JSON.stringify(intent) ||
+            current.expiresAt === undefined || current.expiresAt <= Date.now() || current.lease.expiresAt <= Date.now()) throw unavailable();
+          return { ...current, nativeWorkspace: workspace,
+            nativeCheckout: { ...current.nativeCheckout, phase: "materialized", receipt, artifact },
+            nativeCommand: { ...current.nativeCommand, phase: "settled", originalTransportSettled: true } };
+        });
+        this.settledBootstrap = freezeBootstrap({ kind: "bootstrap_transport", receipt, artifact });
+        this.original = undefined;
+        return receipt;
+      } catch {
+        await this.update(command.binding.nonce, current => ({ ...current,
+          nativeCheckout: { ...current.nativeCheckout, intent, phase: "unknown" }, nativeCommand: { ...current.nativeCommand!, phase: "unknown" } }));
+        throw unavailable();
+      }
+    });
+  }
 
   prepareWorkspace(metadataPaths: GitRepositoryMetadataPaths): Promise<NativeRootIdentity> {
     return this.track(() => this.prepareOwnedWorkspace(metadataPaths));
@@ -229,10 +302,19 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
     if (!intent || intent.phase === "settled") return true;
     if (intent.binding.taskId !== this.input.taskId) return false;
     await this.patch(intent.binding.nonce, { stopRequested: true });
+    if (session.nativeCheckout?.phase === "dispatching" || session.nativeCheckout?.phase === "unknown") {
+      if (!this.input.sandbox.sealNativeBootstrap) return false;
+      try { await this.input.sandbox.sealNativeBootstrap(intent.binding); } catch { return false; }
+    }
     if (intent.kind === "command") {
       try { await this.control(intent, "stop"); } catch { return false; }
     }
     return await this.awaitClosure();
+  }
+
+  bootstrapTransportSettlement(): NativeBootstrapTransportSettlement | undefined {
+    if (this.stopped && !this.original && this.operations.size === 0) return this.settledBootstrap;
+    return undefined;
   }
 
   async awaitClosure(): Promise<boolean> {
@@ -260,6 +342,7 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
   private track<T>(operation: () => Promise<T>): Promise<T> {
     if (this.stopped || this.original || this.operations.size > 0) return Promise.reject(unavailable());
     this.settledOriginal = undefined;
+    this.settledBootstrap = undefined;
     const original = Promise.resolve().then(operation);
     this.operations.add(original);
     const settled = () => { this.operations.delete(original); };
@@ -309,6 +392,7 @@ export function hasUnsettledNativeCommand(session: NativeSessionFields & { lease
   try { return unsettledNativeCommand(session); } catch { return true; }
 }
 function unsettledNativeCommand(session: NativeSessionFields & { lease?: SandboxExecutionLease }): boolean {
+  if (session.nativeCheckout && ["dispatching", "unknown"].includes(session.nativeCheckout.phase)) return true;
   const intent = session.nativeCommand;
   if (!intent) return false;
   if (intent.phase !== "settled" || intent.originalTransportSettled !== true || !session.nativeWorkspace ||

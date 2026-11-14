@@ -1,3 +1,5 @@
+import { NativeCheckoutBootstrapIntentSchema, NativeCheckoutBootstrapReceiptSchema, parseNativeCheckoutReadyEvidence,
+  type NativeCheckoutBootstrapIntent } from "@repo/worker-protocol/private/native-checkout-bootstrap";
 import {
   LeaseIdSchema,
   TaskCheckoutIdSchema,
@@ -72,6 +74,8 @@ export interface SecureExecutionSessionPort {
   cancelTaskWithNativeClosure?(taskId: string): Promise<{ cancelled: boolean; nativeCommandClosure: NativeCommandClosure | null }>;
   parseNativeClosure?(value: unknown, taskId: string): Promise<NativeCommandClosure | null>;
   release(): Promise<void>;
+  bootstrapNativeCheckout?(gitToken?: string): Promise<void>;
+  verifyNativeCheckoutReady?(intent: NativeCheckoutBootstrapIntent): Promise<void>;
 }
 
 export interface PersistedSecureExecutionSessionReference {
@@ -101,7 +105,9 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
     private readonly workspaceScope: SecureExecutionWorkspaceScope,
     persistedReference?: PersistedSecureExecutionSessionReference,
     executionDomain?: ServerExecutionDomainBinding,
+    private readonly nativeCheckoutIntent?: NativeCheckoutBootstrapIntent,
   ) {
+    this.nativeCheckoutIntent = nativeCheckoutIntent ? Object.freeze(NativeCheckoutBootstrapIntentSchema.parse(nativeCheckoutIntent)) : undefined;
     this.reference = persistedReference ? Object.freeze({ ...persistedReference }) : undefined;
     this.workspaceScope = Object.freeze({ ...workspaceScope });
     this.executionDomain = executionDomain ? snapshotExecutionDomain(executionDomain) : undefined;
@@ -142,7 +148,7 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
     return handle;
   }
 
-  private async readOriginal(): Promise<SecureExecutionSessionHandle> {
+  private async readOriginal(requireNativeBootstrap = false): Promise<SecureExecutionSessionHandle & { nativeCheckoutReady?: unknown }> {
     const reference = this.reference;
     if (!reference) {
       throw new Error("Git borrowing requires the persisted checkout lease identity");
@@ -158,6 +164,7 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
         },
         body: JSON.stringify({
           runId: this.runId,
+          ...(requireNativeBootstrap ? { requireNativeBootstrap: true } : {}),
           workspaceScope: this.workspaceScope,
           ...(this.executionDomain ? { executionDomain: this.executionDomain } : {}),
           lease: {
@@ -172,9 +179,10 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
     if (!response.ok) {
       throw new Error("The original secure checkout session is unavailable for Git borrowing");
     }
-    const handle = SecureExecutionSessionResponseSchema.parse(
-      await parseJsonResponse(response),
-    );
+    const body = await parseJsonResponse(response);
+    const handle = SecureExecutionSessionResponseSchema.parse(body);
+    const nativeCheckoutReady = requireNativeBootstrap && body && typeof body === "object" && "nativeCheckoutReady" in body
+      ? body.nativeCheckoutReady : undefined;
     await this.validateDomainHandle(handle);
     const exactLease = handle.sessionId === reference.secureSessionId &&
       handle.lease.leaseId === reference.leaseId &&
@@ -184,7 +192,7 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
     if (!exactLease || typeof leaseExpiry !== "number" || leaseExpiry <= Date.now()) {
       throw new Error("The original secure checkout lease is unavailable for Git borrowing");
     }
-    return handle;
+    return { ...handle, ...(requireNativeBootstrap ? { nativeCheckoutReady } : {}) };
   }
 
   async recoverAfterSandboxLoss(): Promise<SecureExecutionSessionHandle> {
@@ -269,6 +277,43 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
     });
   }
 
+  async bootstrapNativeCheckout(gitToken?: string): Promise<void> {
+    const pending = this.sessionPromise;
+    if (!pending || !this.nativeCheckoutIntent || this.executionDomain?.domain !== "legioncode_native") throw new Error("NATIVE_BOOTSTRAP_SCOPE_REQUIRED");
+    const session = await pending;
+    await this.validateDomainHandle(session);
+    // No observer retry and no recursive acquire: the issuance owner already
+    // awaited this original handle before entering its Git credential owner.
+    const response = await this.env.SECURE_API.fetch(
+      `http://internal/api/v1/session/native-bootstrap?session=${encodeURIComponent(this.brainSessionId)}`, {
+        method: "POST", headers: { Authorization: `Bearer ${session.token}`, "Content-Type": "application/json",
+          "X-Internal-Runtime-Secret": this.requireInternalSecret() },
+        body: JSON.stringify({ sessionId: session.sessionId, ...(gitToken ? { gitToken } : {}) }),
+      });
+    const text = await response.text(); // Retain the original body through EOF even on failure.
+    if (!response.ok) throw new Error("NATIVE_BOOTSTRAP_ORIGINAL_UNKNOWN");
+    const body = JSON.parse(text) as { receipt?: unknown };
+    const receipt = NativeCheckoutBootstrapReceiptSchema.parse(body.receipt);
+    const binding = receipt.observation.binding;
+    if (JSON.stringify(receipt.intent) !== JSON.stringify(this.nativeCheckoutIntent) || binding.sessionId !== session.sessionId ||
+      binding.leaseId !== session.lease.leaseId || binding.sandboxId !== session.lease.sandboxId || binding.generation !== session.lease.generation ||
+      binding.executionDomainDigest !== await executionDomainDigest(this.executionDomain)) throw new Error("NATIVE_BOOTSTRAP_RECEIPT_MISMATCH");
+  }
+
+  async verifyNativeCheckoutReady(intent: NativeCheckoutBootstrapIntent): Promise<void> {
+    if (this.executionDomain?.domain !== "legioncode_native") throw new Error("NATIVE_BOOTSTRAP_SCOPE_REQUIRED");
+    // Fresh read; the original borrowed handle cache is not a readiness cache.
+    const original = await this.readOriginal(true);
+    const evidence = parseNativeCheckoutReadyEvidence(original.nativeCheckoutReady);
+    const binding = evidence.bootstrap.observation.binding;
+    if (JSON.stringify(evidence.bootstrap.intent) !== JSON.stringify(NativeCheckoutBootstrapIntentSchema.parse(intent)) ||
+      binding.sessionId !== original.sessionId || binding.leaseId !== original.lease.leaseId || binding.sandboxId !== original.lease.sandboxId ||
+      binding.generation !== original.lease.generation || binding.executionDomainDigest !== await executionDomainDigest(this.executionDomain) ||
+      binding.workspaceId !== this.workspaceScope.workspaceId || binding.runId !== this.runId || binding.threadId !== this.workspaceScope.threadId ||
+      binding.turnId !== this.workspaceScope.turnId || binding.runAttemptId !== this.workspaceScope.runAttemptId)
+      throw new Error("NATIVE_BOOTSTRAP_PROVENANCE_MISMATCH");
+  }
+
   private async validateDomainHandle(session: SecureExecutionSessionHandle): Promise<void> {
     const expected = this.executionDomain ? await executionDomainDigest(this.executionDomain) : undefined;
     if (session.lease.executionDomainDigest !== expected ||
@@ -303,6 +348,7 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
             repoPath: EXECUTION_SESSION_REPO_PATH,
             workspaceScope: this.workspaceScope,
             ...(this.executionDomain ? { executionDomain: this.executionDomain } : {}),
+            ...(this.nativeCheckoutIntent ? { nativeCheckoutIntent: this.nativeCheckoutIntent } : {}),
           }),
         },
         DEFAULT_EXECUTION_TIMEOUT_MS,

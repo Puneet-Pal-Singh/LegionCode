@@ -1,3 +1,4 @@
+import type { NativeCheckoutBootstrapIntent, NativeCheckoutBootstrapReceipt } from "@repo/worker-protocol/private/native-checkout-bootstrap";
 import { z } from "zod";
 import { NativePhysicalIdentitySchema, NativePhysicalIntegerSchema, type NativeCommandClosure } from "@repo/shared-types/native-command-closure";
 import type { ToolboxCommandResult } from "./ToolboxSession";
@@ -95,6 +96,9 @@ export interface NativeCommandOriginal {
   exitCode: number;
 }
 export interface OwnedNativeSandboxPort {
+  sealNativeBootstrap?(binding: NativeCommandBinding): Promise<void>;
+  materializeNativeCheckout?(input: { physicalOwnerId: string; binding: NativeCommandBinding; intent: NativeCheckoutBootstrapIntent;
+    authEnvironment?: Readonly<Record<string, string>> }): Promise<{ receipt: NativeCheckoutBootstrapReceipt; workspace: NativeWorkspaceState }>;
   executeNativeCommand(request: NativeCommandRequest): Promise<NativeCommandOriginal>;
   controlNativeCommand(request: {
     binding: NativeCommandBinding; controlToken: string;

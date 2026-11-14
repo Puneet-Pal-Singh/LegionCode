@@ -1318,6 +1318,11 @@ export class GitPlugin implements IPlugin {
     return { success: true, output: result.output };
   }
 
+  /** Only the private original-session bootstrap uses this existing auth owner. */
+  nativeBootstrapAuthEnvironment(token: string | undefined): Record<string, string> | undefined {
+    return this.buildGitAuthEnvironment(token);
+  }
+
   private buildGitAuthEnvironment(
     token: string | undefined,
   ): Record<string, string> | undefined {

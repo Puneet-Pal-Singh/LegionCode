@@ -1,3 +1,5 @@
+import { NativeCheckoutBootstrapIntentSchema, type NativeCheckoutBootstrapIntent } from "@repo/worker-protocol/private/native-checkout-bootstrap";
+import { SessionNativeBootstrapRequestSchema } from "../schemas/http-api";
 /**
  * Session API Handlers
  * HTTP endpoints for the canonical Brain-to-secure-runtime boundary.
@@ -42,6 +44,7 @@ const EXECUTION_NOT_IMPLEMENTED_CODE = "EXECUTION_NOT_IMPLEMENTED";
 
 interface SessionRecord {
   executionDomain?: ServerExecutionDomainBinding;
+  nativeCheckoutIntent?: NativeCheckoutBootstrapIntent;
   runId: string;
   taskId: string;
   repoPath: string;
@@ -187,6 +190,7 @@ async function storeSession(
   token: string,
   workspaceScope: WorkspaceScope,
   executionDomain?: ServerExecutionDomainBinding,
+  nativeCheckoutIntent?: NativeCheckoutBootstrapIntent,
 ): Promise<{ expiresAt: number; lease: SandboxExecutionLease }> {
   const domain = executionDomain ? snapshotExecutionDomain(executionDomain) : undefined;
   const sessionStore = getRuntimeSessionStore(runtime);
@@ -213,6 +217,7 @@ async function storeSession(
     workspaceScope,
     lease,
     ...(domain ? { executionDomain: domain } : {}),
+    ...(nativeCheckoutIntent ? { nativeCheckoutIntent } : {}),
   });
   return { expiresAt, lease };
 }
@@ -549,6 +554,7 @@ export async function handleCreateSession(
       token,
       workspaceScope,
       domain,
+      validation.data.nativeCheckoutIntent ? NativeCheckoutBootstrapIntentSchema.parse(validation.data.nativeCheckoutIntent) : undefined,
     );
     const manifest = await fetchManifest(runtime);
 
@@ -612,7 +618,16 @@ export async function handleBorrowSession(
         503,
       );
     }
+    let nativeCheckoutReady: unknown;
+    if (validation.data.requireNativeBootstrap) {
+      const inspect = runtime.getNativeCheckoutReadyEvidence;
+      if (domain?.domain !== "legioncode_native" || typeof inspect !== "function")
+        return errorResponse("Original Native bootstrap evidence unavailable", "NATIVE_BOOTSTRAP_PROVENANCE_REQUIRED", 409);
+      try { nativeCheckoutReady = await inspect.call(runtime, sessionId, session.lease); }
+      catch { return errorResponse("Original Native platform evidence unavailable", "NATIVE_BOOTSTRAP_PROVENANCE_REQUIRED", 409); }
+    }
     return jsonResponse({
+      ...(nativeCheckoutReady ? { nativeCheckoutReady } : {}),
       sessionId,
       token: session.token,
       expiresAt: session.expiresAt,
@@ -639,6 +654,21 @@ function isExactBorrowableSession(
     lease.generation === expected.lease.generation &&
     workspaceScopesEqual(session.workspaceScope, expected.workspaceScope) &&
     workspaceScopesEqual(lease.workspaceScope, expected.workspaceScope);
+}
+
+/** Internal service and exact session bearer are both required by this setup
+ * command. It never accepts provider credentials, environment or proof bytes. */
+export async function handleNativeCheckoutBootstrap(request: Request, runtime: RuntimeStub): Promise<Response> {
+  const validation = await validateRequestBody(request, SessionNativeBootstrapRequestSchema);
+  if (!validation.valid) return errorResponse("Invalid Native bootstrap request", "INVALID_REQUEST", 400);
+  const auth = await authorizeSessionRequest(request, runtime, validation.data.sessionId);
+  if (!auth.ok) return auth.response;
+  if ((await validExecutionDomain(auth.session))?.domain !== "legioncode_native" || typeof runtime.bootstrapNativeCheckout !== "function")
+    return errorResponse("Native bootstrap unavailable", "NATIVE_BOOTSTRAP_UNAVAILABLE", 409);
+  try {
+    const receipt = await runtime.bootstrapNativeCheckout.call(runtime, validation.data.sessionId, auth.session.lease, validation.data.gitToken);
+    return jsonResponse({ receipt }, 200);
+  } catch { return errorResponse("Original Native bootstrap requires reconciliation", "NATIVE_BOOTSTRAP_ORIGINAL_UNKNOWN", 409); }
 }
 
 /**

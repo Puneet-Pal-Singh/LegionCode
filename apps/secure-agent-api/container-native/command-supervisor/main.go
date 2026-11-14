@@ -210,6 +210,14 @@ func validateRequest(value request) error {
 }
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--bootstrap-workspace-root" {
+		if bootstrapWorkspaceRoot() != nil {
+			_, _ = io.WriteString(os.Stderr, "native_bootstrap_root_unavailable\n")
+			os.Exit(70)
+		}
+		return
+	}
+
 	if len(os.Args) == 2 && (os.Args[1] == "--prepare-qualification-fixture" || os.Args[1] == "--observe-qualification-fixture" || os.Args[1] == "--qualify-namespace") {
 		if qualificationOperation(os.Args[1]) != nil {
 			_, _ = io.WriteString(os.Stderr, "native_namespace_qualification_unavailable\n")
