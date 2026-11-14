@@ -555,8 +555,39 @@ async function privateControl(config, action, operationId, inventory) {
   }
 }
 
+/** Compile and verify the exact candidate before credentials or provider
+ * resources are involved. This deliberately has no target, bindings, image,
+ * variables or deployment operation and grants no runtime authority. */
+async function buildSource() {
+  const platform = readJsonc(resolve(app, "wrangler.dev.jsonc"));
+  const config = {
+    compatibility_date: platform.compatibility_date,
+    compatibility_flags: platform.compatibility_flags,
+    workers_dev: false,
+    preview_urls: false,
+    observability: { enabled: false },
+  };
+  const identity = cliIdentity();
+  const snapshot = configSnapshot(config);
+  try {
+    const source = await buildPinned(config, snapshot.path, identity, () => {});
+    verifySource(source, identity);
+    const receipt = resolve(source.directory, "..");
+    const path = resolve(receipt, `${basename(source.directory)}.source.json`);
+    const fd = openSync(path, constants.O_NOFOLLOW | constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
+    try { writeFileSync(fd, JSON.stringify(source)); fsyncSync(fd); } finally { closeSync(fd); }
+    const parent = openSync(receipt, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    try { fsyncSync(parent); } finally { closeSync(parent); }
+    console.log(JSON.stringify({ phase: "source-built", sourceReceipt: path, sourceSha256: hash(JSON.stringify(canonical(source))), inputCount: source.graph.length, runtimeQualified: false }));
+  } finally { snapshot.close(); }
+}
+
 async function main() {
   const [action, configArgument, operationId, ...extra] = process.argv.slice(2);
+  if (action === "build-source") {
+    if (configArgument !== undefined || operationId !== undefined || extra.length) throw unavailable("ARGUMENTS_INVALID");
+    return await buildSource();
+  }
   const inspection = action === "inspect" || action === "inspect-sealed";
   if (extra.length || !["inspect", "inspect-sealed", "deploy-sealed", "activate", "reserve", "provision", "status", "retire"].includes(action) || (!inspection && !uuid.test(operationId)) || (inspection && operationId !== undefined)) throw unavailable("ARGUMENTS_INVALID");
   const configPath = resolve(configArgument ?? qualificationConfigPath);
