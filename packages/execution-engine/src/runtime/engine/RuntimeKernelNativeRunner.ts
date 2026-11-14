@@ -396,11 +396,16 @@ export class RuntimeKernelNativeRunner {
         protocol.manifest && !planMode ? this.gitSnapshots ?? createUnavailableSnapshotPort(protocol.manifest) : undefined,
       turnArtifacts: planMode ? undefined : createTurnArtifactPort(),
       ...(planMode ? { artifactCapture: "omitted_read_only" as const } : {}),
-      contextAssembly: createNativeContextAssembly(
+      contextAssembly: agenticProvider ? createNativeContextAssembly(
         input.input,
-        agenticProvider ? agenticProvider.readContextMessages.bind(agenticProvider) : async () => input.messages,
+        agenticProvider.readContextMessages.bind(agenticProvider),
         runtimeTools,
-      ),
+      ) : {
+        // The structured planner owns its real request and gateway preflight.
+        // It does not consume conversation history, so an agentic transcript
+        // budget/automatic-compaction threshold would misrepresent that request.
+        assemble: async () => ({ instructions: input.input.prompt, metadata: { phase: "planning" } }),
+      },
       contextCompaction: agenticProvider ? createNativeContextCompaction(
         input.input,
         agenticProvider.readContextMessages.bind(agenticProvider),

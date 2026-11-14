@@ -1773,6 +1773,32 @@ describe("RunEngine", () => {
     };
     await expect(mismatched.execute()).rejects.toThrow("completion evidence");
     expect((await new RunRepository(mismatched.state).getById(mismatched.runId))?.status).toBe("PLANNING");
+
+    const planningGateway = createPlanningLLMGateway();
+    const structured = vi.fn(planningGateway.generateStructured);
+    const agenticText = vi.fn(planningGateway.generateText);
+    const longHistory = createNativePlanFixture("longhistory", {
+      llmGateway: { ...planningGateway, generateStructured: structured, generateText: agenticText },
+    });
+    const currentPrompt = "Outline a README update";
+    const longResponse = await longHistory.execute({
+      input: { agentType: "coding", mode: "plan", prompt: currentPrompt,
+        metadata: { contextWindowTokens: 4_096 } },
+      messages: [{ role: "assistant", content: "old-conversation-content ".repeat(10_000) },
+        { role: "user", content: currentPrompt }],
+    });
+    expect(await longResponse.text()).toContain("Plan mode prepared a safe execution outline");
+    expect(structured).toHaveBeenCalledTimes(1);
+    expect(agenticText).not.toHaveBeenCalled();
+    const structuredRequest = structured.mock.calls[0]![0];
+    expect(structuredRequest.context.phase).toBe("planning");
+    expect(JSON.stringify(structuredRequest.messages)).toContain(currentPrompt);
+    expect(JSON.stringify(structuredRequest.messages)).not.toContain("old-conversation-content");
+    const longReplay = await longHistory.events.replay({ turnId: longHistory.turnId, afterSequence: 0, limit: 100 });
+    expect(longReplay.events.at(-1)?.type).toBe("turn.completed");
+    expect(longReplay.events.filter((event) => event.type.startsWith("context_compaction.") ||
+      event.type === "context_budget.updated")).toEqual([]);
+    expect(longReplay.events.filter((event) => event.type === "turn.completed")).toHaveLength(1);
   });
 
   it("skips build-only approval and bootstrap gates in explicit plan mode", async () => {
