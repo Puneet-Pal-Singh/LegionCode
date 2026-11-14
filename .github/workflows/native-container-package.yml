@@ -192,6 +192,8 @@ jobs:
             native-container-package/legioncode-command-supervisor
             native-container-package/source-receipt.json
             native-container-package/docker-inspect.json
+            native-container-package/checked-docker-config.json
+            native-container-package/expected-oci-config.json
             native-container-package/sbom.spdx.json
             native-container-package/SHA256SUMS
           if-no-files-found: error
