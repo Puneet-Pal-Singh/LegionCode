@@ -1,6 +1,7 @@
 #ifndef LEGIONCODE_HOST_PRINCIPAL_H
 #define LEGIONCODE_HOST_PRINCIPAL_H
 #include "legioncode-host-approval.h"
+#include "legioncode-child-intent.h"
 #include <grp.h>
 #include <sys/resource.h>
 #include <stddef.h>
@@ -183,8 +184,39 @@ typedef struct {
   uint32_t magic, uid, gid;
   lc_host_file_identity root, fence;
   char cwd[512], command[501], work[PATH_MAX], path[8192];
+  lc_host_writer_binding binding;
+  char boot[40];
+  uint64_t child_pid, child_uniqueid, uid_slot_generation;
+  unsigned char command_id[32], command_sha256[32], release_nonce[32];
 } lc_host_bootstrap;
-#define LC_HOST_BOOTSTRAP_MAGIC 0x4c434831U
+#define LC_HOST_BOOTSTRAP_MAGIC 0x4c434832U
+
+/* The private root-owned pipe is the authority channel. This exact commitment
+ * binds an explicit grant to the original protected resource and child lifetime;
+ * EOF itself is never permission. Native struct padding is zeroed by its owner. */
+static inline void lc_host_bootstrap_token(const lc_host_bootstrap *input, unsigned char out[32]) {
+  static const char domain[] = "LegionCode/native-host/bootstrap-release/v2";
+  CC_SHA256_CTX hash; CC_SHA256_Init(&hash); CC_SHA256_Update(&hash, domain, sizeof(domain));
+  CC_SHA256_Update(&hash, input, sizeof(*input)); CC_SHA256_Final(out, &hash);
+}
+static inline bool lc_host_bootstrap_identity(const lc_host_bootstrap *input) {
+  struct lc_proc_bsd_unique self; unsigned char boot[40], digest[32];
+  CC_SHA256_CTX hash; CC_SHA256_Init(&hash);
+  CC_SHA256_Update(&hash, input->command, (CC_LONG)strlen(input->command) + 1);
+  CC_SHA256_Update(&hash, input->cwd, (CC_LONG)strlen(input->cwd) + 1);
+  CC_SHA256_Final(digest, &hash);
+  return input->child_pid == (uint64_t)getpid() && input->child_uniqueid && input->uid_slot_generation &&
+    lc_boot(boot) && !memcmp(boot, input->boot, sizeof(boot)) &&
+    lc_identity(getpid(), &self) && self.unique.uniqueid == input->child_uniqueid &&
+    self.bsd.pbi_uid == 0 && self.bsd.pbi_ruid == 0 &&
+    input->binding.abi == LC_HOST_ABI && !input->binding.reserved &&
+    input->binding.execution_uid == input->uid && input->binding.actor_uid >= 501 &&
+    input->binding.actor_uid != input->uid && lc_host_same(input->binding.root, input->root) &&
+    lc_host_same(input->binding.fence, input->fence) &&
+    lc_host_nonzero(input->binding.resource_id, 32) && lc_host_nonzero(input->binding.broker_resource_generation, 32) &&
+    lc_host_nonzero(input->release_nonce, 32) && lc_host_nonzero(input->command_id, 32) &&
+    !memcmp(digest, input->command_sha256, 32);
+}
 
 static inline bool lc_host_enter_cwd(int root, const char *relative) {
   if (!strcmp(relative, ".")) return fchdir(root) == 0;
@@ -212,9 +244,12 @@ static inline int lc_host_bootstrap_target(void) {
       !memchr(input.work, 0, sizeof(input.work)) || !memchr(input.path, 0, sizeof(input.path)) ||
       !lc_host_identity(5, true, &root) || !lc_host_identity(6, false, &fence) ||
       !lc_host_same(root, input.root) || !lc_host_same(fence, input.fence) || !lc_host_enter_cwd(5, input.cwd)) return 126;
-  unsigned char extra; ssize_t gate;
+  unsigned char granted[32], expected[32], extra; ssize_t gate;
+  lc_host_bootstrap_token(&input, expected);
+  if (!lc_host_bootstrap_identity(&input) || !lc_host_io(8, granted, sizeof(granted), false) ||
+      memcmp(granted, expected, sizeof(expected))) return 126;
   do { gate = read(8, &extra, 1); } while (gate < 0 && errno == EINTR);
-  if (gate != 0) return 126;
+  if (gate != 0 || !lc_host_bootstrap_identity(&input)) return 126;
   long maximum = sysconf(_SC_OPEN_MAX);
   if (maximum < 9 || maximum > INT_MAX) return 126;
   struct rlimit processes = { 128, 128 }, files = { 1024, 1024 }, core = { 0, 0 };

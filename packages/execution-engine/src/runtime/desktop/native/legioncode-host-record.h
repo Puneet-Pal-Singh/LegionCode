@@ -15,6 +15,9 @@ typedef struct {
   uint32_t retirement_requested, retirement_confirmed;
   unsigned char retirement_nonce[32], retirement_receipt[32];
   lc_host_metadata metadata;
+  uint32_t bootstrap_release_prepared, bootstrap_reserved;
+  uint64_t bootstrap_pid, bootstrap_uniqueid;
+  unsigned char bootstrap_command_id[32], bootstrap_command_sha256[32], bootstrap_release_nonce[32];
   unsigned char setup_nonce[32], setup_manifest_sha256[32];
   uint32_t setup_metadata_started, setup_metadata_inspected;
   char root_path[PATH_MAX], namespace_path[PATH_MAX], work_path[PATH_MAX];
@@ -69,7 +72,14 @@ static inline bool lc_host_record_read(int state, const char *name, lc_host_scop
         (record->command_count || (record->phase == LC_HOST_CLOSED ?
           !record->cleanup_closed || record->setup_metadata_started :
           (record->phase != LC_HOST_IDLE && record->phase != LC_HOST_UNKNOWN && record->phase != LC_HOST_CLOSING) || record->cleanup_closed))) ||
-      !record->uid_slot_generation || record->retirement_requested > 1 || record->retirement_confirmed > 1 ||
+      !record->uid_slot_generation || record->command_count > 256 || record->bootstrap_release_prepared > 1 || record->bootstrap_reserved ||
+      (record->bootstrap_release_prepared ?
+        !record->bootstrap_pid || record->bootstrap_pid > INT_MAX || !record->bootstrap_uniqueid || !record->command_count ||
+        !lc_host_nonzero(record->bootstrap_release_nonce, 32) || !lc_host_nonzero(record->bootstrap_command_sha256, 32) ||
+        memcmp(record->bootstrap_command_id, record->command_ids[record->command_count - 1], 32) :
+        record->bootstrap_pid || record->bootstrap_uniqueid || lc_host_nonzero(record->bootstrap_command_id, 32) ||
+        lc_host_nonzero(record->bootstrap_command_sha256, 32) || lc_host_nonzero(record->bootstrap_release_nonce, 32)) ||
+      record->retirement_requested > 1 || record->retirement_confirmed > 1 ||
       (record->retirement_requested ? !record->cleanup_closed || !lc_host_nonzero(record->retirement_nonce, 32) :
         lc_host_nonzero(record->retirement_nonce, 32) || record->retirement_confirmed) ||
       (record->retirement_confirmed ? !lc_host_nonzero(record->retirement_receipt, 32) : lc_host_nonzero(record->retirement_receipt, 32)) ||
