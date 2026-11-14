@@ -3,6 +3,8 @@ import { ArtifactMetadataSchema, JsonRecordSchema, LeaseIdSchema, TurnWorkspaceS
   type EventId, type HarnessSelection, type LeaseId, type LifecycleEvent, type TurnId } from "@repo/platform-protocol";
 import type { TurnAdmission } from "@repo/platform-protocol/conversation";
 import type { LocalPersistence } from "@repo/event-store/local";
+import type { LocalPhysicalAdmissionCandidate, LocalPhysicalAdmissionPublication } from "../local-physical-admission-candidates.js";
+import { localAdmissionBackend } from "./LocalHarnessRestart.js";
 import type { LocalWorkspaceService } from "../local-workspace.js";
 
 /** The exclusive SQLite writer admits local work. Its canonical admission is the
@@ -17,33 +19,34 @@ export class LocalWorkspaceLease {
     const key = `${admission.run.workspaceId}:${admission.runAttemptId}`;
     return LeaseIdSchema.parse(`lease_${createHash("sha256").update(key).digest("hex").slice(0, 32)}`);
   }
-  /** The callback is synchronous and runs only after lease preflight, directly
-   * before the canonical writer can publish. Exceptions after that boundary do
-   * not prove rollback; the caller retains its candidate until reconciled.
-   */
-  admit(candidate: TurnAdmission, beforePublish: () => undefined): ReturnType<LocalPersistence["turnAdmissions"]["admit"]> {
+  /** Logical preflight consumes the already-held physical candidate. Admission
+   * and the original preparation identity are published by ONE SQLite transaction. */
+  admit(candidate: TurnAdmission, physical: LocalPhysicalAdmissionCandidate): Promise<LocalPhysicalAdmissionPublication> {
     const operation = this.queue.then(async () => {
+      await physical.ready();
       await this.workspace.requireExecutionGrant(candidate.run.workspaceId);
       const priorRequest = await this.persistence.turnAdmissions.findByRequest(candidate.run.threadId, candidate.clientRequestId);
-      if (priorRequest) {
-        beforePublish();
-        return this.persistence.turnAdmissions.admit(candidate);
-      }
-      const events = await this.persistence.events.listAll();
-      const turns = events.filter((event) => event.type === "turn.started" && event.workspaceId === candidate.run.workspaceId);
-      for (const event of turns) {
-        if (event.type !== "turn.started" || event.payload.turn.id === candidate.turn.id) continue;
-        const prior = await this.persistence.turnAdmissions.getByTurn(event.payload.turn.id);
-        if (prior && prior.run.executionCapability !== "conversation") {
-          // A retirement commit may have succeeded with an unknown return value.
-          // Do not bypass the retained runtime owner merely because replay now
-          // shows a cleared attachment. That owner still requires reconciliation.
+      if (!priorRequest) {
+        const events = await this.persistence.events.listAll();
+        for (const event of events) {
+          if (event.type !== "turn.started" || event.workspaceId !== candidate.run.workspaceId || event.payload.turn.id === candidate.turn.id) continue;
+          const prior = await this.persistence.turnAdmissions.getByTurn(event.payload.turn.id);
+          if (!prior) throw new Error("Local checkout has an unknown canonical admission");
+          if (prior.run.executionCapability === "conversation") continue;
           if (this.hasExecutionOwner(prior.turn.id)) throw new Error("Local checkout retains its active execution owner");
-          await this.assertSettled(prior);
+          if (localAdmissionBackend(prior, this.persistence.environmentId) === "native") {
+            await physical.verifyNativePredecessor(prior);
+          } else {
+            const preOpening = await this.persistence.readHarnessPreOpeningSettlement({ admission: prior });
+            if (preOpening.status !== "verified_pre_opening_settlement") await this.assertSettled(prior);
+            // This candidate holds the actual successor writer lease. Cancelled
+            // before preparation is positive no-dispatch evidence, not absence.
+            await physical.ready();
+          }
         }
       }
-      beforePublish();
-      return this.persistence.turnAdmissions.admit(candidate);
+      return physical.publish((admission, preparation) =>
+        this.persistence.admitHarnessPreparation({ ...preparation, admission }));
     });
     this.queue = operation.then(() => undefined, () => undefined);
     return operation;
@@ -64,7 +67,7 @@ export class LocalWorkspaceLease {
     const terminalEventId = await this.assertArtifactsCommitted(admission);
     const scope = { userId: admission.run.userId, turnId: admission.turn.id, runAttemptId: admission.runAttemptId };
     const binding = await this.persistence.harnessBindings.read(scope);
-    if (!binding) return; // No frozen claim: only the guarded pre-host path can settle.
+    if (!binding) throw new Error("Local checkout has no verified physical retirement binding");
     const proof = await this.persistence.readAttachmentRetirement(scope);
     if (proof.status !== "verified_retirement" ||
         proof.selection.selectionJson !== binding.selection.selectionJson ||
@@ -100,12 +103,6 @@ export class LocalWorkspaceLease {
       event.workspaceId === admission.run.workspaceId && event.payload.artifact.metadata.createdBy === admission.run.userId &&
       event.payload.artifact.payloadRef.backend === "local_blob" && event.payload.artifact.payloadRef.sha256 !== null &&
       event.payload.artifact.payloadRef.objectKey === `sha256:${event.payload.artifact.payloadRef.sha256}`);
-    const hasStartEvidence = history.some((event) => event.type === "workspace.snapshot_captured") || artifacts.length > 0;
-    const binding = await this.persistence.harnessBindings.read({ userId: admission.run.userId,
-      turnId: admission.turn.id, runAttemptId: admission.runAttemptId });
-    // A learned attachment invalidates the pre-start exemption even when start
-    // evidence is missing. Missing evidence must retain, never release, ownership.
-    if (!hasStartEvidence && !binding && terminal.type !== "turn.completed") return terminal.eventId;
     const snapshot = artifacts.find((event) => event.payload.artifact.kind === "workspace_snapshot" &&
       event.payload.artifact.metadata.turnId === admission.turn.id && event.payload.artifact.metadata.phase === "snapshot:terminal");
     const diff = artifacts.find((event) => event.payload.artifact.kind === "diff" &&

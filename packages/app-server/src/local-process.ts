@@ -112,6 +112,7 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
     });
     const harness = new LocalHarnessComposition(persistence, {
       workspaceService, threadService, providerService,
+      physicalCandidates: options?.createPhysicalAdmissionCandidates?.({ persistence, workspaces: workspaceService }),
     }, config.storageDirectory);
     if (options?.harnessBootstrap) harness.bootstrap(options.harnessBootstrap);
     const providerPreferences = new LocalProviderPreferences({

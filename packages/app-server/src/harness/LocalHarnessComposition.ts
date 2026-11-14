@@ -18,6 +18,7 @@ import { settleLocalHarnessAttachment } from "./LocalHarnessSettlement.js";
 
 import type { LocalProviderService } from "../local-providers.js";
 import type { LocalThreadService } from "../local-threads.js";
+import type { LocalPhysicalAdmissionCandidates } from "../local-physical-admission-candidates.js";
 import type { LocalWorkspaceService } from "../local-workspace.js";
 
 // Private Node entry for the process owner; never a renderer/protocol export.
@@ -62,6 +63,7 @@ export class LocalHarnessComposition {
     readonly workspaceService: LocalWorkspaceService;
     readonly threadService: LocalThreadService;
     readonly providerService: LocalProviderService;
+    readonly physicalCandidates?: LocalPhysicalAdmissionCandidates;
   }, storageDirectory?: string) {
     this.environmentId = persistence.environmentId;
     this.workspaceService = services.workspaceService;
@@ -79,7 +81,7 @@ export class LocalHarnessComposition {
     });
     this.turnService = new LocalTurnService({
       persistence, threads: this.threadService, workspace: this.workspaceService, leases: this.leases,
-      harnessOperations: this.harnessOperations,
+      harnessOperations: this.harnessOperations, physicalCandidates: services.physicalCandidates,
       settleExecution: (admission) => settleLocalHarnessAttachment({
         admission, persistence: this.persistence, leases: this.leases,
         releaseAfterCanonicalSettlement: (session) => this.harnessExecution.releaseAfterCanonicalSettlement(session),

@@ -10,7 +10,7 @@ import {
 } from "@repo/platform-protocol";
 import { TurnAdmissionSchema, type TurnAdmission } from "@repo/platform-protocol/conversation";
 import type { LocalPersistence, StoredLocalWorkspaceGrant } from "@repo/event-store/local";
-import { RuntimeKernel, RuntimeKernelError, RuntimeLifecycleCoordinator,
+import { RuntimeKernel, RuntimeKernelError,
   type RuntimeKernelDependencies, type DelegatedExecutionDependencies } from "@repo/runtime-kernel";
 import type { CodexDriver } from "@repo/harness-codex/server";
 import type { OpenCodeV2Driver } from "@repo/harness-opencode/server";
@@ -21,6 +21,10 @@ import { AppServerOperationError } from "../server.js";
 import type { LocalThreadService } from "../local-threads.js";
 import type { LocalWorkspaceService } from "../local-workspace.js";
 import type { LocalWorkspaceLease } from "./LocalWorkspaceLease.js";
+import type { LocalPhysicalAdmissionCandidate, LocalPhysicalAdmissionCandidates, LocalPhysicalAdmissionPublication, LocalPhysicalAdmissionRecovery } from "../local-physical-admission-candidates.js";
+import type { StoredHarnessPreparation } from "@repo/event-store";
+import type { StoredHarnessBinding } from "@repo/event-store";
+import { settleLocalHarnessBeforeDispatch } from "./LocalHarnessPreOpeningSettlement.js";
 import type { LocalHarnessOperations } from "./LocalHarnessOperations.js";
 import type { HarnessOperations } from "./HarnessOperations.js";
 import { reconcileLocalHarnessRestart, localAdmissionBackend, type LocalHarnessInitializationResult, type LocalHarnessBackend } from "./LocalHarnessRestart.js";
@@ -39,22 +43,31 @@ export interface LocalHarnessRuntimeBinding {
   readonly codexOptions?: NonNullable<ConstructorParameters<typeof CodexDriver>[1]>;
   readonly openCodeOptions?: ConstructorParameters<typeof OpenCodeV2Driver>[0];
   readonly configureHost: (command: Parameters<import("@repo/harness-core/server").HarnessInstance["createHost"]>[0]) => Promise<HostConfiguration>;
-  /** Uses the already frozen selection/claim and held local lease. Supplies the
-   * canonical workspace/custody adapters and enforcing host policy. Local
-   * composition owns observation commits, Git snapshots and immutable artifacts.
-   * Preparation must not start a provider.
-   */
+  /** No effects during construction. The caller retains this operation before
+   * begin CAS and schedules start only after its original promise is registered. */
   prepare(input: { readonly admission: TurnAdmission; readonly selection: HarnessSelection;
-    readonly grant: StoredLocalWorkspaceGrant; readonly leaseId: LeaseId; readonly signal: AbortSignal }): Promise<{
-      readonly leaseId: LeaseId;
-      readonly dependencies: Omit<RuntimeKernelDependencies, "lifecycleEvents" | "delegated">;
-      readonly execution: Omit<DelegatedExecutionDependencies, "harness" | "observations">;
-      /** Existing binding/lease authority prepares the protected old-generation
-       * host, committed observation delivery and durable fence. No provider restart.
-       * Local composition always supplies the canonical integrity resolver itself.
-       */
-      readonly prepareRecovery?: () => Promise<Omit<Parameters<HarnessExecutionPort["reconcilePriorGeneration"]>[0], "resolveObservationIntegrity"> | null>;
-    }>;
+    readonly grant: StoredLocalWorkspaceGrant; readonly leaseId: LeaseId; readonly signal: AbortSignal;
+    readonly physical: Extract<LocalPhysicalAdmissionPublication, { disposition: "execution" }> }): LocalHarnessPreparation;
+}
+export interface LocalHarnessPreparedRuntime {
+  readonly leaseId: LeaseId;
+  readonly dependencies: Omit<RuntimeKernelDependencies, "lifecycleEvents" | "delegated">;
+  readonly execution: Omit<DelegatedExecutionDependencies, "harness" | "observations">;
+  readonly prepareRecovery?: () => Promise<Omit<Parameters<HarnessExecutionPort["reconcilePriorGeneration"]>[0], "resolveObservationIntegrity"> | null>;
+}
+export interface LocalHarnessPreparation {
+  start(): Promise<LocalHarnessPreparedRuntime>;
+  /** Fence the original preparation resources; Stop acceptance is not closure. */
+  requestStop(): void;
+  /** Fence/drain original preparation, settle a preparation failure through the
+   * existing runtime/Git/artifact ports under the held lease, invoke canonical
+   * attachment settlement, THEN release the original physical binding/lease.
+   * A missing artifact or unknown physical result is never success. */
+  settle(input: {
+    readonly preparationFailure: "failed" | "interrupted" | null;
+    readonly settleCanonical: () => Promise<void>;
+  }): Promise<boolean>;
+
 }
 export interface LocalHarnessRuntimeServices {
   /** Optional supported catalog and verified local health readers only.
@@ -83,6 +96,17 @@ interface ActiveExecution {
   readonly admission: TurnAdmission;
   readonly controller: AbortController;
   runtime?: RuntimeKernel;
+  interruptRequested?: boolean;
+  preparationFailure?: "failed" | "interrupted";
+  candidate?: LocalPhysicalAdmissionCandidate;
+  publication?: Promise<LocalPhysicalAdmissionPublication>;
+  recovery?: LocalPhysicalAdmissionRecovery;
+  preparation?: LocalHarnessPreparation;
+  preparationResult?: Promise<LocalHarnessPreparedRuntime>;
+  preparationBegun?: boolean;
+  settlement?: Promise<boolean>;
+  canonicalSettlement?: Promise<void>;
+  preOpeningSettlement?: Promise<boolean>;
   task?: Promise<void>;
 }
 
@@ -98,22 +122,29 @@ export class LocalTurnService {
     readonly workspace: LocalWorkspaceService;
     readonly leases: LocalWorkspaceLease;
     readonly harnessOperations: LocalHarnessOperations;
+    readonly physicalCandidates?: LocalPhysicalAdmissionCandidates;
     readonly settleExecution: (admission: TurnAdmission) => Promise<void>;
     readonly resolveBinding: LocalHarnessRuntimeServices["resolveBinding"];
     readonly readDiff: (turnId: TurnId) => Promise<TurnDiffPayload | null>;
     readonly recoverExecution: (runtime: RuntimeKernel, input: Omit<Parameters<HarnessExecutionPort["reconcilePriorGeneration"]>[0], "resolveObservationIntegrity">) => Promise<unknown>;
     readonly composeRuntime: (binding: LocalHarnessRuntimeBinding,
-      prepared: Awaited<ReturnType<LocalHarnessRuntimeBinding["prepare"]>>,
+      prepared: LocalHarnessPreparedRuntime,
       selection: HarnessSelection) => RuntimeKernel;
   }) {}
 
   initialize(): Promise<LocalHarnessInitializationResult> {
-    return this.startup ??= reconcileLocalHarnessRestart(this.options.persistence, this.options.leases).then((result) => {
-      // A retained claim may acquire a verified durable retirement later. Keep
-      // coalescing concurrent reads, but allow the next call to re-read that proof.
-      if (result.status === "recovery_required") this.startup = undefined;
-      return result;
+    if (this.startup) return this.startup;
+    const original = reconcileLocalHarnessRestart(this.options.persistence, this.options.leases,
+      (admission, binding, preparation) => this.recoverUnbegun(admission, binding, preparation));
+    this.startup = original;
+    void original.then((result) => {
+      if (result.status === "recovery_required" && this.startup === original) this.startup = undefined;
+    }, () => {
+      // A later explicit read may retry durable evidence, never recreate an
+      // active original acquisition or dispatch an ambiguously accepted prompt.
+      if (this.startup === original) this.startup = undefined;
     });
+    return original;
   }
 
   startTurn(params: LocalTurnStartParams, captured?: NonNullable<ChatRequestBody["harnessSelection"]>): Promise<TurnAdmission> {
@@ -185,34 +216,29 @@ export class LocalTurnService {
       // Revalidate after protected metadata resolution; writer independently validates Thread ownership.
       await this.authorizeThread(thread.id, thread.workspaceId);
       if (this.stopping) throw new AppServerOperationError(503, "server_unavailable", "Local harness is shutting down");
+      const factory = this.options.physicalCandidates;
+      if (!factory) throw new AppServerOperationError(503, "server_unavailable",
+        "Local physical admission authority is unavailable", "LOCAL_HARNESS_CAPABILITY_UNAVAILABLE", false);
       const execution: ActiveExecution = { admission, controller: new AbortController() };
-      const stored = await this.options.leases.admit(admission, () => {
-        // Lease preflight has finished. Check before insertion, then publish
-        // synchronously: no rejected preflight may leave a provisional owner.
-        if (this.stopping) throw new AppServerOperationError(503, "server_unavailable", "Local harness is shutting down");
-        if (this.active.has(admission.turn.id)) throw new LocalHarnessRecoveryError([admission.turn.id]);
-        this.active.set(admission.turn.id, execution);
-        return undefined;
-      });
+      // acquire defers effects. Retain the original before ready/publication.
+      execution.candidate = factory.acquire({ candidate: admission, selection, signal: execution.controller.signal });
+      this.active.set(admission.turn.id, execution);
+      execution.publication = this.options.leases.admit(admission, execution.candidate);
+      let stored: LocalPhysicalAdmissionPublication;
+      try { stored = await execution.publication; }
+      catch (error) {
+        if (await execution.candidate.discardUnadmitted()) this.active.delete(admission.turn.id);
+        throw error; // Unknown publication keeps the exact original owner.
+      }
       if (!stored.newlyAdmitted) {
-        if (localAdmissionBackend(stored.admission, this.options.persistence.environmentId) !== "delegated" ||
-            stored.admission.clientRequestId !== params.clientRequestId || stored.admission.run.threadId !== thread.id ||
-            stored.admission.run.workspaceId !== thread.workspaceId || stored.admission.run.userId !== thread.userId ||
-            stored.admission.userMessage.type !== "user_message" || stored.admission.userMessage.content.text !== params.prompt ||
-            JSON.stringify(stored.admission.run.harnessSelection) !== JSON.stringify(captured)) {
-          throw new LocalHarnessRecoveryError([admission.turn.id, stored.admission.turn.id]);
-        }
-        // The store positively identified the existing request: do not attach
-        // this candidate/controller to another immutable attempt or restart it.
-        if (this.active.get(admission.turn.id) === execution) this.active.delete(admission.turn.id);
-        return stored.admission;
+        if (!(await execution.candidate.discardUnadmitted())) throw new LocalHarnessRecoveryError([admission.turn.id]);
+        this.active.delete(admission.turn.id);
+        return stored.admission; // Duplicate receipt carries no execution authority.
       }
-      if (JSON.stringify(stored.admission) !== JSON.stringify(admission)) {
-        throw new LocalHarnessRecoveryError([admission.turn.id, stored.admission.turn.id]);
-      }
-      if (this.stopping) execution.controller.abort();
-      execution.task = this.run(execution, binding, selection, grant);
-      void execution.task.catch(() => undefined); // Failures are canonical events/recovery, never raw secret-bearing logs.
+      if (this.stopping) this.stopExecution(execution);
+      // Record the original run promise before begin/prepare/provider effects.
+      execution.task = Promise.resolve().then(() => this.run(execution, binding, selection, grant, stored));
+      void execution.task.catch(() => undefined);
       return stored.admission;
     });
   }
@@ -276,7 +302,7 @@ export class LocalTurnService {
     }
     const execution = this.active.get(params.turnId);
     if (!execution) throw new AppServerOperationError(409, "server_unavailable", "Local turn has no live owner; reconcile canonical replay", "LOCAL_RUNTIME_RECOVERY_REQUIRED", false);
-    execution.controller.abort(new DOMException(params.reason, "AbortError"));
+    this.stopExecution(execution, params.reason);
     if (execution.runtime) {
       execution.runtime.requestInterruptBeforeStart(params.turnId, params.reason);
       try { await execution.runtime.interruptTurn(params.turnId, params.reason); }
@@ -381,17 +407,18 @@ export class LocalTurnService {
   hasExecutionOwner(turnId: TurnId): boolean { return this.active.has(turnId); }
   async shutdown(): Promise<LocalHarnessShutdownResult> {
     this.stopping = true;
+    for (const execution of this.active.values()) this.stopExecution(execution);
     await Promise.allSettled([...this.admissions]);
-    for (const execution of this.active.values()) execution.controller.abort();
+    for (const execution of this.active.values()) this.stopExecution(execution);
     await Promise.allSettled([...this.active.values()].map((execution) => execution.task));
     for (const execution of this.active.values()) {
       try {
         // A retirement transaction may have committed despite a lost receipt.
         // This retries settlement proof/cleanup only, never prompt/native dispatch.
-        await this.options.settleExecution(execution.admission);
-        this.active.delete(execution.admission.turn.id);
+        await this.settleOwner(execution);
       } catch { /* Unknown ownership remains live and durable below. */ }
     }
+    this.startup = undefined;
     const retained = new Set((await this.initialize()).retainedTurnIds);
     const events = await this.options.persistence.events.listAll();
     for (const event of events) {
@@ -400,7 +427,10 @@ export class LocalTurnService {
       if (!admission) { retained.add(event.payload.turn.id); continue; }
       try {
         if (localAdmissionBackend(admission, this.options.persistence.environmentId) === "native") continue;
-        await this.options.leases.assertSettled(admission);
+        if (retained.has(admission.turn.id) || this.active.has(admission.turn.id))
+          throw new LocalHarnessRecoveryError([admission.turn.id]);
+        const proof = await this.options.persistence.readHarnessPreOpeningSettlement({ admission });
+        if (proof.status !== "verified_pre_opening_settlement") await this.options.leases.assertSettled(admission);
         retained.delete(admission.turn.id);
       } catch { retained.add(admission.turn.id); }
     }
@@ -410,21 +440,33 @@ export class LocalTurnService {
   }
 
   private async run(execution: ActiveExecution, binding: LocalHarnessRuntimeBinding,
-    selection: HarnessSelection, grant: StoredLocalWorkspaceGrant): Promise<void> {
-    let prepared: Awaited<ReturnType<LocalHarnessRuntimeBinding["prepare"]>> | undefined;
+    selection: HarnessSelection, grant: StoredLocalWorkspaceGrant,
+    publication: Exclude<LocalPhysicalAdmissionPublication, { newlyAdmitted: false }>): Promise<void> {
+    let prepared: LocalHarnessPreparedRuntime | undefined;
     try {
-      if (execution.controller.signal.aborted) throw new DOMException("Local turn stopped before execution claim", "AbortError");
-      const frozen = await this.options.persistence.harnessBindings.freezeAndClaim({
-        selection: { userId: selection.userId, sessionId: selection.threadId, runId: selection.runId,
-          workspaceId: selection.workspaceId, threadId: selection.threadId, turnId: selection.turnId,
-          runAttemptId: selection.runAttemptId, selectionJson: JSON.stringify(selection) },
-        claimId: execution.admission.runAttemptId,
-      });
-      if (frozen.status !== "claimed") throw new AppServerOperationError(409, "server_unavailable",
-        "Local harness execution was already claimed or requires recovery", "LOCAL_RUNTIME_RECOVERY_REQUIRED", false);
-      if (execution.controller.signal.aborted) throw new DOMException("Local turn stopped before runtime preparation", "AbortError");
+      if (publication.disposition === "settlement_required") {
+        this.stopExecution(execution);
+        return;
+      }
       const leaseId = this.options.leases.leaseId(execution.admission);
-      prepared = await binding.prepare({ admission: execution.admission, selection, grant, leaseId, signal: execution.controller.signal });
+      // Synchronous no-effect construction exposes cleanup BEFORE begin/claim.
+      execution.preparation = binding.prepare({ admission: execution.admission, selection, grant, leaseId,
+        signal: execution.controller.signal, physical: publication });
+      if (execution.controller.signal.aborted) execution.preparation.requestStop();
+      execution.preparationResult = Promise.resolve().then(async () => {
+        if (execution.controller.signal.aborted) throw new DOMException("Local preparation stopped", "AbortError");
+        if (await this.options.persistence.beginHarnessPreparation(publication.preparation) !== "begun") {
+          throw new LocalHarnessRecoveryError([execution.admission.turn.id]);
+        }
+        execution.preparationBegun = true;
+        const frozen = await this.options.persistence.harnessBindings.freezeAndClaim({
+          selection: publication.preparation.selection, claimId: execution.admission.runAttemptId,
+        });
+        if (frozen.status !== "claimed") throw new LocalHarnessRecoveryError([execution.admission.turn.id]);
+        if (execution.controller.signal.aborted) throw new DOMException("Local preparation stopped", "AbortError");
+        return execution.preparation!.start();
+      });
+      prepared = await execution.preparationResult;
       if (prepared.dependencies.producerId !== execution.admission.run.workerId) {
         throw new Error("Prepared local runtime producer does not match the admitted worker");
       }
@@ -446,6 +488,9 @@ export class LocalTurnService {
         execution: { kind: "delegated", selection, leaseId: prepared.leaseId,
           prompt: this.prompt(execution.admission), resumeSession: null } });
     } catch (error) {
+      execution.preparationFailure = execution.interruptRequested ? "interrupted" : "failed";
+      this.stopExecution(execution, "Local preparation cleanup", false);
+      await execution.preOpeningSettlement?.catch(() => false);
       if (execution.runtime && prepared?.prepareRecovery) {
         const recovery = await prepared.prepareRecovery();
         if (recovery) {
@@ -455,25 +500,101 @@ export class LocalTurnService {
           await this.options.recoverExecution(execution.runtime, recovery);
         }
       }
-      {
-        const history = await this.options.persistence.lifecycleEvents.replay({ turnId: execution.admission.turn.id, afterSequence: null, limit: 1 });
-        if (history.events.length === 0) {
-          const lifecycle = new RuntimeLifecycleCoordinator({ threadId: execution.admission.run.threadId,
-            workspaceId: execution.admission.run.workspaceId, turnId: execution.admission.turn.id,
-            runAttemptId: execution.admission.runAttemptId, producerId: execution.admission.run.workerId,
-            executionCapability: execution.admission.run.executionCapability,
-            sink: this.options.persistence.lifecycleEvents, clock: { now: () => new Date().toISOString() } });
-          await lifecycle.start();
-          if (execution.controller.signal.aborted) await lifecycle.interrupt("Local turn stopped before external execution");
-          else await lifecycle.fail({ code: "internal_error", message: "Local runtime preparation failed", retryable: false, correlationId: null, details: null });
-        }
-      }
+      // The original preparation owner settles quiescence and immutable failure
+      // evidence through canonical runtime ports; never append a bare terminal
+      // here before capture or use absence of an attachment as release proof.
       throw error;
     } finally {
-      await this.options.settleExecution(execution.admission); // Unknown retains the live/durable owner.
-      this.active.delete(execution.admission.turn.id);
+      await this.settleOwner(execution); // Unknown retains the original live/durable owner.
     }
   }
+  private stopExecution(execution: ActiveExecution, reason = "Local execution is stopping", requested = true): void {
+    // Historical recovery has no dispatch capability. Aborting its original
+    // acquisition could destroy the only cleanup path before it obtains a lease.
+    if (execution.recovery) return;
+    if (requested) execution.interruptRequested = true;
+    const outcome = execution.interruptRequested ? "interrupted" : "failed";
+    execution.controller.abort(new DOMException(reason, "AbortError"));
+    try { execution.preparation?.requestStop(); }
+    catch { /* Closure remains owned and must be proved by settle(), not Stop. */ }
+    // A pending start may need original cleanup to resolve. Initiate that
+    // cleanup now, without dropping this run owner or racing an active kernel.
+    if (execution.preparation && execution.preparationBegun && !execution.runtime) {
+      void this.startPreparationSettlement(execution).catch(() => undefined);
+    }
+    if (execution.candidate && !execution.preparationBegun) {
+      execution.preOpeningSettlement ??= execution.candidate.settleBeforeDispatch({
+        settleCanonical: (admission) => settleLocalHarnessBeforeDispatch(this.options.persistence, admission, outcome),
+      });
+      void execution.preOpeningSettlement.catch(() => undefined);
+    }
+  }
+
+  private async settleOwner(execution: ActiveExecution): Promise<void> {
+    const early = await execution.preOpeningSettlement?.catch(() => false);
+    if (early === true) {
+      // A positive reserved-only cleanup cannot erase a pending original promise.
+      await execution.preparationResult?.catch(() => undefined);
+      this.active.delete(execution.admission.turn.id);
+      return;
+    }
+    if (!execution.preparation && execution.candidate && !execution.task) {
+      if (!(await execution.candidate.discardUnadmitted())) throw new LocalHarnessRecoveryError([execution.admission.turn.id]);
+    } else if (execution.recovery) {
+      const settled = await execution.recovery.settleBeforeDispatch({
+        settleCanonical: (admission) => settleLocalHarnessBeforeDispatch(this.options.persistence, admission),
+      });
+      if (!settled) throw new LocalHarnessRecoveryError([execution.admission.turn.id]);
+    } else {
+      if (!execution.preparation) throw new LocalHarnessRecoveryError([execution.admission.turn.id]);
+      // Retain settlement BEFORE invoking it: cleanup may be needed to resolve
+      // start(). Drain both originals, including a rejected start, before release.
+      this.startPreparationSettlement(execution);
+      const [preparation, settlement] = await Promise.allSettled([
+        execution.preparationResult, execution.settlement,
+      ]);
+      void preparation; // Rejection is failure evidence, not permission to skip cleanup.
+      if (settlement.status !== "fulfilled" || !settlement.value || !execution.canonicalSettlement) {
+        throw new LocalHarnessRecoveryError([execution.admission.turn.id]);
+      }
+      await execution.canonicalSettlement;
+      await this.options.leases.assertSettled(execution.admission);
+    }
+    this.active.delete(execution.admission.turn.id);
+  }
+
+  private startPreparationSettlement(execution: ActiveExecution): Promise<boolean> {
+    return execution.settlement ??= Promise.resolve().then(() => execution.preparation!.settle({
+      preparationFailure: execution.preparationFailure ?? (execution.interruptRequested ? "interrupted" : null),
+      settleCanonical: () => execution.canonicalSettlement ??= Promise.resolve().then(async () => {
+        await execution.preparationResult?.catch(() => undefined);
+        await this.options.settleExecution(execution.admission);
+      }),
+    }));
+  }
+
+  private async recoverUnbegun(admission: TurnAdmission, binding: StoredHarnessBinding,
+    preparation: StoredHarnessPreparation): Promise<boolean> {
+    let execution = this.active.get(admission.turn.id);
+    if (execution && !execution.recovery) return false;
+    if (!execution) {
+      if (!this.options.physicalCandidates) return false;
+      execution = { admission, controller: new AbortController() };
+      execution.recovery = this.options.physicalCandidates.recover({ admission,
+        selection: HarnessSelectionSchema.parse(JSON.parse(binding.selection.selectionJson)),
+        preparationId: preparation.preparationId, signal: execution.controller.signal });
+      this.active.set(admission.turn.id, execution);
+      const original = execution;
+      execution.task = Promise.resolve().then(async () => {
+        await original.recovery!.ready();
+        await this.settleOwner(original);
+      });
+      void execution.task.catch(() => undefined);
+    }
+    try { await execution.task; return !this.active.has(admission.turn.id); }
+    catch { return false; }
+  }
+
   private assertSupportedConfiguration(input: {
     readonly mode?: LocalTurnStartParams["mode"];
     readonly productMode?: LocalTurnStartParams["productMode"];
