@@ -24,6 +24,7 @@ import { TaskCheckoutRunLifecycle } from "./task-workspaces/TaskCheckoutRunLifec
 interface RuntimeExecutionResources {
   readonly agent: IAgent | undefined;
   readonly runEngineDeps: RunEngineDependencies;
+  readonly drainProviderRequests: () => Promise<void>;
   readonly workspace: RuntimeKernelNativeRunnerInput["workspace"];
   readonly artifacts?: ReturnType<typeof createEditArtifactCoordinator>;
   readonly checkoutLifecycle?: TaskCheckoutRunLifecycle;
@@ -159,6 +160,7 @@ export async function prepareRuntimeExecutionResources(
     );
     return {
       agent: dependencies.agent,
+      drainProviderRequests: dependencies.drainProviderRequests,
       runEngineDeps: {
         ...dependencies.runEngineDeps,
         approvalGrants: new BrainApprovalGrantReader(env),

@@ -48,12 +48,13 @@ export function buildRuntimeDependencies(
 ): {
   agent: IAgent | undefined;
   runEngineDeps: RunEngineDependencies;
+  drainProviderRequests: () => Promise<void>;
 } {
   // Build pricing/budgeting first
   const budgetingComponents = buildPricingAndBudgeting(ctx, env);
 
   // Build LLM runtime with shared budgeting components
-  const { llmRuntimeService, llmGateway } = buildLLMGateway(
+  const { llmRuntimeService, llmGateway, drainProviderRequests } = buildLLMGateway(
     env,
     {
       runId: payload.runId,
@@ -83,7 +84,7 @@ export function buildRuntimeDependencies(
     hasGitHubAuth: async ({ userId }) => hasGitHubTokenForUser(env, userId ?? payload.userId),
   };
   if (options.issuedTaskCheckout === null) {
-    return { agent: undefined, runEngineDeps: baseDependencies };
+    return { agent: undefined, runEngineDeps: baseDependencies, drainProviderRequests };
   }
 
   // Resolve agent with strict policy
@@ -135,6 +136,7 @@ export function buildRuntimeDependencies(
   return {
     agent,
     runEngineDeps: { ...baseDependencies, workspaceBootstrapper },
+    drainProviderRequests,
   };
 }
 

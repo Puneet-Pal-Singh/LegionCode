@@ -29,6 +29,7 @@ import type {
   BudgetManager,
 } from "@legioncode/execution-engine/runtime";
 import { LLMGateway as LLMGatewayImpl } from "@legioncode/execution-engine/runtime";
+import { NativeProviderRequests } from "@legioncode/execution-engine/runtime/llm/NativeProviderRequests";
 
 /**
  * Build LLM gateway and AI service for runtime execution.
@@ -55,6 +56,7 @@ export function buildLLMGateway(
 ): {
   llmRuntimeService: LLMRuntimeAIService;
   llmGateway: LLMGateway;
+  drainProviderRequests: () => Promise<void>;
 } {
   const userId = providerScope.userId;
   const workspaceId = providerScope.workspaceId;
@@ -73,12 +75,13 @@ export function buildLLMGateway(
   );
   const providerRegistryService = new ProviderRegistryService();
   const aiService = new AIService(env, providerConfigService);
+  const providerRequests = new NativeProviderRequests();
 
   const llmRuntimeService: LLMRuntimeAIService = {
     getProvider: () => aiService.getProvider(),
     getDefaultModel: () => aiService.getDefaultModel(),
-    generateText: (input) => aiService.generateText(input),
-    generateStructured: (input) => aiService.generateStructured(input),
+    generateText: (input) => providerRequests.track(() => aiService.generateText(input)),
+    generateStructured: (input) => providerRequests.track(() => aiService.generateStructured(input)),
     createChatStream: (input) => aiService.createChatStream(input),
   };
 
@@ -101,7 +104,7 @@ export function buildLLMGateway(
     },
   });
 
-  return { llmRuntimeService, llmGateway };
+  return { llmRuntimeService, llmGateway, drainProviderRequests: () => providerRequests.drain() };
 }
 
 function createProviderConfigService(
