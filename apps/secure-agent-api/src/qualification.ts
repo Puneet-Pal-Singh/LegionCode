@@ -12,7 +12,7 @@ export class NativeBoundaryQualificationControl extends WorkerEntrypoint<Env> {
   async fetch(request: Request): Promise<Response> {
     try {
       const auth = qualificationRequestAuthorization(this.env, request, this.ctx.props);
-      const match = new URL(request.url).pathname.match(/^\/internal\/native-boundary-qualification\/v1\/(reserve|provision|status|retire)$/);
+      const match = new URL(request.url).pathname.match(/^\/internal\/native-boundary-qualification\/v1\/(reserve|provision|status|retire|qualify|stop)$/);
       if (request.method !== "POST" || !match) return new Response("Not Found", { status: 404 });
       const text = await request.text();
       if (text.length > 4096) return new Response("Invalid request", { status: 400 });

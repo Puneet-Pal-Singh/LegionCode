@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { NativeCommandReceiptSchema, NativeCommandIdentitySchema } from "../toolbox/contracts/OwnedSandboxCommand";
 import { NativePhysicalIdentitySchema, NativePhysicalIntegerSchema } from "@repo/shared-types/native-command-closure";
 
 export const QUALIFICATION_ENVIRONMENT = "native-boundary-qualification";
@@ -16,9 +17,10 @@ export const QualificationPinsSchema = z.object({
 }).strict();
 export type QualificationPins = z.infer<typeof QualificationPinsSchema>;
 export const QualificationCommandSchema = z.object({
-  action: z.enum(["reserve", "provision", "status", "retire"]),
-  operationId: z.string().uuid(), scenario: z.literal("resource_provision"),
-}).strict();
+  action: z.enum(["reserve", "provision", "status", "retire", "qualify", "stop"]),
+  operationId: z.string().uuid(), scenario: z.enum(["resource_provision", "namespace_subprocess_stop"]),
+}).strict().refine(value => (value.action === "qualify" || value.action === "stop")
+  ? value.scenario === "namespace_subprocess_stop" : value.scenario === "resource_provision");
 export type QualificationCommand = z.infer<typeof QualificationCommandSchema>;
 export const QualificationLeaseSchema = z.object({
   sessionId: id, leaseId: id, sandboxId: id, sandboxObjectId: z.string().regex(/^[a-f0-9]{64}$/),
@@ -57,6 +59,37 @@ export const ResourceProvisionReceiptSchema = z.object({
   siblingProtectedBytes: NativePhysicalIntegerSchema,
 }).strict();
 export type ResourceProvisionReceipt = z.infer<typeof ResourceProvisionReceiptSchema>;
+export const QualificationFixtureSchema = z.object({
+  root: z.string().regex(/^\/home\/sandbox\/checkouts\/operator-qualification-[a-f0-9]{64}$/),
+  identity: NativePhysicalIdentitySchema, sandboxBootId: z.string().uuid(),
+  fingerprint: z.string().regex(/^native-qualification-fixture-v1:[a-f0-9]{64}$/), helperSha256: sha,
+}).strict();
+export type QualificationFixture = z.infer<typeof QualificationFixtureSchema>;
+export const QualificationNamespaceBindingSchema = z.object({ qualification: ResourceSetupBindingSchema, nonce: sha }).strict();
+export const QualificationNamespaceReceiptSchema = NativeCommandReceiptSchema.extend({ binding: QualificationNamespaceBindingSchema });
+export type QualificationNamespaceReceipt = z.infer<typeof QualificationNamespaceReceiptSchema>;
+export const QualificationNamespaceInputSchema = z.object({ binding: ResourceSetupBindingSchema, nonce: sha,
+  fixture: QualificationFixtureSchema.optional(), controlToken: sha.optional() }).strict();
+export const QualificationMarkersSchema = z.object({ binding: ResourceSetupBindingSchema, nonce: sha,
+  fixture: QualificationFixtureSchema, stableIntervalMs: z.number().int().min(250).max(60_000).safe(),
+  markers: z.array(z.object({ name: z.enum(["detached", "double-fork", "clone-parent"]),
+    identity: NativePhysicalIdentitySchema, bytes: z.number().int().positive().max(16384), sha256: sha }).strict()).length(3),
+}).strict();
+export type QualificationMarkers = z.infer<typeof QualificationMarkersSchema>;
+export type QualificationRawAction = "observe" | "provision" | "retire" | "fixture" | "namespace" | "verify";
+export interface QualificationNamespaceIntent {
+  nonce: string;
+  controlToken: string;
+  fixture?: QualificationFixture;
+  identity?: z.infer<typeof NativeCommandIdentitySchema>;
+  stopRequested?: true;
+  stopControlSettled?: true;
+  payloadReady?: true;
+  receipt?: QualificationNamespaceReceipt;
+  receiptSha256?: string;
+  originalTransportSettled?: true;
+  markers?: QualificationMarkers;
+}
 export interface QualificationRecord {
   kind: "native_boundary_qualification";
   version: 1;
@@ -65,12 +98,13 @@ export interface QualificationRecord {
   lease: QualificationLease;
   authorityDigest: string;
   token: string;
-  phase: "reserved" | "starting" | "observed" | "provisioning" | "provisioned" | "retiring" | "retired" | "unknown";
+  phase: "reserved" | "starting" | "observed" | "provisioning" | "provisioned" | "retiring" | "retired" | "unknown" | "qualifying_fixture" | "qualifying_namespace" | "namespace_running" | "qualifying_verify" | "namespace_observed" | "namespace_closed";
+  namespace?: QualificationNamespaceIntent;
   observation?: ResourceObservation;
   receipt?: ResourceProvisionReceipt;
   originalTransportSettled?: true;
-  failureCode?: "QUALIFICATION_ORIGINAL_UNKNOWN";
-  rawDispatched?: "observe" | "provision" | "retire";
+  failureCode?: "QUALIFICATION_ORIGINAL_UNKNOWN" | "QUALIFICATION_RECIPE_INCOMPLETE";
+  rawDispatched?: QualificationRawAction;
   originalId?: string;
 }
 export function isQualificationRecord(value: unknown): value is QualificationRecord {
