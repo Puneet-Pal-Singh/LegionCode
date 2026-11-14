@@ -88,6 +88,9 @@ export const CredentialAcquisitionSchema = z
   })
   .strict();
 export type CredentialAcquisition = z.infer<typeof CredentialAcquisitionSchema>;
+/** Nonsecret private runtime reference; the canonical admission supplies its owner. */
+export const RuntimeCredentialReferenceSchema = CredentialAcquisitionSchema.omit({ userId: true });
+export type RuntimeCredentialReference = z.infer<typeof RuntimeCredentialReferenceSchema>;
 export type CredentialRefreshClaim = CredentialAcquisition & {
   refreshClaimId: string;
 };
