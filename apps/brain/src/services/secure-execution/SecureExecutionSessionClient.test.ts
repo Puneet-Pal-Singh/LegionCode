@@ -1,10 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "../../types/ai";
 import {
-  executionDomainDigest,
-  snapshotExecutionDomain,
-} from "@repo/worker-protocol/private/execution-domain";
-import {
   SecureExecutionSessionClient,
   SecureExecutionSessionRecoveryError,
 } from "./SecureExecutionSessionClient";
@@ -21,12 +17,13 @@ const workspaceScope = {
 describe("SecureExecutionSessionClient resume", () => {
   it("rotates through the internal exact-scope endpoint and releases with the new bearer", async () => {
     const { root: workspaceRoot, ...knownWorkspace } = workspaceScope;
-    const executionDomain = snapshotExecutionDomain({
+    const executionDomain = {
       version: 1,
       domain: "legioncode_native",
       scope: { userId: "usr_resume01", brainSessionId: "brain-session-1", ...knownWorkspace },
-    });
-    const domainDigest = await executionDomainDigest(executionDomain);
+    } as const;
+    // SHA-256 of this fixture's canonical server execution-domain serialization.
+    const domainDigest = "4c7e95dd5a087cd12a2438df30f6eecd1ec912dd334f5a29b7412162cea5905b";
     const nativeCommandClosure = {
       state: "settled", profile: "linux-pid-namespace-cgroup-v2", originalTransportSettled: true, operationId: "a".repeat(64), nonce: "a".repeat(64),
       scope: { ...knownWorkspace, executionDomainDigest: domainDigest, workspaceRoot, sessionId: "sess_resume001", leaseId: "lease_resume001", sandboxId: "sandbox-resume001", generation: 2, taskId: "task_resume001" },
