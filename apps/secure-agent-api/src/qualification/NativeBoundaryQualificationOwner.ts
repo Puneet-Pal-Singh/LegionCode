@@ -49,6 +49,8 @@ export class NativeBoundaryQualificationOwner {
       if (retiring ? !["provisioned", "namespace_observed", "namespace_closed"].includes(row.phase) || row.originalTransportSettled !== true || !row.receipt || !row.observation
         : qualifying ? row.phase !== "provisioned" || !row.receipt || row.lease.expiresAt <= Date.now()
         : row.phase !== "reserved" || row.lease.expiresAt <= Date.now()) throw unavailable();
+      if (retiring && row.namespace && (row.namespace.controlAdmissionClosed !== true || row.namespace.originalTransportSettled !== true ||
+        !row.namespace.receipt?.gateClosed || !["closed", "not_started"].includes(row.namespace.receipt.state))) throw unavailable();
       const admitted: QualificationRecord = { ...row, phase: retiring ? "retiring" : qualifying ? "qualifying_fixture" : "starting",
         ...(qualifying ? { namespace: { nonce: qualificationToken(), controlToken: qualificationToken() } } : {}),
         originalId: qualificationToken(), rawDispatched: undefined,
@@ -119,7 +121,7 @@ export class NativeBoundaryQualificationOwner {
         if (!current || current.id !== row.originalId || !scope || scope.nonce !== nonce || !constantTimeQualificationEqual(scope.controlToken, token) ||
           !constantTimeQualificationEqual(row.token, auth.bearer) || row.lease.sandboxObjectId !== sandboxObjectId ||
           JSON.stringify(this.binding(row)) !== JSON.stringify(binding)) return false;
-        if (action === "start" && (scope.stopRequested === true || row.lease.expiresAt <= Date.now() || !scope.identity || JSON.stringify(scope.identity) !== JSON.stringify(identity))) return false;
+        if (action === "start" && (scope.controlAdmissionClosed === true || scope.stopRequested === true || row.lease.expiresAt <= Date.now() || !scope.identity || JSON.stringify(scope.identity) !== JSON.stringify(identity))) return false;
         if (action === "stop" && scope.stopRequested !== true) return false;
         if (action === "ack" && (!scope.receipt || !scope.receiptSha256 || !scope.identity || JSON.stringify(scope.identity) !== JSON.stringify(identity))) return false;
         return ["qualifying_namespace", "namespace_running", "unknown"].includes(row.phase);
@@ -127,7 +129,7 @@ export class NativeBoundaryQualificationOwner {
     } catch { return false; }
   }
 
-  private async patchNamespace(policy: QualificationPolicy, expected: QualificationRecord, patch: Partial<NonNullable<QualificationRecord["namespace"]>>): Promise<QualificationRecord> {
+  private async patchNamespace(policy: QualificationPolicy, expected: QualificationRecord, patch: Partial<Omit<NonNullable<QualificationRecord["namespace"]>, "controlAdmissionClosed">>): Promise<QualificationRecord> {
     return this.state.blockConcurrencyWhile(async () => {
       const row = await this.read(policy, expected.subject.operationId);
       if (!row.namespace || row.originalId !== expected.originalId || this.original?.id !== expected.originalId || row.authorityDigest !== expected.authorityDigest) throw unavailable();
@@ -141,7 +143,12 @@ export class NativeBoundaryQualificationOwner {
     const admitted = await this.state.blockConcurrencyWhile(async () => {
       const row = await this.read(policy, operationId);
       const original = this.original;
-      if (!original || row.originalId !== original.id || !row.namespace || !constantTimeQualificationEqual(row.token, auth.bearer) ||
+      if (!row.namespace || !constantTimeQualificationEqual(row.token, auth.bearer)) throw unavailable();
+      // The final barrier closes admission in the SAME serializer before it
+      // snapshots original controls. A later Stop is a read-only observation,
+      // including after positive closure has released the original descriptor.
+      if (row.namespace.controlAdmissionClosed === true) return { row };
+      if (!original || row.originalId !== original.id ||
         !["qualifying_namespace", "namespace_running", "unknown"].includes(row.phase)) throw unavailable();
       if (row.namespace.stopRequested) return { row };
       const next = { ...row, namespace: { ...row.namespace, stopRequested: true as const } };
@@ -221,9 +228,21 @@ export class NativeBoundaryQualificationOwner {
         await qualificationPause();
         row = await this.read(policy, row.subject.operationId);
       }
-      const outcomes = await Promise.allSettled([...current.controls]);
-      row = await this.read(policy, row.subject.operationId);
       if (!closed || !["closed", "not_started"].includes(closed.state) || !closed.gateClosed || !closed.identity) throw unavailable();
+      const controls = await this.state.blockConcurrencyWhile(async () => {
+        const latest = await this.read(policy, row.subject.operationId);
+        if (this.original !== current || latest.originalId !== current.id || latest.authorityDigest !== row.authorityDigest || !latest.namespace ||
+          JSON.stringify(latest.namespace.identity) !== JSON.stringify(closed.identity)) throw unavailable();
+        // Persist the admission seal BEFORE capturing loans. stopNamespace
+        // uses this serializer too, so every admitted original is in this set
+        // and no later request can append a control behind the final barrier.
+        await this.state.storage.put(this.key(row.subject.operationId), {
+          ...latest, namespace: { ...latest.namespace, controlAdmissionClosed: true as const },
+        });
+        return [...current.controls];
+      });
+      const outcomes = await Promise.allSettled(controls);
+      row = await this.read(policy, row.subject.operationId);
       // Cleanup and qualification are separate facts. An early real Stop or
       // rejected recipe can still close its exact physical scope positively.
       // Preserve/ACK that actual closure without claiming the recipe passed.
@@ -334,7 +353,7 @@ export class NativeBoundaryQualificationOwner {
   }
   private async transition(policy: QualificationPolicy, row: QualificationRecord, phase: QualificationRecord["phase"],
     patch: Omit<Partial<QualificationRecord>, "namespace"> & {
-      namespace?: Partial<Omit<NonNullable<QualificationRecord["namespace"]>, "nonce" | "controlToken" | "stopRequested" | "stopControlSettled">>;
+      namespace?: Partial<Omit<NonNullable<QualificationRecord["namespace"]>, "nonce" | "controlToken" | "stopRequested" | "stopControlSettled" | "controlAdmissionClosed">>;
     } = {}): Promise<QualificationRecord> {
     return this.state.blockConcurrencyWhile(async () => {
       const current = await this.read(policy, row.subject.operationId);
