@@ -82,9 +82,8 @@ import {
   InMemoryRunInterruptRegistry,
   type RunInterruptRegistry,
 } from "./RunInterruptRegistry";
-import {
-  settleOwnedStartupFailure,
-} from "./RuntimeLifecycleSettlement";
+import { settleOwnedStartupFailure } from "./RuntimeLifecycleSettlement";
+import { acknowledgePersistedNativeStop } from "./PersistedNativeStop";
 import {
   InMemoryRunContextCompactionRegistry,
   type RunContextCompactionRegistry,
@@ -464,71 +463,28 @@ export class RunEngineRequestHandler {
       ...(storedIdentity ?? durableIdentity), ownerUserId: admission.userId, pendingInterruptReason: payload.reason,
     });
 
-    const hasActiveOwner =
-      this.interruptRegistry.hasActiveOwner(payload.turnId) ||
-      this.approvalResolutionRegistry.has(payload.turnId);
-    if (hasActiveOwner) {
-      const accepted = await this.interruptRegistry.request(
-        payload.turnId,
-        payload.reason,
-      );
-      if (accepted) {
-        return runEngineJsonResponse(request, this.env, {
-          runId: payload.runId,
-          accepted: true,
-          status: "interrupt_requested",
-        });
-      }
-    }
-
-    // The durable Stop belongs to this tuple even while its original startup
-    // waits for the run lock. The actual creator will observe it before effects.
-    if (this.withExecutionLock.hasQueuedOrActiveRun(payload.runId)) {
-      return runEngineJsonResponse(request, this.env, {
-        runId: payload.runId, accepted: true, status: "interrupt_requested",
-      });
-    }
-
-    const observation = await this.withExecutionLock(payload.runId, async () => {
-      const currentAdmission = await withTurnAdmissionRepository(
-        this.env, repository => repository.getByTurnId(payload.turnId),
-      );
-      if (!sameAdmissionIdentity(admission, currentAdmission)) return { status: "superseded" } as const;
-      const history = await readAllLifecycleEvents(store, payload.turnId);
-      const terminal = history.find(isTerminalLifecycleEvent);
-      if (terminal) return { status: "terminal_exists", terminalEvent: terminal } as const;
-      if (this.interruptRegistry.hasActiveOwner(payload.turnId) || this.approvalResolutionRegistry.has(payload.turnId)) {
-        if (await this.interruptRegistry.request(payload.turnId, payload.reason))
-          return { status: "requested" } as const;
-      }
-      // Absence of an in-memory owner or lifecycle history cannot prove that
-      // original provider requests, preparation or descendants have ended.
-      // Preserve the claim and Stop; the PG projection records uncertainty only.
-      const retained = await withTurnAdmissionRepository(this.env, repository =>
+    const receipt = await acknowledgePersistedNativeStop({
+      admission,
+      hasActiveOriginal: () => this.interruptRegistry.hasActiveOwner(payload.turnId) || this.approvalResolutionRegistry.has(payload.turnId),
+      requestOriginalStop: () => this.interruptRegistry.request(payload.turnId, payload.reason),
+      hasQueuedOrActiveRun: () => this.withExecutionLock.hasQueuedOrActiveRun(payload.runId),
+      underRunLock: operation => this.withExecutionLock(payload.runId, operation),
+      readAdmission: () => withTurnAdmissionRepository(this.env, repository => repository.getByTurnId(payload.turnId)),
+      readTerminal: async () => (await readAllLifecycleEvents(store, payload.turnId)).find(isTerminalLifecycleEvent),
+      markRecoveryRequired: current => withTurnAdmissionRepository(this.env, repository =>
         repository.markRecoveryRequiredForUnownedStop({
-          userId: currentAdmission.userId, sessionId: currentAdmission.sessionId,
-          workspaceId: currentAdmission.workspaceId!, runId: currentAdmission.runId,
-          threadId: currentAdmission.threadId, turnId: currentAdmission.turnId,
-          runAttemptId: currentAdmission.runAttemptId,
-        }),
-      );
-      if (retained) return { status: "requested" } as const;
-      const afterConflict = (await readAllLifecycleEvents(store, payload.turnId)).find(isTerminalLifecycleEvent);
-      return afterConflict
-        ? { status: "terminal_exists", terminalEvent: afterConflict } as const
-        : { status: "superseded" } as const;
+          userId: current.userId, sessionId: current.sessionId, workspaceId: current.workspaceId!,
+          runId: current.runId, threadId: current.threadId, turnId: current.turnId, runAttemptId: current.runAttemptId,
+        })),
+      reportUnresolved: () => console.warn(formatDiagnosticLogLine("run/runtime", "persisted-stop-delivery-unresolved", {
+        runId: payload.runId, turnId: payload.turnId,
+      })),
     });
-    if (observation.status === "terminal_exists") {
-      return runEngineJsonResponse(request, this.env, {
-        runId: payload.runId, accepted: false, status: "settled", terminalEvent: observation.terminalEvent,
-      });
-    }
-    if (observation.status === "requested") {
-      return runEngineJsonResponse(request, this.env, {
-        runId: payload.runId, accepted: true, status: "interrupt_requested",
-      });
-    }
-    return runEngineErrorResponse(request, this.env, "Interrupt scope was superseded", 409);
+    return runEngineJsonResponse(request, this.env, {
+      runId: payload.runId,
+      accepted: receipt.status === "interrupt_requested",
+      ...receipt,
+    });
   }
 
   async handleThreadInputSteerRequest(request: Request): Promise<Response> {
@@ -1925,27 +1881,6 @@ export class RunEngineRequestHandler {
   }
 }
 
-function sameAdmissionIdentity(
-  original: TurnAdmissionRecord,
-  current: TurnAdmissionRecord | null,
-): current is TurnAdmissionRecord {
-  return Boolean(
-    current &&
-      current.userId === original.userId &&
-      current.sessionId === original.sessionId &&
-      current.clientMessageId === original.clientMessageId &&
-      current.threadId === original.threadId &&
-      current.turnId === original.turnId &&
-      current.runAttemptId === original.runAttemptId &&
-      current.runId === original.runId &&
-      current.workspaceId === original.workspaceId &&
-      current.revisionOfTurnId === original.revisionOfTurnId &&
-      current.continuationOfTurnId === original.continuationOfTurnId &&
-      current.originalPromptId === original.originalPromptId &&
-      current.continuationTerminalSequence ===
-        original.continuationTerminalSequence,
-  );
-}
 
 function toStartupLifecycleFailure(
   error: unknown,
