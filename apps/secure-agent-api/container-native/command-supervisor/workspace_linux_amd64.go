@@ -219,6 +219,14 @@ func bootstrapWorkspaceRoot() error {
 	}
 	for _, component := range []string{"home", "sandbox", "checkouts"} {
 		next, openErr := syscall.Openat(fd, component, syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+		if openErr == syscall.ENOENT {
+			// Fixed protected parents only; never chmod/chown existing state.
+			if syscall.Mkdirat(fd, component, 0700) != nil || syscall.Fsync(fd) != nil {
+				syscall.Close(fd)
+				return errors.New("bootstrap_parent_creation_failed")
+			}
+			next, openErr = syscall.Openat(fd, component, syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+		}
 		closeErr := syscall.Close(fd)
 		if openErr != nil || closeErr != nil {
 			if next >= 0 {
