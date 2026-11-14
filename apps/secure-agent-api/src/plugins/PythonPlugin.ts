@@ -31,7 +31,8 @@ export class PythonPlugin implements IPlugin {
     context?: PluginExecutionContext,
   ): Promise<PluginResult> {
     try {
-      const toolboxContext = readToolboxCommandContext(payload);
+      if (!context?.nativeCommands) throw new Error("Native command ownership is required");
+      const toolboxContext = readToolboxCommandContext(payload, context);
       const parsed = PythonPayloadSchema.parse(payload);
       const runId = normalizeRunId(parsed.runId ?? toolboxContext.runId);
       const workspaceRoot = resolveScopedWorkspaceRoot(context, runId);
@@ -63,7 +64,8 @@ export class PythonPlugin implements IPlugin {
         }
       }
 
-      await sandbox.writeFile(`${workspaceRoot}/main.py`, parsed.code);
+      if (!toolboxContext.nativeCommands?.writeFile) throw new Error("Native workspace writing is unavailable");
+      await toolboxContext.nativeCommands.writeFile(`${workspaceRoot}/main.py`, parsed.code);
 
       if (onLog) onLog("[System] Executing script...");
       const result = await runSafeCommand(

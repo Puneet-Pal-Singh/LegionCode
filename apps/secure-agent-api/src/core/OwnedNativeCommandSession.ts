@@ -1,17 +1,21 @@
 import path from "node:path";
 import type { ArtifactStorePort } from "../ports/ArtifactStorePort";
 import type { SandboxExecutionLease } from "../ports/SandboxExecutionLease";
+import type { GitRepositoryMetadataPaths } from "@repo/git-service";
+import { NativeCommandClosureSchema, type NativeCommandClosure, type NativeCommandScope } from "@repo/shared-types/native-command-closure";
+import { validExecutionDomain, type ExecutionDomainSessionFields } from "./ExecutionSessionDomain";
 import {
-  NativeCommandReceiptSchema, NativeCommandRequestSchema, NativeMetadataProtectionSchema,
+  NativeCommandReceiptSchema, NativeCommandRequestSchema, NativeWorkspaceStateSchema, NativeWorkspaceWriteReceiptSchema,
   sameNativeBinding, sameNativeIdentity,
   type NativeCommandBinding, type NativeCommandCapability, type NativeCommandIdentity,
   type NativeCommandOriginal, type NativeCommandReceipt, type NativeCommandRequest,
-  type NativeCommandSpec, type NativeMetadataProtection, type NativeRootIdentity,
+  type NativeCommandSpec, type NativeRootIdentity,
+  type NativeWorkspaceState, type NativeWorkspaceWriteReceipt,
   type OwnedNativeSandboxPort,
 } from "../toolbox/contracts/OwnedSandboxCommand";
 
 export interface NativeCommandIntent {
-  kind: "workspace_prepare" | "command";
+  kind: "workspace_prepare" | "file_write" | "command";
   binding: NativeCommandBinding;
   phase: "dispatching" | "prepared" | "gate_dispatching" | "scope_closed" | "settled" | "unknown";
   controlToken: string;
@@ -21,12 +25,14 @@ export interface NativeCommandIntent {
   receiptArtifact?: { id: string; sha256: string; size: number };
   originalTransportSettled?: true;
   stopRequested?: true;
+  writeReceipt?: NativeWorkspaceWriteReceipt;
+  writeIntent?: { path: string; bytes: number; sha256: string };
 }
 export interface NativeSessionFields {
-  nativeWorkspace?: { root: NativeRootIdentity; metadata: NativeMetadataProtection };
+  nativeWorkspace?: NativeWorkspaceState;
   nativeCommand?: NativeCommandIntent;
 }
-interface Session extends NativeSessionFields {
+interface Session extends NativeSessionFields, ExecutionDomainSessionFields {
   lease: SandboxExecutionLease;
   workspaceScope: SandboxExecutionLease["workspaceScope"];
   cleanupInProgress?: boolean;
@@ -35,7 +41,8 @@ const prefix = "execution:session:";
 
 /** Same persisted execution session and physical writer; no parallel lifecycle. */
 export class OwnedNativeCommandSession implements NativeCommandCapability {
-  private original: Promise<NativeCommandOriginal> | undefined;
+  private original: Promise<unknown> | undefined;
+  private readonly operations = new Set<Promise<unknown>>();
   private stopped = false;
 
   constructor(private readonly input: {
@@ -43,26 +50,33 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
     sandbox: OwnedNativeSandboxPort; artifacts: ArtifactStorePort;
   }) {}
 
-  async prepareWorkspace(value: NativeMetadataProtection): Promise<NativeRootIdentity> {
-    const metadata = NativeMetadataProtectionSchema.parse(value);
+  prepareWorkspace(metadataPaths: GitRepositoryMetadataPaths): Promise<NativeRootIdentity> {
+    return this.track(() => this.prepareOwnedWorkspace(metadataPaths));
+  }
+
+  private async prepareOwnedWorkspace(metadataPaths: GitRepositoryMetadataPaths): Promise<NativeRootIdentity> {
+    if (this.stopped || this.original) throw unavailable();
+    if (metadataPaths.workspaceRoot !== this.input.lease.workspaceScope.root) throw unavailable();
     const intent = this.intent("workspace_prepare");
     await this.reserve(intent);
     try {
-      const root = await this.input.sandbox.prepareNativeWorkspace({
-        binding: intent.binding, root: this.input.lease.workspaceScope.root, metadata,
+      const prepared = await this.input.sandbox.prepareNativeWorkspace({
+        binding: intent.binding, root: this.input.lease.workspaceScope.root, metadataPaths,
       });
       await this.update(intent.binding.nonce, session => ({ ...session,
-        nativeWorkspace: { root, metadata },
+        nativeWorkspace: { root: prepared.root, sandboxBootId: prepared.sandboxBootId, metadata: prepared.metadata },
         nativeCommand: { ...intent, phase: "settled", originalTransportSettled: true },
       }));
-      return root;
+      return prepared.root;
     } catch {
       await this.markUnknown(intent.binding.nonce);
       throw unavailable();
     }
   }
 
-  async execute(spec: NativeCommandSpec) {
+  execute(spec: NativeCommandSpec) { return this.track(() => this.executeOwned(spec)); }
+
+  private async executeOwned(spec: NativeCommandSpec) {
     if (this.stopped || this.original) throw unavailable();
     const session = await this.read();
     if (!session.nativeWorkspace) throw new Error("NATIVE_WORKSPACE_PROTECTION_REQUIRED");
@@ -74,6 +88,7 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
     const request = NativeCommandRequestSchema.parse({
       version: 1, binding: intent.binding, controlToken: intent.controlToken,
       root, expectedRoot: session.nativeWorkspace.root, metadata: session.nativeWorkspace.metadata,
+      expectedBootId: session.nativeWorkspace.sandboxBootId,
       cwd, argv: spec.argv, environment, timeoutMs: spec.timeoutMs ?? 30_000,
       outputLimit: 4 * 1024 * 1024,
       limits: { memoryBytes: 512 * 1024 * 1024, pids: 128, cpuQuotaMicros: 100_000, cpuPeriodMicros: 100_000 },
@@ -99,12 +114,12 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
           await this.patch(intent.binding.nonce, { identity: intent.identity, phase: "prepared" });
         }
         if (intent.identity && (!receipt.identity || !sameNativeIdentity(intent.identity, receipt.identity))) throw unavailable();
-        if (this.stopped || (await this.read()).nativeCommand?.stopRequested) {
+        if (this.stopped || (await this.read(true)).cleanupInProgress || (await this.read(true)).nativeCommand?.stopRequested) {
           await this.control(intent, "stop");
         } else if (receipt.state === "prepared") {
           // Do not retry this request if its response is lost. Persisted intent
           // plus subsequent status observation determines what actually happened.
-          const current = await this.read();
+          const current = await this.read(true);
           if (originalOutcome) throw unavailable();
           if (current.nativeCommand?.phase !== "gate_dispatching") {
             await this.patch(intent.binding.nonce, { phase: "gate_dispatching" });
@@ -115,7 +130,7 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
         await pause();
       }
       if (!receipt || (receipt.state !== "closed" && receipt.state !== "not_started") || !receipt.gateClosed ||
-        (receipt.admission && (!receipt.identity || !intent.identity))) throw unavailable();
+        !receipt.identity || !intent.identity) throw unavailable();
       const bytes = new TextEncoder().encode(JSON.stringify(receipt));
       const sha256 = await digest(bytes);
       const artifact = await this.input.artifacts.upload({
@@ -148,9 +163,48 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
     }
   }
 
+  writeFile(target: string, content: string, options: { exclusive?: boolean } = {}): Promise<void> {
+    return this.track(() => this.writeOwnedFile(target, content, options));
+  }
+
+  private async writeOwnedFile(target: string, content: string, options: { exclusive?: boolean }): Promise<void> {
+    if (this.stopped || this.original) throw unavailable();
+    const write = this.input.sandbox.writeNativeWorkspaceFile;
+    if (typeof write !== "function") throw unavailable();
+    const session = await this.read();
+    if (!session.nativeWorkspace) throw unavailable();
+    const relative = path.posix.relative(this.input.lease.workspaceScope.root, target);
+    const bytes = new TextEncoder().encode(content);
+    if (!relative || relative === ".." || relative.startsWith("../") || path.posix.isAbsolute(relative) || bytes.byteLength > 200_000) throw unavailable();
+    const intent = this.intent("file_write");
+    intent.writeIntent = { path: relative, bytes: bytes.byteLength, sha256: await digest(bytes) };
+    await this.reserve(intent);
+    const original = write.call(this.input.sandbox, {
+      binding: intent.binding, root: this.input.lease.workspaceScope.root,
+      expectedRoot: session.nativeWorkspace.root, expectedBootId: session.nativeWorkspace.sandboxBootId,
+      metadata: session.nativeWorkspace.metadata, path: relative, content, exclusive: options.exclusive === true,
+    });
+    this.original = original;
+    try {
+      const receipt = await original;
+      if (!sameNativeBinding(receipt.binding, intent.binding) || receipt.root.device !== session.nativeWorkspace.root.device ||
+        receipt.root.inode !== session.nativeWorkspace.root.inode || receipt.sandboxBootId !== session.nativeWorkspace.sandboxBootId ||
+        receipt.metadataIdentity !== session.nativeWorkspace.metadata.identity || receipt.path !== relative ||
+        receipt.bytes !== bytes.byteLength || receipt.sha256 !== intent.writeIntent.sha256) throw unavailable();
+      await this.patch(intent.binding.nonce, { phase: "settled", originalTransportSettled: true, writeReceipt: receipt });
+      this.original = undefined;
+    } catch { await this.markUnknown(intent.binding.nonce); throw unavailable(); }
+  }
+
+  async drainOriginalOperations(): Promise<void> {
+    // Once the plugin observer settles it cannot create another operation.
+    this.stopped = true;
+    await Promise.allSettled([...this.operations]);
+  }
+
   async stop(): Promise<boolean> {
     this.stopped = true;
-    const session = await this.read();
+    const session = await this.read(true);
     const intent = session.nativeCommand;
     if (!intent || intent.phase === "settled") return true;
     if (intent.binding.taskId !== this.input.taskId) return false;
@@ -162,37 +216,50 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
   }
 
   async awaitClosure(): Promise<boolean> {
-    const intent = (await this.read()).nativeCommand;
-    return !this.original && (!intent || (intent.phase === "settled" && intent.originalTransportSettled === true));
+    return !this.original && !hasUnsettledNativeCommand(await this.read(true));
+  }
+
+  async closureEvidence(): Promise<NativeCommandClosure | undefined> {
+    return nativeClosureEvidence(this.input.sessionId, this.input.lease, this.input.taskId, await this.read(true));
   }
 
   private intent(kind: NativeCommandIntent["kind"]): NativeCommandIntent {
     const lease = this.input.lease;
+    if (!lease.executionDomainDigest) throw unavailable();
     return {
       kind, phase: "dispatching", controlToken: randomHex(),
-      binding: { sessionId: this.input.sessionId, leaseId: lease.leaseId, sandboxId: lease.sandboxId, generation: lease.generation,
+      binding: { executionDomainDigest: lease.executionDomainDigest, sessionId: this.input.sessionId, leaseId: lease.leaseId, sandboxId: lease.sandboxId, generation: lease.generation,
         workspaceId: lease.workspaceScope.workspaceId, runId: lease.workspaceScope.runId,
         threadId: lease.workspaceScope.threadId, turnId: lease.workspaceScope.turnId,
         runAttemptId: lease.workspaceScope.runAttemptId, taskId: this.input.taskId, nonce: randomHex() },
     };
   }
+  private track<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.stopped || this.original || this.operations.size > 0) return Promise.reject(unavailable());
+    const original = Promise.resolve().then(operation);
+    this.operations.add(original);
+    const settled = () => { this.operations.delete(original); };
+    void original.then(settled, settled);
+    return original;
+  }
   private async reserve(intent: NativeCommandIntent): Promise<void> {
     await this.input.state.blockConcurrencyWhile(async () => {
       const session = await this.read();
       const sessions = await this.input.state.storage.list<Session>({ prefix });
-      if ([...sessions.values()].some(value => value.lease.sandboxId === this.input.lease.sandboxId && hasUnsettledNativeCommand(value))) throw unavailable();
+      if ([...sessions.values()].some(value => value.lease?.sandboxId === this.input.lease.sandboxId && hasUnsettledNativeCommand(value))) throw unavailable();
       await this.input.state.storage.put(prefix + this.input.sessionId, { ...session, nativeCommand: intent });
     });
   }
-  private async read(): Promise<Session> {
+  private async read(allowClosing = false): Promise<Session> {
     const session = await this.input.state.storage.get<Session>(prefix + this.input.sessionId);
-    if (!session || session.cleanupInProgress || !sameExecutionLease(session.lease, this.input.lease) ||
+    if (this.input.lease.owner !== this.input.sessionId || !session || (!allowClosing && session.cleanupInProgress) || !sameExecutionLease(session.lease, this.input.lease) ||
       !sameWorkspaceScope(session.workspaceScope, this.input.lease.workspaceScope)) throw unavailable();
+    if ((await validExecutionDomain(session))?.domain !== "legioncode_native") throw unavailable();
     return session;
   }
   private async update(nonce: string, change: (session: Session) => Session): Promise<void> {
     await this.input.state.blockConcurrencyWhile(async () => {
-      const session = await this.read();
+      const session = await this.read(true);
       if (session.nativeCommand?.binding.nonce !== nonce) throw unavailable();
       await this.input.state.storage.put(prefix + this.input.sessionId, change(session));
     });
@@ -209,16 +276,69 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
     return receipt;
   }
   private assertPreparedIdentity(request: NativeCommandRequest, identity: NativeCommandIdentity): void {
-    if (identity.root.device !== request.expectedRoot.device || identity.root.inode !== request.expectedRoot.inode ||
+    if (identity.bootId !== request.expectedBootId || identity.root.device !== request.expectedRoot.device || identity.root.inode !== request.expectedRoot.inode ||
       identity.metadataIdentity !== request.metadata.identity || JSON.stringify(identity.limits) !== JSON.stringify(request.limits)) throw unavailable();
   }
 }
 
-export function hasUnsettledNativeCommand(session: NativeSessionFields): boolean {
-  return !!session.nativeCommand && (session.nativeCommand.phase !== "settled" || session.nativeCommand.originalTransportSettled !== true);
+export function hasUnsettledNativeCommand(session: NativeSessionFields & { lease?: SandboxExecutionLease }): boolean {
+  try { return unsettledNativeCommand(session); } catch { return true; }
+}
+function unsettledNativeCommand(session: NativeSessionFields & { lease?: SandboxExecutionLease }): boolean {
+  const intent = session.nativeCommand;
+  if (!intent) return false;
+  if (intent.phase !== "settled" || intent.originalTransportSettled !== true || !session.nativeWorkspace ||
+    !NativeWorkspaceStateSchema.safeParse(session.nativeWorkspace).success) return true;
+  if (intent.kind === "workspace_prepare") return false;
+  if (intent.kind === "file_write") {
+    const receipt = intent.writeReceipt, expected = intent.writeIntent;
+    return !receipt || !expected || !NativeWorkspaceWriteReceiptSchema.safeParse(receipt).success ||
+      !sameNativeBinding(intent.binding, receipt.binding) || receipt.path !== expected.path || receipt.bytes !== expected.bytes ||
+      receipt.sha256 !== expected.sha256 || receipt.sandboxBootId !== session.nativeWorkspace.sandboxBootId ||
+      receipt.root.device !== session.nativeWorkspace.root.device || receipt.root.inode !== session.nativeWorkspace.root.inode ||
+      receipt.metadataIdentity !== session.nativeWorkspace.metadata.identity;
+  }
+  const identity = intent.identity, request = intent.request, receipt = intent.receipt;
+  if (!identity || !request || !receipt || !intent.receiptArtifact || !/^[a-f0-9]{64}$/.test(intent.receiptArtifact.sha256) ||
+    !NativeCommandRequestSchema.safeParse(request).success || !NativeCommandReceiptSchema.safeParse(receipt).success || !receipt.gateClosed ||
+    (receipt.state !== "closed" && receipt.state !== "not_started") || !receipt.identity ||
+    !sameNativeBinding(intent.binding, request.binding) || !sameNativeBinding(intent.binding, receipt.binding) ||
+    !sameNativeIdentity(identity, receipt.identity) || identity.bootId !== request.expectedBootId ||
+    identity.root.device !== request.expectedRoot.device || identity.root.inode !== request.expectedRoot.inode ||
+    identity.metadataIdentity !== request.metadata.identity || JSON.stringify(identity.limits) !== JSON.stringify(request.limits) ||
+    identity.bootId !== session.nativeWorkspace.sandboxBootId || identity.metadataIdentity !== session.nativeWorkspace.metadata.identity ||
+    identity.root.device !== session.nativeWorkspace.root.device || identity.root.inode !== session.nativeWorkspace.root.inode) return true;
+  const lease = session.lease;
+  return !!lease && (intent.binding.executionDomainDigest !== lease.executionDomainDigest || intent.binding.sessionId !== lease.owner || intent.binding.leaseId !== lease.leaseId ||
+    intent.binding.sandboxId !== lease.sandboxId || intent.binding.generation !== lease.generation ||
+    intent.binding.workspaceId !== lease.workspaceScope.workspaceId || intent.binding.runId !== lease.workspaceScope.runId ||
+    intent.binding.threadId !== lease.workspaceScope.threadId || intent.binding.turnId !== lease.workspaceScope.turnId ||
+    intent.binding.runAttemptId !== lease.workspaceScope.runAttemptId || request.root !== lease.workspaceScope.root);
+}
+export function nativeClosureEvidence(sessionId: string, lease: SandboxExecutionLease, taskId: string, session: NativeSessionFields & ExecutionDomainSessionFields): NativeCommandClosure | undefined {
+  const intent = session.nativeCommand;
+  if (!intent || intent.kind !== "command" || intent.binding.taskId !== taskId || !lease.executionDomainDigest || session.executionDomain?.domain !== "legioncode_native") return undefined;
+  const scope: NativeCommandScope = { executionDomainDigest: lease.executionDomainDigest, sessionId, leaseId: lease.leaseId, sandboxId: lease.sandboxId, generation: lease.generation,
+    workspaceId: lease.workspaceScope.workspaceId, workspaceRoot: lease.workspaceScope.root,
+    runId: lease.workspaceScope.runId, threadId: lease.workspaceScope.threadId,
+    turnId: lease.workspaceScope.turnId, runAttemptId: lease.workspaceScope.runAttemptId, taskId };
+  const identity = intent.identity;
+  if (hasUnsettledNativeCommand({ ...session, lease }) || intent.binding.sessionId !== sessionId || !identity || !intent.receiptArtifact ||
+    !intent.receipt?.gateClosed || !intent.request || !sameNativeBinding(intent.binding, intent.request.binding) ||
+    !sameNativeBinding(intent.binding, intent.receipt.binding) || !intent.receipt.identity || !sameNativeIdentity(identity, intent.receipt.identity) ||
+    (intent.receipt.state !== "closed" && intent.receipt.state !== "not_started")) {
+    return NativeCommandClosureSchema.parse({ state: "unknown", scope, operationId: intent.binding.nonce, originalTransportSettled: false });
+  }
+  return NativeCommandClosureSchema.parse({ state: "settled", scope,
+    profile: "linux-pid-namespace-cgroup-v2",
+    operationId: intent.binding.nonce, nonce: intent.binding.nonce, originalTransportSettled: true,
+    root: identity.root, sandboxBootId: identity.bootId,
+    namespace: { device: identity.namespaceDevice, inode: identity.namespaceInode, initHostPid: identity.initHostPid },
+    cgroup: identity.cgroup, metadataIdentity: identity.metadataIdentity, receiptSha256: intent.receiptArtifact.sha256 });
 }
 export function sameExecutionLease(actual: SandboxExecutionLease, expected: SandboxExecutionLease): boolean {
   return actual.leaseId === expected.leaseId && actual.sandboxId === expected.sandboxId && actual.owner === expected.owner &&
+    actual.executionDomainDigest === expected.executionDomainDigest &&
     actual.generation === expected.generation && actual.correlationId === expected.correlationId &&
     actual.expiresAt === expected.expiresAt && actual.mutationMode === expected.mutationMode &&
     sameWorkspaceScope(actual.workspaceScope, expected.workspaceScope);

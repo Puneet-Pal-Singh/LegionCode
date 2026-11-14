@@ -1,7 +1,7 @@
 import { Sandbox as CloudflareSandbox } from "@cloudflare/sandbox";
 import {
   NativeCommandBindingSchema, NativeCommandReceiptSchema, NativeCommandRequestSchema,
-  NativeRootIdentitySchema, NativeMetadataProtectionSchema, sameNativeBinding,
+  NativeWorkspacePreparationSchema, NativeWorkspaceWriteReceiptSchema, sameNativeBinding,
   type NativeCommandOriginal, type NativeCommandRequest, type OwnedNativeSandboxPort,
 } from "../toolbox/contracts/OwnedSandboxCommand";
 
@@ -50,7 +50,6 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
 
   async prepareNativeWorkspace(input: Parameters<OwnedNativeSandboxPort["prepareNativeWorkspace"]>[0]) {
     NativeCommandBindingSchema.parse(input.binding);
-    NativeMetadataProtectionSchema.parse(input.metadata);
     if (!/^\/home\/sandbox\/checkouts\/[A-Za-z0-9_.-]+$/.test(input.root) || this.nativeOriginal) throw unavailable();
     const operation = this.runOriginal([helper, "--prepare-workspace"], input);
     this.nativeOriginal = operation;
@@ -58,27 +57,48 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
     try { original = await operation; }
     finally { if (this.nativeOriginal === operation) this.nativeOriginal = undefined; }
     if (original.exitCode !== 0 || original.stderr !== "") throw unavailable();
-    return NativeRootIdentitySchema.parse(JSON.parse(original.stdout));
+    const prepared = NativeWorkspacePreparationSchema.parse(JSON.parse(original.stdout));
+    if (!sameNativeBinding(prepared.binding, input.binding)) throw unavailable();
+    return prepared;
   }
 
-  private async runOriginal(argv: string[], input: unknown): Promise<NativeCommandOriginal> {
+  async writeNativeWorkspaceFile(input: Parameters<NonNullable<OwnedNativeSandboxPort["writeNativeWorkspaceFile"]>>[0]) {
+    NativeCommandBindingSchema.parse(input.binding);
+    if (this.nativeOriginal) throw unavailable();
+    const operation = this.runOriginal([helper, "--write-workspace-file"], input, 2 * 1024 * 1024);
+    this.nativeOriginal = operation;
+    let original: NativeCommandOriginal;
+    try { original = await operation; }
+    finally { if (this.nativeOriginal === operation) this.nativeOriginal = undefined; }
+    if (original.exitCode !== 0 || original.stderr !== "") throw unavailable();
+    const receipt = NativeWorkspaceWriteReceiptSchema.parse(JSON.parse(original.stdout));
+    if (!sameNativeBinding(receipt.binding, input.binding)) throw unavailable();
+    return receipt;
+  }
+
+  private async runOriginal(argv: string[], input: unknown, limit = 64 * 1024): Promise<NativeCommandOriginal> {
     const container = this.nativeState.container;
     if (!container?.running || typeof container.exec !== "function") throw unavailable();
     const body = encoder.encode(JSON.stringify(input));
-    if (body.byteLength > 64 * 1024) throw unavailable();
-    const stdin = new ReadableStream({ type: "bytes", start(controller) { controller.enqueue(body); controller.close(); } });
+    if (body.byteLength > limit) throw unavailable();
     const process = await container.exec(argv, {
       user: "0:0", cwd: "/", env: { PATH: "/usr/local/bin:/usr/bin:/bin", LANG: "C.UTF-8", LC_ALL: "C.UTF-8" },
-      stdin, stdout: "pipe", stderr: "pipe",
+      stdin: "pipe", stdout: "pipe", stderr: "pipe",
     });
-    if (!process.stdout || !process.stderr) throw unavailable();
+    if (!process.stdin || !process.stdout || !process.stderr) throw unavailable();
+    const stdin = process.stdin;
+    const inputSettled = (async () => {
+      const writer = stdin.getWriter();
+      try { await writer.write(body); await writer.close(); }
+      finally { writer.releaseLock(); }
+    })();
     // Consume original channels concurrently through EOF, including rejected
     // reads. An observer timeout or a process-status label cannot replace them.
     const settled = await Promise.allSettled([
-      readBounded(process.stdout, 12 * 1024 * 1024), readBounded(process.stderr, 4096), process.exitCode,
+      readBounded(process.stdout, 12 * 1024 * 1024), readBounded(process.stderr, 4096), process.exitCode, inputSettled,
     ]);
-    const [stdout, stderr, exit] = settled;
-    if (stdout.status !== "fulfilled" || stderr.status !== "fulfilled" || exit.status !== "fulfilled") throw unavailable();
+    const [stdout, stderr, exit, inputClosed] = settled;
+    if (stdout.status !== "fulfilled" || stderr.status !== "fulfilled" || exit.status !== "fulfilled" || inputClosed.status !== "fulfilled") throw unavailable();
     return { stdout: stdout.value, stderr: stderr.value, exitCode: exit.value };
   }
 }

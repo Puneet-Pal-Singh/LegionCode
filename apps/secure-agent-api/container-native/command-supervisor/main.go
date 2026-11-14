@@ -26,17 +26,18 @@ const (
 )
 
 type binding struct {
-	SessionID    string `json:"sessionId"`
-	LeaseID      string `json:"leaseId"`
-	SandboxID    string `json:"sandboxId"`
-	Generation   int64  `json:"generation"`
-	WorkspaceID  string `json:"workspaceId"`
-	RunID        string `json:"runId"`
-	ThreadID     string `json:"threadId"`
-	TurnID       string `json:"turnId"`
-	RunAttemptID string `json:"runAttemptId"`
-	TaskID       string `json:"taskId"`
-	Nonce        string `json:"nonce"`
+	ExecutionDomainDigest string `json:"executionDomainDigest"`
+	SessionID             string `json:"sessionId"`
+	LeaseID               string `json:"leaseId"`
+	SandboxID             string `json:"sandboxId"`
+	Generation            int64  `json:"generation"`
+	WorkspaceID           string `json:"workspaceId"`
+	RunID                 string `json:"runId"`
+	ThreadID              string `json:"threadId"`
+	TurnID                string `json:"turnId"`
+	RunAttemptID          string `json:"runAttemptId"`
+	TaskID                string `json:"taskId"`
+	Nonce                 string `json:"nonce"`
 }
 
 type rootIdentity struct {
@@ -129,6 +130,9 @@ func decodeBounded(reader io.Reader, limit int, value any) error {
 }
 
 func validateRequest(value request) error {
+	if !hexadecimal.MatchString(value.Binding.ExecutionDomainDigest) {
+		return errors.New("execution_domain_required")
+	}
 	if value.Version != protocolVersion || !hexadecimal.MatchString(value.ControlToken) ||
 		!hexadecimal.MatchString(value.Binding.Nonce) || value.Binding.Generation < 0 {
 		return errors.New("invalid_request")

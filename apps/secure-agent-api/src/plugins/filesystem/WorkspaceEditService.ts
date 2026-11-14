@@ -150,10 +150,11 @@ export class WorkspaceEditService {
     content: string,
   ): Promise<void> {
     const parentDir = path.posix.dirname(targetPath);
-    await runCheckedCommand(context, "mkdir", ["-p", parentDir]);
+    const nativeCommands = context.toolboxContext.nativeCommands;
+    if (!nativeCommands?.writeFile) throw new Error("Native workspace writing is unavailable");
     const tempPath = `${parentDir}/.legioncode-edit-${crypto.randomUUID()}.tmp`;
     try {
-      await context.sandbox.writeFile(tempPath, content);
+      await nativeCommands.writeFile(tempPath, content, { exclusive: true });
       await preserveExistingMode(context, targetPath, tempPath);
       await runCheckedCommand(context, "mv", [
         "-f",
@@ -164,7 +165,7 @@ export class WorkspaceEditService {
     } catch (error) {
       await runSafeCommand(
         context.sandbox,
-        { command: "rm", args: ["-f", "--", tempPath], runId: context.runId },
+        withToolboxCommandContext({ command: "rm", args: ["-f", "--", tempPath], runId: context.runId }, context.toolboxContext),
         ["rm"],
       );
       throw error;

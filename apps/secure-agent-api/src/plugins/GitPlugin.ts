@@ -217,6 +217,7 @@ export class GitPlugin implements IPlugin {
             toolboxContext,
             runId,
             onLog,
+            context?.nativeCommands,
           );
         case "git_pull":
           return await this.pull(
@@ -293,6 +294,7 @@ export class GitPlugin implements IPlugin {
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
     onLog?: LogCallback,
+    nativeCommands?: PluginExecutionContext["nativeCommands"],
   ): Promise<PluginResult> {
     const safeUrl = validateCloneUrl(url);
     const authEnvironment = this.buildGitAuthEnvironment(token);
@@ -310,6 +312,13 @@ export class GitPlugin implements IPlugin {
       toolboxContext,
       runId,
     );
+    if (result.exitCode === 0 && nativeCommands) {
+      // Only the persisted Native-domain capability can provision this UID.
+      // Git resolves paths; the held-FD helper supplies physical authority.
+      const metadataPaths = await this.createGitService(sandbox, toolboxContext, "git.native_metadata")
+        .readRepositoryMetadataPaths({ workspaceRoot: worktree });
+      await nativeCommands.prepareWorkspace(metadataPaths);
+    }
     return buildGitResult(result, "Repository cloned successfully");
   }
 
