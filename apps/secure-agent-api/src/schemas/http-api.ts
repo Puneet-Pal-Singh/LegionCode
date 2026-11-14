@@ -7,6 +7,8 @@
  */
 
 import { z } from "zod";
+import { NativeCommandClosureSchema } from "@repo/shared-types/native-command-closure";
+import { ServerExecutionDomainBindingSchema, ExecutionDomainDigestSchema } from "@repo/worker-protocol/private/execution-domain";
 
 /**
  * Session Management Schemas
@@ -39,6 +41,7 @@ export const SessionCreateRequestSchema = z
         "repoPath must not contain path traversal",
       ),
     workspaceScope: WorkspaceScopeSchema,
+    executionDomain: ServerExecutionDomainBindingSchema.optional(),
     metadata: z.record(z.unknown()).optional(),
   })
   .superRefine((value, context) => {
@@ -67,6 +70,7 @@ export const SessionCreateResponseSchema = z.object({
     expiresAt: z.number().int().positive(),
     generation: z.number().int().nonnegative(),
     mutationMode: z.enum(["serialized", "read_only"]),
+    executionDomainDigest: ExecutionDomainDigestSchema.optional(),
   }),
 });
 
@@ -74,6 +78,7 @@ export type SessionCreateResponse = z.infer<typeof SessionCreateResponseSchema>;
 
 export const SessionResumeRequestSchema = z
   .object({
+    executionDomain: ServerExecutionDomainBindingSchema.optional(),
     workspaceScope: WorkspaceScopeSchema,
     lease: z
       .object({
@@ -88,6 +93,7 @@ export const SessionResumeRequestSchema = z
 export type SessionResumeRequest = z.infer<typeof SessionResumeRequestSchema>;
 
 export const SessionBorrowRequestSchema = z.object({
+  executionDomain: ServerExecutionDomainBindingSchema.optional(),
   runId: z.string().min(1),
   workspaceScope: WorkspaceScopeSchema,
   lease: z.object({
@@ -137,6 +143,7 @@ export const CancelTaskRequestSchema = z
 export type CancelTaskRequest = z.infer<typeof CancelTaskRequestSchema>;
 
 export const ExecuteTaskResponseSchema = z.object({
+  nativeCommandClosure: NativeCommandClosureSchema.optional(),
   taskId: z.string().min(1),
   leaseId: z.string().min(1),
   correlationId: z.string().min(1),

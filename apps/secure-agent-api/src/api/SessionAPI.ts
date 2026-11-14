@@ -24,6 +24,8 @@ import type {
 } from "../ports/SandboxExecutionPort";
 import type { RuntimeEventPublisher } from "../services/runtime-events/InternalRuntimeEventClient";
 import type { JsonValue } from "@repo/shared-types";
+import { snapshotExecutionDomain, sameExecutionDomain, type ServerExecutionDomainBinding } from "@repo/worker-protocol/private/execution-domain";
+import { validExecutionDomain, matchesDomainWorkspace } from "../core/ExecutionSessionDomain";
 import {
   createSandboxLease,
   type SandboxExecutionLease,
@@ -39,6 +41,7 @@ const SESSION_TTL_MS = 3600000;
 const EXECUTION_NOT_IMPLEMENTED_CODE = "EXECUTION_NOT_IMPLEMENTED";
 
 interface SessionRecord {
+  executionDomain?: ServerExecutionDomainBinding;
   runId: string;
   taskId: string;
   repoPath: string;
@@ -183,7 +186,9 @@ async function storeSession(
   repoPath: string,
   token: string,
   workspaceScope: WorkspaceScope,
+  executionDomain?: ServerExecutionDomainBinding,
 ): Promise<{ expiresAt: number; lease: SandboxExecutionLease }> {
+  const domain = executionDomain ? snapshotExecutionDomain(executionDomain) : undefined;
   const sessionStore = getRuntimeSessionStore(runtime);
   if (!sessionStore) {
     throw new Error("Session storage is unavailable");
@@ -192,6 +197,7 @@ async function storeSession(
   const now = Date.now();
   const expiresAt = now + SESSION_TTL_MS;
   const lease = await createSandboxLease({
+    executionDomain: domain,
     workspaceScope,
     owner: sessionId,
     correlationId: `secure-api:${sessionId}`,
@@ -206,6 +212,7 @@ async function storeSession(
     createdAt: now,
     workspaceScope,
     lease,
+    ...(domain ? { executionDomain: domain } : {}),
   });
   return { expiresAt, lease };
 }
@@ -258,14 +265,12 @@ async function authorizeSessionRequest(
   request: Request,
   runtime: RuntimeStub,
   sessionId: string,
-  preserveExpiredLease = false,
+  _preserveExpiredLease = false,
 ): Promise<
   { ok: true; session: SessionRecord } | { ok: false; response: Response }
 > {
-  const sessionStore = preserveExpiredLease ? getRuntimeSessionStore(runtime) : null;
-  const session = sessionStore
-    ? await sessionStore.getExecutionSession(sessionId)
-    : await getActiveSession(runtime, sessionId);
+  const sessionStore = getRuntimeSessionStore(runtime);
+  const session = await sessionStore?.getExecutionSession(sessionId);
   if (!session || session.expiresAt <= Date.now()) {
     return {
       ok: false,
@@ -283,6 +288,13 @@ async function authorizeSessionRequest(
       ok: false,
       response: errorResponse("Unauthorized", "UNAUTHORIZED", 401),
     };
+  }
+
+  if (session.executionDomain || session.lease.executionDomainDigest) {
+    const domain = await validExecutionDomain(session);
+    if (!domain || !requestMatchesDomain(request, domain, session.workspaceScope)) {
+      return { ok: false, response: errorResponse("Execution domain binding unavailable", "UNAUTHORIZED", 401) };
+    }
   }
 
   return { ok: true, session };
@@ -305,7 +317,7 @@ async function fetchManifest(runtime: RuntimeStub): Promise<unknown> {
 function getRuntimeExecutionPort(
   runtime: RuntimeStub,
 ): Pick<SandboxExecutionPort, "executeTask"> &
-  Partial<Pick<SandboxExecutionPort, "cancelTask">> | null {
+  Partial<Pick<SandboxExecutionPort, "cancelTask" | "getNativeCommandClosure">> | null {
   const candidate = runtime as Record<string, unknown>;
   const executionPort = candidate.executionPort;
   if (
@@ -314,7 +326,7 @@ function getRuntimeExecutionPort(
     typeof (executionPort as SandboxExecutionPort).executeTask === "function"
   ) {
     return executionPort as Pick<SandboxExecutionPort, "executeTask"> &
-      Partial<Pick<SandboxExecutionPort, "cancelTask">>;
+      Partial<Pick<SandboxExecutionPort, "cancelTask" | "getNativeCommandClosure">>;
   }
 
   const executeTask = candidate.executeTask;
@@ -323,6 +335,11 @@ function getRuntimeExecutionPort(
   }
 
   return {
+    getNativeCommandClosure: async (sessionId, lease, taskId) => {
+      const method = candidate.getNativeCommandClosure;
+      if (typeof method !== "function") return undefined;
+      return await (method as NonNullable<SandboxExecutionPort["getNativeCommandClosure"]>)(sessionId, lease, taskId);
+    },
     executeTask: (sessionId: string, input: TaskExecutionInput) =>
       (
         executeTask as (
@@ -421,6 +438,8 @@ async function replaceDeadLease(
 ): Promise<void> {
   const sessionStore = getRuntimeSessionStore(runtime);
   if (!sessionStore) return;
+  // Marked attempts require their canonical claim/recovery owner; never issue a replacement here.
+  if (session.executionDomain || session.lease.executionDomainDigest) return;
   if (session.lease.generation >= 1) {
     await sessionStore.storeExecutionSession(sessionId, {
       ...session,
@@ -515,6 +534,10 @@ export async function handleCreateSession(
     }
 
     const { runId, taskId, repoPath, workspaceScope } = validation.data;
+    const domain = validation.data.executionDomain ? snapshotExecutionDomain(validation.data.executionDomain) : undefined;
+    if (domain && !requestMatchesDomain(request, domain, workspaceScope)) {
+      return errorResponse("Execution domain binding unavailable", "EXECUTION_DOMAIN_BINDING_UNAVAILABLE", 409);
+    }
     const sessionId = generateSessionId();
     const token = generateToken();
     const storedSession = await storeSession(
@@ -525,6 +548,7 @@ export async function handleCreateSession(
       repoPath,
       token,
       workspaceScope,
+      domain,
     );
     const manifest = await fetchManifest(runtime);
 
@@ -577,6 +601,10 @@ export async function handleBorrowSession(
       );
     }
     const session = await sessionStore.getExecutionSession(sessionId);
+    const domain = validation.data.executionDomain ? snapshotExecutionDomain(validation.data.executionDomain) : undefined;
+    if (session && !await matchesStoredDomain(request, session, domain)) {
+      return errorResponse("Execution domain binding unavailable", "EXECUTION_DOMAIN_BINDING_UNAVAILABLE", 409);
+    }
     if (!isExactBorrowableSession(session, validation.data)) {
       return errorResponse(
         "The original secure checkout session is unavailable for Git borrowing",
@@ -639,7 +667,18 @@ export async function handleResumeSession(
     if (!validation.valid) {
       return errorResponse(validation.error, "INVALID_REQUEST", 400);
     }
-    const session = await getActiveSession(runtime, sessionId);
+    const domain = validation.data.executionDomain ? snapshotExecutionDomain(validation.data.executionDomain) : undefined;
+    if (domain && !requestMatchesDomain(request, domain, validation.data.workspaceScope)) {
+      return errorResponse("Execution domain binding unavailable", "EXECUTION_DOMAIN_BINDING_UNAVAILABLE", 409);
+    }
+    const rawSession = await getRuntimeSessionStore(runtime)?.getExecutionSession(sessionId);
+    if (rawSession && !await matchesStoredDomain(request, rawSession, domain)) {
+      return errorResponse("Execution domain binding unavailable", "EXECUTION_DOMAIN_BINDING_UNAVAILABLE", 409);
+    }
+    if (domain && (!rawSession || rawSession.expiresAt <= Date.now())) {
+      return errorResponse("The original marked execution session is unavailable", "EXECUTION_DOMAIN_BINDING_UNAVAILABLE", 503);
+    }
+    const session = domain ? rawSession : await getActiveSession(runtime, sessionId);
     if (!session) {
       if (validation.data.lease.generation >= 1) {
         return errorResponse(
@@ -751,6 +790,15 @@ export async function handleResumeSession(
     );
     return errorResponse(message, "INTERNAL_ERROR", 500);
   }
+}
+
+function requestMatchesDomain(request: Request, domain: ServerExecutionDomainBinding, workspace: WorkspaceScope): boolean {
+  return new URL(request.url).searchParams.get("session") === domain.scope.brainSessionId && matchesDomainWorkspace(domain, workspace);
+}
+async function matchesStoredDomain(request: Request, session: SessionRecord, expected: ServerExecutionDomainBinding | undefined): Promise<boolean> {
+  if (!expected) return !session.executionDomain && session.lease.executionDomainDigest === undefined;
+  const actual = await validExecutionDomain(session);
+  return !!actual && sameExecutionDomain(actual, expected) && requestMatchesDomain(request, actual, session.workspaceScope);
 }
 
 export async function handleExecuteTask(
@@ -886,7 +934,8 @@ export async function handleExecuteTask(
       result: executionResult,
     });
 
-    if (executionResult.status === "sandbox_unavailable" && !borrowedLease) {
+    if (executionResult.status === "sandbox_unavailable" && !borrowedLease &&
+      executionResult.error?.code !== "NATIVE_COMMAND_CLOSURE_UNKNOWN" && executionResult.nativeCommandClosure?.state !== "unknown") {
       await replaceDeadLease(runtime, sessionId, auth.session);
     }
 
@@ -1053,7 +1102,8 @@ export async function handleCancelTask(
     auth.session.lease.leaseId,
     taskId,
   );
-  return jsonResponse({ cancelled, taskId }, 200);
+  const nativeCommandClosure = await executionPort.getNativeCommandClosure?.(sessionId, auth.session.lease, taskId);
+  return jsonResponse({ cancelled, taskId, ...(nativeCommandClosure ? { nativeCommandClosure } : {}) }, 200);
 }
 
 export async function addLog(
@@ -1074,8 +1124,10 @@ export async function getSession(
   if (!session) {
     return null;
   }
-  const { token: _token, ...publicSession } = session;
-  return publicSession;
+  const { executionDomainDigest: _digest, ...lease } = session.lease;
+  return { runId: session.runId, taskId: session.taskId, repoPath: session.repoPath,
+    expiresAt: session.expiresAt, createdAt: session.createdAt,
+    workspaceScope: session.workspaceScope, lease };
 }
 
 export async function isSessionValid(

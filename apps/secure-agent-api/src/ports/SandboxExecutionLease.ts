@@ -1,3 +1,5 @@
+import { executionDomainDigest, snapshotExecutionDomain, type ServerExecutionDomainBinding } from "@repo/worker-protocol/private/execution-domain";
+
 export const DEFAULT_SANDBOX_LEASE_TTL_MS = 15 * 60 * 1000;
 export const MAX_SANDBOX_LEASE_TTL_MS = 60 * 60 * 1000;
 
@@ -16,6 +18,7 @@ export interface WorkspaceScope {
 export type SandboxMutationMode = "serialized" | "read_only";
 
 export interface SandboxExecutionLease {
+  executionDomainDigest?: string;
   leaseId: string;
   sandboxId: string;
   workspaceScope: WorkspaceScope;
@@ -27,6 +30,7 @@ export interface SandboxExecutionLease {
 }
 
 export interface SandboxExecutionLeaseRequest {
+  executionDomain?: ServerExecutionDomainBinding;
   workspaceScope: WorkspaceScope;
   owner: string;
   correlationId: string;
@@ -47,22 +51,28 @@ export function workspaceLeaseKey(
 export async function createSandboxLease(
   input: SandboxExecutionLeaseRequest & { now?: number },
 ): Promise<SandboxExecutionLease> {
+  const domain = input.executionDomain ? snapshotExecutionDomain(input.executionDomain) : undefined;
+  const workspaceScope = Object.freeze({ ...input.workspaceScope });
+  const owner = input.owner, correlationId = input.correlationId;
+  const mutationMode = input.mutationMode ?? "serialized";
   const now = input.now ?? Date.now();
   const ttlMs = Math.min(
     Math.max(input.ttlMs ?? DEFAULT_SANDBOX_LEASE_TTL_MS, 1_000),
     MAX_SANDBOX_LEASE_TTL_MS,
   );
-  const { workspaceId, runAttemptId } = input.workspaceScope;
+  const { workspaceId, runAttemptId } = workspaceScope;
   const generation = input.generation ?? 0;
+  const domainDigest = domain ? await executionDomainDigest(domain) : undefined;
   return {
     leaseId: `lease_${crypto.randomUUID()}`,
     sandboxId: await createSandboxId(workspaceId, runAttemptId, generation),
-    workspaceScope: input.workspaceScope,
-    owner: input.owner,
-    correlationId: input.correlationId,
+    workspaceScope,
+    owner,
+    correlationId,
     expiresAt: now + ttlMs,
     generation,
-    mutationMode: input.mutationMode ?? "serialized",
+    mutationMode,
+    ...(domainDigest ? { executionDomainDigest: domainDigest } : {}),
   };
 }
 
