@@ -63,9 +63,12 @@ export async function attemptThreadTitle(
   let finishReason: string | undefined;
   let tokens: number | undefined;
   let originalSettled = false;
-  const original = Promise.resolve().then(() => generator.generateText({
-    ...request, signal: controller.signal, temperature: 0, maxOutputTokens: 128,
-  }));
+  const original = Promise.resolve().then(() => {
+    controller.signal.throwIfAborted();
+    return generator.generateText({
+      ...request, signal: controller.signal, temperature: 0, maxOutputTokens: 128,
+    });
+  });
   // An observer deadline/abort is never evidence that this raw request ended.
   void original.then(() => { originalSettled = true; }, () => { originalSettled = true; });
   try {
