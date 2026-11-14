@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { NativePhysicalIdentitySchema, NativePhysicalIntegerSchema } from "@repo/shared-types/native-command-closure";
+import { NativePhysicalIdentitySchema, NativePhysicalIntegerSchema, type NativeCommandClosure } from "@repo/shared-types/native-command-closure";
 import type { ToolboxCommandResult } from "./ToolboxSession";
 import type { GitRepositoryMetadataPaths } from "@repo/git-service";
 
@@ -86,6 +86,7 @@ export interface NativeCommandCapability {
   writeFile?(path: string, content: string, options?: { exclusive?: boolean }): Promise<void>;
   stop(): Promise<boolean>;
   awaitClosure(): Promise<boolean>;
+  closureEvidence?(): Promise<NativeCommandClosure | undefined>;
 }
 
 export interface NativeCommandOriginal {

@@ -64,6 +64,7 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
   private readonly activeExecutions = new Map<string, ActiveTaskExecution>();
   private readonly taskTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly leases = new Map<string, SandboxExecutionLease>();
+  private readonly fencedLeases = new Set<string>();
   private readonly mutationTails = new Map<string, Promise<void>>();
 
   constructor(
@@ -76,7 +77,7 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
 
   registerLease(lease: SandboxExecutionLease): void {
     const existing = this.leases.get(lease.leaseId);
-    if (existing && workspaceLeaseKey(existing) !== workspaceLeaseKey(lease)) {
+    if (this.fencedLeases.has(lease.leaseId) || (existing && !sameRegisteredLease(existing, lease))) {
       throw new SandboxLeaseError(
         "SANDBOX_LEASE_COLLISION",
         "A lease id cannot be rebound to a different workspace run-attempt",
@@ -84,7 +85,7 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
         lease.correlationId,
       );
     }
-    this.leases.set(lease.leaseId, lease);
+    this.leases.set(lease.leaseId, Object.freeze({ ...lease, workspaceScope: Object.freeze({ ...lease.workspaceScope }) }));
   }
 
   async acquireLease(
@@ -103,7 +104,20 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
     if (leaseId !== input.lease.leaseId || !this.isActiveLease(input.lease)) {
       return this.leaseFailure(input);
     }
-    const execute = () => this.executeTaskWithLease(input, hooks);
+    const execute = async () => {
+      try { return await this.executeTaskWithLease(input, hooks); }
+      finally {
+        const active = this.activeExecutions.get(this.executionKey(leaseId, input.taskId));
+        let nativeClosed = !input.nativeCommands;
+        if (input.nativeCommands) {
+          try { nativeClosed = (await input.nativeCommands.closureEvidence?.())?.state === "settled"; }
+          catch { nativeClosed = false; }
+        }
+        // The queue may advance after observer timeout only after this exact
+        // lease is irreversibly fenced. An empty active map is not Native proof.
+        if (active?.pluginSettled === false || !nativeClosed) this.fenceLease(leaseId);
+      }
+    };
     return input.lease.mutationMode === "serialized"
       ? this.withWorkspaceMutationLock(input.lease, execute)
       : execute();
@@ -122,14 +136,20 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
   }
 
   async cleanup(leaseId: string): Promise<void> {
+    this.fenceLease(leaseId);
+    const originals: Promise<unknown>[] = [];
     for (const [key, active] of this.activeExecutions) {
       if (active.leaseId !== leaseId) continue;
+      if (active.pluginOperation) originals.push(active.pluginOperation);
       active.terminationReason = "cancelled";
       active.abortController.abort();
       const timeout = this.taskTimeouts.get(key);
       if (timeout) clearTimeout(timeout);
       this.taskTimeouts.delete(key);
     }
+    // Only actual original plugin operations, never this wrapper, queue tail or
+    // executionSettled: self-release from a rejected plugin cannot deadlock.
+    await Promise.allSettled(originals);
   }
 
   async releaseLease(
@@ -137,14 +157,14 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
     options: { destroySandbox?: boolean } = {},
   ): Promise<LeaseReleaseResult> {
     const lease = this.leases.get(leaseId);
-    if (!lease) return { released: false, sandboxReleased: false };
+    // A prior timeout may already have fenced the registration while its
+    // original plugin is still running. Drain it even without a live lease.
     await this.cleanup(leaseId);
-    this.leases.delete(leaseId);
-    const sandboxReleased = this.leases.size === 0;
+    const sandboxReleased = !!lease && this.leases.size === 0;
     if (sandboxReleased && options.destroySandbox !== false) {
       await destroySandbox(this.sandbox);
     }
-    return { released: true, sandboxReleased };
+    return { released: !!lease, sandboxReleased };
   }
 
   private async executeTaskWithLease(
@@ -186,18 +206,20 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
       if (!mapping) return this.failure(input, "UNKNOWN_ACTION", `Unknown task action: ${input.action}`);
       const plugin = this.plugins.get(mapping.pluginName);
       if (!plugin) return this.failure(input, "PLUGIN_NOT_FOUND", `Plugin not found: ${mapping.pluginName}`);
-      const pluginOperation = this.invokePlugin(
-        plugin,
-        mapping,
-        input,
-        active.abortController.signal,
-        hooks,
-      );
+      let launch!: () => void;
+      const pluginOperation = new Promise<unknown>((resolve, reject) => {
+        launch = () => {
+          if (!this.isActiveLease(lease)) { reject(new Error("Sandbox lease was fenced before dispatch")); return; }
+          void this.invokePlugin(plugin, mapping, input, active.abortController.signal, hooks).then(resolve, reject);
+        };
+      });
+      // Register the original promise before invokePlugin can produce effects.
       active.pluginOperation = pluginOperation;
       void pluginOperation.then(
         () => this.markPluginSettled(key, active),
         () => this.markPluginSettled(key, active),
       );
+      launch();
       const output = await raceWithAbort(
         pluginOperation,
         active.abortController.signal,
@@ -273,15 +295,17 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
     if (active.executionSettled) this.activeExecutions.delete(key);
   }
 
+  private fenceLease(leaseId: string): void {
+    this.fencedLeases.add(leaseId);
+    this.leases.delete(leaseId);
+  }
+
   private isActiveLease(lease: SandboxExecutionLease): boolean {
     const stored = this.leases.get(lease.leaseId);
     return (
       stored !== undefined &&
-      stored.owner === lease.owner &&
-      stored.correlationId === lease.correlationId &&
-      stored.expiresAt === lease.expiresAt &&
-      stored.generation === lease.generation &&
-      workspaceLeaseKey(stored) === workspaceLeaseKey(lease) &&
+      !this.fencedLeases.has(lease.leaseId) &&
+      sameRegisteredLease(stored, lease) &&
       !isLeaseExpired(stored)
     );
   }
@@ -490,4 +514,11 @@ function isSandboxUnavailable(error: unknown, normalized: { code: string; messag
   if (normalized.code === "SANDBOX_UNAVAILABLE" || normalized.code === "CONTAINER_EXITED") return true;
   if (error && typeof error === "object" && "exitCode" in error && error.exitCode === 137) return true;
   return /(?:exit|status|code)[ =:]*(?:137)\b/i.test(normalized.message);
+}
+
+function sameRegisteredLease(a: SandboxExecutionLease, b: SandboxExecutionLease): boolean {
+  return a.leaseId === b.leaseId && a.sandboxId === b.sandboxId && a.owner === b.owner &&
+    a.correlationId === b.correlationId && a.expiresAt === b.expiresAt && a.generation === b.generation &&
+    a.executionDomainDigest === b.executionDomainDigest && a.mutationMode === b.mutationMode &&
+    Object.keys(a.workspaceScope).every(key => a.workspaceScope[key as keyof typeof a.workspaceScope] === b.workspaceScope[key as keyof typeof b.workspaceScope]);
 }
