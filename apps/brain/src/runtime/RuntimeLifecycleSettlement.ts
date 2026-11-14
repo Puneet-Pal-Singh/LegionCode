@@ -115,7 +115,8 @@ export async function settleOrphanStop(input: {
 > {
   if (
     input.admission.state !== "admitted" ||
-    (input.admission.executionState !== "running" &&
+    (input.admission.executionState !== "pending" &&
+      input.admission.executionState !== "running" &&
       input.admission.executionState !== "recovery_required") ||
     input.admission.turnId !== input.identity.turnId ||
     input.admission.runAttemptId !== input.identity.runAttemptId ||

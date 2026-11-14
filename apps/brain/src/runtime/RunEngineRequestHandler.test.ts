@@ -1928,6 +1928,12 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", fa
     }, { highWaterMark: 0 }));
   });
   const listSessions = vi.fn(async () => ({ sessions: [{ id: scope.sessionId, workspaceId: scope.workspaceId, repository: null }] }));
+  let executionState: "pending" | "running" = "pending";
+  const admission = () => ({
+    ...bindingScope, nativeProviderBinding: binding, clientMessageId: "client-1", state: "admitted", executionState,
+    revisionOfTurnId: null, continuationOfTurnId: null, originalPromptId: null, continuationTerminalSequence: null,
+    requestFingerprint: null, admissionOrder: 1, createdAt: "2026-11-14T00:00:00Z", admittedAt: "2026-11-14T00:00:00Z",
+  });
   try {
     const handler = new RunEngineRequestHandler(ctx as unknown as DurableObjectState, {
       HYPERDRIVE: { connectionString: "postgres://fixture:fixture@127.0.0.1:1/fixture" },
@@ -1942,11 +1948,8 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", fa
         getCanonicalAssistantMessageId: async () => null,
       },
       AUTH_TURN_ADMISSION_REPOSITORY: {
-        claimExecution: async () => ({ status: "claimed", admission: {
-          ...bindingScope, nativeProviderBinding: binding, clientMessageId: "client-1", state: "admitted", executionState: "running",
-          revisionOfTurnId: null, continuationOfTurnId: null, originalPromptId: null, continuationTerminalSequence: null,
-          requestFingerprint: null, admissionOrder: 1, createdAt: "2026-11-14T00:00:00Z", admittedAt: "2026-11-14T00:00:00Z",
-        } }),
+        getByTurnId: async () => admission(),
+        claimExecution: async () => { executionState = "running"; return { status: "claimed", admission: admission() }; },
         markRecoveryRequired: async () => false,
       },
     } as unknown as Env, lock, undefined, {
@@ -2041,10 +2044,10 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", fa
       expect(physicallySettled).toHaveBeenCalledTimes(failure === "prepare_closed" ? 1 : 0);
       return;
     }
-    expect(await registry.request(scope.turnId, "Stop before runtime preparation completes")).toBe(true);
     await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(1));
     // Await the runner observer (including the actual gateway timeout), not the raw request.
     await observer;
+    expect(await registry.request(scope.turnId, "Stop")).toBe(true);
     expect(interrupt).toHaveBeenCalledTimes(1);
     expect(handlerSettled).toBe(false);
     expect(lockHeld).toBe(true);

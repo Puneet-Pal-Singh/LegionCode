@@ -81,14 +81,25 @@ export class RunEngineRuntime extends DurableObject {
     new InMemoryRunContextCompactionRegistry();
   private readonly threadInputRegistry = new InMemoryRunThreadInputRegistry();
 
+  private readonly requestHandler: RunEngineRequestHandler;
+  private readonly ready: Promise<void>;
+
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    // One handler owns the existing durable scope codec throughout this DO
+    // activation, including interleaved Stop and execute requests.
+    this.requestHandler = this.createRequestHandler();
+    this.ready = ctx.blockConcurrencyWhile(() => this.requestHandler.reconcileRuntimeClaims());
   }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const env = this.env as Env;
-    const requestHandler = this.createRequestHandler();
+    await this.ready;
+    const requestHandler = this.requestHandler;
+    // Retry an exact reconciliation if an older PG request committed after
+    // the initial wake read. Live owners are fenced out by their registry.
+    await requestHandler.reconcileRuntimeClaims();
 
     if (url.pathname === "/execute" && request.method === "POST") {
       return retainNativeAttempt({
