@@ -1,7 +1,7 @@
 import { ClientErrorBoundary } from "@legioncode/client-ui";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { DesktopLocalWorkspace } from "./DesktopLocalWorkspace";
+import { DesktopHost } from "./DesktopHost";
 import "./styles.css";
 
 const root = document.getElementById("root");
@@ -12,7 +12,7 @@ if (!root) {
 createRoot(root).render(
   <StrictMode>
     <ClientErrorBoundary>
-      <DesktopLocalWorkspace />
+      <DesktopHost />
     </ClientErrorBoundary>
   </StrictMode>,
 );
