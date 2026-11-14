@@ -266,7 +266,9 @@ export type AppServerClient = {
   listLocalWorkspaceProjects(): Promise<LocalWorkspaceProjectsResponse>;
   forgetLocalWorkspaceProject(workspaceId: WorkspaceId): Promise<void>;
   grantWorkspace(source: WorkspaceGrantSource): Promise<LocalWorkspaceGrant>;
-  revokeWorkspace(): Promise<void>;
+  listWorkspaceGrants(): Promise<LocalWorkspaceGrant[]>;
+  selectWorkspaceGrant(workspaceId: LocalWorkspaceGrant["workspaceId"]): Promise<LocalWorkspaceGrant>;
+  revokeWorkspace(workspaceId?: LocalWorkspaceGrant["workspaceId"]): Promise<void>;
   listThreads(): Promise<Thread[]>;
   createThread(title?: string, expectedWorkspace?: Pick<LocalWorkspaceGrant, "workspaceId" | "grantedAt">): Promise<Thread>;
   getThread(threadId: Thread["id"]): Promise<Thread>;
@@ -585,10 +587,18 @@ export function createAppServerClient(
       }
       return grant;
     },
-    revokeWorkspace: async () => {
+    listWorkspaceGrants: async () => (await request(options, {
+      method: "workspace/grants", params: {},
+    }, AppServerResultSchemas["workspace/grants"])).grants,
+    selectWorkspaceGrant: async (workspaceId) => {
+      const result = await request(options, { method: "workspace/selectGrant", params: { workspaceId } }, AppServerResultSchemas["workspace/selectGrant"]);
+      if (!result.grant) throw invalidResponse("workspace/selectGrant", "App Server did not return the selected workspace grant");
+      return result.grant;
+    },
+    revokeWorkspace: async (workspaceId) => {
       const result = await request(options, {
         method: "workspace/revoke",
-        params: {},
+        params: workspaceId === undefined ? {} : { workspaceId },
       }, AppServerResultSchemas["workspace/revoke"]);
       void result;
     },

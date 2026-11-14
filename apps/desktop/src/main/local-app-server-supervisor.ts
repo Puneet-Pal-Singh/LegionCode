@@ -24,6 +24,10 @@ import { type ProviderId } from "@repo/shared-types";
 import {
   RuntimeCredentialRequestSchema,
   RuntimeCredentialResponseSchema,
+  RuntimeCredentialCancelSchema,
+  sameRuntimeCredentialReference,
+  type RuntimeCredentialReference,
+  type RuntimeCredentialCancel,
   type RuntimeCredentialRequest,
   type RuntimeCredentialLease,
 } from "./runtime-credentials";
@@ -38,6 +42,20 @@ import type {
 type RequestHeaders = NonNullable<
   AppServerHttpTransportOptions["requestHeaders"]
 >;
+type CredentialRequestOwner = {
+  readonly request: RuntimeCredentialRequest;
+  readonly timer: ReturnType<typeof setTimeout>;
+  readonly controller: AbortController;
+};
+type CredentialLookup = {
+  /** Retain the actual collaborator promise, even after its delivery was cancelled. */
+  original: Promise<RuntimeCredentialLease | RuntimeCredentialReference | null> | null;
+  readonly settled: Promise<void>;
+};
+export interface RuntimeCredentialReferencePort {
+  captureRuntimeCredentialReference(providerId: ProviderId, signal: AbortSignal): Promise<RuntimeCredentialReference | null>;
+  acquireRuntimeCredential(reference: RuntimeCredentialReference, signal: AbortSignal): Promise<RuntimeCredentialLease | null>;
+}
 
 const STARTUP_TIMEOUT_MS = 5_000;
 const LIVENESS_CHECK_MS = 250;
@@ -50,15 +68,14 @@ export class LocalAppServerSupervisor {
     private readonly requestHeaders?: RequestHeaders,
     private readonly resolveRuntimeCredential?: (
       providerId: ProviderId,
+      signal?: AbortSignal,
     ) => Promise<RuntimeCredentialLease | null>,
+    private readonly runtimeCredentialReferences?: RuntimeCredentialReferencePort,
   ) {}
 
   // Timed-out deliveries still occupy a slot until their resolver settles.
-  private readonly credentialLookups = new Set<symbol>();
-  private readonly credentialRequests = new Map<
-    string,
-    ReturnType<typeof setTimeout>
-  >();
+  private readonly credentialLookups = new Set<CredentialLookup>();
+  private readonly credentialRequests = new Map<string, CredentialRequestOwner>();
 
   private child: UtilityProcess | null = null;
   private handshakeChild: UtilityProcess | null = null;
@@ -95,7 +112,7 @@ export class LocalAppServerSupervisor {
     storageDirectory: string,
     hostConfig?: LocalAppServerHostConfig,
   ): Promise<void> {
-    if (this.child || this.closure) {
+    if (this.child || this.closure || this.credentialLookups.size > 0) {
       throw new Error("The previous local runtime closure is unconfirmed");
     }
     const generation = ++this.generation;
@@ -130,6 +147,11 @@ export class LocalAppServerSupervisor {
       LIVENESS_CHECK_MS,
     );
     child.on("message", (message) => {
+      const cancel = RuntimeCredentialCancelSchema.safeParse(message);
+      if (cancel.success) {
+        this.cancelCredentialRequest(child, generation, cancel.data);
+        return;
+      }
       const request = RuntimeCredentialRequestSchema.safeParse(message);
       if (request.success) {
         void this.handleCredentialRequest(child, generation, request.data);
@@ -163,6 +185,7 @@ export class LocalAppServerSupervisor {
 
   async stop(): Promise<void> {
     this.generation += 1;
+    const stoppedGeneration = this.generation;
     this.stopping = true;
     this.clearCredentialRequests();
     this.clearStartupTimer();
@@ -172,16 +195,20 @@ export class LocalAppServerSupervisor {
     const closure = this.closure;
     if (!closure) {
       if (this.child) throw new Error("Local runtime closure ownership is unavailable");
-      this.update(
-        createSnapshot("stopped", "Local App Server stopped cleanly"),
-      );
+      await this.drainCredentialLookups();
+      if (this.generation === stoppedGeneration && !this.child && !this.closure) {
+        this.update(createSnapshot("stopped", "Local App Server stopped cleanly"));
+      }
       return;
     }
     this.update(createSnapshot("degraded", "Local App Server shutdown is pending"));
     try {
-      await closure.requestShutdown();
+      await Promise.all([closure.requestShutdown(), this.drainCredentialLookups()]);
+      if (this.generation === stoppedGeneration && !this.child && !this.closure && this.credentialLookups.size === 0) {
+        this.update(createSnapshot("stopped", "Local App Server stopped cleanly"));
+      }
     } catch {
-      if (this.closure === closure) {
+      if (this.closure === closure || (this.stopping && this.credentialLookups.size > 0)) {
         this.update(createSnapshot("degraded", "Local runtime closure is unconfirmed; its ownership is retained"));
       }
       throw new Error("Local runtime closure is unconfirmed");
@@ -229,82 +256,118 @@ export class LocalAppServerSupervisor {
     generation: number,
     request: RuntimeCredentialRequest,
   ): Promise<void> {
-    if (child !== this.child || generation !== this.generation || this.stopping)
-      return;
+    if (child !== this.child || generation !== this.generation || this.stopping) return;
+    if (request.purpose === "acquire" && request.reference.providerId !== request.providerId) return;
     if (this.credentialRequests.has(request.requestId)) return;
     if (this.credentialLookups.size >= 32) {
       this.replyCredential(child, generation, request, null);
       return;
     }
+    const controller = new AbortController();
     const timer = setTimeout(() => {
-      if (this.credentialRequests.get(request.requestId) !== timer) return;
+      if (this.credentialRequests.get(request.requestId) !== owner) return;
       this.credentialRequests.delete(request.requestId);
+      controller.abort();
       this.replyCredential(child, generation, request, null);
     }, 10_000);
-    this.credentialRequests.set(request.requestId, timer);
-    const lookup = Symbol();
+    const owner: CredentialRequestOwner = { request, timer, controller };
+    this.credentialRequests.set(request.requestId, owner);
+    let resolveSettled!: () => void;
+    const lookup: CredentialLookup = {
+      original: null,
+      settled: new Promise<void>((resolve) => { resolveSettled = resolve; }),
+    };
+    // Reserve custody BEFORE invoking the collaborator: a reentrant stop must see this obligation.
     this.credentialLookups.add(lookup);
-    let lease: RuntimeCredentialLease | null = null;
+    let result: RuntimeCredentialLease | RuntimeCredentialReference | null = null;
     try {
-      lease =
-        (await this.resolveRuntimeCredential?.(request.providerId)) ?? null;
+      if (child !== this.child || generation !== this.generation || this.stopping || controller.signal.aborted) return;
+      lookup.original = request.purpose === "capture"
+        ? this.runtimeCredentialReferences?.captureRuntimeCredentialReference(request.providerId, controller.signal) ?? Promise.resolve(null)
+        : request.purpose === "acquire"
+          ? this.runtimeCredentialReferences?.acquireRuntimeCredential(request.reference, controller.signal) ?? Promise.resolve(null)
+          : this.resolveRuntimeCredential?.(request.providerId, controller.signal) ?? Promise.resolve(null);
+      // Cancellation/timeout only suppresses delivery. The original promise still owns its drain slot.
+      result = await lookup.original;
     } catch {
-      // The private channel never forwards vault errors or their data.
+      // Vault errors and their data never cross the private response boundary.
     } finally {
       this.credentialLookups.delete(lookup);
+      resolveSettled();
     }
-    if (this.credentialRequests.get(request.requestId) !== timer) return;
+    if (this.credentialRequests.get(request.requestId) !== owner) return;
     clearTimeout(timer);
     this.credentialRequests.delete(request.requestId);
-    this.replyCredential(child, generation, request, lease);
+    if (controller.signal.aborted) return;
+    this.replyCredential(child, generation, request, result);
   }
 
   private replyCredential(
     child: UtilityProcess,
     generation: number,
     request: RuntimeCredentialRequest,
-    lease: RuntimeCredentialLease | null,
+    result: RuntimeCredentialLease | RuntimeCredentialReference | null,
   ): void {
-    if (child !== this.child || generation !== this.generation || this.stopping)
-      return;
-    const parsed = RuntimeCredentialResponseSchema.safeParse({
-      type: "runtime-credential-response",
-      requestId: request.requestId,
-      providerId: request.providerId,
-      credential: lease?.credential ?? null,
-    });
-    const scoped =
-      parsed.success &&
-      (!parsed.data.credential?.connectionConfig ||
-        parsed.data.credential.connectionConfig.providerId ===
-          request.providerId);
-    const response = scoped
-      ? parsed.data
-      : {
-          type: "runtime-credential-response" as const,
-          requestId: request.requestId,
-          providerId: request.providerId,
-          credential: null,
-        };
+    if (child !== this.child || generation !== this.generation || this.stopping) return;
+    const base = { type: "runtime-credential-response" as const, requestId: request.requestId, providerId: request.providerId };
     try {
-      if (response.credential !== null && !lease?.canDeliver()) {
-        response.credential = null;
-      }
-      if (
-        child !== this.child ||
-        generation !== this.generation ||
-        this.stopping
-      )
+      if (request.purpose === "capture") {
+        const reference = result && "connectionId" in result && result.providerId === request.providerId ? result : null;
+        const response = RuntimeCredentialResponseSchema.parse({ ...base, purpose: "capture", reference });
+        if (child === this.child && generation === this.generation && !this.stopping) child.postMessage(response);
         return;
+      }
+      const lease = result && "canDeliver" in result ? result : null;
+      const exact = request.purpose !== "acquire" || Boolean(lease?.reference &&
+        sameRuntimeCredentialReference(request.reference, lease.reference));
+      const credential = exact && lease?.canDeliver() &&
+        (!lease.credential?.connectionConfig || lease.credential.connectionConfig.providerId === request.providerId)
+        ? lease.credential : null;
+      const response = RuntimeCredentialResponseSchema.parse(request.purpose === "acquire"
+        ? { ...base, purpose: "acquire", reference: request.reference, credential }
+        : { ...base, purpose: "discovery", credential });
+      if (child !== this.child || generation !== this.generation || this.stopping) return;
+      // Recheck the live delivery lease immediately before the only secret-bearing serialization.
+      if ("credential" in response && response.credential !== null && !lease?.canDeliver()) response.credential = null;
       child.postMessage(response);
     } catch {
-      // Process loss must not leak the secret-bearing response or fabricate settlement.
+      // Process loss or invalid private data cannot leak secret-bearing errors or prove settlement.
     }
   }
 
+  private cancelCredentialRequest(child: UtilityProcess, generation: number, cancel: RuntimeCredentialCancel): void {
+    if (child !== this.child || generation !== this.generation || this.stopping) return;
+    const owner = this.credentialRequests.get(cancel.requestId);
+    if (!owner || owner.request.purpose !== cancel.purpose || owner.request.providerId !== cancel.providerId) return;
+    if (owner.request.purpose === "acquire" && (!cancel.reference || !sameRuntimeCredentialReference(owner.request.reference, cancel.reference))) return;
+    if (owner.request.purpose !== "acquire" && cancel.reference !== undefined) return;
+    clearTimeout(owner.timer);
+    this.credentialRequests.delete(cancel.requestId);
+    owner.controller.abort();
+  }
+
   private clearCredentialRequests(): void {
-    for (const timer of this.credentialRequests.values()) clearTimeout(timer);
+    for (const owner of this.credentialRequests.values()) {
+      clearTimeout(owner.timer);
+      owner.controller.abort();
+    }
     this.credentialRequests.clear();
+  }
+
+  private async drainCredentialLookups(): Promise<void> {
+    const pending = [...this.credentialLookups].map((lookup) => lookup.settled);
+    if (pending.length === 0) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.all(pending),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error("Protected provider lookup closure is unconfirmed")), 5_000);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   private async handleMessage(
@@ -327,7 +390,9 @@ export class LocalAppServerSupervisor {
       this.transport = null;
       if (!this.stopping) this.generation += 1;
       this.stopping = true;
-      this.update(createSnapshot("stopped", "Local App Server stopped cleanly"));
+      this.update(this.credentialLookups.size === 0
+        ? createSnapshot("stopped", "Local App Server stopped cleanly")
+        : createSnapshot("degraded", "Protected provider requests are still draining"));
       return;
     }
     if (isFatalMessage(message)) {

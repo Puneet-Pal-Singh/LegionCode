@@ -1,6 +1,6 @@
 import type { LocalPersistence } from "@repo/event-store/local";
-import type { ThreadId, TurnAdmission } from "@repo/platform-protocol";
-import type { BYOKDiscoveredProviderModel } from "@repo/shared-types";
+import { WorkspaceIdSchema, type ThreadId, type TurnAdmission } from "@repo/platform-protocol";
+import { RuntimeCredentialReferenceSchema, type BYOKDiscoveredProviderModel, type RuntimeCredentialReference } from "@repo/shared-types";
 import type { LocalThreadService } from "./local-threads.js";
 import type { LocalWorkspaceService } from "./local-workspace.js";
 import type { LocalGeneratedTitleClaim, LocalGeneratedTitleScope } from "./local-thread-generated-titles.js";
@@ -21,8 +21,9 @@ export class LocalThreadTitleGeneration implements BackgroundTaskOwner {
   constructor(private readonly options: {
     threads: LocalThreadService;
     admissions: LocalPersistence["turnAdmissions"];
-    getWorkspace: LocalWorkspaceService["getAuthorizedCurrent"];
-    createGenerator?: (admission: TurnAdmission, model: BYOKDiscoveredProviderModel) => ThreadTitleGenerator;
+    getWorkspace: LocalWorkspaceService["getAuthorized"];
+    createGenerator?: (admission: TurnAdmission, model: BYOKDiscoveredProviderModel,
+      credentialReference: RuntimeCredentialReference) => ThreadTitleGenerator;
   }) {}
 
   get hasActiveWork(): boolean { return this.jobs.size > 0 || this.originals.size > 0; }
@@ -38,9 +39,15 @@ export class LocalThreadTitleGeneration implements BackgroundTaskOwner {
     return this.recovery;
   }
 
-  async prepareFirstAdmission(admission: TurnAdmission, model: BYOKDiscoveredProviderModel): Promise<void> {
+  async prepareFirstAdmission(admission: TurnAdmission, model: BYOKDiscoveredProviderModel,
+    credentialReference: RuntimeCredentialReference): Promise<void> {
     const createGenerator = this.options.createGenerator;
     if (!createGenerator || this.stopping) return;
+    // Capture synchronously: title preparation may await metadata ownership before inference.
+    const reference = Object.freeze(RuntimeCredentialReferenceSchema.parse(credentialReference));
+    if (reference.providerId !== admission.run.providerId || model.providerId !== admission.run.providerId ||
+        model.id !== admission.run.modelId)
+      throw new Error("Title credential provider differs from its first admitted model");
     await this.initialize();
     if (this.stopping) return;
     const readFirst = () => this.readFirst(admission.turn.threadId);
@@ -48,7 +55,7 @@ export class LocalThreadTitleGeneration implements BackgroundTaskOwner {
     const claim = await this.options.threads.generatedTitles.claim(admission, readFirst);
     if (!claim) return;
     const coordinator = new ThreadTitleGenerationCoordinator<LocalGeneratedTitleScope>({
-      generatorFactory: () => this.wrapGenerator(createGenerator(admission, model), claim),
+      generatorFactory: () => this.wrapGenerator(createGenerator(admission, model, reference), claim),
       titleService: {
         persist: (result) => {
           if (result.source !== "generated" || result.expectedTitleVersion !== claim.previewVersion)
@@ -92,7 +99,7 @@ export class LocalThreadTitleGeneration implements BackgroundTaskOwner {
         const signal = AbortSignal.any([this.controller.signal, ...(request.signal ? [request.signal] : [])]);
         const operation = Promise.resolve().then(async () => {
           signal.throwIfAborted();
-          const grant = await this.options.getWorkspace();
+          const grant = await this.options.getWorkspace(WorkspaceIdSchema.parse(claim.scope.workspaceId));
           signal.throwIfAborted();
           if (!grant || grant.readiness !== "ready" || grant.workspaceId !== claim.scope.workspaceId ||
               grant.grantedAt !== claim.scope.grantedAt || grant.repositoryIdentity !== claim.scope.repositoryIdentity)

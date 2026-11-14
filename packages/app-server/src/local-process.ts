@@ -93,7 +93,9 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
     });
     const threadService = new LocalThreadService({
       events: persistence.events,
-      getWorkspace: () => workspaceService.getAuthorizedCurrent(),
+      getWorkspace: (workspaceId) => workspaceId === undefined
+        ? workspaceService.getAuthorizedCurrent()
+        : workspaceService.getAuthorized(workspaceId),
       readRuntimeSummary: persistence.turnAdmissions.readThreadSummary,
     });
     const providerService = new LocalProviderService({
@@ -101,7 +103,9 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
       modelCatalog: options?.providerModelCatalog,
     });
     const providerPreferences = new LocalProviderPreferences({
-      getWorkspace: () => workspaceService.getAuthorizedCurrent(),
+      getWorkspace: (workspaceId) => workspaceId === undefined
+        ? workspaceService.getAuthorizedCurrent()
+        : workspaceService.getAuthorized(workspaceId),
       store: persistence.providerPreferences,
       providers: providerService,
     });

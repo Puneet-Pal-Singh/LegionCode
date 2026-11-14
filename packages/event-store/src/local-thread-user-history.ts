@@ -45,7 +45,7 @@ export function readLocalThreadUserHistory(database: Database.Database, admissio
   if (!Number.isSafeInteger(input.maxBytes) || input.maxBytes < 1) throw new EventStoreError("invalid_replay_byte_budget", "History byte budget is invalid");
   return database.transaction(() => {
     readLocalOwnedThread(database, input, false);
-    const grant = database.prepare("SELECT value_json FROM workspace_grant WHERE id=1").get() as { value_json: string } | undefined;
+    const grant = database.prepare("SELECT value_json FROM workspace_grant WHERE workspace_id=?").get(input.workspaceId) as { value_json: string } | undefined;
     if (!grant || parseStoredGrant(JSON.parse(grant.value_json)).grant.workspaceId !== input.workspaceId) throw cursorConflict();
     const parsedTurnIds = TurnIdSchema.array().min(1).max(100)
       .refine((ids) => new Set(ids).size === ids.length).safeParse(input.turnIds);

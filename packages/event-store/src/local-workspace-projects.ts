@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import {
   LocalWorkspaceProjectSchema,
+  LocalWorkspaceGrantSchema,
   WorkspaceIdSchema,
   type LocalWorkspaceGrant,
   type LocalWorkspaceProject,
@@ -9,9 +10,14 @@ import {
 import { z } from "zod";
 
 const PREFIX = "workspace_project_v1:";
+// Retain old private records verbatim; sanitize their navigation projection.
+const StoredProjectSchema = z.discriminatedUnion("association", [
+  LocalWorkspaceProjectSchema.options[0].extend({ repositoryIdentity: LocalWorkspaceGrantSchema.shape.repositoryIdentity }),
+  LocalWorkspaceProjectSchema.options[1],
+]);
 const KnownRecordSchema = z.object({
   version: z.literal(1),
-  project: LocalWorkspaceProjectSchema,
+  project: StoredProjectSchema,
   hidden: z.boolean().default(false),
   /** Private, opaque native identity. Never returned through the protocol. */
   gitMetadataIdentity: z.string().min(1).max(16_384).nullable(),
@@ -27,7 +33,8 @@ export class LocalWorkspaceProjectRecords {
   constructor(private readonly database: Database.Database) {}
 
   list(): LocalWorkspaceProject[] {
-    return this.readAll().filter((record) => !record.hidden).map(({ project }) => project).sort((left, right) =>
+    return this.readAll().filter((record) => !record.hidden).map(({ project }) =>
+      project.association === "known" ? { ...project, repositoryIdentity: null } : project).sort((left, right) =>
       (right.lastOpenedAt ?? "").localeCompare(left.lastOpenedAt ?? "") || left.workspaceId.localeCompare(right.workspaceId));
   }
 
@@ -47,7 +54,7 @@ export class LocalWorkspaceProjectRecords {
       version: 1,
       project: {
         association: "known", workspaceId: grant.workspaceId, displayName: grant.displayName,
-        repositoryIdentity: grant.repositoryIdentity, lastOpenedAt: grant.grantedAt,
+        repositoryIdentity: null, lastOpenedAt: grant.grantedAt,
       },
       gitMetadataIdentity,
       hidden: restoreHidden ? false : previous?.hidden ?? false,

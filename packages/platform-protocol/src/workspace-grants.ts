@@ -55,13 +55,15 @@ export type LocalWorkspaceGrantResponse = z.infer<
   typeof LocalWorkspaceGrantResponseSchema
 >;
 
+// Git's normalized identity does not retain the remote scheme. Navigation
+// therefore omits it; even a qualified host can originate from a file URI.
 /** Navigation metadata only; none of these records grants filesystem access. */
 export const LocalWorkspaceProjectSchema = z.discriminatedUnion("association", [
   z.object({
     association: z.literal("known"),
     workspaceId: WorkspaceIdSchema,
     displayName: LocalWorkspaceGrantSchema.shape.displayName,
-    repositoryIdentity: LocalWorkspaceGrantSchema.shape.repositoryIdentity,
+    repositoryIdentity: z.null(),
     lastOpenedAt: ProtocolTimestampSchema,
   }).strict(),
   z.object({

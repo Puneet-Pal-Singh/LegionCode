@@ -701,9 +701,17 @@ async function dispatch(
       }
       return { grant: await composition.workspaceService.grant({ path: request.params.path }) };
     }
+    case "workspace/grants": {
+      if (composition.environment !== "local" || !composition.workspaceService) throw new Error("unsupported");
+      return { grants: await composition.workspaceService.list() };
+    }
+    case "workspace/selectGrant": {
+      if (composition.environment !== "local" || !composition.workspaceService) throw new Error("unsupported");
+      return { grant: await composition.workspaceService.select(request.params.workspaceId) };
+    }
     case "workspace/revoke": {
       if (!composition.workspaceService) throw new Error("unsupported");
-      await composition.workspaceService.revoke();
+      await composition.workspaceService.revoke(request.params.workspaceId);
       return { revoked: true };
     }
     case "thread/list": {

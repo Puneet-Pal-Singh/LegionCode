@@ -22,7 +22,7 @@ export const LOCAL_USER_ID = UserIdSchema.parse("usr_localdesktop");
 export type LocalThreadServiceOptions = {
   events: LocalPersistence["events"];
   readRuntimeSummary?: LocalPersistence["turnAdmissions"]["readThreadSummary"];
-  getWorkspace: () => Promise<LocalWorkspaceGrant | null>;
+  getWorkspace: (workspaceId?: WorkspaceId) => Promise<LocalWorkspaceGrant | null>;
 };
 
 export class LocalThreadService {
@@ -92,8 +92,8 @@ export class LocalThreadService {
   }
 
   async create(input: unknown): Promise<Thread> {
-    const workspace = await this.requireWorkspace();
     const request = ThreadCreateParamsSchema.parse(input ?? {});
+    const workspace = await this.requireWorkspace(request.expectedWorkspace?.workspaceId);
     if (request.expectedWorkspace && (
       request.expectedWorkspace.workspaceId !== workspace.workspaceId ||
       request.expectedWorkspace.grantedAt !== workspace.grantedAt
@@ -134,8 +134,9 @@ export class LocalThreadService {
   }
 
   async get(threadId: string): Promise<Thread> {
-    const workspace = await this.requireWorkspace();
-    return await this.readAuthorizedThread(ThreadIdSchema.parse(threadId), workspace);
+    const id = ThreadIdSchema.parse(threadId);
+    const workspace = await this.requireThreadWorkspace(id);
+    return await this.readAuthorizedThread(id, workspace);
   }
 
   rename(threadId: string, input: unknown): Promise<Thread> {
@@ -280,7 +281,7 @@ export class LocalThreadService {
     mutation: (workspace: LocalWorkspaceGrant) => Promise<T>,
   ): Promise<T> {
     // Capture at enqueue time: waiting actions must not adopt a replacement grant.
-    return this.enqueueMetadataMutation(threadId, this.requireWorkspace(), async (workspace) => {
+    return this.enqueueMetadataMutation(threadId, this.requireThreadWorkspace(threadId), async (workspace) => {
       await this.assertWorkspaceCurrent(workspace);
       return mutation(workspace);
     });
@@ -313,7 +314,7 @@ export class LocalThreadService {
   }
 
   private async assertWorkspaceCurrent(expected: LocalWorkspaceGrant): Promise<void> {
-    const current = await this.requireWorkspace();
+    const current = await this.requireWorkspace(expected.workspaceId);
     if (current.workspaceId !== expected.workspaceId || current.grantedAt !== expected.grantedAt
       || current.repositoryIdentity !== expected.repositoryIdentity) {
       throw new Error("Local workspace grant changed during Thread metadata mutation");
@@ -376,9 +377,20 @@ export class LocalThreadService {
     return threads;
   }
 
-  private async requireWorkspace(): Promise<LocalWorkspaceGrant> {
-    const workspace = await this.getWorkspace();
-    if (!workspace || workspace.readiness !== "ready") {
+  private async requireThreadWorkspace(threadId: ThreadId): Promise<LocalWorkspaceGrant> {
+    const created = (await this.eventStore.listAll()).find((event) => event.threadId === threadId &&
+      event.scopeType === "thread" && event.scopeId === threadId && event.sequence === 1 && event.type === "thread.created");
+    if (!created || created.type !== "thread.created" || created.payload.thread.userId !== LOCAL_USER_ID)
+      throw new LocalThreadNotFoundError();
+    const workspace = await this.getWorkspace(created.workspaceId);
+    if (!workspace || workspace.readiness !== "ready" || workspace.workspaceId !== created.workspaceId)
+      throw new LocalThreadNotFoundError();
+    return workspace;
+  }
+
+  private async requireWorkspace(workspaceId?: WorkspaceId): Promise<LocalWorkspaceGrant> {
+    const workspace = await this.getWorkspace(workspaceId);
+    if (!workspace || workspace.readiness !== "ready" || (workspaceId !== undefined && workspace.workspaceId !== workspaceId)) {
       throw new Error("A ready local workspace is required");
     }
     return workspace;

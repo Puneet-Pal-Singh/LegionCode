@@ -185,7 +185,7 @@ export class LocalGitService {
         };
         const requireGrant = async () => {
           assertCurrent();
-          const saved = await this.options.workspaceGrants.read();
+          const saved = await this.options.workspaceGrants.read(command.workspaceId);
           assertCurrent();
           if (
             !saved ||
