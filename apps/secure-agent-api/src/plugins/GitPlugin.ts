@@ -27,7 +27,7 @@ import {
   withToolboxCommandContext,
 } from "./security/ToolboxCommandContext";
 import { SandboxGitCommandExecutor } from "./git/SandboxGitCommandExecutor";
-import { clonePinnedWorkspace } from "./git/SandboxGitWorkspaceCloner";
+import { clonePinnedWorkspace } from "@repo/git-service/pinned-checkout";
 
 const GIT_ACTIONS = [
   "git_clone",
@@ -343,9 +343,12 @@ export class GitPlugin implements IPlugin {
           worktree,
           authorizedCommitId,
           authEnvironment,
-          runId,
         },
-        runGit,
+        new SandboxGitCommandExecutor(
+          sandbox,
+          { ...toolboxContext, runId },
+          "git.clone",
+        ),
       );
     }
     return await runGit({
