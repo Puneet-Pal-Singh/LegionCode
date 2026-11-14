@@ -2,6 +2,8 @@ import {
   EnqueueThreadInputCommandSchema,
   ResumeTurnCommandSchema,
   SteerTurnCommandSchema,
+  ThreadInputConfigurationSchema,
+  type ChatRequestBody,
   type ThreadInputConfiguration,
 } from "@repo/platform-protocol";
 import type { ConversationScope } from "./conversation-scope.js";
@@ -17,6 +19,16 @@ type InputClient = Pick<
   PlatformClient,
   "enqueueThreadInput" | "steerTurn" | "resumeTurn"
 >;
+
+/** Translate shared composer modes at the existing thread-input protocol boundary. */
+export function createChatThreadInputConfiguration(input: Pick<ChatRequestBody,
+  "mode" | "providerId" | "modelId" | "productMode" | "reasoningEffort" | "harnessId"
+>): ThreadInputConfiguration {
+  return ThreadInputConfigurationSchema.parse({
+    ...input,
+    mode: input.mode === "build" ? "auto_edit" : input.mode,
+  });
+}
 
 /** One conversation binding's retained commands; never a global product store. */
 export function createConversationInputCommands() {

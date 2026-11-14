@@ -17,7 +17,7 @@ export {
 } from "./platform/app-server-client.js";
 export { ConversationScopeHttpError } from "./platform/conversation-scope-error.js";
 export { sameConversationScope, type ConversationScope } from "./platform/conversation-scope.js";
-export { createConversationInputCommands } from "./platform/conversation-input-commands.js";
+export { createConversationInputCommands, createChatThreadInputConfiguration } from "./platform/conversation-input-commands.js";
 export { interruptAndAwaitTerminal } from "./platform/conversation-interruption.js";
 export {
   followConversationLifecycleProjection,
@@ -45,6 +45,10 @@ export {
   type ConversationSubmissionBindings,
   type ConversationSubmissionDispatch,
 } from "./platform/conversation-submission.js";
+export {
+  dispatchHostedConversationSubmission,
+  type HostedConversationSubmissionBindings,
+} from "./platform/hosted-conversation-submission.js";
 export {
   AppServerTransportError,
   createAppServerHttpTransport,
