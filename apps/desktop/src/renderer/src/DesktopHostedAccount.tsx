@@ -1,27 +1,15 @@
-import { useEffect, useState } from "react";
-import type { HostedAccountCommand, HostedAccountSnapshot } from "../../shared/hosted-account";
+import { useDesktopHostedAccount, type DesktopHostedAccountControls } from "./useDesktopHostedAccount";
 
 /** Account connection only; local providers and active attempts are untouched. */
-export function DesktopHostedAccount(): React.JSX.Element {
-  const [snapshot, setSnapshot] = useState<HostedAccountSnapshot | null>(null);
-  const [busy, setBusy] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let current = true;
-    void window.desktop.hostedAccount({ operation: "status" }).then(
-      (next) => { if (current) setSnapshot(next); },
-      () => { if (current) setError("Hosted account could not be checked."); },
-    ).finally(() => { if (current) setBusy(false); });
-    return () => { current = false; };
-  }, []);
-  const perform = async (operation: HostedAccountCommand["operation"]) => {
-    if (busy) return;
-    setBusy(true);
-    setError(null);
-    try { setSnapshot(await window.desktop.hostedAccount({ operation })); }
-    catch { setError("Hosted account connection could not be updated. Try again."); }
-    finally { setBusy(false); }
-  };
+export function DesktopHostedAccount({ controls }: { controls?: DesktopHostedAccountControls }): React.JSX.Element {
+  return controls ? <HostedAccountView {...controls} /> : <OwnedHostedAccount />;
+}
+
+function OwnedHostedAccount() {
+  return <HostedAccountView {...useDesktopHostedAccount()} />;
+}
+
+function HostedAccountView({ snapshot, busy, error, perform }: DesktopHostedAccountControls): React.JSX.Element {
   const signedIn = snapshot?.state === "signed_in";
   const signOutFailed = snapshot?.state === "sign_out_failed";
   return (

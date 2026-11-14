@@ -11,6 +11,7 @@ import type { Thread } from "@repo/platform-protocol";
 import type { DesktopBuildInfo } from "../../shared/desktop-api";
 import { DesktopArchivedSettings } from "./DesktopArchivedSettings";
 import { DesktopHostedAccount } from "./DesktopHostedAccount";
+import type { DesktopHostedAccountControls } from "./useDesktopHostedAccount";
 import { DesktopProviderSetup } from "./DesktopProviderSetup";
 import { useDesktopProviderSettings } from "./useDesktopProviderSettings";
 
@@ -20,6 +21,7 @@ interface Props {
   client: AppServerClient | null;
   ready: boolean;
   build: DesktopBuildInfo;
+  hostedAccount?: DesktopHostedAccountControls;
   initialSection?: SettingsSection;
   providerDialogVariant?: "connect-only" | "manage-models-only" | null;
   onUnarchiveThread?: (threadId: Thread["id"]) => Promise<void>;
@@ -33,6 +35,7 @@ export function DesktopSettingsDialog({
   initialSection = "general",
   providerDialogVariant,
   onUnarchiveThread,
+  hostedAccount,
 }: Props) {
   const provider = useDesktopProviderSettings(client, ready && open);
   const preferences = useComposerPreferences();
@@ -54,7 +57,7 @@ export function DesktopSettingsDialog({
       generalScopeDescription="Model visibility is saved for the granted workspace. Provider routes are explicit and protected credentials stay in OS-backed storage."
       composerSettings={
         <>
-          <DesktopHostedAccount />
+          <DesktopHostedAccount controls={hostedAccount} />
           <ComposerSettingsSection
             preferences={preferences}
             onChange={updateComposerPreferences}
