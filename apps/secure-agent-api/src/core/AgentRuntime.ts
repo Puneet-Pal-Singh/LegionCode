@@ -124,10 +124,6 @@ export class AgentRuntime extends DurableObject {
   ): Promise<WorkspaceRuntimeEntry> {
     const workspaceKey = workspaceLeaseKey(lease);
     let entry = this.workspaceRuntimes.get(workspaceKey);
-    if (entry && (entry.lease.sandboxId !== lease.sandboxId || entry.lease.generation !== lease.generation ||
-      entry.lease.executionDomainDigest !== lease.executionDomainDigest || entry.lease.workspaceScope.root !== lease.workspaceScope.root)) {
-      throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
-    }
     if (!entry) {
       const pending = this.workspaceRuntimePromises.get(workspaceKey);
       if (pending) {
@@ -146,6 +142,11 @@ export class AgentRuntime extends DurableObject {
       }
     }
 
+    // A concurrent composition may have awaited a different frozen binding.
+    if (entry.lease.sandboxId !== lease.sandboxId || entry.lease.generation !== lease.generation ||
+      entry.lease.executionDomainDigest !== lease.executionDomainDigest || entry.lease.workspaceScope.root !== lease.workspaceScope.root) {
+      throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
+    }
     entry.composed.executionPort.registerLease(lease);
     if (initializePlugins) await this.ensurePluginsBooted(workspaceKey, entry);
     return entry;
@@ -245,9 +246,7 @@ export class AgentRuntime extends DurableObject {
         persisted.cleanupInProgress ||
         hasUnsettledNativeCommand(persisted) ||
         persisted.nativeCommand?.binding.taskId === input.taskId ||
-        persisted.lease.leaseId !== input.lease.leaseId ||
-        persisted.lease.sandboxId !== input.lease.sandboxId ||
-        persisted.lease.generation !== input.lease.generation
+        !this.matchesLease(persisted.lease, input.lease)
       ) {
         return null;
       }
