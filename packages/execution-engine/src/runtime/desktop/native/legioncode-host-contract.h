@@ -47,8 +47,8 @@
 #define LC_HOST_MAX_ENTRIES 20000U
 
 static inline bool lc_host_writer_supported(void) {
-  return lc_writer_host_resource_prepare != NULL && lc_writer_host_resource_assert != NULL &&
-         lc_writer_host_resource_complete != NULL;
+  return &lc_writer_host_resource_prepare != NULL && &lc_writer_host_resource_assert != NULL &&
+         &lc_writer_host_resource_complete != NULL;
 }
 static inline bool lc_host_identity(int fd, bool directory, lc_host_file_identity *out) {
   struct stat st;

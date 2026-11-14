@@ -6,8 +6,10 @@
  * reservation, resource generation and creator/cleanup gate. Neither a lock
  * query nor actor-writable WAL bytes establish that provenance.
  *
- * This module does not open/reacquire/unlock a writer, signal a process, restore
- * access, release a descriptor or settle a Turn. In particular, complete() is
+ * The three host-resource entry points do not acquire/unlock a writer, signal
+ * a process, restore access, release a descriptor or settle a Turn. The separate
+ * setup acquisition entry below delegates ONLY to the canonical actor codec.
+ * In particular, host-resource complete() is
  * called only AFTER independent UID/control/pipe/access closure. It discharges
  * the exact UID/access obligation, leaving child and host obligations intact.
  */
@@ -15,6 +17,7 @@
 #define LC_HOST_WRITER_PROVIDER 1
 #include "legioncode-host-writer-contract.h"
 #include "legioncode-child-intent.h"
+#include "legioncode-host-setup-contract.h"
 
 #if defined(__APPLE__)
 #include <inttypes.h>
@@ -104,6 +107,8 @@ static bool original_scope(int fence, int root, int directory,
       lc_get64(scope->header.bytes + 64) != binding->fence.inode) return false;
   return digest_scope(bytes, scope);
 }
+
+#include "legioncode-host-setup-writer.h"
 
 /* Resolve only an exact immutable U record. The canonical codec subsequently
  * revalidates it under its own byte1 serializer before asserting/completing it.
