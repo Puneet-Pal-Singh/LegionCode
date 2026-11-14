@@ -124,7 +124,7 @@
 // solid compliant
 // apps/secure-agent-api/src/index.ts
 import { AgentRuntime } from "./core/AgentRuntime";
-import { Sandbox } from "@cloudflare/sandbox";
+import { Sandbox } from "./core/OwnedNativeSandbox";
 import { LaunchRateLimiter } from "./runtime/LaunchRateLimiter";
 import {
   handleCreateSession,

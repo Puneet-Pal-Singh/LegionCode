@@ -26,6 +26,7 @@ const (
 )
 
 type binding struct {
+	SessionID    string `json:"sessionId"`
 	LeaseID      string `json:"leaseId"`
 	SandboxID    string `json:"sandboxId"`
 	Generation   int64  `json:"generation"`
@@ -131,7 +132,7 @@ func validateRequest(value request) error {
 		!hexadecimal.MatchString(value.Binding.Nonce) || value.Binding.Generation < 0 {
 		return errors.New("invalid_request")
 	}
-	for _, id := range []string{value.Binding.LeaseID, value.Binding.SandboxID, value.Binding.WorkspaceID,
+	for _, id := range []string{value.Binding.SessionID, value.Binding.LeaseID, value.Binding.SandboxID, value.Binding.WorkspaceID,
 		value.Binding.RunID, value.Binding.ThreadID, value.Binding.TurnID, value.Binding.RunAttemptID, value.Binding.TaskID} {
 		if !opaqueID.MatchString(id) {
 			return errors.New("invalid_request")
