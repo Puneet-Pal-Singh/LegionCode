@@ -418,7 +418,7 @@ export function useChatCore(
     }),
     transportLoading: isSubmitting,
   });
-  const { isMutationAllowed } = useConversationMutationAvailability(sessionId, runId, activeConversationScope, activeTurnProjection);
+  const { isMutationAllowed, requiresRecoveryReview } = useConversationMutationAvailability(sessionId, runId, activeConversationScope, activeTurnProjection);
   const isAwaitingTurnAdmission =
     isSubmitting && pendingUserMessage?.scopeKey === runScopeKey;
   const canonicalRunLoading =
@@ -698,6 +698,17 @@ export function useChatCore(
         attempt: null,
       };
       let submittedMessage: (ChatAppendMessage & { id: string }) | null = null;
+      const settlePresentedReservation = (reserved: ConversationScope | null) => {
+        // A blocked unchanged retry still owns this actual reserved reader.
+        // Keep it mounted so a failed dispatch cannot erase known recovery.
+        const retained = reserved && requiresRecoveryReview(reserved) ? reserved : null;
+        retainedSubmissionScopeRef.current = retained;
+        setConversationScope(retained);
+        activeConversationScopeRef.current = retained;
+        activeScopeKeyRef.current = retained ? conversationScopeKey(retained) : bootstrapScopeKey;
+        setPendingUserMessage(null);
+        setOptimisticUserMessageId(null);
+      };
 
       try {
         const outcome = await submitConversationMessage<ResolvedProviderConfig>({
@@ -905,19 +916,14 @@ export function useChatCore(
               return false;
             }
           },
-          onReservationCancelled: (attempt) => {
+          onReservationCancelled: (attempt, reserved) => {
             if (
               activeSubmissionAttemptRef.current?.token !== attempt.token ||
               !ownsInvocationScope()
             ) {
               return;
             }
-            retainedSubmissionScopeRef.current = null;
-            setConversationScope(null);
-            activeConversationScopeRef.current = null;
-            activeScopeKeyRef.current = bootstrapScopeKey;
-            setPendingUserMessage(null);
-            setOptimisticUserMessageId(null);
+            settlePresentedReservation(reserved);
           },
         });
 
@@ -934,13 +940,8 @@ export function useChatCore(
             outcome.admission === "unconfirmed")
         ) {
           if (ownsSettledAttempt) {
-            retainedSubmissionScopeRef.current = null;
-            setConversationScope(null);
-            activeConversationScopeRef.current = null;
-            activeScopeKeyRef.current = bootstrapScopeKey;
+            settlePresentedReservation(settledAttempt.scope);
             if (outcome.status === "unconfirmed") setError(outcome.message);
-            setPendingUserMessage(null);
-            setOptimisticUserMessageId(null);
           }
         }
         return outcome;
@@ -967,6 +968,7 @@ export function useChatCore(
       buildChatRequestBody,
       isWorkspaceExecutionAllowed,
       isMutationAllowed,
+      requiresRecoveryReview,
       isActiveRunScope,
       lifecycleClient,
       mode,

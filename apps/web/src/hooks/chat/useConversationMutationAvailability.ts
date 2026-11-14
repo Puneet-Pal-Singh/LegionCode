@@ -52,8 +52,15 @@ export function useConversationMutationAvailability(sessionId: string, runId: st
     return !mutationUnavailableReason(selected.accountId, selected.scope, projection) &&
       !mutationUnavailableReason(selected.accountId, target ?? null, projection);
   }, [ownerKey]);
+  const requiresRecoveryReview = useCallback((target: ConversationScope): boolean => {
+    const selected = current.current;
+    if (!selected.accountId || selected.ownerKey !== ownerKey) return false;
+    const projection = selected.activeTurn.readCurrentProjection();
+    return Boolean(projection?.recovery && mutationUnavailableReason(selected.accountId, target, projection));
+  }, [ownerKey]);
   return {
     isMutationAllowed,
+    requiresRecoveryReview,
     unavailableReason: mutationUnavailableReason(accountId, scope, activeTurn.projection),
   };
 }
