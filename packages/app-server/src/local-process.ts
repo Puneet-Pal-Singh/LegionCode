@@ -23,6 +23,7 @@ import type { LocalProviderModelCatalog } from "./local-provider-model-catalog.j
 import { LocalTurnService, type LocalTurnRuntime } from "./local-turns.js";
 import { reconcileLostLocalTurns } from "./local-turn-recovery.js";
 import { attachLocalServerShutdown, combineLocalShutdownOwners, createLocalHttpRequestDrain, type LocalShutdownOwner } from "./local-server-shutdown.js";
+import type { LocalPhysicalAdmissionCandidates } from "./local-physical-admission-candidates.js";
 import { LocalProviderPreferences } from "./local-provider-preferences.js";
 import { LocalTurnArtifactReads } from "./local-turn-artifact-reads.js";
 import { LocalChatMediaStore } from "./local-chat-media-store.js";
@@ -54,6 +55,12 @@ export type LocalAppServerParentPort = {
 };
 
 export type LocalAppServerCompositionOptions = {
+  createPhysicalAdmissionCandidates?(input: {
+    persistence: Pick<LocalPersistence, "turnAdmissions" | "lifecycleEvents" | "turnArtifacts" |
+      "harnessBindings" | "admitHarnessPreparation" | "cancelHarnessPreparation" |
+      "readHarnessPreparation" | "readHarnessPreOpeningSettlement">;
+    workspaces: LocalWorkspaceService;
+  }): LocalPhysicalAdmissionCandidates;
   providerModelCatalog?: LocalProviderModelCatalog;
   createMetadataInspector?: LocalWorkspaceServiceOptions["createMetadataInspector"];
   createProbeExecution?: (authority: Pick<VerifiedMacGitOptions, "probeRoot" | "withRootAuthority">) => Promise<VerifiedMacGitExecution>;

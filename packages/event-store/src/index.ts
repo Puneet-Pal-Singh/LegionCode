@@ -41,7 +41,10 @@ export type {
 } from "./thread-inputs/types.js";
 export {
   HarnessPersistenceError,
+  HarnessPreOpeningSettlementSchema,
+  HarnessPreOpeningSettlementResultSchema,
   StoredHarnessOpeningSchema,
+  StoredHarnessPreparationSchema,
   assertHarnessOpeningSelection,
   assertHarnessOpeningIntent,
   assertHarnessOpeningOrigin,
@@ -60,7 +63,11 @@ export {
   fingerprintHarnessObservation,
 } from "./local/harness-bindings.js";
 export type {
+  HarnessPreOpeningSettlement,
+  HarnessPreOpeningSettlementResult,
   StoredHarnessOpening,
+  StoredHarnessPreparation,
+  HarnessPreparationInput,
   ReserveHarnessOpeningInput,
   HarnessOpeningInput,
   HarnessOpeningReservation,
@@ -74,6 +81,7 @@ export type {
 } from "./local/harness-bindings.js";
 
 export { LocalHarnessObservationCommitPort } from "./local/harness-observation-port.js";
+export { fingerprintLocalHarnessClientIntent } from "./local-harness-client-intent.js";
 
 export { rethrowHarnessCommitFailure } from "./local/harness-bindings.js";
 
