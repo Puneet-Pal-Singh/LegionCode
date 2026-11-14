@@ -22,8 +22,6 @@ export function useThreadInputQueue(
   isMutationAllowed: () => boolean,
   client: PlatformClient,
 ) {
-  const mutationPolicy = useRef(isMutationAllowed);
-  mutationPolicy.current = isMutationAllowed;
   const [snapshotState, setSnapshotState] = useState<{
     scopeKey: string;
     value: ThreadInputQueueSnapshot;
@@ -127,7 +125,7 @@ export function useThreadInputQueue(
     async (
       action: () => Promise<ThreadInputReceipt>,
     ): Promise<ThreadInputReceipt | null> => {
-      if (!scopeKey || scopeKeyRef.current !== scopeKey || !mutationPolicy.current()) return null;
+      if (!scopeKey || scopeKeyRef.current !== scopeKey || !isMutationAllowed()) return null;
       const capturedKey = scopeKey;
       try {
         const receipt = await action();
@@ -152,7 +150,7 @@ export function useThreadInputQueue(
         return null;
       }
     },
-    [refresh, scopeKey],
+    [isMutationAllowed, refresh, scopeKey],
   );
 
   const update = useCallback(
