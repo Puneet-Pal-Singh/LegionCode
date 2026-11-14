@@ -1,4 +1,6 @@
 import { ProviderIdSchema } from "@repo/shared-types";
+import type { Env } from "../../types/ai";
+import { createPostgresProviderConfigService } from "../providers/stores/PostgresStoreFactory";
 import {
   findDiscoveredChatModelMetadata,
   projectChatModelMetadata,
@@ -49,4 +51,18 @@ export async function resolveCachedChatModelMetadata(input: {
     console.warn("[chat/model-metadata] cached metadata unavailable");
     return {};
   }
+}
+
+/** Both admission consumers read the same protected cache without discovery. */
+export function resolveAdmissionChatModelMetadata(
+  env: Env,
+  scope: { userId: string; workspaceId: string; runId: string },
+  selection: { providerId?: string; modelId?: string },
+): Promise<ChatModelMetadata> {
+  return resolveCachedChatModelMetadata({
+    ...selection,
+    readCachedModel: (providerId, modelId) => createPostgresProviderConfigService(
+      env, scope.userId, scope.workspaceId, scope.runId,
+    ).getCachedModel(providerId, modelId),
+  });
 }
