@@ -37,6 +37,7 @@
     "@repo/observability": "workspace:*",
     "@repo/platform-protocol": "workspace:*",
     "@repo/runtime-kernel": "workspace:*",
+    "@repo/worker-protocol": "workspace:*",
     "@repo/provider-core": "workspace:*",
     "@legioncode/context-pruner": "workspace:*",
     "@legioncode/execution-engine": "workspace:*",
