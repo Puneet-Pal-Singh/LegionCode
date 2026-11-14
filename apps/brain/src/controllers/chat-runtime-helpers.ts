@@ -45,6 +45,8 @@ export interface ExecutionScope {
 }
 
 export interface RunEngineExecutionPayload {
+  /** Server-built ownership only; never copied from the chat request body. */
+  admissionLease?: import("../runtime/RunAdmissionLimiterClient").RunAdmissionLease;
   runId: string;
   userId?: string;
   workspaceId?: string;

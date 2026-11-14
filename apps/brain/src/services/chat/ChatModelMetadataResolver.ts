@@ -1,4 +1,5 @@
 import {
+  type BYOKDiscoveredProviderModel,
   type BYOKModelPricing,
   type BYOKModelCapability,
   type BYOKModelInputModality,
@@ -46,20 +47,7 @@ export async function findDiscoveredChatModelMetadata(
     });
     const model = response.models.find((candidate) => candidate.id === modelId);
     if (model) {
-      return {
-        ...(model.contextWindow !== undefined
-          ? { contextWindow: model.contextWindow }
-          : {}),
-        ...(model.pricing ? { pricing: model.pricing } : {}),
-        ...(model.capabilities?.reasoningEfforts
-          ? { reasoningEfforts: model.capabilities.reasoningEfforts }
-          : {}),
-        ...(model.runtimeRoute ? { runtimeRoute: model.runtimeRoute } : {}),
-        ...(model.capabilities ? { capabilities: model.capabilities } : {}),
-        ...(model.inputModalities
-          ? { inputModalities: model.inputModalities }
-          : {}),
-      };
+      return projectChatModelMetadata(model);
     }
     if (!response.page.hasMore || !response.page.nextCursor) {
       return {};
@@ -68,4 +56,22 @@ export async function findDiscoveredChatModelMetadata(
   }
 
   return {};
+}
+
+/** Project only server-owned model metadata; credentials never enter this shape. */
+export function projectChatModelMetadata(model: BYOKDiscoveredProviderModel): ChatModelMetadata {
+  return {
+  ...(model.contextWindow !== undefined
+    ? { contextWindow: model.contextWindow }
+    : {}),
+  ...(model.pricing ? { pricing: model.pricing } : {}),
+  ...(model.capabilities?.reasoningEfforts
+    ? { reasoningEfforts: model.capabilities.reasoningEfforts }
+    : {}),
+  ...(model.runtimeRoute ? { runtimeRoute: model.runtimeRoute } : {}),
+  ...(model.capabilities ? { capabilities: model.capabilities } : {}),
+  ...(model.inputModalities
+    ? { inputModalities: model.inputModalities }
+    : {}),
+  };
 }

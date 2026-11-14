@@ -9,6 +9,7 @@ export type TitleAttemptResult =
       reason: string;
       retryable: boolean;
       correction?: CoreMessage[];
+      originalPending?: true;
     };
 
 export function classifyTitleProviderError(error: unknown): {
@@ -49,21 +50,34 @@ export async function attemptThreadTitle(
   deadline: number,
   timeoutMs = 6000,
 ): Promise<TitleAttemptResult> {
+  if (request.signal?.aborted) return { ok: false, reason: "cancelled", retryable: false };
   const allowance = Math.min(timeoutMs, deadline - Date.now());
   if (allowance <= 0) return { ok: false, reason: "timeout", retryable: false };
   const controller = new AbortController();
+  const onAttemptAbort = () => controller.abort();
+  request.signal?.addEventListener("abort", onAttemptAbort, { once: true });
+  let onAbort: (() => void) | undefined;
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const startedAt = Date.now();
   let outcome = "provider_unavailable";
   let finishReason: string | undefined;
   let tokens: number | undefined;
+  let originalSettled = false;
+  const original = Promise.resolve().then(() => {
+    controller.signal.throwIfAborted();
+    return generator.generateText({
+      ...request, signal: controller.signal, temperature: 0, maxOutputTokens: 128,
+    });
+  });
+  // An observer deadline/abort is never evidence that this raw request ended.
+  void original.then(() => { originalSettled = true; }, () => { originalSettled = true; });
   try {
     const result = await Promise.race([
-      generator.generateText({
-        ...request,
-        signal: controller.signal,
-        temperature: 0,
-        maxOutputTokens: 128,
+      original,
+      new Promise<never>((_, reject) => {
+        onAbort = () => reject(new Error("title_attempt_aborted"));
+        controller.signal.addEventListener("abort", onAbort, { once: true });
+        if (controller.signal.aborted) onAbort();
       }),
       new Promise<never>((_, reject) => {
         timeout = setTimeout(() => {
@@ -108,6 +122,8 @@ export async function attemptThreadTitle(
     return {
       ok: false,
       ...failure,
+      retryable: failure.retryable && originalSettled,
+      ...(!originalSettled ? { originalPending: true as const } : {}),
       ...(failure.reason === "malformed_output"
         ? {
             correction: [
@@ -121,6 +137,8 @@ export async function attemptThreadTitle(
         : {}),
     };
   } finally {
+    request.signal?.removeEventListener("abort", onAttemptAbort);
+    if (onAbort) controller.signal.removeEventListener("abort", onAbort);
     if (timeout !== undefined) clearTimeout(timeout);
     console.info("[thread-title] attempt", {
       outcome,

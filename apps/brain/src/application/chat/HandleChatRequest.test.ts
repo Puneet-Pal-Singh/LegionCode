@@ -348,18 +348,8 @@ describe("HandleChatRequest", () => {
     });
 
     expect(previewSpy).toHaveBeenCalledOnce();
-    expect(scheduleSpy).toHaveBeenCalledWith(
-      { waitUntil },
-      expect.objectContaining({
-        prompt: "edit the readme",
-        previewVersion: 1,
-        providerId: "openrouter",
-        modelId: "poolside/laguna-s-2.1:free",
-        runtimeModelId: "poolside/laguna-s-2.1:free",
-        providerTransport: "openai-chat-completions",
-        providerEndpoint: "https://openrouter.ai/api/v1/chat/completions",
-      }),
-    );
+    // Paid title inference is deferred to the actual claimed Native owner.
+    expect(scheduleSpy).not.toHaveBeenCalled();
   });
 
   it("honors explicit runtime selection overrides in execution payload", async () => {

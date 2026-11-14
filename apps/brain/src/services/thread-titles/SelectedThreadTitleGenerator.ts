@@ -1,17 +1,16 @@
 import { builtinProviderRegistry, normalizeRuntimeModelId, resolveProviderRuntimeRoute } from "@repo/provider-core";
 import { parseNativeProviderBindingForAdmission } from "@repo/persistence";
-import { AIService } from "../AIService";
-import { createPostgresProviderConfigService } from "../providers/stores/PostgresStoreFactory";
 import type { Env } from "../../types/ai";
 import type {
   GenerateThreadTitleInput,
   ThreadTitleGenerator,
 } from "./ThreadTitleGenerationCoordinator";
 import { ThreadTitleOutputSchema } from "./ThreadTitleOutput";
+import { resolveThreadTitleProviderOptions } from "@legioncode/app-server/thread-titles";
 
 /** Use the frozen first-request route and existing provider services, never picker defaults. */
 export function createSelectedThreadTitleGenerator(
-  env: Env,
+  _env: Env,
   input: GenerateThreadTitleInput,
 ): ThreadTitleGenerator {
   const nativeCredentials = input.nativeProviderCredentials;
@@ -48,41 +47,33 @@ export function createSelectedThreadTitleGenerator(
     (provider.capabilities.jsonMode ||
       provider.adapterFamily === "anthropic-native" ||
       provider.adapterFamily === "google-native");
-  const reasoning = capabilities?.supportsReasoning ?? model?.supportsReasoning;
-  const service = new AIService(
-    env,
-    createPostgresProviderConfigService(
-      env,
-      input.userId,
-      input.workspaceId,
-      input.runId,
-      nativeCredentials,
-    ),
-  );
+  const execution = input.nativeExecution;
+  if (!execution) throw new Error("Selected Native title generation requires its claimed execution service");
+  parseNativeProviderBindingForAdmission(nativeCredentials.binding, execution.scope);
+  const service = execution.service;
 
   return {
     outputFormat: structured ? "json" : "text",
     async generateText(request) {
       assertFixedRoute(request);
+      execution.signal.throwIfAborted();
+      request.signal?.throwIfAborted();
       const selectedRequest = { ...request, ...fixedRoute };
       // Unknown/reasoning models need room for private reasoning before visible output.
-      const maxTokens = reasoning === false ? request.maxOutputTokens : 2048;
+      const providerOptions = resolveThreadTitleProviderOptions(request.maxOutputTokens, capabilities, model?.supportsReasoning);
+      const maxTokens = providerOptions.maxOutputTokens;
       if (structured) {
-        const result = await service.generateStructured({
-          ...selectedRequest,
-          schema: ThreadTitleOutputSchema,
-          maxTokens,
-          abortSignal: request.signal,
-        });
+        const structuredRequest = {
+          ...selectedRequest, schema: ThreadTitleOutputSchema, maxTokens, abortSignal: request.signal ?? execution.signal,
+        };
+        const result = await service.generateStructured(structuredRequest);
         return { text: JSON.stringify(result.object), usage: result.usage };
       }
-      return service.generateText({
-        ...selectedRequest,
-        maxOutputTokens: maxTokens,
-        ...(capabilities?.reasoningEfforts?.includes("low")
-          ? { reasoningEffort: "low" }
-          : {}),
-      });
+      const textRequest = {
+        ...selectedRequest, signal: request.signal ?? execution.signal, maxOutputTokens: maxTokens,
+        ...(providerOptions.reasoningEffort ? { reasoningEffort: providerOptions.reasoningEffort } : {}),
+      };
+      return service.generateText(textRequest);
     },
   };
 }

@@ -156,4 +156,9 @@ export interface TurnAdmissionRepository {
     claimId: string;
   }): Promise<{ status: "claimed" | "already_claimed" | "recovery_required" | "settled" | "conflict"; admission: TurnAdmissionRecord | null }>;
   markRecoveryRequired(input: { turnId: string; claimId: string }): Promise<boolean>;
+  /** Retains an exact unowned Stop without retiring or replacing its claim. */
+  markRecoveryRequiredForUnownedStop(input: {
+    userId: string; sessionId: string; workspaceId: string; runId: string;
+    threadId: string; turnId: string; runAttemptId: string;
+  }): Promise<boolean>;
 }

@@ -42,6 +42,9 @@ describe("local development configuration", () => {
   it("keeps the tracked local template aligned with canonical runtime config", () => {
     const defaultConfig = readText("wrangler.jsonc");
     const templateConfig = readText("wrangler.local.example.jsonc");
+    for (const name of ["wrangler.jsonc", "wrangler.dev.jsonc", "wrangler.production.jsonc", "wrangler.local.example.jsonc"]) {
+      expect(readText(name)).toContain('"durable_object_io_tasks_prevent_eviction"');
+    }
     const canonicalPath = join(APP_ROOT, "wrangler.jsonc");
     const templatePath = join(APP_ROOT, "wrangler.local.example.jsonc");
 

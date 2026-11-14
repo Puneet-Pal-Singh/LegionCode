@@ -39,7 +39,7 @@ const input: Parameters<typeof scheduleInitialThreadTitle>[2] = {
     userId: "user", workspaceId: "workspace", sessionId: "session", threadId: "thr_title",
     runId: "run_first", turnId: "trn_title", runAttemptId: "attempt_title", clientMessageId: "first",
     revisionOfTurnId: null, continuationOfTurnId: null, originalPromptId: null, continuationTerminalSequence: null,
-    state: "admitted", executionState: "pending", requestFingerprint: "fixture-fingerprint", admissionOrder: 1,
+    state: "admitted", executionState: "running", requestFingerprint: "fixture-fingerprint", admissionOrder: 1,
     createdAt: "2026-10-01T00:00:00Z", admittedAt: "2026-10-01T00:00:00Z",
     nativeProviderBinding: {
       v: 1, kind: "byok", providerId: "openai", modelId: "gpt-4o",
@@ -58,6 +58,11 @@ const input: Parameters<typeof scheduleInitialThreadTitle>[2] = {
   modelCapabilities: {
     supportsStructuredOutputs: true,
     supportsReasoning: false,
+  },
+  nativeExecution: {
+    service: { generateText: vi.fn(), generateStructured: vi.fn() }, signal: new AbortController().signal,
+    scope: { userId: "user", workspaceId: "workspace", sessionId: "session", threadId: "thr_title",
+      runId: "run_first", turnId: "trn_title", runAttemptId: "attempt_title" },
   },
   backgroundTaskOwner: { waitUntil: vi.fn() },
 };

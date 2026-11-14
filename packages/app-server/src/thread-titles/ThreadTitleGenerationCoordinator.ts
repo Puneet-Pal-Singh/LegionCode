@@ -64,7 +64,7 @@ export class ThreadTitleGenerationCoordinator<TScope extends ThreadTitleScope = 
       retryable: false,
     };
     try {
-      if (input.providerId && input.modelId && prompt) {
+      if (!input.signal?.aborted && input.providerId && input.modelId && prompt) {
         try {
           const generator = this.generator ?? this.generatorFactory(input);
           const messages = buildThreadTitleMessages(
@@ -78,9 +78,10 @@ export class ThreadTitleGenerationCoordinator<TScope extends ThreadTitleScope = 
             runtimeModelId: input.runtimeModelId,
             providerTransport: input.providerTransport,
             providerEndpoint: input.providerEndpoint,
+            signal: input.signal,
           };
           outcome = await attemptThreadTitle(generator, request, deadline);
-          if (!outcome.ok && outcome.retryable && Date.now() < deadline) {
+          if (!input.signal?.aborted && !outcome.ok && outcome.retryable && Date.now() < deadline) {
             outcome = await attemptThreadTitle(
               generator,
               {
@@ -95,7 +96,8 @@ export class ThreadTitleGenerationCoordinator<TScope extends ThreadTitleScope = 
         }
       }
       if (
-        !outcome.ok &&
+        !input.signal?.aborted &&
+        !outcome.ok && !outcome.originalPending &&
         this.fallbackGenerator &&
         prompt &&
         Date.now() < deadline
@@ -109,15 +111,16 @@ export class ThreadTitleGenerationCoordinator<TScope extends ThreadTitleScope = 
             ),
             providerId: "openrouter",
             model: OPENROUTER_FREE_MODEL_ID,
+            signal: input.signal,
           },
           deadline,
           TITLE_GENERATION_TIMEOUT_MS,
         );
       }
-      if (!outcome.ok) {
+      if (input.signal?.aborted || !outcome.ok) {
         await this.settleFailure(input);
         console.warn(
-          `[thread-title] generation_failed reason=${outcome.reason}`,
+          `[thread-title] generation_failed reason=${outcome.ok ? "cancelled" : outcome.reason}`,
         );
         return;
       }

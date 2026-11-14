@@ -9,13 +9,14 @@ import {
 } from "@repo/platform-protocol";
 import { HandleChatRequest } from "../../application/chat/HandleChatRequest";
 import type { Env } from "../../types/ai";
+import { RunAdmissionService } from "../../runtime/RunAdmissionService";
+import type { RunAdmissionLease } from "../../runtime/RunAdmissionLimiterClient";
 import {
   executeViaRunEngineDurableObject,
-  fetchRunProviderModels,
   fetchRunRuntimeRoute,
 } from "../../controllers/chat-runtime-helpers";
 import { mapAgentIdToType } from "../../controllers/chat-request-helpers";
-import { resolveChatModelMetadata } from "../chat/ChatModelMetadataResolution";
+import { resolveAdmissionChatModelMetadata } from "../chat/ChatModelMetadataResolution";
 import { validateChatReasoningEffort } from "../chat/ChatReasoningEffortPolicy";
 import type { ChatModelMetadata } from "../chat/ChatModelMetadataResolver";
 import { withTurnAdmissionRepository } from "../turn-admissions/TurnAdmissionPersistenceFactory";
@@ -36,6 +37,7 @@ export interface AdmittedTurnExecution {
   readonly workspaceId: string;
   readonly correlationId: string;
   readonly identity: TurnScopeBootstrap;
+  readonly admissionLease: RunAdmissionLease;
   readonly prompt: string;
   readonly promptMessageId: string;
   readonly configuration: {
@@ -51,9 +53,6 @@ export interface AdmittedTurnExecution {
   readonly repository: AuthorizedWorkspaceRepositoryContext | null;
   readonly onStartupFailure: (error: unknown) => Promise<boolean>;
   readonly onDispatchSettled: () => Promise<void>;
-  readonly onTerminal?: (
-    type: "turn.completed" | "turn.failed" | "turn.interrupted",
-  ) => Promise<void>;
 }
 
 export async function prepareAdmittedTurnModel(input: {
@@ -63,19 +62,12 @@ export async function prepareAdmittedTurnModel(input: {
   readonly workspaceId: string;
   readonly configuration: AdmittedTurnExecution["configuration"];
 }): Promise<ChatModelMetadata> {
-  const modelMetadata = await resolveChatModelMetadata({
+  const modelMetadata = await resolveAdmissionChatModelMetadata(input.env, {
+    userId: input.userId, workspaceId: input.workspaceId, runId: input.run.id,
+  }, {
     providerId:
       input.configuration.providerId ?? input.run.providerId ?? undefined,
     modelId: input.configuration.modelId ?? input.run.modelId ?? undefined,
-    fetchModels: (providerId, query) =>
-      fetchRunProviderModels(input.env, {
-        runId: input.run.id,
-        userId: input.userId,
-        workspaceId: input.workspaceId,
-        providerId,
-        query,
-        requestedBackend: "execution-engine-v1",
-      }),
   });
   const reasoningEffort = input.configuration.reasoningEffort;
   if (reasoningEffort) {
@@ -161,24 +153,23 @@ export async function dispatchAdmittedTurn(
     const response = await executeViaRunEngineDurableObject(
       input.env,
       input.run.id,
-      executionPayload,
+      { ...executionPayload, admissionLease: input.admissionLease },
     );
+    try {
+      await new RunAdmissionService(input.env).releaseFreshRejectedAttempt({ lease: input.admissionLease }, response, {
+        userId: input.userId, workspaceId: input.workspaceId, sessionId: input.sessionId, runId: input.run.id,
+        threadId: input.identity.threadId, turnId: input.identity.turnId, runAttemptId: input.identity.runAttemptId,
+      }, input.correlationId);
+    } catch {
+      console.warn("[run/admission] Rejected admitted-turn lease release remains unresolved");
+    }
     await response.arrayBuffer();
-    const terminal = await readRunTerminal(
-      input.env,
-      input.run.id,
-      input.identity.turnId,
-    );
-    if (terminal) await input.onDispatchSettled();
-    if (terminal) await input.onTerminal?.(terminal);
+    // The DO owns physical completion, capacity release and queue advancement.
+    // Neither this ACK body nor a terminal projection proves original cleanup.
     if (!response.ok) {
       const error = new Error(
         `RunEngine rejected admitted turn with HTTP ${response.status}`,
       );
-      if (response.status === 400) {
-        const settled = await input.onStartupFailure(error);
-        if (settled) await input.onDispatchSettled();
-      }
       throw error;
     }
   };
@@ -192,7 +183,9 @@ export async function dispatchAdmittedTurn(
     throw error;
   });
   if (input.executionContext) input.executionContext.waitUntil(task);
-  else await task;
+  // The started/resumed receipt must follow the DO's durable ownership ACK.
+  // Actual execution continues under the DO's independent retained attempt.
+  await task;
 }
 
 export async function settleUnclaimedStartupFailure(input: {
@@ -253,6 +246,8 @@ export async function settleUnclaimedStartupFailure(input: {
   let result;
   try {
     result = await settleOwnedStartupFailure({
+      // This caller is reached only before the original runtime dispatch.
+      disposition: { kind: "no_exposure" },
       store: new BrainLifecycleEventStore(input.env),
       claim: { turnId: input.identity.turnId, claimId },
       identity: {
@@ -319,6 +314,7 @@ export async function readRunTerminal(
   env: Env,
   runId: string,
   turnId: string,
+  expected?: { readonly threadId: string; readonly runAttemptId: string },
 ): Promise<"turn.completed" | "turn.failed" | "turn.interrupted" | null> {
   let afterSequence: number | null = null;
   while (true) {
@@ -344,6 +340,9 @@ export async function readRunTerminal(
     for (const event of body.events) {
       if (typeof event !== "object" || event === null || !("type" in event))
         continue;
+      if (expected && (!("turnId" in event) || event.turnId !== turnId ||
+          !("threadId" in event) || event.threadId !== expected.threadId ||
+          !("runAttemptId" in event) || event.runAttemptId !== expected.runAttemptId)) continue;
       const type = (event as { type?: unknown }).type;
       if (
         type === "turn.completed" ||
