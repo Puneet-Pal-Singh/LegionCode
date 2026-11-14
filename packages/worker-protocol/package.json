@@ -15,7 +15,8 @@
     "./files": "./src/files.ts",
     "./git": "./src/git.ts",
     "./protocol": "./src/protocol.ts",
-    "./workspaces": "./src/workspaces.ts"
+    "./workspaces": "./src/workspaces.ts",
+    "./private/execution-domain": "./src/private/execution-domain.ts"
   },
   "scripts": {
     "build": "tsc",
