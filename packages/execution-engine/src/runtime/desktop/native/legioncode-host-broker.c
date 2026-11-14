@@ -1,7 +1,7 @@
 /* Privileged Native command resource service and its unprivileged XPC bridge.
  * Build only; packaging/setup owns installation, approval and launchd. Never
  * setid this binary. Missing setup, writer ABI or qualification fails closed. */
-#include "legioncode-host-scope.h"
+#include "legioncode-host-recovery.h"
 #include <stdatomic.h>
 
 static lc_host_approval approval;
@@ -54,6 +54,8 @@ static xpc_object_t serve_request(xpc_connection_t peer, xpc_object_t request) {
   }
   if (!approval.qualified || !lc_host_writer_supported() ||
       !lc_host_get(request, "generation", generation, sizeof(generation)) || strcmp(generation, approval.generation)) return lc_host_reply("unavailable", "serviceGenerationChanged");
+  if (!strcmp(operation, "recoveryDescribe") || !strcmp(operation, "recoverySeal"))
+    return lc_host_recovery(state_directory, &approval, request, scopes, !strcmp(operation, "recoverySeal"));
   if (!strcmp(operation, "prepareScope")) {
     for (size_t i = 0; i < LC_HOST_MAX_SCOPES; i++) {
       if (scopes[i].used) continue;

@@ -3,6 +3,8 @@
 #include "legioncode-host-approval.h"
 #include <grp.h>
 #include <sys/resource.h>
+#include <stddef.h>
+#include <dirent.h>
 
 /* _DARWIN_C_SOURCE redirects getgroups to Directory Services' unlimited
  * variant, which explicitly does not report a preceding setgroups change.
@@ -39,16 +41,71 @@ static inline bool lc_host_principal_valid(const lc_host_principal *principal) {
       mbr_uuid_to_id(group_guid, &id, &type) || type != ID_TYPE_GID || id != principal->gid) return false;
   return lc_host_uid_zero(principal->uid);
 }
+/* The original resource-ID prefix remains recognizable. The appended binding
+ * preserves the attempt association even if the first full scope save fails. */
+typedef struct {
+  unsigned char resource_id[32];
+  uint32_t version, bytes;
+  lc_host_writer_binding binding;
+  unsigned char digest[32];
+} lc_host_reservation;
+_Static_assert(sizeof(lc_host_reservation) == 344, "Protected host reservation format");
+static inline bool lc_host_reservation_read(int state, const lc_host_approval *approval,
+    uid_t uid, lc_host_reservation *reservation) {
+  char path[PATH_MAX]; struct stat st, held, current;
+  memset(reservation, 0, sizeof(*reservation));
+  if (snprintf(path, sizeof(path), "%s/used.%u", LC_HOST_STATE, uid) >= (int)sizeof(path)) return false;
+  int fd = lc_host_open_protected(path, false); if (fd < 0) return false;
+  bool okay = !fstat(fd, &st) && st.st_size == sizeof(*reservation) && lc_host_io(fd, reservation, sizeof(*reservation), false);
+  if (close(fd)) okay = false;
+  unsigned char digest[32]; CC_SHA256(reservation, (CC_LONG)offsetof(lc_host_reservation, digest), digest);
+  if (!okay || reservation->version != 1 || reservation->bytes != sizeof(*reservation) ||
+      memcmp(digest, reservation->digest, 32) || reservation->binding.abi != LC_HOST_ABI || reservation->binding.reserved ||
+      reservation->binding.actor_uid != approval->actor || reservation->binding.execution_uid != uid ||
+      memcmp(reservation->resource_id, reservation->binding.resource_id, 32) ||
+      fstat(state, &held) || lstat(LC_HOST_STATE, &current) || held.st_dev != current.st_dev || held.st_ino != current.st_ino) return false;
+  for (size_t i = 0; i < approval->principal_count; i++) {
+    const lc_host_principal *principal = &approval->principals[i];
+    if (principal->uid == uid && !memcmp(principal->guid, reservation->binding.principal_guid, 16)) return true;
+  }
+  return false;
+}
+static inline bool lc_host_reservation_seen(int state, const lc_host_approval *approval,
+    const unsigned char scope[32], bool *seen) {
+  int fd = openat(state, ".", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC); struct stat held, actual;
+  if (fd < 0) return false;
+  if (fstat(state, &held) || fstat(fd, &actual) || held.st_dev != actual.st_dev || held.st_ino != actual.st_ino) { close(fd); return false; }
+  DIR *directory = fdopendir(fd); if (!directory) { close(fd); return false; }
+  bool okay = true; size_t count = 0; *seen = false;
+  for (;;) {
+    errno = 0; struct dirent *entry = readdir(directory);
+    if (!entry) { if (errno) okay = false; break; }
+    if (strncmp(entry->d_name, "used.", 5)) continue;
+    char *end = NULL, canonical[64]; errno = 0;
+    unsigned long uid = strtoul(entry->d_name + 5, &end, 10);
+    snprintf(canonical, sizeof(canonical), "used.%lu", uid);
+    lc_host_reservation reservation;
+    if (++count > LC_HOST_MAX_PRINCIPALS || errno || !end || *end || uid > UINT32_MAX ||
+        strcmp(canonical, entry->d_name) || !lc_host_reservation_read(state, approval, (uid_t)uid, &reservation)) { okay = false; break; }
+    if (!memcmp(reservation.binding.scope_sha256, scope, 32)) *seen = true;
+  }
+  if (closedir(directory)) okay = false; return okay;
+}
 static inline bool lc_host_reserve_principal(int state, const lc_host_approval *approval,
-                                            const unsigned char binding[32], lc_host_principal *out) {
+                                            lc_host_writer_binding *binding, lc_host_principal *out) {
   for (size_t i = 0; i < approval->principal_count; i++) {
     const lc_host_principal *principal = &approval->principals[i]; char name[64];
     snprintf(name, sizeof(name), "used.%u", principal->uid);
     int fd = openat(state, name, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
     if (fd < 0) { if (errno == EEXIST) continue; return false; }
-    /* Consume before checking/mutation. Failed/ambiguous reservations are never
-     * returned to the pool, and no account/range is installed by this code. */
-    bool okay = lc_host_io(fd, (void *)binding, 32, true) && lc_host_sync(fd) && lc_host_sync(state);
+    binding->execution_uid = principal->uid; memcpy(binding->principal_guid, principal->guid, 16);
+    lc_host_reservation reservation; memset(&reservation, 0, sizeof(reservation));
+    memcpy(reservation.resource_id, binding->resource_id, 32); reservation.version = 1; reservation.bytes = sizeof(reservation);
+    reservation.binding = *binding;
+    CC_SHA256(&reservation, (CC_LONG)offsetof(lc_host_reservation, digest), reservation.digest);
+    /* Consume before checking/mutation. Partial reservations remain blocking;
+     * this UID and original attempt are never returned to a provisioning pool. */
+    bool okay = lc_host_io(fd, &reservation, sizeof(reservation), true) && lc_host_sync(fd) && lc_host_sync(state);
     if (close(fd)) okay = false;
     if (!okay || !lc_host_principal_valid(principal)) return false;
     *out = *principal; return true;

@@ -4,15 +4,8 @@
 #include "legioncode-host-sandbox.h"
 #include "legioncode-host-wire.h"
 
-typedef enum { LC_HOST_IDLE = 1, LC_HOST_PREPARED, LC_HOST_RUNNING, LC_HOST_CLOSING,
-               LC_HOST_CLOSED, LC_HOST_UNKNOWN } lc_host_phase;
-typedef struct {
-  uint32_t version, phase, command_count;
-  lc_host_writer_binding binding;
-  lc_host_principal principal;
-  char root_path[PATH_MAX], namespace_path[PATH_MAX], work_path[PATH_MAX];
-  unsigned char command_ids[256][32];
-} lc_host_scope_record;
+#include "legioncode-host-record.h"
+
 typedef struct {
   bool used, sealed, released, stdout_closed, stderr_closed, access_ready;
   lc_host_scope_record record;
@@ -29,6 +22,8 @@ typedef struct {
 
 static inline bool lc_host_scope_save(int state, lc_host_scope *scope) {
   char temporary[96]; snprintf(temporary, sizeof(temporary), "%s.next", scope->name);
+  scope->record.bytes = sizeof(scope->record);
+  if (!lc_host_record_digest(&scope->record, false)) return false;
   int fd = openat(state, temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
   if (fd < 0) return false;
   bool okay = lc_host_io(fd, &scope->record, sizeof(scope->record), true) && lc_host_sync(fd);
@@ -53,6 +48,7 @@ static inline bool lc_host_scope_path_current(lc_host_scope *scope) {
     realpath(scope->record.root_path, canonical) && !strcmp(canonical, scope->record.root_path);
 }
 static inline void lc_host_scope_unknown(int state, lc_host_scope *scope) {
+  scope->record.cleanup_closed = 0; memset(scope->record.cleanup_receipt, 0, sizeof(scope->record.cleanup_receipt));
   scope->sealed = true; scope->record.phase = LC_HOST_UNKNOWN; (void)lc_host_scope_save(state, scope);
   /* Keep all real FDs and the original writer. No timeout/transport error is
    * evidence that the UID, pipes or changed access disappeared. */
@@ -92,21 +88,21 @@ static inline bool lc_host_scope_open(int state, const lc_host_approval *approva
       fcntl(scope->namespace, F_GETPATH, scope->record.namespace_path) || !lc_host_absolute(scope->record.namespace_path) ||
       lc_host_beneath(scope->record.root_path, scope->record.namespace_path) ||
       lc_host_beneath(scope->record.namespace_path, scope->record.root_path)) goto unused;
-  CC_SHA256_CTX digest; CC_SHA256_Init(&digest);
-  for (const char **field = (const char *[]){ "workspaceId", "threadId", "runId", "turnId", "runAttemptId", NULL }; *field; field++) {
-    char id[257]; if (!lc_host_get(request, *field, id, sizeof(id))) goto unused;
-    for (const unsigned char *p = (const unsigned char *)id; *p; p++) if (*p < 33 || *p > 126) goto unused;
-    CC_SHA256_Update(&digest, id, (CC_LONG)strlen(id) + 1);
-  }
-  CC_SHA256_Final(scope->record.binding.scope_sha256, &digest);
+  lc_host_scope_record previous; char previous_name[80]; bool present, reserved;
+  if (!lc_host_request_scope(request, scope->record.binding.scope_sha256) ||
+      !lc_host_record_find(state, approval->actor, scope->record.binding.scope_sha256, &previous, previous_name, &present) || present ||
+      !lc_host_reservation_seen(state, approval, scope->record.binding.scope_sha256, &reserved) || reserved) goto unused;
   unsigned char capability[32]; arc4random_buf(capability, sizeof(capability));
   lc_host_hex(capability, sizeof(capability), scope->capability, sizeof(scope->capability));
   CC_SHA256(capability, sizeof(capability), scope->record.binding.capability_sha256);
   arc4random_buf(scope->record.binding.resource_id, 32); arc4random_buf(scope->record.binding.broker_resource_generation, 32);
+  scope->record.binding.abi = LC_HOST_ABI; scope->record.binding.actor_uid = approval->actor;
   if (!lc_host_unhex(policy, scope->record.binding.policy_sha256, 32) ||
       !lc_host_unhex(policy_generation, scope->record.binding.approved_policy_generation, 32) ||
-      !lc_host_reserve_principal(state, approval, scope->record.binding.resource_id, &scope->record.principal)) goto unused;
-  scope->record.version = 1; scope->record.phase = LC_HOST_IDLE;
+      !lc_host_reserve_principal(state, approval, &scope->record.binding, &scope->record.principal)) goto unused;
+  scope->record.version = 2; scope->record.phase = LC_HOST_IDLE;
+  if (!lc_host_boot(scope->record.boot)) goto unused;
+  strcpy(scope->record.origin_generation, approval->generation);
   scope->record.binding.abi = LC_HOST_ABI; scope->record.binding.actor_uid = approval->actor;
   scope->record.binding.execution_uid = scope->record.principal.uid;
   memcpy(scope->record.binding.principal_guid, scope->record.principal.guid, 16);
@@ -318,6 +314,10 @@ static inline void lc_host_scope_tick(int state, lc_host_scope *scope) {
     if (close(*descriptors[i])) closed = false; else *descriptors[i] = -1;
   }
   if (!closed) { lc_host_scope_unknown(state, scope); return; }
+  /* A CLOSED phase alone is not proof: receipt follows actual FD close. */
+  scope->record.cleanup_closed = 1;
+  arc4random_buf(scope->record.cleanup_receipt, sizeof(scope->record.cleanup_receipt));
+  if (!lc_host_scope_save(state, scope)) { lc_host_scope_unknown(state, scope); return; }
   scope->released = true;
 }
 #endif

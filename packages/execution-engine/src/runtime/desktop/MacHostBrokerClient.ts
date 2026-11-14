@@ -13,6 +13,21 @@ import {
 
 type Reply = ReadonlyMap<string, Buffer>;
 type Identity = Readonly<{ rootDevice: bigint; rootInode: bigint; namespaceDevice: bigint; namespaceInode: bigint; fenceDevice: bigint; fenceInode: bigint }>;
+export type MacHostRecoveryResource = Readonly<{ resourceId: string; resourceGeneration: string }>;
+export type MacHostRecoveryScope = Readonly<{ attempt: LocalTurnAttemptIdentity; identity: Identity }>;
+const cleanupReceiptBrand: unique symbol = Symbol("MacHostInterruptedCleanupReceipt");
+type RecoveryIdentity = Identity & MacHostRecoveryResource & Readonly<{
+  scopeSHA256: string; bindingSHA256: string; capabilitySHA256: string;
+  originGeneration: string; originBoot: string; policySHA256: string; policyGeneration: string;
+}>;
+/** Cleanup receipt only. It never fulfills an original bridge/resource promise,
+ * reconstructs tool output, or proves canonical Turn/operation settlement. */
+export type MacHostInterruptedCleanupReceipt = RecoveryIdentity & Readonly<{
+  kind: "interrupted_cleanup"; cleanupBasis: "live_original_resources"; receiptId: string;
+  [cleanupReceiptBrand]: true;
+}>;
+export type MacHostRecoveryObservation = MacHostInterruptedCleanupReceipt |
+  (RecoveryIdentity & Readonly<{ kind: "cleanup_pending" | "cleanup_unknown" }>);
 export interface MacHostBrokerOptions {
   readonly bridgePath: string;
   /** Protected setup receipt supplied by the trusted host, never a renderer field. */
@@ -136,6 +151,72 @@ export class MacHostBrokerClient {
       const generation = macHostDigest(reply, "generation");
       return new MacHostBrokerClient(options, generation);
     } finally { await bridge.end(); }
+  }
+  /** Fresh cleanup transport. No original promise or execution handle is reused. */
+  describeRecovery(input: MacHostRecoveryScope & { resource?: MacHostRecoveryResource }): Promise<MacHostRecoveryObservation> {
+    return this.recover("recoveryDescribe", input);
+  }
+  /** Irreversible cleanup only: the server cannot prepare/release a command. */
+  sealRecovery(input: MacHostRecoveryScope & { resource: MacHostRecoveryResource }): Promise<MacHostRecoveryObservation> {
+    return this.recover("recoverySeal", input);
+  }
+  private async recover(operation: "recoveryDescribe" | "recoverySeal",
+    input: MacHostRecoveryScope & { resource?: MacHostRecoveryResource }): Promise<MacHostRecoveryObservation> {
+    const attempt = Object.freeze({ ...input.attempt });
+    const attemptKeys = ["workspaceId", "threadId", "runId", "turnId", "runAttemptId"] as const;
+    const identityKeys = ["rootDevice", "rootInode", "namespaceDevice", "namespaceInode", "fenceDevice", "fenceInode"] as const;
+    if (Object.keys(attempt).length !== attemptKeys.length || attemptKeys.some((key) =>
+      typeof attempt[key] !== "string" || !/^[\x21-\x7e]{1,256}$/u.test(attempt[key])) ||
+      Object.keys(input.identity).length !== identityKeys.length || identityKeys.some((key) =>
+        typeof input.identity[key] !== "bigint" || input.identity[key] < 0n || input.identity[key] > 0xffffffffffffffffn)) {
+      throw new MacHostBrokerError("invalid_recovery_identity", false);
+    }
+    const physical = Object.freeze({ ...input.identity });
+    const scopeSHA256 = macHostScopeDigest(attempt);
+    const resource = input.resource ? Object.freeze({ ...input.resource }) : undefined;
+    if (resource && (!/^[a-f0-9]{64}$/u.test(resource.resourceId) || !/^[a-f0-9]{64}$/u.test(resource.resourceGeneration))) {
+      throw new MacHostBrokerError("invalid_recovery_identity", false);
+    }
+    const bridge = new Bridge(this.options);
+    try {
+      const reply = await bridge.request({ ...base(operation, this.generation), ...attempt,
+        ...Object.fromEntries(Object.entries(physical).map(([key, value]) => [key, value.toString()])),
+        resourceId: resource?.resourceId ?? "", resourceGeneration: resource?.resourceGeneration ?? "" });
+      const state = response(reply);
+      const keys = ["version", "state", "code", "generation", "originGeneration", "originBoot", "cleanupBasis",
+        "scopeSHA256", "resourceId", "resourceGeneration", "policy", "policyGeneration", "capabilitySHA256", "receiptId", "bindingSHA256",
+        "rootDevice", "rootInode", "namespaceDevice", "namespaceInode", "fenceDevice", "fenceInode"];
+      if (reply.size !== keys.length || keys.some((key) => !reply.has(key)) ||
+          !["cleanupClosed", "cleanupPending", "unknown"].includes(state) ||
+          macHostDigest(reply, "generation") !== this.generation || macHostDigest(reply, "originGeneration") !== this.generation ||
+          macHostDigest(reply, "scopeSHA256") !== scopeSHA256 ||
+          macHostDigest(reply, "policy") !== this.options.expectedPolicySHA256 ||
+          macHostDigest(reply, "policyGeneration") !== this.options.expectedPolicyGeneration ||
+          Object.entries(physical).some(([key, value]) => macHostNumber(reply, key) !== value)) {
+        throw new MacHostBrokerError("recovery_identity_changed", true);
+      }
+      const originBoot = macHostText(reply, "originBoot", 36);
+      if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u.test(originBoot)) throw new MacHostBrokerError("invalid_recovery_receipt", true);
+      const identity: RecoveryIdentity = Object.freeze({ ...physical, scopeSHA256, originBoot,
+        originGeneration: this.generation, policySHA256: this.options.expectedPolicySHA256,
+        policyGeneration: this.options.expectedPolicyGeneration, resourceId: macHostDigest(reply, "resourceId"),
+        resourceGeneration: macHostDigest(reply, "resourceGeneration"), bindingSHA256: macHostDigest(reply, "bindingSHA256"),
+        capabilitySHA256: macHostDigest(reply, "capabilitySHA256") });
+      if (resource && (identity.resourceId !== resource.resourceId || identity.resourceGeneration !== resource.resourceGeneration)) {
+        throw new MacHostBrokerError("recovery_identity_changed", true);
+      }
+      const receiptId = macHostDigest(reply, "receiptId"), basis = macHostText(reply, "cleanupBasis", 32);
+      if (state === "cleanupClosed") {
+        if (basis !== "liveOriginalResources" || /^0+$/u.test(receiptId)) throw new MacHostBrokerError("invalid_recovery_receipt", true);
+        return Object.freeze({ ...identity, kind: "interrupted_cleanup", cleanupBasis: "live_original_resources", receiptId, [cleanupReceiptBrand]: true as const });
+      }
+      if (basis !== "unconfirmed" || !/^0+$/u.test(receiptId)) throw new MacHostBrokerError("invalid_recovery_receipt", true);
+      return Object.freeze({ ...identity, kind: state === "unknown" ? "cleanup_unknown" : "cleanup_pending" });
+    } finally {
+      /* Caller cannot consume the receipt until THIS transport really closes.
+       * This does not manufacture closure of any lost original transport. */
+      await bridge.end();
+    }
   }
   /** Caller registers this resource with the original lease BEFORE execute(). */
   createAttempt(input: { attempt: LocalTurnAttemptIdentity; rootDirectory: FileHandle; writerLease: FileHandle; namespaceDirectory: FileHandle }): MacHostCommandAttempt {
