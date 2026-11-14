@@ -3,6 +3,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   APP_IMPORT_POLICY,
+  APP_PRIVATE_IMPORT_POLICY,
   CANONICAL_AUTHORITIES,
   DIRECT_GIT_COMMAND_POLICY,
   HARNESS_PRODUCT_PATH_GUARDS,
@@ -136,6 +137,13 @@ async function validateAppImports(root, violations) {
 
       for (const importedPackage of findRepoImports(source)) {
         if (!allowedImports.includes(importedPackage)) {
+          const specifiers = findImportSpecifiers(source).filter((specifier) =>
+            specifier === importedPackage || specifier.startsWith(`${importedPackage}/`),
+          );
+          const privateEdges = APP_PRIVATE_IMPORT_POLICY[appName];
+          if (specifiers.length > 0 && specifiers.every((specifier) =>
+            privateEdges?.[specifier]?.includes(relative(root, file)),
+          )) continue;
           violations.push(
             `${relative(root, file)}: ${appName} must not import ${importedPackage}; allowed canonical imports: ${allowedImports.join(", ") || "none"}.`,
           );
