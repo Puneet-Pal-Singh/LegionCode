@@ -50,6 +50,41 @@ static inline bool lc_host_metadata_read(xpc_object_t request, lc_host_metadata 
   }
   CC_SHA256_Final(metadata->digest, &digest); return true;
 }
+/* Encode only the canonical inspector's stat-receipt ABI. No Git contents are
+ * read. Birth times come from the ORIGINAL held root and freshly pinned FDs. */
+static inline bool lc_host_metadata_append_stat(char out[513], const struct stat *st) {
+  size_t used = strlen(out);
+  int bytes = snprintf(out + used, 513 - used, ":%jx:%jx:%jx:%jx", (uintmax_t)st->st_dev,
+    (uintmax_t)st->st_ino, (uintmax_t)st->st_birthtimespec.tv_sec, (uintmax_t)st->st_birthtimespec.tv_nsec);
+  return bytes >= 0 && (size_t)bytes < 513 - used;
+}
+static inline bool lc_host_metadata_append_pin(char out[513], const lc_host_metadata_pins *pins, size_t index) {
+  struct stat st; memset(&st, 0, sizeof(st));
+  /* The sole encoded absence is a missing repository-info directory. A new
+   * present inode cannot match the canonical all-zero tuple. Logs are omitted
+   * from this ABI by its owner and retain their independent pin/absence checks. */
+  if (pins->absent[index]) {
+    if (index != 9 || pins->fd[index] >= 0) return false;
+  } else if (pins->fd[index] < 0 || fstat(pins->fd[index], &st)) return false;
+  return lc_host_metadata_append_stat(out, &st);
+}
+static inline bool lc_host_metadata_receipt_matches(const lc_host_metadata *metadata,
+    const lc_host_metadata_pins *pins, int original_root) {
+  char identity[513], storage[513]; struct stat root;
+  bool linked = metadata->paths[2][0] != 0;
+  if (fstat(original_root, &root) || !S_ISDIR(root.st_mode)) return false;
+  strcpy(identity, linked ? "gitdir-v2" : "gitdir-v1");
+  if (!lc_host_metadata_append_stat(identity, &root) ||
+      (linked && !lc_host_metadata_append_pin(identity, pins, 2)) ||
+      !lc_host_metadata_append_pin(identity, pins, 0) ||
+      (linked && !lc_host_metadata_append_pin(identity, pins, 1)) ||
+      (!linked && strcmp(metadata->paths[0], metadata->paths[1])) || strcmp(identity, metadata->identity)) return false;
+  strcpy(storage, "gitstorage-v1");
+  const size_t storage_indices[] = { 3, 4, 5, 6, 9 };
+  for (size_t i = 0; i < sizeof(storage_indices) / sizeof(storage_indices[0]); i++)
+    if (!lc_host_metadata_append_pin(storage, pins, storage_indices[i])) return false;
+  return !strcmp(storage, metadata->storage_identity);
+}
 static inline bool lc_host_metadata_current(const lc_host_metadata *metadata, const lc_host_metadata_pins *pins) {
   for (size_t i = 0; i < LC_HOST_METADATA_PATHS; i++) {
     if (!metadata->paths[i][0]) continue;
@@ -64,7 +99,7 @@ static inline bool lc_host_metadata_current(const lc_host_metadata *metadata, co
   }
   return true;
 }
-static inline bool lc_host_metadata_open(const lc_host_metadata *metadata, lc_host_metadata_pins *pins, const char *root) {
+static inline bool lc_host_metadata_open(const lc_host_metadata *metadata, lc_host_metadata_pins *pins, const char *root, int original_root) {
   char sentinel[PATH_MAX];
   for (size_t i = 0; i < LC_HOST_METADATA_PATHS; i++) { pins->fd[i] = -1; pins->absent[i] = false; }
   if (snprintf(sentinel, sizeof(sentinel), "%s/.git", root) >= (int)sizeof(sentinel) ||
@@ -80,7 +115,7 @@ static inline bool lc_host_metadata_open(const lc_host_metadata *metadata, lc_ho
     okay = pins->fd[i] >= 0 && !fstat(pins->fd[i], &st) && (directory ? S_ISDIR(st.st_mode) : S_ISREG(st.st_mode)) &&
       lc_host_identity(pins->fd[i], directory, &pins->identity[i]);
   }
-  if (okay) okay = lc_host_metadata_current(metadata, pins);
+  if (okay) okay = lc_host_metadata_current(metadata, pins) && lc_host_metadata_receipt_matches(metadata, pins, original_root);
   if (!okay) for (size_t i = 0; i < LC_HOST_METADATA_PATHS; i++) if (pins->fd[i] >= 0) { close(pins->fd[i]); pins->fd[i] = -1; }
   return okay;
 }

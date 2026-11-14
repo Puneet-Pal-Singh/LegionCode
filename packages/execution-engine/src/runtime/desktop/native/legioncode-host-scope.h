@@ -91,7 +91,7 @@ static inline bool lc_host_scope_open(int state, const lc_host_approval *approva
       lc_host_beneath(scope->record.root_path, scope->record.namespace_path) ||
       lc_host_beneath(scope->record.namespace_path, scope->record.root_path)) goto unused;
   if (!lc_host_metadata_read(request, &scope->record.metadata) ||
-      !lc_host_metadata_open(&scope->record.metadata, &scope->metadata_pins, scope->record.root_path)) goto unused;
+      !lc_host_metadata_open(&scope->record.metadata, &scope->metadata_pins, scope->record.root_path, scope->root)) goto unused;
   lc_host_scope_record previous; char previous_name[80]; bool present, reserved;
   if (!lc_host_request_scope(request, scope->record.binding.scope_sha256) ||
       !lc_host_record_find(state, approval->actor, scope->record.binding.scope_sha256, &previous, previous_name, &present) || present ||
@@ -158,7 +158,8 @@ static inline bool lc_host_prepare_command(int state, const lc_host_approval *ap
       lc_host_command_seen(scope, id) || !lc_host_get(request, "command", command, sizeof(command)) ||
       !lc_host_get(request, "cwd", cwd, sizeof(cwd)) || !lc_host_metadata_read(request, &metadata) ||
       memcmp(metadata.digest, scope->record.metadata.digest, 32) ||
-      !lc_host_metadata_current(&scope->record.metadata, &scope->metadata_pins)) return false;
+      !lc_host_metadata_current(&scope->record.metadata, &scope->metadata_pins) ||
+      !lc_host_metadata_receipt_matches(&scope->record.metadata, &scope->metadata_pins, scope->root)) return false;
   /* Validate disjoint protected namespaces and the actual policy before the
    * first ACE is changed, not only immediately before target execution. */
   lc_host_policy_buffer policy;
@@ -198,7 +199,8 @@ static inline bool lc_host_pipe(int pair[2]) {
 }
 static inline bool lc_host_release_command(int state, const lc_host_approval *approval, lc_host_scope *scope) {
   if (scope->sealed || scope->record.phase != LC_HOST_PREPARED || !scope->access_ready || !lc_host_scope_current(scope) || !lc_host_scope_path_current(scope) ||
-      !lc_host_metadata_current(&scope->record.metadata, &scope->metadata_pins)) return false;
+      !lc_host_metadata_current(&scope->record.metadata, &scope->metadata_pins) ||
+      !lc_host_metadata_receipt_matches(&scope->record.metadata, &scope->metadata_pins, scope->root)) return false;
   lc_host_policy_buffer policy;
   CFArrayRef verified_executables;
   if (!lc_host_installed_broker_valid(approval) || !lc_host_paths(approval->executables, &verified_executables, true) ||
@@ -311,6 +313,7 @@ static inline void lc_host_scope_tick(int state, lc_host_scope *scope) {
   size_t count = 0;
   if (!lc_host_restore_created(&scope->access, scope->work, 0, &count) ||
       !lc_host_metadata_current(&scope->record.metadata, &scope->metadata_pins) ||
+      !lc_host_metadata_receipt_matches(&scope->record.metadata, &scope->metadata_pins, scope->root) ||
       !lc_host_scope_current(scope) || !lc_writer_host_resource_complete(scope->fence, scope->root, scope->namespace, &scope->record.binding)) {
     lc_host_scope_unknown(state, scope); return;
   }
