@@ -4,6 +4,7 @@ import { chmod, copyFile, cp, link, lstat, mkdir, mkdtemp, open, readdir, realpa
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { inspectNativeFileHelper, nativeHelperSources } from "./build-file-helper.mjs";
+import { captureBundleSnapshot, relocateSnapshotLinks, verifyBundleSnapshot, verifySnapshotIdentities } from "./native-setup-snapshot.mjs";
 
 const environment = { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", LANG: "C", LC_ALL: "C" };
 const installedApp = "/Library/Application Support/LegionCode/Applications/LegionCode Desktop.app";
@@ -130,20 +131,8 @@ export async function buildNativeSetupPackage(appPath, packagePath) {
   const output = join(outputDirectory, basename(packagePath));
   if (beneath(source, output)) throw new Error("Package output must be outside the source application");
   await absent(output);
-  await inspectApp(source);
-  const helpers = ["legioncode-host-broker", "legioncode-native-installer"].map(name => join(source, "Contents", "Resources", "native", name));
-  for (const helper of helpers) {
-    const info = await lstat(helper);
-    if (!info.isFile() || info.isSymbolicLink() || !(info.mode & 0o111) || !beneath(source, await realpath(helper)))
-      throw new Error("The packaged application lacks its actual contained native setup executables");
-    await inspectNativeFileHelper(helper, process.platform, process.arch);
-  }
+  const snapshot = await captureBundleSnapshot(source);
   const ownership = { unknownClosure: false };
-  const plist = join(source, "Contents", "Info.plist");
-  const version = (await command("/usr/libexec/PlistBuddy", ["-c", "Print :CFBundleShortVersionString", plist], ownership)).trim();
-  const bundleId = (await command("/usr/libexec/PlistBuddy", ["-c", "Print :CFBundleIdentifier", plist], ownership)).trim();
-  if (!/^[0-9]+(?:\.[0-9]+){0,3}$/u.test(version) || bundleId !== "dev.legioncode.desktop")
-    throw new Error("Packaged application identity/version is invalid");
   const staging = await mkdtemp(join(outputDirectory, ".legioncode-native-setup-"));
   try {
     const scripts = join(staging, "scripts");
@@ -154,6 +143,21 @@ export async function buildNativeSetupPackage(appPath, packagePath) {
     await mkdir(payload, { mode: 0o755 });
     await chmod(payload, 0o755);
     await cp(source, stagedApp, { recursive: true, dereference: false, verbatimSymlinks: true, force: false, errorOnExist: true, preserveTimestamps: true });
+    await relocateSnapshotLinks(snapshot, stagedApp);
+    const verified = await verifyBundleSnapshot(snapshot, stagedApp);
+    const helpers = ["legioncode-host-broker", "legioncode-native-installer"].map(name => join(stagedApp, "Contents", "Resources", "native", name));
+    for (const helper of helpers) {
+      const info = await lstat(helper);
+      if (!info.isFile() || info.isSymbolicLink() || !(info.mode & 0o111) || !beneath(stagedApp, await realpath(helper)))
+        throw new Error("The packaged application lacks its actual contained native setup executables");
+      await inspectNativeFileHelper(helper, process.platform, process.arch);
+    }
+    const plist = join(stagedApp, "Contents", "Info.plist");
+    const version = (await command("/usr/libexec/PlistBuddy", ["-c", "Print :CFBundleShortVersionString", plist], ownership)).trim();
+    const bundleId = (await command("/usr/libexec/PlistBuddy", ["-c", "Print :CFBundleIdentifier", plist], ownership)).trim();
+    if (!/^[0-9]+(?:\.[0-9]+){0,3}$/u.test(version) || bundleId !== "dev.legioncode.desktop")
+      throw new Error("Staged application identity/version is invalid");
+    await verifySnapshotIdentities(verified);
     await inspectApp(stagedApp, true);
     await command("/bin/chmod", ["-RN", stagedApp, scripts], ownership);
     // The preview needs no Developer ID. Seal only this owned snapshot with an
@@ -187,7 +191,7 @@ export async function buildNativeSetupPackage(appPath, packagePath) {
     const sha256 = await packageDigest(temporaryPackage);
     await link(temporaryPackage, output); // Exclusive publication: never overwrite another package.
     return { packagePath: output, version, architecture: process.arch, unsigned: true, installedApp,
-      sha256, installerSHA256: original.sha256, qualification: "not_performed" };
+      sha256, sourceSnapshotSHA256: snapshot.sha256, installerSHA256: original.sha256, qualification: "not_performed" };
   } catch (error) {
     if (ownership.unknownClosure) throw new Error(`Native setup build closure is unknown; preserve staging at ${staging}`, { cause: error });
     throw error;
