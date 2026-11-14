@@ -2,12 +2,14 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   act,
   render,
+  renderHook,
   screen,
   fireEvent,
   waitFor,
   within,
 } from "@testing-library/react";
 import { useState } from "react";
+import { useChatImageAttachmentDraft } from "@legioncode/client-ui";
 import { WebChatInputBar as ChatInputBar } from "./WebChatInputBar.js";
 import * as useProviderStoreModule from "../../hooks/useProviderStore.js";
 import * as providerHelpersModule from "../../lib/provider-helpers.js";
@@ -784,7 +786,7 @@ describe("ChatInputBar", () => {
   it("restores a detached image when submission is rejected", async () => {
     const onSubmit = vi.fn(async () => false);
 
-    render(
+    const view = render(
       <ChatInputBar
         input="Inspect this image"
         onChange={vi.fn()}
@@ -802,6 +804,48 @@ describe("ChatInputBar", () => {
     fireEvent.click(screen.getByLabelText("Send message"));
 
     expect(await screen.findByLabelText("Attached images")).toBeInTheDocument();
+    view.unmount();
+
+    vi.mocked(URL.createObjectURL)
+      .mockReturnValueOnce("blob:scope-a")
+      .mockReturnValueOnce("blob:scope-b");
+    const drafts = renderHook((scope: { ownerKey: string; scopeKey: string }) =>
+      useChatImageAttachmentDraft(true, [], scope), {
+      initialProps: { ownerKey: "account-1", scopeKey: "welcome-a" },
+    });
+    await act(async () => { await drafts.result.current.addFiles([
+      new File(["image-a"], "a.png", { type: "image/png" }),
+    ], "upload"); });
+    const sourceA = drafts.result.current;
+    const imagesA = sourceA.attachments;
+    act(() => { sourceA.detachForSubmit(); });
+    expect(drafts.result.current.attachments).toEqual([]);
+
+    drafts.rerender({ ownerKey: "account-1", scopeKey: "session-b" });
+    await act(async () => { await drafts.result.current.addFiles([
+      new File(["image-b"], "b.png", { type: "image/png" }),
+    ], "upload"); });
+    const imagesB = drafts.result.current.attachments;
+    expect(imagesB.map((image) => image.name)).toEqual(["b.png"]);
+
+    act(() => { sourceA.settleDetached(imagesA, false); });
+    expect(drafts.result.current.attachments).toEqual(imagesB);
+    expect(URL.revokeObjectURL).not.toHaveBeenCalledWith("blob:scope-a");
+    expect(URL.revokeObjectURL).not.toHaveBeenCalledWith("blob:scope-b");
+    drafts.rerender({ ownerKey: "account-1", scopeKey: "welcome-a" });
+    expect(drafts.result.current.attachments).toEqual(imagesA);
+    drafts.rerender({ ownerKey: "account-1", scopeKey: "session-b" });
+    expect(drafts.result.current.attachments).toEqual(imagesB);
+
+    drafts.rerender({ ownerKey: "account-2", scopeKey: "welcome-a" });
+    expect(drafts.result.current.attachments).toEqual([]);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:scope-a");
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:scope-b");
+    act(() => { sourceA.settleDetached(imagesA, false); });
+    expect(drafts.result.current.attachments).toEqual([]);
+    drafts.rerender({ ownerKey: "account-2", scopeKey: "session-b" });
+    expect(drafts.result.current.attachments).toEqual([]);
+    drafts.unmount();
   });
 
   it("accepts pasted and dropped images through the composer", async () => {

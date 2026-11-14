@@ -133,7 +133,7 @@ function SelectedConversation({
   });
   // The visible input leases capture eligibility; this exact conversation owns
   // attachment URLs and in-flight submission settlement across layout changes.
-  const imageDraft = useChatImageAttachmentDraft(false);
+  const imageDraft = useChatImageAttachmentDraft(false, [], { viewActive: active });
   const workspaceControlsReason = projectChangeUnavailableReason ??
     (!providerReady ? "Reconnect Desktop before changing projects."
       : conversation.executionActive || isApprovalVisible
