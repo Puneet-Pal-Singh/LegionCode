@@ -2,6 +2,7 @@
 #define LEGIONCODE_HOST_RECORD_H
 #include "legioncode-host-principal.h"
 #include "legioncode-host-wire.h"
+#include "legioncode-host-metadata.h"
 #include <stddef.h>
 #include <dirent.h>
 
@@ -13,6 +14,7 @@ typedef struct {
   unsigned char cleanup_receipt[32];
   lc_host_writer_binding binding;
   lc_host_principal principal;
+  lc_host_metadata metadata;
   char root_path[PATH_MAX], namespace_path[PATH_MAX], work_path[PATH_MAX];
   unsigned char command_ids[256][32];
   unsigned char digest[32];
@@ -54,7 +56,7 @@ static inline bool lc_host_record_read(int state, const char *name, lc_host_scop
   unsigned char capability[32], receipt = 0, guid = 0;
   for (size_t i = 0; i < sizeof(record->cleanup_receipt); i++) receipt |= record->cleanup_receipt[i];
   for (size_t i = 0; i < sizeof(record->principal.guid); i++) guid |= record->principal.guid[i];
-  if (!okay || record->version != 2 || record->bytes != sizeof(*record) ||
+  if (!okay || record->version != 3 || record->bytes != sizeof(*record) ||
       record->phase < LC_HOST_IDLE || record->phase > LC_HOST_UNKNOWN || record->command_count > 256 ||
       record->cleanup_closed > 1 || (record->cleanup_closed && (record->phase != LC_HOST_CLOSED || !receipt)) ||
       (!record->cleanup_closed && receipt) || !guid || record->binding.reserved ||
@@ -66,7 +68,7 @@ static inline bool lc_host_record_read(int state, const char *name, lc_host_scop
       !memchr(record->origin_generation, 0, sizeof(record->origin_generation)) ||
       !lc_host_unhex(record->origin_generation, capability, 32) ||
       !lc_host_boot_field(record->boot) ||
-      !lc_host_record_digest(record, true) || !lc_host_unhex(name + 9, capability, 32) ||
+      !lc_host_record_digest(record, true) || !lc_host_metadata_record_valid(&record->metadata) || !lc_host_unhex(name + 9, capability, 32) ||
       memcmp(capability, record->binding.capability_sha256, 32) || record->binding.abi != LC_HOST_ABI ||
       record->binding.execution_uid != record->principal.uid ||
       memcmp(record->binding.principal_guid, record->principal.guid, 16)) return false;

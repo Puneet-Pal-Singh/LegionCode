@@ -1,6 +1,7 @@
 #ifndef LEGIONCODE_HOST_ACCESS_H
 #define LEGIONCODE_HOST_ACCESS_H
 #include "legioncode-host-principal.h"
+#include "legioncode-host-metadata.h"
 #include <dirent.h>
 #include <sys/acl.h>
 
@@ -13,6 +14,7 @@ typedef struct {
   uid_t actor; gid_t actor_gid; lc_host_principal principal;
   const char *root_path; uint64_t root_device; CFArrayRef executables;
   int journal; size_t count; bool unknown;
+  const lc_host_metadata *metadata; const lc_host_metadata_pins *metadata_pins;
   lc_host_access_pin pins[LC_HOST_MAX_ACCESS_PINS];
 } lc_host_access;
 
@@ -34,6 +36,7 @@ static inline bool lc_host_existing_symlink_safe(lc_host_access *access, int dir
   char parent[PATH_MAX], path[PATH_MAX], target[PATH_MAX]; struct stat st;
   if (fcntl(directory, F_GETPATH, parent) || snprintf(path, sizeof(path), "%s/%s", parent, name) >= (int)sizeof(path) ||
       !realpath(path, target) || stat(target, &st) || !S_ISREG(st.st_mode) || (st.st_mode & (S_ISUID | S_ISGID))) return false;
+  if (lc_host_metadata_contains(access->metadata, target, &st, access->metadata_pins)) return false;
   if (lc_host_beneath(access->root_path, target)) return true;
   /* Directory aliases outside the project and foreign setid execution aliases
    * are unsupported. A declared exact non-setid tool is the only external alias. */
@@ -136,6 +139,9 @@ static inline bool lc_host_access_walk(lc_host_access *access, int directory, co
     struct stat st; char path[PATH_MAX];
     if (fstatat(directory, entry->d_name, &st, AT_SYMLINK_NOFOLLOW) ||
         snprintf(path, sizeof(path), "%s/%s", prefix, entry->d_name) >= (int)sizeof(path)) { okay = false; break; }
+    char absolute[PATH_MAX];
+    if (snprintf(absolute, sizeof(absolute), "%s/%s", access->root_path, path + 2) >= (int)sizeof(absolute)) { okay = false; break; }
+    if (lc_host_metadata_contains(access->metadata, absolute, &st, access->metadata_pins)) continue;
     if (S_ISLNK(st.st_mode)) {
       if (st.st_uid != access->actor || !lc_host_existing_symlink_safe(access, directory, entry->d_name)) okay = false;
       continue;
@@ -179,6 +185,9 @@ static inline bool lc_host_restore_created(lc_host_access *access, int directory
     if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
     if (++*count > LC_HOST_MAX_ENTRIES) { okay = false; break; }
     struct stat st; if (fstatat(directory, entry->d_name, &st, AT_SYMLINK_NOFOLLOW)) { okay = false; break; }
+    char parent[PATH_MAX], absolute[PATH_MAX];
+    if (fcntl(directory, F_GETPATH, parent) || snprintf(absolute, sizeof(absolute), "%s/%s", parent, entry->d_name) >= (int)sizeof(absolute)) { okay = false; break; }
+    if (lc_host_metadata_contains(access->metadata, absolute, &st, access->metadata_pins)) continue;
     if (S_ISLNK(st.st_mode)) {
       if (st.st_uid == access->principal.uid && fchownat(directory, entry->d_name, access->actor, access->actor_gid, AT_SYMLINK_NOFOLLOW)) okay = false;
       continue;

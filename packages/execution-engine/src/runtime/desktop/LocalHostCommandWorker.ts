@@ -4,7 +4,8 @@ import { BASH_TOOL_INPUT_SCHEMA } from "../tools/CodingToolRegistry.js";
 import { assertLocalToolApproved } from "./LocalToolApproval.js";
 import type { LocalTurnAttemptIdentity } from "./LocalReadOnlyTurnExecutor.js";
 import { MacHostBrokerClient, type MacHostCommandAttempt, type MacHostCommandResource } from "./MacHostBrokerClient.js";
-import { MacHostBrokerError } from "./MacHostBrokerProtocol.js";
+import { MacHostBrokerError, macHostMetadataFields, macHostMetadataDigest } from "./MacHostBrokerProtocol.js";
+import type { NativeGitMetadataLayout } from "./NativeFilesystemBridge.js";
 import type { FileHandle } from "node:fs/promises";
 
 type Input = Parameters<WorkerProtocolPort["executeTool"]>[0];
@@ -18,6 +19,7 @@ export interface LocalHostCommandAuthority {
   readonly filesystemRoot: string;
   readonly signal: AbortSignal;
   assertCurrent(): Promise<void>;
+  readMetadataLayout(input: { readonly signal: AbortSignal; readonly purpose: "mutation" }): Promise<NativeGitMetadataLayout>;
   trackHostResource(resource: MacHostCommandResource): void;
   markUnknown(): void;
 }
@@ -101,17 +103,25 @@ export class LocalHostCommandWorker implements WorkerProtocolPort {
       try {
         signal.throwIfAborted(); await authority.assertCurrent(); await this.options.assertMutationReady(this.identity);
         signal.throwIfAborted(); await authority.assertCurrent();
+        const metadataLayout = await authority.readMetadataLayout({ signal, purpose: "mutation" });
+        signal.throwIfAborted(); await authority.assertCurrent();
         if (!this.resource) {
           this.authority = authority;
           try {
             this.resource = this.options.broker.createAttempt({ attempt: this.identity,
-              rootDirectory: authority.rootDirectory, writerLease: authority.writerLease, namespaceDirectory: authority.namespaceDirectory });
+              rootDirectory: authority.rootDirectory, writerLease: authority.writerLease, namespaceDirectory: authority.namespaceDirectory, metadataLayout });
             /* Preparation/start are separate. Register before the first request
              * can reserve a UID, provision access or create a target process. */
             authority.trackHostResource(this.resource);
           } catch (error) { this.markUnknown(); if (this.resource) void this.resource.seal().catch(() => undefined); throw error; }
         } else if (this.authority !== authority) throw new MacHostBrokerError("writer_authority_changed", true);
-        const result = await this.resource.execute(input.toolCall.toolCallId, parsed.command, parsed.cwd ?? ".");
+        const result = await this.resource.execute(input.toolCall.toolCallId, parsed.command, parsed.cwd ?? ".", metadataLayout);
+        if (!signal.aborted) {
+          const after = await authority.readMetadataLayout({ signal, purpose: "mutation" });
+          await authority.assertCurrent();
+          if (macHostMetadataDigest(macHostMetadataFields(after)) !== macHostMetadataDigest(macHostMetadataFields(metadataLayout)))
+            throw new MacHostBrokerError("metadata_layout_changed", true);
+        }
         if (signal.aborted) return { kind: "cancelled", reason: "Local command stopped after verified UID and output closure" };
         const raw = Buffer.from(result.stdout + (result.stderr ? `\n[stderr]\n${result.stderr}` : ""));
         const maximum = 20000;

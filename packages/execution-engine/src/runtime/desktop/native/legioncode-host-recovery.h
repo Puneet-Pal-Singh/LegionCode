@@ -26,6 +26,7 @@ static inline xpc_object_t lc_host_recovery_reply(const lc_host_approval *approv
   LC_RECOVERY_DIGEST("receiptId", record->cleanup_receipt);
   unsigned char binding[32]; CC_SHA256(&record->binding, sizeof(record->binding), binding);
   LC_RECOVERY_DIGEST("bindingSHA256", binding);
+  LC_RECOVERY_DIGEST("metadataSHA256", record->metadata.digest);
   #undef LC_RECOVERY_DIGEST
   lc_host_put_number(reply, "rootDevice", record->binding.root.device);
   lc_host_put_number(reply, "rootInode", record->binding.root.inode);

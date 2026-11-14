@@ -2,12 +2,13 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { fstatSync, lstatSync, realpathSync } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import { isAbsolute } from "node:path";
+import type { NativeGitMetadataLayout } from "./NativeFilesystemBridge.js";
 import type { LocalTurnAttemptIdentity } from "./LocalReadOnlyTurnExecutor.js";
 import type { LocalProcessOutput } from "./NativeProcessOutput.js";
 import {
   MAC_HOST_BROKER_ABI, MAC_HOST_MAX_FRAME, MacHostBrokerError,
   decodeMacHostFrame, encodeMacHostFrame, macHostCommandDigest,
-  macHostDigest, macHostNumber, macHostScopeDigest, macHostText,
+  macHostDigest, macHostNumber, macHostScopeDigest, macHostText, macHostMetadataFields, macHostMetadataDigest,
   type MacHostFields,
 } from "./MacHostBrokerProtocol.js";
 
@@ -17,7 +18,7 @@ export type MacHostRecoveryResource = Readonly<{ resourceId: string; resourceGen
 export type MacHostRecoveryScope = Readonly<{ attempt: LocalTurnAttemptIdentity; identity: Identity }>;
 const cleanupReceiptBrand: unique symbol = Symbol("MacHostInterruptedCleanupReceipt");
 type RecoveryIdentity = Identity & MacHostRecoveryResource & Readonly<{
-  scopeSHA256: string; bindingSHA256: string; capabilitySHA256: string;
+  scopeSHA256: string; bindingSHA256: string; capabilitySHA256: string; metadataSHA256: string;
   originGeneration: string; originBoot: string; policySHA256: string; policyGeneration: string;
 }>;
 /** Cleanup receipt only. It never fulfills an original bridge/resource promise,
@@ -184,7 +185,7 @@ export class MacHostBrokerClient {
         resourceId: resource?.resourceId ?? "", resourceGeneration: resource?.resourceGeneration ?? "" });
       const state = response(reply);
       const keys = ["version", "state", "code", "generation", "originGeneration", "originBoot", "cleanupBasis",
-        "scopeSHA256", "resourceId", "resourceGeneration", "policy", "policyGeneration", "capabilitySHA256", "receiptId", "bindingSHA256",
+        "scopeSHA256", "resourceId", "resourceGeneration", "policy", "policyGeneration", "capabilitySHA256", "receiptId", "bindingSHA256", "metadataSHA256",
         "rootDevice", "rootInode", "namespaceDevice", "namespaceInode", "fenceDevice", "fenceInode"];
       if (reply.size !== keys.length || keys.some((key) => !reply.has(key)) ||
           !["cleanupClosed", "cleanupPending", "unknown"].includes(state) ||
@@ -201,7 +202,7 @@ export class MacHostBrokerClient {
         originGeneration: this.generation, policySHA256: this.options.expectedPolicySHA256,
         policyGeneration: this.options.expectedPolicyGeneration, resourceId: macHostDigest(reply, "resourceId"),
         resourceGeneration: macHostDigest(reply, "resourceGeneration"), bindingSHA256: macHostDigest(reply, "bindingSHA256"),
-        capabilitySHA256: macHostDigest(reply, "capabilitySHA256") });
+        capabilitySHA256: macHostDigest(reply, "capabilitySHA256"), metadataSHA256: macHostDigest(reply, "metadataSHA256") });
       if (resource && (identity.resourceId !== resource.resourceId || identity.resourceGeneration !== resource.resourceGeneration)) {
         throw new MacHostBrokerError("recovery_identity_changed", true);
       }
@@ -219,7 +220,7 @@ export class MacHostBrokerClient {
     }
   }
   /** Caller registers this resource with the original lease BEFORE execute(). */
-  createAttempt(input: { attempt: LocalTurnAttemptIdentity; rootDirectory: FileHandle; writerLease: FileHandle; namespaceDirectory: FileHandle }): MacHostCommandAttempt {
+  createAttempt(input: { attempt: LocalTurnAttemptIdentity; rootDirectory: FileHandle; writerLease: FileHandle; namespaceDirectory: FileHandle; metadataLayout: NativeGitMetadataLayout }): MacHostCommandAttempt {
     return new MacHostCommandAttempt(this.options, this.generation, input);
   }
 }
@@ -231,6 +232,8 @@ export class MacHostCommandAttempt implements MacHostCommandResource {
   private readonly bridge: Bridge;
   private readonly identity: Identity;
   private readonly scopeSHA256: string;
+  private readonly metadataFields: Readonly<Record<string, string>>;
+  private readonly metadataSHA256: string;
   private capability: string | null = null;
   private resourceId: string | null = null;
   private resourceGeneration: string | null = null;
@@ -243,13 +246,15 @@ export class MacHostCommandAttempt implements MacHostCommandResource {
   private closedProof: MacHostCommandResource["closure"] = null;
   private physicallyClosed = false;
   constructor(private readonly options: MacHostBrokerOptions, private readonly generation: string,
-    private readonly input: { attempt: LocalTurnAttemptIdentity; rootDirectory: FileHandle; writerLease: FileHandle; namespaceDirectory: FileHandle }) {
+    private readonly input: { attempt: LocalTurnAttemptIdentity; rootDirectory: FileHandle; writerLease: FileHandle; namespaceDirectory: FileHandle; metadataLayout: NativeGitMetadataLayout }) {
     const root = fstatSync(input.rootDirectory.fd, { bigint: true }), fence = fstatSync(input.writerLease.fd, { bigint: true });
     const namespace = fstatSync(input.namespaceDirectory.fd, { bigint: true });
     if (!root.isDirectory() || !fence.isFile() || !namespace.isDirectory()) throw new MacHostBrokerError("invalid_original_authority", false);
     this.identity = Object.freeze({ rootDevice: root.dev, rootInode: root.ino, namespaceDevice: namespace.dev,
       namespaceInode: namespace.ino, fenceDevice: fence.dev, fenceInode: fence.ino });
     this.scopeSHA256 = macHostScopeDigest(input.attempt);
+    this.metadataFields = macHostMetadataFields(input.metadataLayout);
+    this.metadataSHA256 = macHostMetadataDigest(this.metadataFields);
     this.closed = new Promise((resolve, reject) => { this.resolveClosed = resolve; this.rejectClosed = reject; });
     void this.closed.catch(() => undefined);
     this.bridge = new Bridge(options, input.rootDirectory, input.writerLease, input.namespaceDirectory);
@@ -257,15 +262,17 @@ export class MacHostCommandAttempt implements MacHostCommandResource {
   get quiescent(): boolean { return this.physicallyClosed && !this.unknown; }
   get closure(): MacHostCommandResource["closure"] { return this.closedProof; }
 
-  execute(commandId: string, command: string, cwd = "."): Promise<LocalProcessOutput> {
+  execute(commandId: string, command: string, cwd: string, metadataLayout: NativeGitMetadataLayout): Promise<LocalProcessOutput> {
     if (this.sealed || this.unknown || this.command) return Promise.reject(new MacHostBrokerError("command_owner_unavailable", this.unknown));
     if (!commandId || commandId.length > 256 || !command || Buffer.byteLength(command) > 500 ||
         Buffer.byteLength(cwd) > 500 || command.includes("\0") || cwd.includes("\0")) return Promise.reject(new MacHostBrokerError("invalid_command", false));
+    const metadataFields = macHostMetadataFields(metadataLayout);
+    if (macHostMetadataDigest(metadataFields) !== this.metadataSHA256) return Promise.reject(new MacHostBrokerError("metadata_layout_changed", true));
     const operation = (async () => {
       await this.prepare();
       if (this.sealed) throw new MacHostBrokerError("attempt_sealed", false);
       const digest = macHostCommandDigest(command, cwd);
-      const prepared = await this.scoped("prepareCommand", { commandId, command, cwd });
+      const prepared = await this.scoped("prepareCommand", { commandId, command, cwd, ...metadataFields });
       if (this.readScope(prepared) !== "prepared" || macHostText(prepared, "commandId", 256) !== commandId ||
           macHostDigest(prepared, "commandDigest") !== digest) throw new MacHostBrokerError("command_identity_changed", true);
       /* No automatic retry, including response loss at this exact start barrier. */
@@ -326,7 +333,7 @@ export class MacHostCommandAttempt implements MacHostCommandResource {
     this.preparation ??= (async () => {
       this.mayHaveScope = true;
       const reply = await this.bridge.request({ ...base("prepareScope", this.generation), ...this.input.attempt,
-        policy: this.options.expectedPolicySHA256, policyGeneration: this.options.expectedPolicyGeneration });
+        policy: this.options.expectedPolicySHA256, policyGeneration: this.options.expectedPolicyGeneration, ...this.metadataFields });
       response(reply); this.capability = macHostDigest(reply, "capability");
       this.resourceId = macHostDigest(reply, "resourceId"); this.resourceGeneration = macHostDigest(reply, "resourceGeneration");
       this.readScope(reply);
@@ -343,6 +350,7 @@ export class MacHostCommandAttempt implements MacHostCommandResource {
         macHostDigest(reply, "policyGeneration") !== this.options.expectedPolicyGeneration ||
         macHostDigest(reply, "resourceId") !== this.resourceId || macHostDigest(reply, "resourceGeneration") !== this.resourceGeneration ||
         macHostDigest(reply, "capability") !== this.capability || macHostDigest(reply, "scopeSHA256") !== this.scopeSHA256 ||
+        macHostDigest(reply, "metadataSHA256") !== this.metadataSHA256 ||
         Object.entries(this.identity).some(([key, value]) => macHostNumber(reply, key) !== value)) throw new MacHostBrokerError("resource_identity_changed", true);
     return state;
   }

@@ -28,6 +28,7 @@ static xpc_object_t scope_reply(lc_host_scope *scope) {
   lc_host_put_number(reply, "fenceDevice", scope->record.binding.fence.device); lc_host_put_number(reply, "fenceInode", scope->record.binding.fence.inode);
   lc_host_hex(scope->record.binding.resource_id, 32, digest, sizeof(digest)); lc_host_put(reply, "resourceId", digest);
   lc_host_hex(scope->record.binding.broker_resource_generation, 32, digest, sizeof(digest)); lc_host_put(reply, "resourceGeneration", digest);
+  lc_host_hex(scope->record.metadata.digest, 32, digest, sizeof(digest)); lc_host_put(reply, "metadataSHA256", digest);
   lc_host_put(reply, "commandId", scope->command_id); lc_host_put(reply, "commandDigest", scope->command_digest);
   lc_host_put(reply, "quiescent", scope->released ? "true" : "false");
   lc_host_put(reply, "commandClosed", scope->record.phase == LC_HOST_IDLE && scope->child && scope->reaped ? "true" : "false");
