@@ -4,6 +4,7 @@ import { useTurnLifecycleProjection } from "./useTurnLifecycleProjection.js";
 import type { LifecycleProjection } from "@legioncode/sdk";
 
 export interface ActiveTurnProjection {
+  readonly readCurrentProjection: () => LifecycleProjection | null;
   readonly turnId: string | null;
   readonly projection: LifecycleProjection | null;
   readonly hasCanonicalTurn: boolean;
@@ -52,7 +53,7 @@ export function useActiveTurnProjection(input: {
     ? TurnIdSchema.safeParse(normalizedTurnId)
     : null;
   const turnId = parsedTurnId?.success ? parsedTurnId.data : null;
-  const { projection, isReplayReady: initialReplayComplete, error, continuationStatus, retry } =
+  const { projection, readCurrentProjection, isReplayReady: initialReplayComplete, error, continuationStatus, retry } =
     useTurnLifecycleProjection(
       turnId,
       Boolean(turnId) && input.enabled !== false,
@@ -66,6 +67,7 @@ export function useActiveTurnProjection(input: {
     // reconnects and stops for the same turn.
     const isReplayReady = hasReplay || Boolean(initialReplayComplete);
     return {
+      readCurrentProjection,
       turnId,
       projection,
       hasCanonicalTurn: Boolean(turnId),
@@ -84,6 +86,7 @@ export function useActiveTurnProjection(input: {
     initialReplayComplete,
     input.transportLoading,
     projection,
+    readCurrentProjection,
     retry,
     turnId,
   ]);
