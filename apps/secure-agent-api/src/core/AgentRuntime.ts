@@ -126,6 +126,11 @@ export class AgentRuntime extends DurableObject<Env> {
     return this.qualificationOwner().admitRaw(auth, binding, sandboxObjectId, action);
   }
 
+  async qualificationContinueRaw(auth: QualificationAuthorization, binding: ResourceSetupBinding, sandboxObjectId: string,
+    action: "observe" | "provision"): Promise<boolean> {
+    return this.qualificationOwner().continueRaw(auth, binding, sandboxObjectId, action);
+  }
+
   private createPluginRegistry(): Map<string, IPlugin> {
     const plugins = [
       new PythonPlugin(),

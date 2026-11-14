@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 const resourcePolicy = "linux-pid-namespace-cgroup-v2-512m-v1"
@@ -42,6 +43,7 @@ type resourceSetupBinding struct {
 	ParentAuthorityDigest  string `json:"parentAuthorityDigest"`
 	PhysicalOwnerAuditHash string `json:"physicalOwnerAuditHash"`
 	OperationID            string `json:"operationId"`
+	ExpiresAt              int64  `json:"expiresAt"`
 }
 
 type resourceProvisionRequest struct {
@@ -115,6 +117,9 @@ func provisionResources() error {
 	defer closeResourceSiblings(siblings)
 	if protectedBytes > total-resourceBoundaryMemory-controlMemoryReserve {
 		return errors.New("ancestor_memory_protection_overcommitted")
+	}
+	if input.Binding.ExpiresAt <= time.Now().UnixMilli() {
+		return errors.New("resource_grant_expired")
 	}
 	boundary, err := createResourceDirectory(parent, "legioncode-native")
 	if err != nil {
@@ -201,7 +206,7 @@ func validateResourceSetup(input resourceProvisionRequest) error {
 	return validateResourceSetupBinding(input.Binding)
 }
 func validateResourceSetupBinding(value resourceSetupBinding) error {
-	if value.Purpose != "native_boundary_qualification" || value.Generation != 0 || len(value.OperatorAccountID) != 32 ||
+	if value.Purpose != "native_boundary_qualification" || value.Generation != 0 || value.ExpiresAt <= time.Now().UnixMilli() || len(value.OperatorAccountID) != 32 ||
 		!hexadecimal.MatchString(value.AuthorityDigest) || !hexadecimal.MatchString(value.ParentAuthorityDigest) ||
 		!hexadecimal.MatchString(value.PhysicalOwnerAuditHash) || !opaqueID.MatchString(value.OperationID) {
 		return errors.New("invalid_resource_setup")

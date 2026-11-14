@@ -33,7 +33,15 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
     const ownerId = this.nativeEnvironment.AGENT_RUNTIME.idFromString(binding.physicalOwnerId);
     const allowed = await this.nativeEnvironment.AGENT_RUNTIME.get(ownerId).qualificationAdmitRaw(
       auth, binding, this.nativeState.id.toString(), action);
-    if (!allowed) throw unavailable();
+    if (!allowed || (action !== "retire" && binding.expiresAt <= Date.now())) throw unavailable();
+  }
+
+  private async continueQualificationRaw(auth: QualificationAuthorization, binding: ResourceSetupBinding,
+    action: "observe" | "provision"): Promise<void> {
+    const ownerId = this.nativeEnvironment.AGENT_RUNTIME.idFromString(binding.physicalOwnerId);
+    const allowed = await this.nativeEnvironment.AGENT_RUNTIME.get(ownerId).qualificationContinueRaw(
+      auth, binding, this.nativeState.id.toString(), action);
+    if (!allowed || binding.expiresAt <= Date.now()) throw unavailable();
   }
 
   async qualificationObserveResources(auth: QualificationAuthorization, value: unknown) {
@@ -45,6 +53,7 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
       // The exclusive persisted operator grant precedes the SAME SDK startup,
       // image entrypoint and default policy. No customer env or alternate engine.
       await this.startAndWaitForPorts({ ports: this.defaultPort });
+      await this.continueQualificationRaw(auth, input.binding, "observe");
       return this.runOriginal([helper, "--observe-resources"], input);
     });
     this.nativeOriginal = original;
@@ -60,6 +69,7 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
     if (input.version !== 1 || input.policy !== RESOURCE_POLICY || this.nativeOriginal) throw unavailable();
     const original = Promise.resolve().then(async () => {
       await this.authorizeQualificationRaw(auth, input.binding, "provision");
+      await this.continueQualificationRaw(auth, input.binding, "provision");
       return this.runOriginal([helper, "--provision-resources"], input);
     });
     this.nativeOriginal = original;

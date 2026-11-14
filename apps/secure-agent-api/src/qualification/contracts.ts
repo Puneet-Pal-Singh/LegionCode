@@ -32,6 +32,7 @@ export const ResourceSetupBindingSchema = z.object({
   sessionId: id, leaseId: id, sandboxId: id, generation: z.literal(0),
   physicalOwnerId: id, physicalAttemptKey: id,
   authorityDigest: sha, parentAuthorityDigest: sha, physicalOwnerAuditHash: sha,
+  expiresAt: z.number().int().positive().safe(),
 }).strict();
 export type ResourceSetupBinding = z.infer<typeof ResourceSetupBindingSchema>;
 export const ResourceObservationInputSchema = z.object({ version: z.literal(1),
@@ -70,6 +71,7 @@ export interface QualificationRecord {
   originalTransportSettled?: true;
   failureCode?: "QUALIFICATION_ORIGINAL_UNKNOWN";
   rawDispatched?: "observe" | "provision" | "retire";
+  originalId?: string;
 }
 export function isQualificationRecord(value: unknown): value is QualificationRecord {
   return value !== null && typeof value === "object" && "kind" in value && value.kind === "native_boundary_qualification";

@@ -11,10 +11,15 @@ import {
 } from "./NativeBoundaryQualificationAuth";
 
 const prefix = "execution:session:";
+interface QualificationOriginal {
+  readonly id: string;
+  readonly promise: Promise<unknown>;
+  readonly launch: () => void;
+}
 /** A disjoint nonproduct row in the EXISTING physical owner/serializer, not a
  * second registry, runtime, product grant or conversation admission path. */
 export class NativeBoundaryQualificationOwner {
-  private original: Promise<unknown> | undefined;
+  private original: QualificationOriginal | undefined;
   constructor(private readonly state: DurableObjectState, private readonly env: Env) {}
 
   async control(auth: QualificationAuthorization, input: QualificationCommand): Promise<unknown> {
@@ -22,20 +27,38 @@ export class NativeBoundaryQualificationOwner {
     const command = freezeQualification(QualificationCommandSchema.parse(input));
     this.assertOwner(policy);
     if (command.action === "reserve") return this.reserve(policy, command.operationId);
-    let row = await this.read(policy, command.operationId);
-    if (command.action === "status" && row.phase === "retired") return this.publicRecord(row);
-    if (!constantTimeQualificationEqual(row.token, auth.bearer) || row.phase === "retired") throw unavailable();
-    if (!this.original && ["starting", "observed", "provisioning", "retiring"].includes(row.phase)) {
-      await this.unknown(policy, row);
-      row = await this.read(policy, command.operationId);
-    }
-    if (command.action === "status") return this.publicRecord(row);
-    if (command.action === "retire") {
-      if (row.phase !== "provisioned") throw unavailable();
-      return this.runOriginal(() => this.retire(auth, policy, row));
-    }
-    if (row.phase !== "reserved" || row.lease.expiresAt <= Date.now()) throw unavailable();
-    return this.runOriginal(() => this.provision(auth, policy, row));
+    const admission = await this.state.blockConcurrencyWhile(async (): Promise<
+      { kind: "response"; response: unknown } | { kind: "original"; original: QualificationOriginal }
+    > => {
+      let row = await this.read(policy, command.operationId);
+      if (command.action === "status" && row.phase === "retired") return { kind: "response", response: this.publicRecord(row) };
+      if (!constantTimeQualificationEqual(row.token, auth.bearer) || row.phase === "retired") throw unavailable();
+      if (!this.original && ["starting", "observed", "provisioning", "retiring"].includes(row.phase)) {
+        // Read current phase and current original under the SAME serializer.
+        // A stale status read cannot overwrite a positively provisioned row.
+        row = { ...row, phase: "unknown", failureCode: "QUALIFICATION_ORIGINAL_UNKNOWN", originalTransportSettled: undefined };
+        await this.state.storage.put(this.key(command.operationId), row);
+      }
+      if (command.action === "status") return { kind: "response", response: this.publicRecord(row) };
+      if (this.original) throw unavailable();
+      const retiring = command.action === "retire";
+      if (retiring ? row.phase !== "provisioned" || row.originalTransportSettled !== true || !row.receipt || !row.observation
+        : row.phase !== "reserved" || row.lease.expiresAt <= Date.now()) throw unavailable();
+      const admitted: QualificationRecord = { ...row, phase: retiring ? "retiring" : "starting",
+        originalId: qualificationToken(), rawDispatched: undefined,
+        originalTransportSettled: retiring ? row.originalTransportSettled : undefined };
+      // No original is registered until this admission write succeeds. A
+      // pre-effect duplicate/CAS loser therefore cannot poison a later retire.
+      await this.state.storage.put(this.key(command.operationId), admitted);
+      const original = this.registerOriginal(() => retiring
+        ? this.retire(auth, policy, admitted) : this.provision(auth, policy, admitted), admitted.originalId!);
+      return { kind: "original", original };
+    });
+    if (admission.kind === "response") return admission.response;
+    // The descriptor was registered inside the admission serializer; its
+    // effects start only after that serializer has released for raw callbacks.
+    admission.original.launch();
+    return admission.original.promise;
   }
 
   async admitRaw(auth: QualificationAuthorization, input: ResourceSetupBinding, sandboxObjectId: string, action: "observe" | "provision" | "retire"): Promise<boolean> {
@@ -44,10 +67,12 @@ export class NativeBoundaryQualificationOwner {
       this.assertOwner(policy);
       const binding = freezeQualification(ResourceSetupBindingSchema.parse(input));
       return await this.state.blockConcurrencyWhile(async () => {
-        if (!this.original) return false;
+        const original = this.original;
+        if (!original) return false;
         const row = await this.read(policy, binding.operationId);
         const expectedPhase = action === "observe" ? "starting" : action === "provision" ? "provisioning" : "retiring";
-        if (row.phase !== expectedPhase || row.rawDispatched !== undefined || row.lease.sandboxObjectId !== sandboxObjectId ||
+        if (row.phase !== expectedPhase || row.originalId !== original.id || this.original !== original || row.rawDispatched !== undefined ||
+          (action !== "retire" && row.lease.expiresAt <= Date.now()) || row.lease.sandboxObjectId !== sandboxObjectId ||
           !constantTimeQualificationEqual(row.token, auth.bearer) || JSON.stringify(this.binding(row)) !== JSON.stringify(binding)) return false;
         // The exact physical owner consumes this stage's one-shot creator gate
         // durably before the Sandbox may start/observe/provision/destroy.
@@ -57,14 +82,40 @@ export class NativeBoundaryQualificationOwner {
     } catch { return false; }
   }
 
-  private runOriginal<T>(effect: () => Promise<T>): Promise<T> {
-    if (this.original) return Promise.reject(unavailable());
-    const original = Promise.resolve().then(effect);
-    this.original = original;
-    return original.then(result => {
-      if (this.original === original) this.original = undefined;
-      return result;
+  async continueRaw(auth: QualificationAuthorization, input: ResourceSetupBinding, sandboxObjectId: string,
+    action: "observe" | "provision"): Promise<boolean> {
+    try {
+      const policy = authorizeQualification(this.env, auth);
+      this.assertOwner(policy);
+      const binding = freezeQualification(ResourceSetupBindingSchema.parse(input));
+      return await this.state.blockConcurrencyWhile(async () => {
+        const original = this.original;
+        if (!original) return false;
+        const row = await this.read(policy, binding.operationId);
+        return row.originalId === original.id && this.original === original && row.rawDispatched === action &&
+          row.phase === (action === "observe" ? "starting" : "provisioning") && row.lease.expiresAt > Date.now() &&
+          row.lease.sandboxObjectId === sandboxObjectId && constantTimeQualificationEqual(row.token, auth.bearer) &&
+          JSON.stringify(this.binding(row)) === JSON.stringify(binding);
+      });
+    } catch { return false; }
+  }
+
+  private registerOriginal(effect: () => Promise<unknown>, id: string): QualificationOriginal {
+    let launch!: () => void;
+    let launched = false;
+    const promise = new Promise<unknown>((resolve, reject) => {
+      launch = () => {
+        if (launched) return;
+        launched = true;
+        void Promise.resolve().then(effect).then(resolve, reject);
+      };
     });
+    const original = Object.freeze({ id, promise, launch });
+    this.original = original;
+    void promise.then(() => {
+      if (this.original === original) this.original = undefined;
+    }, () => { /* An actual ambiguous original stays retained, including rejection. */ });
+    return original;
   }
   private assertOwner(policy: QualificationPolicy): void {
     const expected = this.env.AGENT_RUNTIME.idFromName(`native-boundary-qualification:${policy.subject.environmentId}`).toString();
@@ -117,22 +168,24 @@ export class NativeBoundaryQualificationOwner {
       sessionId: row.lease.sessionId, leaseId: row.lease.leaseId, sandboxId: row.lease.sandboxId,
       generation: row.lease.generation, physicalOwnerId: row.lease.ownerId, physicalAttemptKey: row.lease.physicalAttemptKey,
       authorityDigest: row.authorityDigest, parentAuthorityDigest: row.subject.authorityReceiptSha256,
+      expiresAt: row.lease.expiresAt,
       physicalOwnerAuditHash: row.subject.authorityReceiptSha256,
     }));
   }
   private async transition(policy: QualificationPolicy, row: QualificationRecord, phase: QualificationRecord["phase"], patch: Partial<QualificationRecord> = {}): Promise<QualificationRecord> {
     return this.state.blockConcurrencyWhile(async () => {
       const current = await this.read(policy, row.subject.operationId);
-      if (current.phase !== row.phase || current.authorityDigest !== row.authorityDigest) throw unavailable();
+      if (current.phase !== row.phase || current.authorityDigest !== row.authorityDigest ||
+        current.originalId !== row.originalId || this.original?.id !== row.originalId) throw unavailable();
       const next = { ...current, ...patch, phase, rawDispatched: undefined };
       await this.state.storage.put(this.key(row.subject.operationId), next);
       return next;
     });
   }
   private async provision(auth: QualificationAuthorization, policy: QualificationPolicy, initial: QualificationRecord): Promise<unknown> {
-    if (initial.phase !== "reserved") throw unavailable();
-    let row = await this.transition(policy, initial, "starting");
+    let row = initial;
     try {
+      if (row.phase !== "starting" || this.original?.id !== row.originalId) throw unavailable();
       const binding = this.binding(row);
       const sandbox = getSandbox(this.env.Sandbox, row.lease.sandboxId);
       const observationOriginal = Promise.resolve().then(() => sandbox.qualificationObserveResources(auth, {
@@ -159,11 +212,11 @@ export class NativeBoundaryQualificationOwner {
     // No workload creator exists in this fixed setup scenario. Missing original
     // startup/helper channels, restart ambiguity or unobserved receipts retain
     // authority; an operator retry never guesses that unknown work disappeared.
-    if (initial.phase !== "provisioned" || initial.originalTransportSettled !== true || !initial.receipt || !initial.observation) throw unavailable();
-    const row = await this.transition(policy, initial, "retiring");
-    const sandbox = getSandbox(this.env.Sandbox, row.lease.sandboxId);
-    const original = Promise.resolve().then(() => sandbox.qualificationDestroy(auth, this.binding(row)));
+    const row = initial;
     try {
+      if (row.phase !== "retiring" || this.original?.id !== row.originalId || row.originalTransportSettled !== true || !row.receipt || !row.observation) throw unavailable();
+      const sandbox = getSandbox(this.env.Sandbox, row.lease.sandboxId);
+      const original = Promise.resolve().then(() => sandbox.qualificationDestroy(auth, this.binding(row)));
       await original;
       const retired = await this.transition(policy, row, "retired", { token: "", originalTransportSettled: true });
       return this.publicRecord(retired);
@@ -175,7 +228,8 @@ export class NativeBoundaryQualificationOwner {
   private async unknown(policy: QualificationPolicy, row: QualificationRecord): Promise<void> {
     await this.state.blockConcurrencyWhile(async () => {
       const current = await this.read(policy, row.subject.operationId);
-      if (current.authorityDigest !== row.authorityDigest || current.phase === "retired") return;
+      if (current.authorityDigest !== row.authorityDigest || current.phase !== row.phase ||
+        current.originalId !== row.originalId || this.original?.id !== row.originalId || current.phase === "retired") return;
       await this.state.storage.put(this.key(row.subject.operationId), { ...current, phase: "unknown",
         failureCode: "QUALIFICATION_ORIGINAL_UNKNOWN", originalTransportSettled: undefined });
     });
