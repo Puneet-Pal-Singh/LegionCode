@@ -1,7 +1,7 @@
 import { type FormEvent, useCallback, useMemo, useState } from "react";
 import type { Message } from "@ai-sdk/react";
 import type { ProductMode, RunMode } from "@repo/shared-types";
-import type { SubmissionOutcome } from "@legioncode/sdk";
+import type { SubmissionOutcome, PlatformHttpTransportOptions } from "@legioncode/sdk";
 import { useChatCore, type ChatAppendMessage } from "./useChatCore";
 import { useChatHydration } from "./useChatHydration";
 import { useChatArtifacts } from "./useChatArtifacts";
@@ -15,6 +15,7 @@ import type { HydrationStatus } from "../services/ChatHydrationService";
 import type { ActiveTurnProjection } from "./useActiveTurnProjection";
 
 export interface UseChatResult {
+  prepareHostedMutation: NonNullable<PlatformHttpTransportOptions["prepareRequest"]>;
   messages: Message[];
   restoredUserMessageIds: ReadonlySet<string>;
   optimisticUserMessageId: string | null;
@@ -91,6 +92,7 @@ export function useChat(
     [sessionId],
   );
   const {
+    prepareHostedMutation,
     optimisticUserMessage,
     optimisticUserMessageId,
     input,
@@ -178,6 +180,7 @@ export function useChat(
   });
 
   return {
+    prepareHostedMutation,
     messages,
     restoredUserMessageIds,
     optimisticUserMessageId,
