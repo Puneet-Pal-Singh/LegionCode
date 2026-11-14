@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
-import type { RuntimeCredentialReference } from "@repo/shared-types";
+import type { RuntimeCredentialReference } from "@repo/platform-protocol/private/runtime-credential-reference";
 import { z } from "zod";
 import {
   APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES, appServerJsonByteLength,
