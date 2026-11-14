@@ -1,8 +1,6 @@
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 import type { CoreMessage, CoreTool } from "ai";
 import { z } from "zod";
-import { parseNativeProviderBindingForAdmission } from "@repo/persistence";
-import { normalizeRuntimeModelId } from "@repo/provider-core";
 import type {
   LifecycleEventStore,
   TurnAdmissionRecord,
@@ -51,6 +49,7 @@ import {
   type ExecuteRunPayload,
 } from "./parsing/ExecuteRunPayloadSchema";
 import { prepareRuntimeExecutionResources } from "./RuntimeExecutionResources";
+import { resolveNativeAdmissionExecutionInput } from "./NativeAdmissionExecutionInput";
 import type { NativeProviderCredentialContext } from "../services/providers/NativeProviderCredentialResolver";
 import {
   DomainError,
@@ -1392,18 +1391,8 @@ export class RunEngineRequestHandler {
             runAttemptId: admission.runAttemptId,
           }),
         });
-        const admittedSelection = parseNativeProviderBindingForAdmission(nativeCredentials.binding, nativeCredentials.scope);
-        const admittedRuntimeModelId = normalizeRuntimeModelId(admittedSelection.providerId, admittedSelection.modelId);
-        if ((payload.input.providerId !== undefined && payload.input.providerId !== admittedSelection.providerId) ||
-            (payload.input.modelId !== undefined && payload.input.modelId !== admittedSelection.modelId) ||
-            (payload.input.runtimeModelId !== undefined && normalizeRuntimeModelId(admittedSelection.providerId, payload.input.runtimeModelId) !== admittedRuntimeModelId)) {
-          throw new DomainError("INVALID_PROVIDER_SELECTION", "Native execution must retain its admitted provider and model.", 400, false, payload.correlationId);
-        }
-        // One runtime input uses admitted defaults; the persisted prompt and
-        // original admission fingerprint remain owned by their original owners.
         const effectivePayload: ExecuteRunPayload = { ...payload,
-          input: { ...payload.input, providerId: admittedSelection.providerId, modelId: admittedSelection.modelId,
-            runtimeModelId: admittedRuntimeModelId } };
+          input: resolveNativeAdmissionExecutionInput(payload.input, nativeCredentials, payload.correlationId) };
         const runtimeState = this.createRuntimeState();
         const resources = await prepareRuntimeExecutionResources(this.ctx, this.env, effectivePayload, nativeCredentials);
         const taskCheckoutLifecycle = resources.checkoutLifecycle;
