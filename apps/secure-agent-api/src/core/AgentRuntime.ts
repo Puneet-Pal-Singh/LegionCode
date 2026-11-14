@@ -38,8 +38,10 @@ import {
   type SandboxExecutionLease,
 } from "../ports/SandboxExecutionLease";
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
+import { OwnedNativeCommandSession, hasUnsettledNativeCommand, sameExecutionLease, type NativeSessionFields } from "./OwnedNativeCommandSession";
+import type { OwnedNativeSandboxPort } from "../toolbox/contracts/OwnedSandboxCommand";
 
-interface RuntimeSessionRecord {
+interface RuntimeSessionRecord extends NativeSessionFields {
   runId: string;
   taskId: string;
   repoPath: string;
@@ -84,6 +86,7 @@ const CLEANUP_RETRY_MAX_MS = 5 * 60_000;
 const SANDBOX_DESTROY_TIMEOUT_MS = 15_000;
 
 export class AgentRuntime extends DurableObject {
+  private readonly nativeCommands = new Map<string, OwnedNativeCommandSession>();
   private readonly workspaceRuntimes = new Map<string, WorkspaceRuntimeEntry>();
   private readonly workspaceRuntimePromises = new Map<string, Promise<WorkspaceRuntimeEntry>>();
   private stream = new StreamHandler();
@@ -230,6 +233,7 @@ export class AgentRuntime extends DurableObject {
       if (
         !persisted ||
         persisted.cleanupInProgress ||
+        (!input.borrowedLease && hasUnsettledNativeCommand(persisted)) ||
         persisted.lease.leaseId !== input.lease.leaseId ||
         persisted.lease.sandboxId !== input.lease.sandboxId ||
         persisted.lease.generation !== input.lease.generation
@@ -254,11 +258,27 @@ export class AgentRuntime extends DurableObject {
         },
       };
     }
+    const commandKey = `${input.lease.leaseId}:${input.taskId}`;
+    if (!input.borrowedLease && this.nativeCommands.has(commandKey)) {
+      throw new Error("Native command execution already has an owner");
+    }
+    const nativeCommands = !input.borrowedLease ? new OwnedNativeCommandSession({
+      state: this.ctx, sessionId, lease: input.lease, taskId: input.taskId,
+      sandbox: runtime.sandbox as unknown as OwnedNativeSandboxPort,
+      artifacts: runtime.composed.artifactPort,
+    }) : undefined;
+    if (nativeCommands) this.nativeCommands.set(commandKey, nativeCommands);
     const result = await runtime.composed.executionPort.executeTask(
       input.lease.leaseId,
-      input,
+      { ...input, nativeCommands },
       hooks,
     );
+    if (nativeCommands && !await nativeCommands.awaitClosure()) {
+      return { taskId: input.taskId, leaseId: input.lease.leaseId, correlationId: input.lease.correlationId,
+        status: "sandbox_unavailable", retryable: false,
+        error: { code: "NATIVE_COMMAND_CLOSURE_UNKNOWN", message: "The original command remains owned; recovery must reconcile it without rerunning." } };
+    }
+    if (nativeCommands) this.nativeCommands.delete(commandKey);
     if (result.status === "sandbox_unavailable" && !input.borrowedLease) {
       await this.releaseLease(input.lease.leaseId);
     }
@@ -266,6 +286,8 @@ export class AgentRuntime extends DurableObject {
   }
 
   async cancelTask(leaseId: string, taskId: string): Promise<boolean> {
+    const nativeCommands = this.nativeCommands.get(`${leaseId}:${taskId}`);
+    if (nativeCommands && !await nativeCommands.stop()) return false;
     for (const [workspaceKey, runtime] of this.workspaceRuntimes) {
       const cancelled = await runtime.composed.executionPort.cancelTask(leaseId, taskId);
       if (cancelled) {
@@ -289,6 +311,9 @@ export class AgentRuntime extends DurableObject {
     const owned = records.filter(
       ([, session]) => session.lease.leaseId === leaseId,
     );
+    if (owned.some(([, session]) => hasUnsettledNativeCommand(session))) {
+      throw new Error("Native command closure must settle before lease release");
+    }
     if (owned.length === 0) {
       await this.releaseLoadedLease(leaseId);
       return;
@@ -306,8 +331,8 @@ export class AgentRuntime extends DurableObject {
       const hasOtherLiveReference = group.some(
         ([key, session]) =>
           !ownedIds.has(key) &&
-          !session.cleanupInProgress &&
-          session.lease.expiresAt > now,
+          (hasUnsettledNativeCommand(session) ||
+            (!session.cleanupInProgress && session.lease.expiresAt > now)),
       );
 
       if (hasOtherLiveReference) {
@@ -364,23 +389,7 @@ export class AgentRuntime extends DurableObject {
     actual: SandboxExecutionLease,
     expected: SandboxExecutionLease,
   ): boolean {
-    const scope = actual.workspaceScope;
-    const expectedScope = expected.workspaceScope;
-    return (
-      actual.leaseId === expected.leaseId &&
-      actual.sandboxId === expected.sandboxId &&
-      actual.owner === expected.owner &&
-      actual.correlationId === expected.correlationId &&
-      actual.expiresAt === expected.expiresAt &&
-      actual.generation === expected.generation &&
-      actual.mutationMode === expected.mutationMode &&
-      scope.runId === expectedScope.runId &&
-      scope.threadId === expectedScope.threadId &&
-      scope.turnId === expectedScope.turnId &&
-      scope.runAttemptId === expectedScope.runAttemptId &&
-      scope.workspaceId === expectedScope.workspaceId &&
-      scope.root === expectedScope.root
-    );
+    return sameExecutionLease(actual, expected);
   }
 
   private async releaseLoadedLease(leaseId: string): Promise<void> {
@@ -411,16 +420,22 @@ export class AgentRuntime extends DurableObject {
       if (
         sessions.some(
           ([key, existing]) =>
-            existing.cleanupInProgress &&
+            (existing.cleanupInProgress || hasUnsettledNativeCommand(existing)) &&
             (key === sessionKey ||
               existing.lease.sandboxId === session.lease.sandboxId),
         )
       ) {
         throw new Error("Sandbox cleanup is in progress for this lease");
       }
+      const existing = sessions.find(([key]) => key === sessionKey)?.[1];
+      // Session API updates cannot supply or transplant physical command proof.
+      const { nativeWorkspace: _workspace, nativeCommand: _command, ...incoming } = session;
+      const native = existing && this.matchesLease(existing.lease, session.lease)
+        ? { nativeWorkspace: existing.nativeWorkspace, nativeCommand: existing.nativeCommand }
+        : {};
       await this.ctx.storage.put(
         this.getExecutionSessionKey(sessionId),
-        session,
+        { ...incoming, ...native },
       );
       await this.scheduleExecutionSessionAlarm();
     });
@@ -441,6 +456,7 @@ export class AgentRuntime extends DurableObject {
       }
 
       for (const [sandboxId, group] of bySandbox) {
+        if (group.some(([, session]) => hasUnsettledNativeCommand(session))) continue;
         const cleanupCandidates = group.filter(
           ([, session]) =>
             session.cleanupInProgress || session.lease.expiresAt <= now,
@@ -533,6 +549,10 @@ export class AgentRuntime extends DurableObject {
     }
 
     for (const group of bySandbox.values()) {
+      if (group.some(hasUnsettledNativeCommand)) {
+        nextAlarm = Math.min(nextAlarm, now + CLEANUP_RETRY_BASE_MS);
+        continue;
+      }
       const liveExpirations = group
         .filter(
           (session) =>

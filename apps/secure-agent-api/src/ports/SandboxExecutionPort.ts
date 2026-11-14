@@ -2,6 +2,7 @@ import type {
   SandboxExecutionLease,
   SandboxExecutionLeaseRequest,
 } from "./SandboxExecutionLease";
+import type { NativeCommandCapability } from "../toolbox/contracts/OwnedSandboxCommand";
 
 export interface TaskExecutionInput {
   taskId: string;
@@ -11,6 +12,8 @@ export interface TaskExecutionInput {
   timeout?: number;
   retryable?: boolean;
   borrowedLease?: boolean;
+  /** Internal server capability; never populated from an HTTP/tool payload. */
+  nativeCommands?: NativeCommandCapability;
 }
 
 export interface TaskExecutionError {

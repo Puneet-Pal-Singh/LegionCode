@@ -1,6 +1,7 @@
 // src/interfaces/types.ts
 import { Sandbox } from "@cloudflare/sandbox";
 import type { WorkspaceScope } from "../ports/SandboxExecutionLease";
+import type { NativeCommandCapability } from "../toolbox/contracts/OwnedSandboxCommand";
 
 // Definition for the callback function
 export type LogCallback = (
@@ -36,6 +37,7 @@ export interface PluginResult {
 export interface PluginExecutionContext {
   workspaceScope: WorkspaceScope;
   borrowedLease?: boolean;
+  nativeCommands?: NativeCommandCapability;
 }
 
 // OpenAI Tool Definition Schema

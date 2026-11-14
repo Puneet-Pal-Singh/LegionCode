@@ -364,6 +364,7 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
       const pluginContext: PluginExecutionContext = {
         workspaceScope: input.lease.workspaceScope,
         ...(input.borrowedLease ? { borrowedLease: true } : {}),
+        ...(input.nativeCommands ? { nativeCommands: input.nativeCommands } : {}),
       };
       let logDrain = Promise.resolve();
       const result = await plugin.execute(
