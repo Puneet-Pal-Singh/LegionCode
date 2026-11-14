@@ -45,6 +45,25 @@ function nullLogSink() {
   } };
 }
 
+function configSnapshot(config) {
+  ensurePrivateDirectory();
+  const directory = mkdtempSync(resolve(privateDirectory, "config-"), { encoding: "utf8" });
+  const directoryIdentity = lstatSync(directory);
+  const path = resolve(directory, "wrangler.json");
+  const fd = openSync(path, constants.O_NOFOLLOW | constants.O_RDWR | constants.O_CREAT | constants.O_EXCL, 0o600);
+  writeFileSync(fd, JSON.stringify({ ...config, main: resolve(app, "src/qualification.ts") }));
+  fsyncSync(fd);
+  const identity = fstatSync(fd);
+  return { path, close() {
+    const current = lstatSync(path);
+    const currentDirectory = lstatSync(directory);
+    if (!current.isFile() || current.isSymbolicLink() || current.dev !== identity.dev || current.ino !== identity.ino || !currentDirectory.isDirectory() || currentDirectory.dev !== directoryIdentity.dev || currentDirectory.ino !== directoryIdentity.ino) throw unavailable("CONFIG_SNAPSHOT_IDENTITY_UNKNOWN");
+    closeSync(fd);
+    unlinkSync(path);
+    rmdirSync(directory);
+  } };
+}
+
 /** Preserve the original child's complete stdout/stderr/exit. Never infer
  * absence from a failed command, kill a child on a scenario timer, or print its
  * raw output (version metadata can contain operator PII and bindings). */
@@ -349,15 +368,19 @@ async function main() {
   const configPath = resolve(configArgument ?? qualificationConfigPath);
   const { errors, config } = validateNativeQualificationIsolation({ configPath, mode: action === "inspect-sealed" || action === "deploy-sealed" ? "sealed" : "active" });
   if (errors.length) throw unavailable("STATIC_QUALIFICATION_ISOLATION_BLOCKED");
-  if (action === "deploy-sealed") return createSealed(config, configPath, operationId);
-  if (action === "activate") return activate(config, configPath, operationId);
-  if (inspection) {
-    const inventory = await providerInventory(config, configPath);
-    console.log(JSON.stringify({ authenticatedMetadata: { deployment: true, version: true, container: true, namespaceBindings: true, authorId: true }, originals: inventory.originals.map(original => ({ stdoutSha256: original.stdoutSha256, stderrSha256: original.stderrSha256, exitCode: original.exitCode, signal: original.signal })), cliEntrySha256: inventory.identity.entrySha256, runtimeQualified: false }));
-    return;
-  }
-  const inventory = await controlInventory(config, configPath);
-  await privateControl(config, action, operationId, inventory);
+  // The CLI never reopens the caller's mutable config after validation.
+  const snapshot = configSnapshot(config);
+  try {
+    if (action === "deploy-sealed") return await createSealed(config, snapshot.path, operationId);
+    if (action === "activate") return await activate(config, snapshot.path, operationId);
+    if (inspection) {
+      const inventory = await providerInventory(config, snapshot.path);
+      console.log(JSON.stringify({ authenticatedMetadata: { deployment: true, version: true, container: true, namespaceBindings: true, authorId: true }, originals: inventory.originals.map(original => ({ stdoutSha256: original.stdoutSha256, stderrSha256: original.stderrSha256, exitCode: original.exitCode, signal: original.signal })), cliEntrySha256: inventory.identity.entrySha256, runtimeQualified: false }));
+      return;
+    }
+    const inventory = await controlInventory(config, snapshot.path);
+    await privateControl(config, action, operationId, inventory);
+  } finally { snapshot.close(); }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) main().catch(error => {
