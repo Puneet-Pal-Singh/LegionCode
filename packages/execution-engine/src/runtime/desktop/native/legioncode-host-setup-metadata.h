@@ -3,8 +3,8 @@
 #include "legioncode-host-setup-auth.h"
 #include "legioncode-host-scope.h"
 #include "legioncode-host-actor.h"
+#include "legioncode-host-setup-image.h"
 
-#define LC_HOST_SETUP_FILESYSTEM_HELPER "Contents/Resources/native/legioncode-fs-helper"
 typedef enum { LC_SETUP_METADATA_NEW, LC_SETUP_METADATA_PENDING, LC_SETUP_METADATA_READY, LC_SETUP_METADATA_UNKNOWN } lc_setup_metadata_phase;
 /* Same setup resource owns this ORIGINAL child and every channel until exact
  * reap/EOF/close. Failure never frees the root/fence/namespace or invents a G. */
@@ -25,6 +25,7 @@ typedef struct {
   size_t stdout_size, stderr_size;
   uint64_t deadline;
   char helper_path[PATH_MAX];
+  lc_host_setup_image image;
 } lc_host_setup_metadata_execution;
 
 static inline bool lc_host_setup_helper(const lc_host_approval *approval, char path[PATH_MAX]) {
@@ -36,14 +37,7 @@ static inline bool lc_host_setup_helper(const lc_host_approval *approval, char p
       !lc_host_bundle_valid((lc_host_approval *)approval) || !lc_host_sha_file(path, expected)) return false;
   struct stat st;
   if (lstat(path, &st) || !S_ISREG(st.st_mode) || (st.st_uid != 0 && st.st_uid != approval->actor) || (st.st_mode & 06022) || !(st.st_mode & 0111)) return false;
-  CFURLRef url = CFURLCreateFromFileSystemRepresentation(NULL, (const unsigned char *)path, (CFIndex)strlen(path), false);
-  SecStaticCodeRef code = NULL; bool okay = url && SecStaticCodeCreateWithPath(url, kSecCSDefaultFlags, &code) == errSecSuccess;
-  if (url) CFRelease(url);
-  /* Exact manifest identity, including ad-hoc preview signatures. No Developer
-   * ID/team/Apple anchor requirement is introduced by this transport. */
-  okay = okay && SecStaticCodeCheckValidity(code, kSecCSStrictValidate | kSecCSCheckAllArchitectures, NULL) == errSecSuccess &&
-    lc_host_code_hash(code, CFDictionaryGetValue(approval->manifest, CFSTR("FilesystemHelperCDHash")));
-  if (code) CFRelease(code); return okay;
+  return lc_host_setup_image_signature(approval, path);
 }
 static inline bool lc_host_setup_metadata_pins(const lc_host_approval *approval, const lc_host_setup_metadata_execution *state) {
   const lc_host_scope *resource = state->resource; struct stat root, fence, namespace; char namespace_path[PATH_MAX];
@@ -135,7 +129,7 @@ static inline bool lc_host_setup_metadata_drain(lc_host_setup_metadata_execution
 static inline bool lc_host_setup_metadata_poll(int directory, const lc_host_approval *approval, lc_host_setup_metadata_execution *state) {
   if (!state || state->version != 1) return false;
   if (state->phase == LC_SETUP_METADATA_READY)
-    return lc_host_setup_metadata_pins(approval, state) && state->resource->record.setup_metadata_inspected &&
+    return state->image.closed && lc_host_setup_metadata_pins(approval, state) && state->resource->record.setup_metadata_inspected &&
       lc_host_metadata_current(&state->resource->record.metadata, &state->resource->metadata_pins) &&
       lc_host_metadata_receipt_matches(&state->resource->record.metadata, &state->resource->metadata_pins, state->resource->root);
   if (state->phase != LC_SETUP_METADATA_PENDING && state->phase != LC_SETUP_METADATA_UNKNOWN) return false;
@@ -153,12 +147,14 @@ static inline bool lc_host_setup_metadata_poll(int directory, const lc_host_appr
   lc_host_metadata metadata; lc_host_metadata_pins pins; char helper[PATH_MAX];
   if (!WIFEXITED(state->child_status) || WEXITSTATUS(state->child_status) || state->stderr_size ||
       !lc_host_setup_metadata_pins(approval, state) || !lc_host_setup_helper(approval, helper) || strcmp(helper, state->helper_path) ||
+      !lc_host_setup_image_current(approval, &state->image) ||
       !lc_host_setup_metadata_decode(state, &metadata) || !lc_host_metadata_open(&metadata, &pins, state->resource->record.root_path, state->resource->root)) {
     lc_host_setup_metadata_cancel(state); return false;
   }
   /* Physical helper closure plus actual stat-tuple verification precedes the
    * protected record upgrade. Original metadata pins transfer to this resource. */
   state->resource->record.metadata = metadata; state->resource->metadata_pins = pins;
+  if (!lc_host_setup_image_remove(approval, &state->image)) { lc_host_setup_metadata_cancel(state); return false; }
   state->resource->record.setup_metadata_inspected = 1;
   state->resource->access.metadata = &state->resource->record.metadata;
   state->resource->access.metadata_pins = &state->resource->metadata_pins;
@@ -180,6 +176,7 @@ static inline bool lc_host_setup_metadata_begin(int directory, const lc_host_app
   /* Persist this one-shot helper start before the first pipe/child effect. */
   resource->record.setup_metadata_started = 1;
   if (!lc_host_scope_save(directory, resource)) { lc_host_setup_metadata_cancel(state); return false; }
+  if (!lc_host_setup_image_create(approval, &state->binding, &state->image)) { lc_host_setup_metadata_cancel(state); return false; }
   if (!lc_host_setup_metadata_pipe(state, 0, 1) || !lc_host_setup_metadata_pipe(state, 2, 3) || !lc_host_setup_metadata_pipe(state, 4, 5)) {
     lc_host_setup_metadata_cancel(state); return false;
   }
@@ -188,6 +185,7 @@ static inline bool lc_host_setup_metadata_begin(int directory, const lc_host_app
   if (state->descriptor[6] < 0) {
     lc_host_setup_metadata_cancel(state); return false;
   }
+  if (!lc_host_setup_image_current(approval, &state->image)) { lc_host_setup_metadata_cancel(state); return false; }
   pid_t child = fork();
   if (!child) {
     long maximum = sysconf(_SC_OPEN_MAX);
@@ -198,7 +196,7 @@ static inline bool lc_host_setup_metadata_begin(int directory, const lc_host_app
         dup2(input, 0) < 0 || dup2(output, 1) < 0 || dup2(error, 2) < 0 || dup2(state->descriptor[6], 3) < 0) _exit(126);
     for (int fd = 4; fd < maximum; fd++) close(fd);
     if (!lc_host_drop_actor(approval->actor, actor.pw_gid)) _exit(126);
-    char *argv[] = { state->helper_path, NULL }; char *environment[] = { NULL };
+    char *argv[] = { state->image.path, NULL }; char *environment[] = { NULL };
     execve(argv[0], argv, environment); _exit(127);
   }
   state->child = child;

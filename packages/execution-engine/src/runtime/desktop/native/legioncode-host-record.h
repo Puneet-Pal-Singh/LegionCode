@@ -16,9 +16,10 @@ typedef struct {
   uint32_t setup_metadata_started, setup_metadata_inspected;
   char root_path[PATH_MAX], namespace_path[PATH_MAX], work_path[PATH_MAX];
   unsigned char command_ids[256][32];
-  unsigned char digest[32];
+  _Alignas(8) unsigned char digest[32];
 } lc_host_scope_record;
 _Static_assert(offsetof(lc_host_scope_record, principal) == sizeof(lc_host_resource_record_prefix), "Protected resource prefix ABI");
+_Static_assert(offsetof(lc_host_scope_record, digest) + 32 == sizeof(lc_host_scope_record), "Protected digest covers the complete record body");
 
 static inline bool lc_host_boot_field(const char boot[40]) {
   if (boot[36] || boot[37] || boot[38] || boot[39]) return false;

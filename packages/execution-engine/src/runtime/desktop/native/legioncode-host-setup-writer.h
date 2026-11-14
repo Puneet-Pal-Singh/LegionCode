@@ -34,7 +34,7 @@ static bool lc_setup_reservation(lc_writer_setup_acquisition *state, uint32_t ac
   unsigned char digest[32];
   okay = okay && prefix.version == LC_HOST_RESOURCE_RECORD_VERSION && prefix.bytes == record.st_size &&
     prefix.purpose == LC_HOST_RESOURCE_SETUP_QUALIFICATION && prefix.phase == 1 && !prefix.command_count && !prefix.cleanup_closed &&
-    prefix.digest_offset >= sizeof(prefix) && prefix.digest_offset <= prefix.bytes - 32 && prefix.binding.actor_uid == actor &&
+    prefix.digest_offset >= sizeof(prefix) && prefix.digest_offset == prefix.bytes - 32 && prefix.binding.actor_uid == actor &&
     !memcmp(&prefix.binding, &state->binding, sizeof(state->binding));
   if (okay) {
     CC_SHA256(bytes, prefix.digest_offset, digest);
