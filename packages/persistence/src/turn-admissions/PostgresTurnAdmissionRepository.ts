@@ -367,8 +367,8 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
           taskId: input.taskId,
           status: "running",
           mode: input.mode,
-          providerId: input.providerId,
-          modelId: input.modelId,
+          providerId: binding?.providerId ?? input.providerId,
+          modelId: binding?.modelId ?? input.modelId,
           branch: input.branch,
         });
         const prompt = await new PostgresTranscriptRepository(tx, undefined, true).appendMessage({
@@ -470,8 +470,8 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
           taskId: input.taskId,
           status: input.runStatus ?? "running",
           mode: input.mode,
-          providerId: input.providerId,
-          modelId: input.modelId,
+          providerId: binding?.providerId ?? input.providerId,
+          modelId: binding?.modelId ?? input.modelId,
           branch: input.branch,
         });
         const activated = await tx.query<AdmissionRow>(ACTIVATE_CONTINUATION_SESSION_SQL, [input.sessionId, input.runId, input.turnId, input.continuationOfTurnId]);
@@ -581,8 +581,8 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
           taskId: input.taskId,
           status: input.runStatus ?? "running",
           mode: input.mode,
-          providerId: input.providerId,
-          modelId: input.modelId,
+          providerId: binding?.providerId ?? input.providerId,
+          modelId: binding?.modelId ?? input.modelId,
           branch: input.branch,
         });
         const prompt = await new PostgresTranscriptRepository(tx, undefined, true).appendMessage({
@@ -629,6 +629,12 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
     const route = NativeProviderAdmissionRouteSchema.safeParse(input.executionRoute);
     if (!route.success) throw new TurnAdmissionConflictError(
       "New admission requires an explicit execution route", "native_provider_binding_required");
+    const explicitProvider = input.providerId !== undefined && input.providerId !== null;
+    const explicitModel = input.modelId !== undefined && input.modelId !== null;
+    if (route.data === "native" && explicitProvider !== explicitModel) {
+      throw new TurnAdmissionConflictError(
+        "Native provider and model must be selected together", "native_provider_binding_conflict");
+    }
     if (!this.nativeProviderCapture) {
       if (route.data === "delegated") return commit(client, null);
       throw new TurnAdmissionConflictError(
@@ -645,7 +651,7 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
         return commit(boundClient, null);
       }
       const binding = parseNativeProviderBindingForAdmission(candidate, scope);
-      if (binding.providerId !== input.providerId || binding.modelId !== input.modelId) {
+      if (explicitProvider && (binding.providerId !== input.providerId || binding.modelId !== input.modelId)) {
         throw new TurnAdmissionConflictError(
           "Native binding differs from the admitted provider or model", "native_provider_binding_conflict");
       }
