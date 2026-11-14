@@ -13,7 +13,10 @@ const lifecycleMock = vi.hoisted(() => ({
 }));
 
 vi.mock("./useTurnLifecycleProjection.js", () => ({
-  useTurnLifecycleProjection: () => ({ projection: lifecycleMock.projection }),
+  useTurnLifecycleProjection: () => ({
+    projection: lifecycleMock.projection,
+    readCurrentProjection: () => lifecycleMock.projection,
+  }),
 }));
 
 describe("useActiveTurnProjection", () => {
