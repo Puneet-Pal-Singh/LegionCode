@@ -177,6 +177,13 @@ func validateRequest(value request) error {
 }
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--provision-resources" {
+		if provisionResources() != nil {
+			_, _ = io.WriteString(os.Stderr, "native_resource_provisioning_unavailable\n")
+			os.Exit(70)
+		}
+		return
+	}
 	if len(os.Args) == 2 && os.Args[1] == "--write-workspace-file" {
 		if writeWorkspaceFile() != nil {
 			_, _ = io.WriteString(os.Stderr, "native_workspace_write_unavailable\n")
