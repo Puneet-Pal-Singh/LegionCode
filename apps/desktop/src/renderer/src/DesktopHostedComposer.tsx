@@ -2,7 +2,9 @@ import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react"
 import {
   ChatErrorNotice,
   ChatInputBar,
+  captureHostedNativeDraft,
   useComposerPreferences,
+  type ChatImageAttachmentDraftBinding,
   type ChatSubmitAttachments,
   type HostedNativeDraft,
 } from "@legioncode/client-ui";
@@ -18,6 +20,7 @@ export interface DesktopHostedComposerDraft {
 }
 export interface DesktopHostedComposerProps {
   readonly draft: DesktopHostedComposerDraft;
+  readonly imageDraft: ChatImageAttachmentDraftBinding;
   readonly onDraftChange: (patch: Partial<DesktopHostedComposerDraft>) => void;
   readonly controls: ReturnType<typeof useDesktopHostedProviderSettings>;
   /** Actual account/generation/workspace/session view identity; never a new runtime ID. */
@@ -38,11 +41,10 @@ export interface DesktopHostedComposerProps {
 }
 const availableModes = RunModeSchema.options;
 const availablePermissionModes = Object.values(PRODUCT_MODES);
-const attachmentsUnavailableReason = "Image attachments are not connected to this cloud conversation yet. Send text to continue.";
 
 /** Shared composer presentation; the host owns draft persistence, admission and retry identity. */
 export function DesktopHostedComposer({
-  draft, onDraftChange, controls, scopeKey, active, layout, workspaceBar, isHidden = false,
+  draft, imageDraft, onDraftChange, controls, scopeKey, active, layout, workspaceBar, isHidden = false,
   configurationLocked = false, busy, canStop, onStop, onConnectProvider, onManageModels,
   unavailableReason, onSubmit, onFollowUpSubmit,
 }: DesktopHostedComposerProps) {
@@ -72,13 +74,11 @@ export function DesktopHostedComposer({
       : unavailableReason ?? configurationUnavailable ?? controls.unavailableReason;
 
   const submit = async (attachments?: ChatSubmitAttachments, delivery?: "queue" | "steer"): Promise<boolean> => {
-    if (attachments?.imageAttachments.length) {
-      setError({ message: attachmentsUnavailableReason, provider: false });
-      return false;
-    }
-    if (blocked || submitting.current || !draft.input.trim() || (delivery ? !busy || !onFollowUpSubmit : busy)) return false;
+    if (blocked || submitting.current || (!draft.input.trim() && !attachments?.imageAttachments.length) ||
+      (delivery ? !busy || !onFollowUpSubmit : busy)) return false;
     // Freeze the human's draft before any provider request can yield to editing or navigation.
     const captured = Object.freeze({ ...draft });
+    const capturedImages = Object.freeze((attachments?.imageAttachments ?? []).map((image) => Object.freeze({ ...image })));
     const messageId = crypto.randomUUID();
     const capturedLifetime = lifetime.current;
     const token = Symbol();
@@ -90,8 +90,9 @@ export function DesktopHostedComposer({
       const selection = Object.freeze({ ...await controls.resolveForSubmission() });
       if (capturedLifetime !== lifetime.current || submitting.current !== token) return false;
       resolved = true;
-      const outgoing: HostedNativeDraft = Object.freeze({
+      const outgoing = captureHostedNativeDraft({
         id: messageId, prompt: captured.input,
+        ...(capturedImages.length > 0 ? { imageAttachments: capturedImages } : {}),
         configuration: Object.freeze({ providerId: selection.providerId, modelId: selection.modelId,
           mode: captured.mode, productMode: captured.productMode,
           ...(captured.reasoningEffort ? { reasoningEffort: captured.reasoningEffort } : {}) }),
@@ -118,6 +119,7 @@ export function DesktopHostedComposer({
         : "Check the task status before retrying. Your existing draft has been kept."}
       actionLabel="Provider setup" onOpen={error.provider ? onConnectProvider : undefined} /> : null}
     <ChatInputBar
+      imageDraft={imageDraft}
       workspaceBar={workspaceBar}
       input={draft.input}
       onChange={(input) => { if (!hidden) { onDraftChange({ input }); setError(null); } }}
@@ -140,8 +142,6 @@ export function DesktopHostedComposer({
       showContextWindowUsage={preferences.showContextWindowUsage}
       submissionUnavailableReason={blocked}
       showSubmissionUnavailableNotice={false}
-      attachmentsAvailable={false}
-      attachmentsUnavailableReason={attachmentsUnavailableReason}
       renderModelPicker={hidden ? undefined : (onModelSwitchWarning) => <DesktopHostedModelPicker
         controls={{ ...controls, selectModel: async (providerId, modelId) => {
           const capturedLifetime = lifetime.current;

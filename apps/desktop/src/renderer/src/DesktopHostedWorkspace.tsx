@@ -3,6 +3,7 @@ import {
   ConversationHero, EnvironmentSummaryMenu, PickerModal, ThreadSidebar,
   WorkspaceFrame, WorkspaceReviewControls, WorkspaceSummaryLayout, WorkspaceTopBar,
   clampRightSidebarWidth, getInitialRightSidebarWidth,
+  useChatImageAttachmentDraft, type ChatImageAttachmentDraftBinding, type HostedNativeDraft,
 } from "@legioncode/client-ui";
 import { projectThreadSidebar, RunIdSchema } from "@legioncode/sdk";
 import { ThreadIdSchema } from "@repo/platform-protocol";
@@ -46,9 +47,42 @@ export function DesktopHostedWorkspace({ active, build, account, onPlacementChan
   const [drafts, setDrafts] = useState<Record<string, DesktopHostedComposerDraft>>({});
   const [selections, setSelections] = useState<Record<string, BYOKResolution>>({});
   const draftRevisions = useRef(new Map<string, number>());
-  const submittedDrafts = useRef(new Map<string, { key: string; revision: number }>());
+  const submittedDrafts = useRef(new Map<string, { key: string; revision: number;
+    images: readonly string[]; imageDraft: ChatImageAttachmentDraftBinding }>());
+  const submittedOwner = useRef(accountKey);
+  if (submittedOwner.current !== accountKey) {
+    submittedDrafts.current.clear();
+    submittedOwner.current = accountKey;
+  }
   const draftKeyFor = (sessionId: string | null, workspaceId: string | null) =>
     JSON.stringify([accountKey, sessionId ?? "welcome", sessionId ? null : workspaceId]);
+  const settleAcceptedDraft = (outgoing: HostedNativeDraft, confirmedKey?: string) => {
+    const source = submittedDrafts.current.get(outgoing.id);
+    if (!source) return;
+    // The source binding retains its original cell, even after welcome/task navigation.
+    for (const id of source.images) source.imageDraft.remove(id);
+    const destination = confirmedKey ?? source.key;
+    const moved = source.imageDraft.moveToScope(destination);
+    const revision = draftRevisions.current.get(source.key) ?? 0;
+    const migrate = moved && destination !== source.key && !draftRevisions.current.has(destination);
+    if (migrate) {
+      draftRevisions.current.set(destination, revision);
+      draftRevisions.current.delete(source.key);
+    }
+    setDrafts((previous) => {
+      const original = previous[source.key];
+      if (!original) return previous;
+      const remaining = revision === source.revision && original.input === outgoing.prompt
+        ? { ...original, input: "" } : original;
+      if (migrate && !previous[destination]?.input) {
+        const next = { ...previous, [destination]: remaining };
+        delete next[source.key];
+        return next;
+      }
+      return remaining === original ? previous : { ...previous, [source.key]: remaining };
+    });
+    submittedDrafts.current.delete(outgoing.id);
+  };
   const handoff = useDesktopHostedComposerHandoff({
     accountKey,
     accountId,
@@ -56,16 +90,10 @@ export function DesktopHostedWorkspace({ active, build, account, onPlacementChan
     retrySessionCreation: sessions.retryPendingCreation,
     onAccepted: (capture) => {
       // Clear only the admitted text. Typing a newer draft must survive a late acknowledgement.
-      const source = submittedDrafts.current.get(capture.draft.id);
       const keys = capture.session ? [draftKeyFor(capture.session.id, capture.workspaceId)] : [];
       setSelections((previous) => ({ ...previous,
         ...Object.fromEntries(keys.map((key) => [key, capture.selection])) }));
-      if (!source || (draftRevisions.current.get(source.key) ?? 0) !== source.revision) return;
-      setDrafts((previous) => {
-        return previous[source.key]?.input === capture.draft.prompt
-          ? { ...previous, [source.key]: { ...previous[source.key]!, input: "" } } : previous;
-      });
-      submittedDrafts.current.delete(capture.draft.id);
+      settleAcceptedDraft(capture.draft, capture.session ? draftKeyFor(capture.session.id, capture.workspaceId) : undefined);
     },
   });
   const actualSession = sessions.selectedSession;
@@ -77,6 +105,11 @@ export function DesktopHostedWorkspace({ active, build, account, onPlacementChan
   const pendingWelcome = handoff.captureFor(null);
   const creationRecovery = pendingWelcome?.phase === "creation-unconfirmed" ? pendingWelcome : null;
   const draftKey = draftKeyFor(session?.id ?? null, workspaceId);
+  const imageScopeKey = captured && captured.phase !== "accepted"
+    ? submittedDrafts.current.get(captured.draft.id)?.key ?? draftKey : draftKey;
+  const imageDraft = useChatImageAttachmentDraft(active && Boolean(binding), [], {
+    ownerKey: accountKey ?? "signed-out", scopeKey: imageScopeKey, viewActive: active,
+  });
   const initialSelection = captured?.selection ?? selections[draftKey];
   const workspaceClient = useMemo(() => binding && workspaceId
     ? createHostedDesktopClient({ ...binding, expectedWorkspaceId: workspaceId }, { clientVersion: build.version }) : null,
@@ -159,8 +192,9 @@ export function DesktopHostedWorkspace({ active, build, account, onPlacementChan
     draftRevisions.current.set(draftKey, (draftRevisions.current.get(draftKey) ?? 0) + 1);
     setDrafts((previous) => ({ ...previous, [draftKey]: { ...(previous[draftKey] ?? draft), ...patch } }));
   };
-  const rememberDraft = (id: string) => submittedDrafts.current.set(id,
-    { key: draftKey, revision: draftRevisions.current.get(draftKey) ?? 0 });
+  const rememberDraft = (outgoing: HostedNativeDraft) => submittedDrafts.current.set(outgoing.id,
+    { key: draftKey, revision: draftRevisions.current.get(draftKey) ?? 0, imageDraft,
+      images: outgoing.imageAttachments?.map((image) => image.id) ?? [] });
   const connectProvider = () => setSettings("connect-only");
   const manageModels = () => setSettings("manage-models-only");
   const metadataReads = useRef<{ owner: string | null; seen: Set<string> }>({ owner: accountKey, seen: new Set() });
@@ -226,11 +260,7 @@ export function DesktopHostedWorkspace({ active, build, account, onPlacementChan
             active={active} projectName={projectName} onControllerReady={observe}
             onAcceptedDraft={(outgoing) => {
               if (current.current.accountKey !== accountKey) return;
-              const source = submittedDrafts.current.get(outgoing.id);
-              if (!source || (draftRevisions.current.get(source.key) ?? 0) !== source.revision) return;
-              setDrafts((previous) => previous[source.key]?.input === outgoing.prompt
-                ? { ...previous, [source.key]: { ...previous[source.key]!, input: "" } } : previous);
-              submittedDrafts.current.delete(outgoing.id);
+              settleAcceptedDraft(outgoing);
             }}
             onSessionRefresh={sessions.reload}
             onReviewTurn={(value) => {
@@ -243,7 +273,7 @@ export function DesktopHostedWorkspace({ active, build, account, onPlacementChan
                 ? "Your kept message is ready to send." : "The last message's delivery is not confirmed."}
                 remediation="Retry only the unchanged message, or reload its saved status."
                 actionLabel="Retry unchanged message" onOpen={() => void handoff.retryUnchanged(controller, session)} /> : null}
-              <DesktopHostedComposer draft={draft} onDraftChange={changeDraft} controls={provider}
+              <DesktopHostedComposer draft={draft} imageDraft={imageDraft} onDraftChange={changeDraft} controls={provider}
                 scopeKey={viewKey} active={active} layout={layout} isHidden={approvalVisible}
                 workspaceBar={layout === "hero" ? renderWorkspaceBar() : undefined}
                 configurationLocked={Boolean(captured?.locked || controller.pendingDraft || pendingDelivery)}
@@ -252,18 +282,18 @@ export function DesktopHostedWorkspace({ active, build, account, onPlacementChan
                 unavailableReason={pendingDelivery ? "Confirm the unchanged queued input before sending another."
                   : !controller.canSubmit && !canFollowUp ? "Read the current cloud task's saved status before sending." : undefined}
                 onFollowUpSubmit={canFollowUp ? (outgoing, selection, delivery) => {
-                  rememberDraft(outgoing.id);
+                  rememberDraft(outgoing);
                   return onFollowUpSubmit(outgoing, selection, delivery);
                 } : undefined}
                 onSubmit={(outgoing, selection) => {
-                  rememberDraft(outgoing.id);
+                  rememberDraft(outgoing);
                   setSelections((previous) => ({ ...previous, [draftKey]: selection }));
                   return handoff.submit(controller, session, outgoing, selection);
                 }} />
             </>} /> : <div className="flex min-h-0 min-w-0 flex-1 overflow-y-auto px-3 py-3 sm:px-6 sm:py-4">
             <ConversationHero projectName={projectName} showProjectChip={false} onProjectClick={openPicker}>
               {!binding ? <DesktopHostedAccount controls={account} /> : null}
-              <DesktopHostedComposer draft={draft} onDraftChange={changeDraft} controls={provider}
+              <DesktopHostedComposer draft={draft} imageDraft={imageDraft} onDraftChange={changeDraft} controls={provider}
                 active={active} scopeKey={viewKey} layout="hero" workspaceBar={renderWorkspaceBar()}
                 configurationLocked={sessions.pendingCreation} busy={sessions.mutating} canStop={false}
                 onConnectProvider={connectProvider} onManageModels={manageModels}
@@ -273,7 +303,7 @@ export function DesktopHostedWorkspace({ active, build, account, onPlacementChan
                     : sessions.pendingCreation ? "Confirm the pending cloud task before sending again." : undefined}
                 onSubmit={(outgoing, selection) => {
                   if (!workspaceId || session) return Promise.resolve(false);
-                  rememberDraft(outgoing.id);
+                  rememberDraft(outgoing);
                   setSelections((previous) => ({ ...previous, [draftKey]: selection }));
                   return handoff.submitWelcome(outgoing, selection, workspaceId);
                 }} />

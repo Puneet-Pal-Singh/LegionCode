@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { readCanonicalTurnId, RunIdSchema, type ConversationScope } from "@legioncode/sdk";
-import type { HostedNativeDraft } from "@legioncode/client-ui";
-import { ChatRequestBodySchema, HostedSessionSchema, type HostedSession } from "@repo/platform-protocol";
+import { captureHostedNativeDraft, type HostedNativeDraft } from "@legioncode/client-ui";
+import { HostedSessionSchema, type HostedSession } from "@repo/platform-protocol";
 import { BYOKResolutionSchema, type BYOKResolution } from "@repo/shared-types";
 import type { DesktopHostedConversationController } from "./DesktopHostedConversation";
 
@@ -69,8 +69,10 @@ const view = (capture: Capture): HostedComposerCapture => Object.freeze({
       (capture.phase === "waiting" && !capture.automatic)),
 });
 function fingerprint(draft: HostedNativeDraft, selection: BYOKResolution, workspaceId: string): string {
-  return JSON.stringify([workspaceId, draft.id, draft.prompt, draft.configuration,
-    selection.providerId, selection.credentialId, selection.modelId]);
+  const frozen = captureHostedNativeDraft(draft);
+  return JSON.stringify([workspaceId, frozen.id, frozen.prompt, frozen.configuration,
+    selection.providerId, selection.credentialId, selection.modelId,
+    ...(frozen.imageAttachments?.length ? [frozen.imageAttachments] : [])]);
 }
 function freezeSession(session: HostedSession, workspaceId: string, accountId: string | null): { session: HostedSession; runId: string } {
   const saved = HostedSessionSchema.parse(session);
@@ -97,20 +99,17 @@ export function useDesktopHostedComposerHandoff(options: Options) {
   const makeCapture = (draft: HostedNativeDraft, selection: BYOKResolution, workspaceId: string, automatic: boolean): Capture => {
     requireCurrent();
     const resolved = BYOKResolutionSchema.parse(selection);
-    const configuration = ChatRequestBodySchema.pick({ providerId: true, modelId: true, mode: true,
-      productMode: true, reasoningEffort: true }).parse(draft.configuration);
-    if (!workspaceId || !draft.id.trim() || !draft.prompt.trim() ||
-        configuration.providerId !== resolved.providerId || configuration.modelId !== resolved.modelId ||
-        !["build", "plan"].includes(configuration.mode ?? "")) {
+    const frozen = captureHostedNativeDraft(draft);
+    const configuration = frozen.configuration;
+    if (!workspaceId || configuration.providerId !== resolved.providerId || configuration.modelId !== resolved.modelId) {
       throw new Error("Confirm the repository, provider, model and unchanged prompt before sending.");
     }
     if (resolved.pricing) Object.freeze(resolved.pricing);
     if (resolved.quota) Object.freeze(resolved.quota);
-    const frozen = Object.freeze({ id: draft.id, prompt: draft.prompt, configuration: Object.freeze(configuration) });
     return { draft: frozen, selection: Object.freeze(resolved), workspaceId, accountId: options.accountId ?? null,
       fingerprint: fingerprint(frozen, resolved, workspaceId), creator: options.createSession,
       retryCreator: options.retrySessionCreation,
-      creationInput: Object.freeze({ title: draft.prompt.trim().replace(/\s+/gu, " ").slice(0, 160), mode: configuration.mode! }),
+      creationInput: Object.freeze({ title: frozen.prompt.trim().replace(/\s+/gu, " ").slice(0, 160), mode: configuration.mode! }),
       navigation: owner.navigation, session: null, runId: null, phase: automatic ? "creating" : "waiting",
       error: null, automatic, started: false, accepted: false, expectedScope: null,
       original: null, operation: null, creation: null };
