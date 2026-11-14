@@ -10,9 +10,19 @@ const activeInvocations = new Set<ChildProcess>();
 // Only argv is variable. Each complete argument is independently shell quoted
 // by AppleScript; neither the renderer nor selected paths supply script source.
 const CONFIGURE_SCRIPT = `on run argv
-  if (count of argv) is not 6 then error "Invalid native setup invocation"
+  set argumentCount to count of argv
+  if argumentCount is not 6 and argumentCount is not 5 then error "Invalid native setup invocation"
+  if (item 1 of argv) is not "/Library/PrivilegedHelperTools/dev.legioncode.desktop.native-host-installer" then error "Invalid native setup helper"
+  set operationName to item 2 of argv
+  if operationName is "--configure" then
+    if argumentCount is not 6 then error "Invalid native configure invocation"
+  else if operationName is "--reauthorize" then
+    if argumentCount is not 5 then error "Invalid native reauthorization invocation"
+  else
+    error "Invalid native setup operation"
+  end if
   set commandText to quoted form of (item 1 of argv)
-  repeat with argumentValue in items 2 thru 6 of argv
+  repeat with argumentValue in items 2 thru argumentCount of argv
     set commandText to commandText & " " & quoted form of (contents of argumentValue)
   end repeat
   return do shell script commandText with administrator privileges
@@ -72,8 +82,62 @@ export async function runNativeHostConfigure(
   // do shell script strips its result's final newline; osascript prints one.
   // Accept only that receipt and, at most, one additional output newline.
   const receipt = /^LC_NATIVE_SETUP_V1:([0-9a-f]{64})\n(?:\n)?$/u.exec(output);
-  if (!receipt) throw new NativeHostSetupUnconfirmedError();
+  if (!receipt || receipt[0] !== output) throw new NativeHostSetupUnconfirmedError();
   return Object.freeze({ setupPermitId: receipt[1]! });
+}
+
+/** Explicit clean-history permission for the same installed configuration.
+ * Main owns the human action; this helper never retries uncertain root effects. */
+export async function runNativeHostReauthorize(
+  input: Readonly<{
+    installerPath: string;
+    actorUid: number;
+    namespacePath: string;
+    expectedConfigurationSHA256: string;
+  }>,
+): Promise<Readonly<{ setupPermitId: string; configurationSHA256: string }>> {
+  let captured: Readonly<{
+    installerPath: string;
+    actorUid: number;
+    namespacePath: string;
+    expectedConfigurationSHA256: string;
+  }>;
+  try {
+    captured = Object.freeze({
+      installerPath: capturePath(input.installerPath),
+      actorUid: input.actorUid,
+      namespacePath: capturePath(input.namespacePath),
+      expectedConfigurationSHA256: input.expectedConfigurationSHA256,
+    });
+    if (
+      process.platform !== "darwin" ||
+      captured.installerPath !== INSTALLED_INSTALLER ||
+      !Number.isSafeInteger(captured.actorUid) ||
+      captured.actorUid < 501 ||
+      captured.actorUid > 4_294_967_294 ||
+      typeof captured.expectedConfigurationSHA256 !== "string" ||
+      captured.expectedConfigurationSHA256.length !== 64 ||
+      !/^[0-9a-f]{64}$/u.test(captured.expectedConfigurationSHA256)
+    ) {
+      throw new Error("Invalid native reauthorization selection");
+    }
+  } catch {
+    throw new NativeHostSetupUnconfirmedError();
+  }
+  const output = await invoke("/usr/bin/osascript", [
+    "-e", CONFIGURE_SCRIPT, "--", captured.installerPath, "--reauthorize",
+    String(captured.actorUid), captured.namespacePath,
+    captured.expectedConfigurationSHA256,
+  ], true);
+  const receipt = /^LC_NATIVE_REAUTHORIZE_V1:([0-9a-f]{64}):([0-9a-f]{64})\n(?:\n)?$/u.exec(output);
+  if (!receipt || receipt[0] !== output ||
+      receipt[2] === captured.expectedConfigurationSHA256) {
+    throw new NativeHostSetupUnconfirmedError();
+  }
+  return Object.freeze({
+    setupPermitId: receipt[1]!,
+    configurationSHA256: receipt[2]!,
+  });
 }
 
 function captureToolchain(input: ToolchainSelection): ToolchainSelection {
