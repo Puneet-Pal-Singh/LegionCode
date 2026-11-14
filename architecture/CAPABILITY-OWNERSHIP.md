@@ -2406,6 +2406,30 @@ requires the existing enforced host launch boundary, rejects unsupported resume,
 and does not provide a Native fallback. RuntimeKernel remains the canonical
 lifecycle/approval writer; harness-core owns scoped sessions and delivery journals.
 The matched SDK dependency graph is not installed-feature or OS-policy acceptance.
+## Plan 057 — Shared durable input repository contract
+
+Event-store owns the placement-independent thread-input repository contract and
+its conflict error. Persistence reexports that same contract for hosted callers;
+its existing Postgres writer remains authoritative. Private optional input identity
+and immutable media batch fields support the same local image owner without
+adding public queue fields or storing image bytes in queue rows. Native SQLite
+and shared command-service activation follow in the same integration slice; this
+contract move alone does not enable local queue or steering.
+
+### Shared queued input command owner
+
+- AppServer `ThreadInputCommandService` owns enqueue/update/remove/CAS steering, authoritative receipt reread, unknown-delivery pause and completed/idle advancement behind storage, authorization, media and runtime ports.
+- Hosted AppServer commands and the existing Hosted terminal callback now use that owner. Brain retains the existing quota/admission/dispatch/model/image and PostgreSQL transaction adapters; no duplicate local policy is activated by this extraction.
+- Native transport composition and positive physical-idle/history integration remain pending. This commit alone does not advertise Native Queue/Steer. No new tests or registrations.
+
+### Queue admission physical boundary
+
+- Shared advancement selects only logically eligible queue intent. Physical idle is not represented as a separate boolean predicate: the actual Native start adapter must verify predecessor settlement under its already-held successor lease before atomic queue/admission publication. Unknown physical authority must pause and reject, preserving intent.
+
+### Hosted shared-input compatibility
+
+- Hosted update/remove known CAS conflict receipts retain their existing HTTP 200 wrapper, and updates to terminal/nonvisible rows retain the original 404. Direct Steer response denials retain the existing HTTP 502/THREAD_INPUT_NOT_CONFIRMED mapping through a private placement brand; queued-Steer and unknown Native delivery keep their existing 503 reconciliation path.
+- Shared policy still owns durable command/CAS/receipt decisions. Placement transport status does not become a second input state owner. No new tests.
 ## Plans 048 / 061 — Private Codex RPC driver foundation
 
 The private harness-codex server adapter translates the pinned Codex app-server
@@ -2422,6 +2446,14 @@ pins are not OS confinement or installed-feature acceptance; both remain explici
 unaccepted in the runtime manifest. Whole-scope quiescence requires actual injected
 proof, and missing evidence stays unknown. Native provider execution is unchanged.
 
+- Hosted queued-Steer target denial retains its original 409 error envelope and
+  operation code; direct Steer retains its conflict receipt. The shared target
+  validation port carries operation context only for this placement mapping.
+
+- Shared advancement propagates original start failures to the terminal observer.
+  Only enqueue suppresses/logs an automatic-start failure after durable intent
+  persistence, preserving its existing pending receipt. Native physical cleanup
+  callbacks retain their original tracked failure and pause owner.
 ## Plans 048 / 061 — Private OpenCode v2 driver foundation
 
 The private harness-opencode server adapter translates pinned OpenCode v2 client,
@@ -2446,3 +2478,25 @@ settlement. A request that ignores cancellation keeps that original obligation;
 no abort acknowledgement, deadline or empty executor map substitutes for it.
 This is buffered-request resource ownership only; it does not invent streaming
 phases, output/retry semantics or another canonical lifecycle producer.
+
+## Shared exact-commit checkout materialization
+
+`git-service`'s private `./pinned-checkout` entry now owns the existing pinned
+checkout sequence: initialize the checkout, configure the credential-free origin
+URL, fetch only the authorized commit with depth one and no tags, then check out
+that exact commit detached. It consumes the existing `GitCommandExecutor` contract
+and stops at the first failed command; it adds no Git transport or security policy.
+
+Secure's real `GitPlugin` pinned-clone branch consumes this helper through the
+existing `SandboxGitCommandExecutor`. Its canonical Node runner owns contained
+Git execution, Linux subreaper/pidfd closure and validated auth environment;
+`SafeCommand` / Toolbox preserve normalized run and original call context. The
+executor borrows the existing checkout lease with no competing outer timeout.
+Its `execIfRunning` transport fails closed without restarting a stopped sandbox
+or falling back to direct Git execution. Scoped auth environment reaches only
+fetch; credentials never enter command arguments or the configured origin URL.
+The replaced `SandboxGitWorkspaceCloner` is deleted. Ordinary unpinned clone
+retains its existing direct `runToolboxCommand` behavior. URL/commit authorization,
+Cloudflare Sandbox execution and immutable checkout ownership remain with their
+existing owners. This migration does not enable managed local checkouts,
+container commands or installed Desktop execution.

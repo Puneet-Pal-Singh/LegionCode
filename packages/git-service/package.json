@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./errors": "./src/errors.ts",
     "./executor": "./src/executor.ts",
+    "./pinned-checkout": "./src/pinned-checkout.ts",
     "./refs": "./src/refs.ts",
     "./status": "./src/status.ts",
     "./types": "./src/types.ts"
