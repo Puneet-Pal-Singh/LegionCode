@@ -683,6 +683,54 @@ authoritative. This upstream UI provides no LegionCode hosted subscription appro
 Codex remains pinned to 0.167.0 and OpenCode to 2.2.5; their existing acceptance
 gates remain outstanding.
 
+### 13.1.3 Follow-up upstream checkpoint — 2026-11-14
+
+Official repository APIs now report T3 Code main
+`69525bf89559284f4b2f8b787d41092c4fb03922` and OpenCode dev
+`f61411af466a6566455a45f5a036c169e82d7c88`. The comparisons contain
+[362 T3 commits](https://github.com/pingdotgg/t3code/compare/c83e78fe073db40b17cd6d478a88fe575125bb96...69525bf89559284f4b2f8b787d41092c4fb03922)
+and [eight OpenCode commits](https://github.com/anomalyco/opencode/compare/f91b88efac039856f284979984ac43cd93bce8f5...f61411af466a6566455a45f5a036c169e82d7c88).
+This is a targeted production-source checkpoint, not an exhaustive audit or a
+runtime/client/schema pin update. Source review and existing checks remain the
+verification route; do not write further tests or test scripts for this work.
+
+- T3's [explicit OpenCode background waits](https://github.com/pingdotgg/t3code/commit/6d94997008fb29d9286654ff976ba7d3f05b6bf6)
+  match running shells to their owning session, deduplicate identifiers and
+  persist awaited state. LegionCode must distinguish ending a UI wait from
+  stopping the process. Background work still retains execution ownership until
+  actual descendant closure and canonical artifact settlement, including a dev
+  server that does not keep the UI Working indicator active.
+- T3's [Codex delegated-child provenance](https://github.com/pingdotgg/t3code/commit/99071c4953bb50924f23c9282be11a5cfa0eda6a)
+  adds native `threadSource: "subagent"` for its own delegated children. Verify
+  support in LegionCode's pinned generated schema before sending that field;
+  retain canonical parent/child identities rather than inferring provenance from
+  arbitrary external IDs.
+- T3's [OpenCode readiness parsing](https://github.com/pingdotgg/t3code/commit/5fa95d99af98f2f9928186acc409b583742d3df5)
+  waits for a complete newline. Review LegionCode's real server owner for split
+  readiness lines; discovered text alone cannot authorize an origin, server
+  version, account, process or private authenticated endpoint.
+- T3's [usage-limit warning translation](https://github.com/pingdotgg/t3code/commit/35483c198a720394bffed1a9dbc16b43b794b983)
+  distinguishes retry/window limits from exhausted balance. Preserve structured
+  facts without inventing account-wide remaining quota, switching payers or
+  resending an ambiguously accepted prompt.
+- T3's [resumed subagent reports](https://github.com/pingdotgg/t3code/commit/b35819caca83199aad1769f3f93f1c51888aaae4)
+  expose attribution risks, while [explicit native resume](https://github.com/pingdotgg/t3code/commit/9e19b7f7e1ab504e05ee73df51c7fc7700f246af)
+  distinguishes supported resume from unsupported recovery. LegionCode requires
+  exact persisted child/run/session/generation attribution; text/order matching
+  and a synthetic continuation prompt cannot replace recovery authority.
+- T3's [installer eligibility correction](https://github.com/pingdotgg/t3code/commit/d2bdd58eef0410f08de0cfd1e48de51c6893acd0)
+  reinforces separate detected, eligible, staged and running versions. Preserve
+  externally owned installations. Its [Codex initialization timeout](https://github.com/pingdotgg/t3code/commit/f3b43efd9a4eae018d966b24210d4b66450a4b5d)
+  is relevant to fencing a hung generation, not permission to replay initialize.
+
+The eight-commit OpenCode window changes presentation/performance and development
+benchmark dependencies; it contains no core/server/protocol/client/auth changes.
+It does not justify a native-v2 transport change. T3's separate
+[Force stop handling](https://github.com/pingdotgg/t3code/commit/b5b470542a5fb95aed16f3d3a23f8cd8de17e5d8)
+does not provide LegionCode physical-closure evidence through UI unload or logical
+finalization. Codex 0.167.0 and OpenCode 2.2.5 remain the selected pins; actual
+driver and installed/hosted acceptance remain outstanding.
+
 ### 13.2 Shared user flow
 
 Settings → Agents → Add agent is shared client-ui using the existing SDK/App

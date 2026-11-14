@@ -16,8 +16,8 @@
       "bytes": 23905
     },
     "plans/rebuild/product-plans/LLD/048-local-harness-integration-and-chatgpt-plan-usage.md": {
-      "sha256": "d50fd2c3c85e8c793b4ee6ff907e1e637c8d6516ed127b1f49d36a1d93f197e0",
-      "bytes": 59091
+      "sha256": "459fb422850722ec2c72778a33e01f2d006dcb9b60bce00df5f13840ba73556f",
+      "bytes": 62921
     },
     "plans/rebuild/product-plans/061-CLOUD-HARNESS-INTEGRATION-PLAN.md": {
       "sha256": "9c62b953f7a8cb5b86bdfcabbd9b3b4790df95c4942f57dc0ddbf00e07d5922b",
@@ -86,7 +86,7 @@
   "instructions": "Current reviewed dev plus approved independent harness decisions; AGENTS differs from current dev only by approved Desktop cloud/local and independent-harness paragraphs. Updated 057 nofork policy has no filesystem/network claim and cannot satisfy full 048/061 host boundary. 058 accepted completion is scoped; no inherited harness acceptance. Keep current dev ledger; implementation owner reconciles harness rows with actual wiring. No dirty source, secrets or provider homes included.",
   "integration_base_sha": "467c5a610eac6ed5aaba663a140d4ce843292b0d",
   "implementation_checkpoint_sha": "cc4403149a908fee8135a766ddd0c595363e6657",
-  "handoff_predecessor_sha": "b1071aa57e0200d2cfb4e9d6293ed89d9d9f76d6",
+  "handoff_predecessor_sha": "a262deff27944094045fd9ecef5e36d7d7955083",
   "priority": [
     "codex",
     "opencode"
