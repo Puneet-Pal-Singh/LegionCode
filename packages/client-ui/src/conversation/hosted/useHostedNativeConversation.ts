@@ -34,6 +34,7 @@ import {
 import { useHostedConversationHistory } from "./useHostedConversationHistory.js";
 
 type ApprovalDecision = Pick<SubmitLifecycleApprovalRequest, "approvalId" | "decision" | "grantScope">;
+type ApprovalCommand = { readonly decision: ApprovalDecision; readonly operation: Promise<void> };
 type Owner = { readonly identity: HostedConversationIdentity; readonly controller: AbortController };
 interface DeliveryState {
   readonly identity: HostedConversationIdentity;
@@ -60,7 +61,7 @@ export function useHostedNativeConversation(options: HostedNativeConversationOpt
   const attempt = useRef<{ owner: Owner; attempt: SubmissionAttempt } | null>(null);
   const command = useRef<Promise<SubmissionOutcome> | null>(null);
   const stopCommand = useRef<Promise<void> | null>(null);
-  const approvalCommand = useRef<{ approvalId: string; operation: Promise<void> } | null>(null);
+  const approvalCommand = useRef<ApprovalCommand | null>(null);
   const observedTerminal = useRef<{ identity: HostedConversationIdentity; eventId: string } | null>(null);
   const [delivery, setDelivery] = useState<DeliveryState | null>(null);
   const history = useHostedConversationHistory(identity);
@@ -293,31 +294,45 @@ export function useHostedNativeConversation(options: HostedNativeConversationOpt
     if (selectedProjection.current?.terminal || selectedProjection.current?.pendingApproval?.approvalId !== decision.approvalId) {
       throw new Error("The hosted approval changed before this decision.");
     }
-    if (approvalCommand.current) return approvalCommand.current.operation;
-    const option = decision.decision === "approved"
-      ? decision.grantScope === "matching_in_chat" ? "allow_matching_in_chat" : "allow_once"
-      : decision.decision === "denied" ? "deny" : "cancel";
+    const chosen = Object.freeze({ ...decision });
+    if (chosen.decision !== "approved" && chosen.grantScope !== undefined) {
+      throw new Error("Only an approval can grant future access.");
+    }
+    const option = chosen.decision === "approved"
+      ? chosen.grantScope === "matching_in_chat" ? "allow_matching_in_chat" : "allow_once"
+      : chosen.decision === "denied" ? "deny" : "cancel";
     if (!approval.options.some((candidate) => candidate.id === option ||
       (option === "allow_once" && candidate.id === "approve") || (option === "cancel" && candidate.id === "abort"))) {
       throw new Error("This decision is not offered by the current runtime request.");
     }
+    const pending = approvalCommand.current;
+    if (pending) {
+      if (pending.decision.approvalId === chosen.approvalId && pending.decision.decision === chosen.decision &&
+        pending.decision.grantScope === chosen.grantScope) return pending.operation;
+      throw new Error("A different decision for this approval is still pending.");
+    }
+    let capturedCommand: ApprovalCommand;
     const operation = client.submitLifecycleApproval({
-      ...decision, turnId: TurnIdSchema.parse(selected.turnId),
+      ...chosen, turnId: TurnIdSchema.parse(selected.turnId),
       decidedBy: userIdFromExternalId(identity.accountId), reason: null,
     }).then((receipt) => {
       if (!active(captured)) return;
       if (receipt.type !== "approval.decided" || receipt.turnId !== selected.turnId ||
         receipt.threadId !== selected.threadId || receipt.runAttemptId !== selected.runAttemptId ||
-        receipt.approvalId !== decision.approvalId || receipt.payload.status !== decision.decision ||
-        (decision.grantScope === "matching_in_chat" && receipt.payload.grantScope !== decision.grantScope)) {
+        receipt.approvalId !== chosen.approvalId || receipt.payload.status !== chosen.decision ||
+        (chosen.grantScope === "matching_in_chat" && receipt.payload.grantScope !== chosen.grantScope)) {
         throw new Error("Approval receipt belongs to another hosted request.");
       }
       live.retry();
     }).catch((error: unknown) => {
-      if (active(captured)) { approvalCommand.current = null; live.retry(); }
+      if (active(captured)) {
+        if (approvalCommand.current === capturedCommand) approvalCommand.current = null;
+        live.retry();
+      }
       throw error;
     });
-    approvalCommand.current = { approvalId: decision.approvalId, operation };
+    capturedCommand = { decision: chosen, operation };
+    approvalCommand.current = capturedCommand;
     return operation;
   }
 

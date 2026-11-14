@@ -121,7 +121,19 @@ describe("useChatPresentation", () => {
     expect(fixture.requests.filter((request) => request.method === "turn/interrupt")).toHaveLength(0);
     const approvalId = reopened.result.current.activeProjection!.pendingApproval!.approvalId;
     const staleDecision = reopened.result.current.decideApproval;
-    await act(async () => { await reopened.result.current.decideApproval({ approvalId, decision: "approved" }); });
+    let releaseApproval!: () => void;
+    fixture.approvalGate = new Promise<void>((resolve) => { releaseApproval = resolve; });
+    const approvalDecision = { approvalId, decision: "approved" as const };
+    let approvalSubmission!: Promise<void>;
+    let repeatedApproval!: Promise<void>;
+    act(() => { approvalSubmission = reopened.result.current.decideApproval(approvalDecision); });
+    await waitFor(() => expect(fixture.requests.filter((request) => request.method === "turn/approval")).toHaveLength(1));
+    act(() => { repeatedApproval = reopened.result.current.decideApproval({ ...approvalDecision }); });
+    await expect(reopened.result.current.decideApproval({ approvalId, decision: "denied" })).rejects.toThrow("different decision");
+    await expect(reopened.result.current.decideApproval({ approvalId, decision: "approved", grantScope: "matching_in_chat" }))
+      .rejects.toThrow("not offered");
+    expect(fixture.requests.filter((request) => request.method === "turn/approval")).toHaveLength(1);
+    await act(async () => { releaseApproval(); await Promise.all([approvalSubmission, repeatedApproval]); });
     await waitFor(() => expect(reopened.result.current.activeProjection?.pendingApproval).toBeNull());
     await expect(staleDecision({ approvalId, decision: "approved" })).rejects.toThrow("changed");
     await act(async () => { await reopened.result.current.stop(); });
@@ -439,6 +451,7 @@ function hostedFixture() {
     admitted: false,
     interruptFailure: false,
     historyGate: null as Promise<void> | null,
+    approvalGate: null as Promise<void> | null,
     submissionGate: null as Promise<void> | null,
     reserveGate: null as Promise<void> | null,
     messages: [] as ConversationHistoryMessage[],
@@ -494,6 +507,7 @@ function hostedFixture() {
           state.events.push(event("turn.started", {}));
           state.events.push(event("approval.requested", { question: "Run the project check?", options: [
             { id: "allow_once", label: "Allow once", description: null },
+            { id: "deny", label: "Deny", description: null },
           ] }, { itemId: "itm_hosted01", approvalId: "appr_hosted01" }));
           state.messages.push({ id: request.clientMessageId!, role: "user", content: "Inspect the project", createdAt: stamp,
             data: { metadata: { canonicalIdentity: state.currentScope } } });
@@ -508,6 +522,7 @@ function hostedFixture() {
       case "turn/lifecycleEvents":
         return success({ events: state.events.filter((item) => item.turnId === envelope.params.turnId && item.sequence > Number(envelope.params.afterSequence ?? 0)), nextSequence: null });
       case "turn/approval": {
+        if (state.approvalGate) await state.approvalGate;
         const decided = event("approval.decided", { status: "approved" }, { itemId: "itm_hosted01", approvalId: "appr_hosted01" });
         state.events.push(decided);
         return success(decided);
