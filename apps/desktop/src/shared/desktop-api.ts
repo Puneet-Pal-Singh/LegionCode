@@ -5,6 +5,7 @@ import type { LocalAppServerMessage } from "@legioncode/app-server/local-process
 import type { AppServerEnvironmentSnapshot } from "@repo/platform-protocol";
 import type { HostedAccountCommand, HostedAccountSnapshot } from "./hosted-account";
 import type { HostedRequest, HostedRequestResult, HostedResponseMetadata } from "./hosted-request";
+import type { NativeHostBrokerConfiguration } from "./native-host-broker-config";
 
 export const APP_SERVER_REQUEST_CHANNEL = "desktop:app-server-request";
 export const BUILD_INFO_CHANNEL = "desktop:get-build-info";
@@ -85,6 +86,7 @@ export type LocalAppServerHostConfig = {
   nativeWriterFenceDirectory?: string;
   nativeFilesystemHelperPath?: string;
   nativeProcessHelperPath?: string;
+  nativeHostBroker?: NativeHostBrokerConfiguration;
 };
 
 export type LocalAppServerStartMessage = {
@@ -96,4 +98,5 @@ export type LocalAppServerStartMessage = {
   nativeWriterFenceDirectory?: string;
   nativeFilesystemHelperPath?: string;
   nativeProcessHelperPath?: string;
+  nativeHostBroker?: NativeHostBrokerConfiguration;
 };

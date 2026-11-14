@@ -6,6 +6,7 @@ import {
   type LocalAppServerProcessControl,
 } from "@legioncode/app-server/local-process";
 import type { LocalAppServerShutdownMessage, LocalAppServerStartMessage } from "../shared/desktop-api";
+import { NativeHostBrokerConfigurationSchema } from "../shared/native-host-broker-config";
 
 const parentPort = (
   process as NodeJS.Process & {
@@ -50,8 +51,12 @@ parentPort.on("message", async ({ data }) => {
   }
   started = true;
   try {
-    const composition = await createDesktopNativeComposition(data, runtimeCredentials);
-    processControl = await runLocalAppServerProcess(parentPort, data, composition);
+    const config = data.nativeHostBroker === undefined ? data : Object.freeze({
+      ...data,
+      nativeHostBroker: NativeHostBrokerConfigurationSchema.parse(data.nativeHostBroker),
+    });
+    const composition = await createDesktopNativeComposition(config, runtimeCredentials);
+    processControl = await runLocalAppServerProcess(parentPort, config, composition);
     if (!processControl) {
       retainUnknownClosure();
       return;
@@ -119,6 +124,7 @@ function isStartMessage(message: unknown): message is LocalAppServerStartMessage
       Array.isArray(value.protectedHostRoots) && value.protectedHostRoots.length <= 32 &&
       value.protectedHostRoots.every((path: unknown) => typeof path === "string" && path.startsWith("/") && !path.includes("\0"))
     )) &&
+    (value.nativeHostBroker === undefined || NativeHostBrokerConfigurationSchema.safeParse(value.nativeHostBroker).success) &&
     [value.nativeFilesystemHelperPath, value.nativeProcessHelperPath, value.nativeWriterFenceDirectory].every((path) =>
       path === undefined || (typeof path === "string" && path.startsWith("/") && !path.includes("\0")),
     )

@@ -32,6 +32,7 @@ import {
   type RuntimeCredentialLease,
 } from "./runtime-credentials";
 import { LocalAppServerClosure } from "./local-app-server-closure";
+import { NativeHostBrokerConfigurationSchema } from "../shared/native-host-broker-config";
 import type {
   DesktopEnvironmentConnection,
   DesktopEnvironmentConfig,
@@ -115,6 +116,15 @@ export class LocalAppServerSupervisor {
     if (this.child || this.closure || this.credentialLookups.size > 0) {
       throw new Error("The previous local runtime closure is unconfirmed");
     }
+    const capturedHostConfig = hostConfig ? Object.freeze({
+      protectedHostRoots: Object.freeze([...hostConfig.protectedHostRoots]),
+      nativeWriterFenceDirectory: hostConfig.nativeWriterFenceDirectory,
+      nativeFilesystemHelperPath: hostConfig.nativeFilesystemHelperPath,
+      nativeProcessHelperPath: hostConfig.nativeProcessHelperPath,
+      ...(hostConfig.nativeHostBroker === undefined ? {} : {
+        nativeHostBroker: NativeHostBrokerConfigurationSchema.parse(hostConfig.nativeHostBroker),
+      }),
+    }) : undefined;
     const generation = ++this.generation;
     this.stopping = false;
     this.handshakeChild = null;
@@ -124,12 +134,7 @@ export class LocalAppServerSupervisor {
     const credential = randomBytes(32).toString("base64url");
     this.credential = credential;
     this.storageDirectory = storageDirectory;
-    this.hostConfig = hostConfig ? Object.freeze({
-      protectedHostRoots: Object.freeze([...hostConfig.protectedHostRoots]),
-      nativeWriterFenceDirectory: hostConfig.nativeWriterFenceDirectory,
-      nativeFilesystemHelperPath: hostConfig.nativeFilesystemHelperPath,
-      nativeProcessHelperPath: hostConfig.nativeProcessHelperPath,
-    }) : undefined;
+    this.hostConfig = capturedHostConfig;
     const child = utilityProcess.fork(
       fileURLToPath(new URL("./local-app-server.js", import.meta.url)),
       [],
@@ -171,6 +176,9 @@ export class LocalAppServerSupervisor {
         nativeWriterFenceDirectory: this.hostConfig?.nativeWriterFenceDirectory,
         nativeFilesystemHelperPath: this.hostConfig?.nativeFilesystemHelperPath,
         nativeProcessHelperPath: this.hostConfig?.nativeProcessHelperPath,
+        ...(this.hostConfig?.nativeHostBroker === undefined ? {} : {
+          nativeHostBroker: this.hostConfig.nativeHostBroker,
+        }),
       });
     } catch {
       this.requestChildShutdown(child);
