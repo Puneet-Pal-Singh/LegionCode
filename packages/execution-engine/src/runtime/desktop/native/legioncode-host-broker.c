@@ -1,6 +1,7 @@
 /* Privileged Native command resource service and its unprivileged XPC bridge.
  * Build only; packaging/setup owns installation, approval and launchd. Never
  * setid this binary. Missing setup, writer ABI or qualification fails closed. */
+#include "legioncode-host-descriptor.h"
 #include "legioncode-host-recovery.h"
 #include "legioncode-host-retirement.h"
 #include "legioncode-host-setup-auth.h"
@@ -48,6 +49,8 @@ static xpc_object_t scope_reply(lc_host_scope *scope) {
 }
 static xpc_object_t serve_request(xpc_connection_t peer, xpc_object_t request, const lc_host_record_scan *history) {
   char operation[40], version[8], generation[65];
+  if (lc_host_get(request, "operation", operation, sizeof(operation)) && !strcmp(operation, "installedDescriptor"))
+    return lc_host_descriptor_reply(&approval, peer, request);
   if (!lc_host_authorize(&approval, peer, request) || !lc_host_get(request, "version", version, sizeof(version)) ||
       strcmp(version, "1") || !lc_host_get(request, "operation", operation, sizeof(operation))) return lc_host_reply("unavailable", "unauthorized");
   if (!strcmp(operation, "status")) {
@@ -270,6 +273,7 @@ static int bridge(const char *service_requirement) {
 
 int main(int argc, char **argv) {
   if (argc == 2 && !strcmp(argv[1], "--serve")) return serve();
+  if (argc == 2 && !strcmp(argv[1], "--describe-installed")) return lc_host_describe_installed();
   if (argc == 2 && !strcmp(argv[1], "--bootstrap")) return lc_host_bootstrap_target();
   if (argc == 3 && !strcmp(argv[1], "--bridge")) return bridge(argv[2]);
   return 64;

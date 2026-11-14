@@ -48,6 +48,59 @@ export interface MacHostPhysicalWriterReleaseReceipt {
     lease: Readonly<{ device: string; inode: string }>;
   }>;
 }
+export type MacHostInstalledDescriptor = Readonly<
+  { state: "configured"; options: MacHostBrokerOptions; generation: string; configurationSHA256: string } |
+  { state: "unconfigured"; reason: "unsupportedPlatform" | "installedBrokerUnavailable" | "installedServiceUnavailable" |
+    "installedAuthorityUnavailable" | "invalidInstalledDescriptor" | "installedDescriptorTimeout" }
+>;
+const INSTALLED_HOST_BROKER = "/Library/PrivilegedHelperTools/dev.legioncode.desktop.native-host";
+/** Fixed read-only C producer validates ROOT ancestor/ACL/code authority and
+ * authenticates the SAME installed service. JS never treats a mode-bit check,
+ * a caller descriptor, or this configured projection as runtime readiness. */
+export function readInstalledMacHostBrokerDescriptor(): Promise<MacHostInstalledDescriptor> {
+  if (process.platform !== "darwin") return Promise.resolve(Object.freeze({ state: "unconfigured", reason: "unsupportedPlatform" }));
+  return new Promise((resolve) => {
+    const child = spawn(INSTALLED_HOST_BROKER, ["--describe-installed"], { stdio: ["ignore", "pipe", "pipe"], env: {}, shell: false, windowsHide: true });
+    let bytes = Buffer.alloc(0), diagnostics = 0, failed = false, timedOut = false, killed = false;
+    const stop = () => { if (!killed) { killed = true; child.kill("SIGKILL"); } };
+    const timer = setTimeout(() => { timedOut = true; stop(); }, 10000);
+    child.on("error", () => { failed = true; });
+    child.stdout.on("error", () => { failed = true; stop(); });
+    child.stderr.on("error", () => { failed = true; stop(); });
+    child.stdout.on("data", (chunk: Buffer) => {
+      if (bytes.length + chunk.length > MAC_HOST_MAX_FRAME + 4) { failed = true; stop(); return; }
+      bytes = Buffer.concat([bytes, chunk]);
+    });
+    child.stderr.on("data", (chunk: Buffer) => { diagnostics += chunk.length; if (diagnostics > 1024) { failed = true; stop(); } });
+    /* 'close' follows the ORIGINAL process exit and its stdio closure. No
+     * decoded bytes are adopted before this original invocation is closed. */
+    child.once("close", (code, signal) => {
+      clearTimeout(timer);
+      const unavailable = (reason: Extract<MacHostInstalledDescriptor, { state: "unconfigured" }>["reason"]) =>
+        resolve(Object.freeze({ state: "unconfigured", reason }));
+      if (timedOut) return unavailable("installedDescriptorTimeout");
+      if (failed || code !== 0 || signal !== null) return unavailable("installedBrokerUnavailable");
+      try {
+        if (bytes.length < 6 || bytes.readUInt32BE(0) !== bytes.length - 4) throw new Error();
+        const reply = decodeMacHostFrame(bytes.subarray(4));
+        if (macHostText(reply, "version", 8) !== MAC_HOST_BROKER_ABI) throw new Error();
+        const state = macHostText(reply, "state", 40), reason = macHostText(reply, "code", 128);
+        if (state === "unconfigured") {
+          if (reply.size !== 3 || !["installedBrokerUnavailable", "installedServiceUnavailable", "installedAuthorityUnavailable"].includes(reason)) throw new Error();
+          return unavailable(reason as Extract<MacHostInstalledDescriptor, { state: "unconfigured" }>["reason"]);
+        }
+        const keys = ["version", "state", "code", "serviceCodeRequirement", "bridgePath", "policy", "policyGeneration", "generation", "configurationSHA256"];
+        if (state !== "configured" || reason !== "okay" || reply.size !== keys.length || keys.some((key) => !reply.has(key))) throw new Error();
+        const bridgePath = macHostText(reply, "bridgePath", 1023), serviceCodeRequirement = macHostText(reply, "serviceCodeRequirement", 4096);
+        if (!isAbsolute(bridgePath) || bridgePath.includes("\0") || !/^cdhash H"(?:[a-f0-9]{2}){20,64}"$/u.test(serviceCodeRequirement)) throw new Error();
+        const options = Object.freeze({ bridgePath, serviceCodeRequirement, expectedPolicySHA256: macHostDigest(reply, "policy"),
+          expectedPolicyGeneration: macHostDigest(reply, "policyGeneration") });
+        resolve(Object.freeze({ state: "configured", options, generation: macHostDigest(reply, "generation"),
+          configurationSHA256: macHostDigest(reply, "configurationSHA256") }));
+      } catch { unavailable("invalidInstalledDescriptor"); }
+    });
+  });
+}
 export interface MacHostCommandResource {
   readonly closed: Promise<void>;
   readonly quiescent: boolean;
