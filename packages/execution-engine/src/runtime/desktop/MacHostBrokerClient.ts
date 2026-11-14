@@ -57,6 +57,8 @@ class Bridge {
   constructor(options: MacHostBrokerOptions, root?: FileHandle, fence?: FileHandle, namespace?: FileHandle) {
     const stdio: Array<"pipe" | "ignore" | number> = ["pipe", "pipe", "pipe", "ignore", "ignore"];
     if (root && fence && namespace) stdio.push(root.fd, fence.fd, namespace.fd);
+    else if (!root && !fence && namespace) stdio.push("ignore", "ignore", namespace.fd);
+    else if (root || fence) throw new MacHostBrokerError("invalid_original_authority", false);
     this.process = spawn(options.bridgePath, ["--bridge", options.serviceCodeRequirement], {
       stdio, env: {}, shell: false, windowsHide: true,
     }) as ChildProcessWithoutNullStreams;
@@ -137,10 +139,80 @@ function response(reply: Reply): string {
   return state;
 }
 
+export type MacHostSetupDescription = Readonly<{
+  state: "blocked";
+  reason: "setupAuthorizationRequired" | "setupPlatformMismatch" | "qualificationRunnerUnavailable";
+  generation: string; configurationSHA256: string;
+}>;
+export type MacHostSetupObservation = Readonly<
+  { state: "blocked"; reason: "qualificationRunnerUnavailable" } | { state: "not_started" }
+>;
+/** Private setup facade over the SAME authenticated bridge. It is neither a
+ * qualified runtime client nor a source of resource/qualification proof. */
+export class MacHostBrokerSetupClient {
+  private constructor(private readonly options: MacHostBrokerOptions) {}
+  static create(options: MacHostBrokerOptions): MacHostBrokerSetupClient {
+    return new MacHostBrokerSetupClient(validateOptions(options));
+  }
+  async describe(): Promise<MacHostSetupDescription> {
+    return this.exchange("setupQualificationDescribe", {}, (reply) => {
+      const keys = ["version", "state", "code", "generation", "configurationSHA256", "policy", "policyGeneration"];
+      this.validate(reply, keys);
+      const reason = macHostText(reply, "code", 128);
+      if (macHostText(reply, "state", 40) !== "setupBlocked" ||
+          !["setupAuthorizationRequired", "setupPlatformMismatch", "qualificationRunnerUnavailable"].includes(reason) ||
+          macHostDigest(reply, "policy") !== this.options.expectedPolicySHA256 ||
+          macHostDigest(reply, "policyGeneration") !== this.options.expectedPolicyGeneration) {
+        throw new MacHostBrokerError("invalid_setup_description", true);
+      }
+      return Object.freeze({ state: "blocked", reason: reason as MacHostSetupDescription["reason"],
+        generation: macHostDigest(reply, "generation"), configurationSHA256: macHostDigest(reply, "configurationSHA256") });
+    });
+  }
+  start(input: { generation: string; setupPermitId: string; namespaceDirectory: FileHandle }): Promise<MacHostSetupObservation> {
+    this.digest(input.generation); this.digest(input.setupPermitId);
+    const namespace = fstatSync(input.namespaceDirectory.fd, { bigint: true });
+    if (!namespace.isDirectory() || (namespace.mode & 0o777n) !== 0o700n) throw new MacHostBrokerError("invalid_setup_namespace", false);
+    return this.exchange("setupQualificationStart", { generation: input.generation, setupPermitId: input.setupPermitId },
+      (reply) => this.observation(reply), input.namespaceDirectory);
+  }
+  status(input: { generation: string; qualificationId: string }): Promise<MacHostSetupObservation> {
+    this.digest(input.generation); this.digest(input.qualificationId);
+    return this.exchange("setupQualificationStatus", { generation: input.generation, qualificationId: input.qualificationId }, (reply) => this.observation(reply));
+  }
+  cancel(input: { generation: string; qualificationId: string }): Promise<MacHostSetupObservation> {
+    this.digest(input.generation); this.digest(input.qualificationId);
+    return this.exchange("setupQualificationCancel", { generation: input.generation, qualificationId: input.qualificationId }, (reply) => this.observation(reply));
+  }
+  private digest(value: string): void {
+    if (!/^[a-f0-9]{64}$/u.test(value)) throw new MacHostBrokerError("invalid_setup_identity", false);
+  }
+  private validate(reply: Reply, keys: readonly string[]): void {
+    if (reply.size !== keys.length || keys.some((key) => !reply.has(key)) || macHostText(reply, "version", 8) !== MAC_HOST_BROKER_ABI)
+      throw new MacHostBrokerError("invalid_setup_reply", true);
+  }
+  private observation(reply: Reply): MacHostSetupObservation {
+    this.validate(reply, ["version", "state", "code"]);
+    const state = macHostText(reply, "state", 40), code = macHostText(reply, "code", 128);
+    if (state === "setupBlocked" && code === "qualificationRunnerUnavailable")
+      return Object.freeze({ state: "blocked", reason: "qualificationRunnerUnavailable" });
+    if (state === "unknown" && code === "setupQualificationNotStarted") return Object.freeze({ state: "not_started" });
+    throw new MacHostBrokerError(code, state === "unknown");
+  }
+  private async exchange<T>(operation: string, fields: Readonly<Record<string, string>>, decode: (reply: Reply) => T,
+    namespace?: FileHandle): Promise<T> {
+    const bridge = new Bridge(this.options, undefined, undefined, namespace);
+    try { return decode(await bridge.request({ ...base(operation), ...fields })); }
+    finally { await bridge.end(); }
+  }
+}
+
 /** Obtained only from the actual authenticated installed service. This check is
  * observational: no account, UID, file ACL, workspace or command is created. */
 export class MacHostBrokerClient {
   private constructor(private readonly options: MacHostBrokerOptions, readonly generation: string) {}
+  /** Installed setup only; never relaxes the normal ready-required connect. */
+  static setup(input: MacHostBrokerOptions): MacHostBrokerSetupClient { return MacHostBrokerSetupClient.create(input); }
   static async connect(input: MacHostBrokerOptions): Promise<MacHostBrokerClient> {
     const options = validateOptions(input), bridge = new Bridge(options);
     try {

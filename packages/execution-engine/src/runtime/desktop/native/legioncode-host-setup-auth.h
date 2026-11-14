@@ -43,6 +43,7 @@ static inline xpc_object_t lc_host_setup_request(const lc_host_approval *approva
     xpc_object_t reply = lc_host_reply("setupBlocked", !approval->setup_authorized ? "setupAuthorizationRequired" :
       !approval->platform_matches ? "setupPlatformMismatch" : "qualificationRunnerUnavailable");
     lc_host_put(reply, "generation", approval->generation);
+    lc_host_put(reply, "policy", approval->policy); lc_host_put(reply, "policyGeneration", approval->policy_generation);
     char digest[65]; lc_host_hex(approval->manifest_sha256, 32, digest, sizeof(digest));
     lc_host_put(reply, "configurationSHA256", digest); return reply;
   }
