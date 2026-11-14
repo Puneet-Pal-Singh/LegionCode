@@ -1,83 +1,5 @@
 # Capability ownership
 
-## Plans 048/061 — Brain external execution routing
-
-`HostedChatSubmission` and queued/resumed `prepareAdmittedTurnModel` branch on
-explicit harness intent before native model discovery. `HandleChatRequest`
-preserves the admission snapshot, skips native provider-route/context-window and
-conversation-context construction for delegated input, and omits native auth-mode
-defaults. Subscription credentials remain with the selected connection authority.
-
-`RunEngineRuntime` supplies `CloudDelegatedRunPreparation` to the actual
-`RunEngineRequestHandler` caller. The handler enters `executeDelegatedRun` before
-`createRuntimeState`, `prepareRuntimeExecutionResources` or
-`RuntimeKernelNativeRunner` construction. Preparation validates canonical prompt
-admission and saved Thread/workspace ownership, obtains account and binding
-ports, claims the immutable attempt and checkout, and composes the same
-`RuntimeKernel`/lifecycle store/approval and steering registries. It retains the
-existing checkout settlement owner. Native execution ports are unavailable in
-that composition. The current secure-host capability gate rejects before a
-selected provider secret is read; the Postgres account authority also reports
-unverified account/host facts as unavailable. `HostedHarnessAdmissionComposition`
-now supplies the existing Postgres account and binding authorities in production;
-optional environment ports are explicit dependency injection. Lazy observation
-operations complete inside each existing repository/client lifetime. No
-`HARNESS_RUN_PREPARATION` callback, provider loop, alternative credential resolver
-or event store is used by this caller.
-
-The actual initial-title caller passes the execution strategy to
-`InitialThreadTitleScheduler`. External routes persist the existing canonical
-preview with generation unavailable (`titleStatus: failed`), then return before
-native route resolution or `ThreadTitleGenerationCoordinator.schedule`. They do
-not send subscription authentication to native title inference or choose an
-alternate payer. Existing Native title behavior remains with its original owner.
-
-## Plans 048/061 — delegated kernel and execution safety
-
-| Responsibility | Canonical owner | Actual wiring and integration status |
-| --- | --- | --- |
-| Pre-admission harness intent | `harness/selection.ts` | Initial chat and queue/resume configuration carry explicit `environmentId`, `selectionRevision`, and nullable `HarnessNextSelection` without inventing attempt IDs. The canonical admission fingerprint and durable binding retain that intent. The actual Brain caller dispatches delegated preparation before Native construction; unresolved host/account authority remains unavailable before provider work. Public operations reuse this shared next-selection schema. |
-| Immutable admitted harness selection | `platform-protocol/src/harness` | Separate from learned external session/turn identity in private `worker-protocol/src/harness.ts`; driver-native SDK types remain private. |
-| Exclusive native/delegated execution | `RuntimeKernel` with `DelegatedTurnCoordinator` | `StartTurnInput.execution` selects the delegated port before native context/provider/tools/compaction. Existing callers omitting that selection retain native execution. Canonical replay preflight runs outside preparation failure handling and rejects ordinary existing terminal or nonterminal history before captures, hooks or provider work. Same-attempt delegated recovery restores canonical history and the committed start baseline before any new lifecycle start/capture/hooks; it uses observation-only attachment without open/prompt dispatch. Durable admission/checkout claims remain the concurrent-writer authority. Concrete driver/App Server composition is still an integration gate, not completed by this kernel change. |
-| Private observation validation and canonical translation | `HarnessObservationIngestor` and `RuntimeLifecycleCoordinator` | Hydrate from canonical replay and validated binding facts, then validate exact session/UUID process generation and bounded ingress before staging zero-to-many existing lifecycle events. Ambiguous commits fence further appends until replay recovery. `HarnessObservationCommitPort` requires the persistence owner's atomic ingress/fingerprint plus canonical append transaction; P11 supplies that adapter. No generic event-processor success is treated as commit ACK. |
-| Approval winner and reply fencing | Existing `ApprovalCoordinator` plus delegated coordinator | Freeze one resolution before async persistence; canonical append, waiter result and strict reply conflict handling share that winner. Delegated requests use the existing lifecycle approval schema/coordinator; replies bind origin/request/process/auth generation and require a durable single-use claim before transport delivery. User-input requests/responses use existing canonical request events and JSON payloads. Reply reservation rechecks an unsettled claimed admission inside the same SQLite immediate transaction or Postgres per-Turn lock used by canonical terminal settlement; existing committed ingress receipts remain readable after settlement. Hosted decisions authorize the immutable admission and canonical pending request without a Native allowance-store dependency, and derive the decision actor from that verified owner. Native and default cloud/local approval waits use the shared kernel deadline port; its losing timer is cancelled after canonical resolution or Stop. The separate legacy approval route remains separate. |
-| Stop versus terminal settlement | Existing kernel/lifecycle coordinator | Revalidate cancellation after artifact capture and before serialized terminal append. An uncertain terminal append freezes its chosen outcome for durable recovery. Delegated success requires scoped process-tree/background-work quiescence, never interrupt ACK alone. Foreground provider completion retains its timestamp; only explicitly marked background facts remain admissible until quiescence. |
-| Local claim, restart and attachment retirement | Existing `LocalPersistence` writer with `LocalTurnService`, `LocalHarnessSettlement` and `LocalWorkspaceLease` | Freeze validates the persisted canonical admission before preparation, including a new attempt with zero lifecycle events. Startup never resends an admitted prompt. Settlement requires canonical terminal and immutable artifact references, successful exact-generation CORE release and ACK drain, then a fresh committed ingress watermark and atomic SQLite retirement tombstone. Unknown cleanup or commit outcomes retain the active owner and lease; attached terminal generations report recovery required. The private Desktop bootstrap and enforced host boundary remain release gates. |
-| Local configured instances and future selection | `LocalHarnessControlPlane`, composed by `LocalPersistence` and consumed by `LocalHarnessOperations` | SDK/App Server setup, status, selection read and select now reach the same SQLite writer. Server-issued instance identities, scoped command receipts, revision CAS and current grant/Thread checks are durable. The actor comes from `LocalThreadService`; stored configuration cannot certify readiness, quota or OS policy. Physical replacement fencing remains with the separately owned workspace-grant integration. |
-| Native driver observation and reply translation | Final `harness-codex`, `harness-claude` and `harness-opencode` Node server entries | Codex binds an explicit selected key to pre-admission evidence, deduplicates exact terminal callbacks, preserves absent provider completion time as null and publishes canonical approval option IDs. Destructive transport cleanup cannot certify observation closure and remains unknown. Claude retains native task ownership through ordered observer drain and fences late background failures. OpenCode bounds individual SSE frames, requires private configuration, validates native request origins and rejects unowned active sessions; replayed exact terminal evidence does not settle twice. Real provider, full execution-boundary and supported-resume proof remain outstanding. |
-| Cloud runtime distribution | Existing Secure API image and `harness-host/scripts` | Portable compilation bundles the Node host and three final driver entries. Explicit Linux x64/glibc Node 22+ packaging stages the frozen SDK/peer graph and integrity-pinned native assets; the wrapper drops groups, UID/GID and unrelated ambient credentials before loading host code. Sandbox control-plane startup is preserved. The current image exceeds its unchanged size budget; non-root execution does not establish filesystem, network or control-endpoint isolation. |
-| Usage and payer presentation | SDK canonical usage projection and shared `HarnessUsage`, mounted by connection settings | Account-wide quota and freshness remain separate from scoped canonical run measurements and cloud compute/storage. Conflicting duplicate measurements are excluded, absent telemetry remains unknown, and account status or the current picker cannot establish an attempt payer. Web receipts are bound to committed account/session scope, including A-to-B-to-A transitions. |
-| Delegated steering | Existing canonical input lifecycle and `DelegatedTurnCoordinator` | Capability-gated text steering carries the accepted input identity/sequence and exact external turn target. Command ACK never fabricates application: only a validated `thread_input_applied` observation reuses the existing canonical payload. Duplicate intent does not resend; ambiguous admission fences recovery, and unresolved application blocks successful completion. |
-| Private runtime credential material | Existing encrypted credential custody and `shared-types/credential-vault.ts` | `HarnessConnectionService.resolveForAttempt` consumes the shared typed projection after admission and credential-generation checks. API keys, short-lived OAuth access material and provider-owned opaque references remain distinct; refresh tokens, issuer/client configuration and scopes stay in custody. Hosted delivery now holds one existing Postgres transaction across canonical admission/session/workspace checks, credential row locking, typed acquisition and synchronous access-only projection. Revoke/refresh CAS cannot change that authority during acquisition. Persisted revocation targets include terminal/recovery attachments and claimed openings; Stop acceptance or terminal status never clears unknown cleanup. Autonomous process fencing and the Desktop private broker/bootstrap consumer remain pending; this projection does not advertise installed Mac execution. |
-| Public failure projection | `platform-protocol/errors.ts` catalog, consumed by runtime and host boundaries | Native and delegated failure DTOs, terminal assistant text, Native tool failure trackers/recorders and diagnostics use registered classifications and fixed public messages. Upstream prose, details, correlation IDs, causes and stacks are not adopted. Numeric provider status is bounded; hostile accessors/proxies fall back without invocation. Existing private tool recovery policy may inspect transient diagnostic evidence but cannot persist it as a public failure. |
-| Startup Stop ownership | `RunExecutionStartup` and existing interrupt registry | Run Engine establishes startup ownership before durable claim I/O; a pending Stop transfers to the registered runner. Rejected claims remove only the startup registration they acquired. |
-| Unsafe checkout retention | `TaskCheckoutRunLifecycle` | Once runtime work starts, absent/unknown quiescence or missing committed immutable review retains active checkout ownership and its existing secure lease. The Run Engine observes canonical settlement before closing a checkout; pre-runtime resource failures retain their existing safe cleanup path. |
-
-`architecture/RUNTIME-ARCHITECTURE.md` is restored as the tracked authority from
-the approved local provenance and current owner trace. This records implemented
-kernel/native safety paths; a selected-account driver consumer, durable recovery,
-subscription access and installed Mac proof remain release gates.
-## Reviewed dev reconciliation — 2026-11-10
-
-The pinned `467c5a610eac6ed5aaba663a140d4ce843292b0d` Desktop/workspace/Git
-changes are reconciled with the approved harness source and architecture
-provenance. `createLocalAppServer` still creates one `LocalPersistence` writer
-and one `LocalHarnessComposition`; incoming workspace metadata/probe options
-and the read-only file-service factory consume that same workspace owner.
-The explicit private harness bootstrap is `LocalAppServerCompositionOptions.harnessBootstrap`.
-Restart reconciliation completes before readiness, and shutdown retains the
-writer until existing execution/lease settlement is proven. Native guarded
-mutation quiescence and delegated observation/Stop recovery remain distinct
-requirements of the canonical kernel. Harness snapshots use the canonical
-Node Git executor; reviewed descriptor-bound grant authorization supersedes
-the older v1 grant helper and ambient Git executor. No mounted Desktop UI or
-provider/account capability is added by this reconciliation. The later private
-media/preferences/review/commit composition head is not part of this pinned
-reviewed base; its actual mounting remains with the separate backend owner.
-The tracked runtime authority and local provenance above remain unchanged;
-confinement, account, installed-host and image-budget gates are not satisfied
-by a source merge or production compilation.
-
 ## Plan 057 — Local read-only Turn execution
 
 `RuntimeKernel` owns local lifecycle and terminal settlement. Its explicit
@@ -116,6 +38,17 @@ still retains the original pin and quarantine semantics.
 Trusted Mac Git discovery resolves the explicitly selected developer tools to
 their canonical executable without launching a shell or xcrun. Discovery does
 not prove process containment; the same guardian and readiness gate still do.
+
+The Desktop utility process awaits `createDesktopNativeComposition` inside its
+existing positive-shutdown startup owner. Main supplies the private, owner-only
+appData writer-fence namespace through HostConfig; it is never a renderer field.
+The composition reuses the current protected credential client and canonical
+provider discovery, held-root native Git/read ports, shared writer lease owner,
+captured execution and saved-artifact commit factory. The actual returned commit
+service retains its shutdown port for the existing combined resource drain.
+Absent trusted helpers/Git or a verified fence namespace does not fabricate a
+mutating capability. This source wiring does not establish packaged Mac native
+execution or golden-loop acceptance; those remain separate installed-app gates.
 
 `engine/KernelAgenticProvider` is the shared provider stepping/transcript/recovery
 owner used by both `RuntimeKernelNativeRunner` and `createLocalNativeProviderPorts`.
@@ -188,8 +121,8 @@ read, rewritten or deleted by this code retirement.
 
 | Responsibility | Canonical owner | Active producer and consumers |
 | --- | --- | --- |
-| Original checkout identity and lease deadline | `TaskCheckoutIssuer` and the persisted `TaskCheckout` / nested `SandboxExecutionLease` | Run execution issues one lease with its original `lease.expiresAt`; successful terminal settlement retains that exact checkout only until that deadline. Failed/interrupted paths with proven immutable runtime settlement release normally. Unknown mutation or artifact state retains existing ownership for recovery; no path gains a renewed lease deadline. |
-| Terminal checkout settlement and release policy | `TaskCheckoutRunLifecycle` | The Run Engine settles a checkout only after committed immutable runtime evidence. Successful settlement retains the original review lease until its deadline; failed/interrupted settlement releases only when that evidence proves safe. Unknown or unreadable evidence retains active ownership for recovery. |
+| Original checkout identity and lease deadline | `TaskCheckoutIssuer` and the persisted `TaskCheckout` / nested `SandboxExecutionLease` | Run execution issues one lease with its original `lease.expiresAt`; successful terminal settlement retains that exact checkout only until that deadline. Failed, interrupted, unsettled, and already-expired paths do not gain a retention window. |
+| Terminal checkout settlement and release policy | `TaskCheckoutRunLifecycle` | The Run Engine settles the checkout; its existing final release retains only successfully settled completion and releases all other outcomes immediately. |
 | Persisted expiry alarm and physical sandbox cleanup | Existing Secure Agent API `AgentRuntime` Durable Object | Persisted `execution:session:` references schedule the earliest nested lease expiry; cleanup and immediate release resolve the exact persisted lease after DO reload and protect another live reference to its sandbox. Before destruction, the existing session record receives a durable cleanup marker; storage for both that session key and sandbox ID is blocked, and flagged leases cannot execute. Destroy waits are bounded; failure retains the marked record and retries with backoff. Successful destroy removes the record and marker, after which the existing generation flow can create a replacement using its distinct sandbox ID. |
 
 This is the approved original-lease retention policy for explicit Current Git
@@ -204,9 +137,9 @@ Upstream source inspection before this semantic change:
 - Codex revision [`6a0c4709ca2154e9f3ebb07e58fb156386630188`](https://github.com/openai/codex/tree/6a0c4709ca2154e9f3ebb07e58fb156386630188): [`agent/status.rs`](https://github.com/openai/codex/blob/6a0c4709ca2154e9f3ebb07e58fb156386630188/codex-rs/core/src/agent/status.rs) represents normal completion as `Completed`; [`agent/control.rs`](https://github.com/openai/codex/blob/6a0c4709ca2154e9f3ebb07e58fb156386630188/codex-rs/core/src/agent/control.rs) releases spawned-thread ownership through explicit shutdown/close paths. This supports keeping terminal completion and resource release distinct, but Codex's local agent registry is not a cloud sandbox lease owner and has no directly reusable expiry/alarm policy.
 - OpenCode revision [`3729fd57068445104ea464a952d41798ed30ea20`](https://github.com/anomalyco/opencode/tree/3729fd57068445104ea464a952d41798ed30ea20): [`session/status.ts`](https://github.com/anomalyco/opencode/blob/3729fd57068445104ea464a952d41798ed30ea20/packages/opencode/src/session/status.ts) clears volatile status on idle; [`project/instance.ts`](https://github.com/anomalyco/opencode/blob/3729fd57068445104ea464a952d41798ed30ea20/packages/opencode/src/project/instance.ts) invokes registered instance disposers. Neither is an analogue for persisted Cloudflare sandbox lease cleanup across a Durable Object reload.
 
-Successful review retention uses the original checkout deadline. Execution safety
-additionally retains uncertain runtime ownership until recovery. `AgentRuntime`'s
-existing persisted-session owner keeps its alarm-driven cleanup path; no new
+The smallest necessary implementation change is to let the existing checkout
+lifecycle retain only its successful settled outcome and extend `AgentRuntime`'s
+existing persisted-session owner with an alarm-driven cleanup path; no new
 scheduler, session store, runtime, schema, or replacement lease owner is added.
 
 ## Main integration — shared conversation and continuation
@@ -1332,94 +1265,6 @@ references. History cursors use the referenced run-created event cursor and are
 scoped to the requested thread. Runtime publication must follow the committed
 admission receipt; persistence does not publish live events or own another
 lifecycle state machine.
-## Harness environment identity at the App Server boundary
-
-- Local host identity belongs to `LocalPersistence.environmentId`: the existing
-  SQLite metadata writer creates `env_<UUID>` once under
-  `local_environment_id_v1`, validates it before mutation on reopen, and retains
-  it through process restart. `local-process.ts` supplies that value to initialize.
-- Hosted host identity belongs to deployment authority through the explicit
-  `APP_SERVER_ENVIRONMENT_ID` configuration. Each configured execution host
-  environment must receive a distinct `env_<UUID>`; deployment labels, request
-  headers, workspace IDs, connection IDs and sandbox IDs are not substitutes.
-- SDK initialize exposes `environmentId: string | null` in both placements.
-  Missing hosted configuration returns null. Malformed configuration is rejected.
-  Hosted setup/status/model/selection operations validate against that same
-  configured identity before host/provider work.
-- The hosted settings/composer consumer uses the server field for its scope and
-  remains unavailable when it is null. This field identifies a host environment;
-  admission still owns the exact workspace/account/model/runtime binding, and
-  does not gain authority from a renderer echoing the field.
-
-
-## Explicit delegated chat preparation
-
-- `ChatExecutionStrategy` classifies the canonical admission selection before
-  Native provider validation/discovery. An unbound legacy delegated flag rejects;
-  it cannot select a provider or host implicitly. Explicit placement must match
-  the configured hosted environment identity.
-- `ChatRequestBoundary`, `HostedChatSubmission`, `HandleChatRequest` and admitted
-  queued/resume dispatch retain that selection through admission fingerprinting
-  and runtime input. External execution omits Native provider routing/tool input,
-  context assembly, model discovery, Native reasoning policy and provider-driven
-  title generation. The external model remains in the canonical selection.
-- The real SDK turn/submit caller now enters `CloudDelegatedRunPreparation`
-  before Native construction. The secure-host confinement gate, unverified
-  account facts and any missing durable admission ports still reject before
-  provider work; this is not completed hosted harness acceptance. Persistence
-  retains the exact admitted selection and immutable binding. UI defaults or
-  current provider preferences cannot repair a missing binding.
-
-
-## Hosted harness admission preflight
-
-`AppServerController` passes its authenticated P12-backed harness operations into
-`ChatRequestBoundary`. `HostedHarnessAdmission` reads the canonical saved
-selection, compares the captured revision/references, and checks the selected
-instance/connection and model through those same scoped service methods. It
-returns the canonical capture, never a payer inferred from quota or Native
-provider preferences. Exact already-admitted retries retain canonical
-identity/fingerprint/binding checks rather than consulting mutable Settings.
-This preflight does not replace atomic revision/account/policy/runtime freeze,
-execution claim, credential fencing or delegated composition in their owners.
-
-
-## Hosted Thread identity before first Turn
-
-New hosted session creation uses the existing `createThreadId` issuer and the
-transcript repository's insert-only `initialThreadId` candidate. Session INSERT
-persists the ID atomically; a conflicting creator or retry returns the persisted
-winner without replacing an existing ID or filling a historical null binding.
-The initial run references the winning persisted session/task/workspace, and
-turn reservation reuses its `session.threadId`. `session/create` and
-`session/workspaceContext` expose that same server-owned ID before any Native or
-external turn starts. No historical Thread migration, extra event store or
-client-generated identity is introduced.
-
-
-## Harness instance creation receipt
-
-Public setup omits `instanceId` for first creation. The control-plane repository
-owns issuance and persistence of the real instance ID with its scoped
-`clientCommandId` receipt; the schema/SDK do not allocate it. Reconnect supplies that persisted ID and cannot turn
-an unknown reference into a new instance. The SDK returns the authoritative
-`instance.instanceId` receipt and never generates a placeholder identity.
-The contract remains run-independent and uses an authorized workspace,
-configured environment, harness kind and verified credential connection.
-
-
-## One harness verifier and admitted receipt across public starts
-
-Direct submission, resume and queued starts share `verifyHostedHarnessAdmission`
-through the authenticated P12-backed operation dependency. Resume inherits only
-from the interrupted admission receipt when no explicit replacement was supplied;
-queue start verifies its persisted queue capture before admission. Both send the
-verified capture into the canonical admission transaction. Dispatch consumes the
-returned admission capture and persisted queue configuration, not the original
-client configuration. Missing or mismatched captures reject and use canonical
-unclaimed-startup failure settlement before any external command. Explicit Native
-captures retain their environment/revision and `selection:null`; omitted legacy
-Native captures remain omitted. Atomic persistence/freeze is owned by P11/P04.
 
 
 ## Plan 057 — Native root-FD filesystem primitive
@@ -1636,6 +1481,40 @@ selection and canonical Git mutation. Handler injection, local composition,
 capability advertisement and UI activation are not implemented by this boundary.
 No live-Git selector, fallback commit path or second artifact owner is introduced.
 
+## Plan 057 — Saved artifact commit composition
+
+`createLocalArtifactCommitComposition` reauthorizes the immutable saved scope,
+borrows the existing workspace writer lease and constructs the canonical
+`LocalGitService` with that same binding and native Git factory. Release awaits
+the lease's actual resource proof. Unknown acquisition or cleanup retains the
+original binding, and cleanup uncertainty never discards a real commit receipt.
+This backend factory does not activate Electron services or advertise mutation
+capability; trusted host construction and installed acceptance remain separate.
+Its required private shutdown port synchronously fences new physical commit work
+and awaits the original operations through lease release and binding close. Git
+failure with positive cleanup remains a known closed outcome; a real commit
+receipt never substitutes for closure. Unknown bindings, leases and their actual
+composition owners remain strongly retained and reject shutdown. The generic
+host must await this port alongside Native Turn shutdown before closing SQLite;
+no HTTP/SDK shutdown method or alternate settlement authority is introduced.
+
+## Desktop current-file mention suggestions
+
+SDK `listWorkspaceFileMentions` uses local `workspace/fileMentions` over the
+existing `LocalWorkspaceFilesService` native read owner. One borrowed, revocable
+physical root covers the entire query and remains held through native cleanup.
+The catalog contains current regular-file names only, never Git objects, file
+contents or immutable review evidence. Symlinks, special and reserved entries are
+not traversed or offered. Candidate policy excludes `.git`, `.legioncode`,
+`node_modules`, `.pnpm-store`, `.yarn`, `.venv`, `__pycache__`, `.next`, `.nuxt`,
+`.turbo`, `.cache` and `coverage` directories at every level. It honors opaque
+native directory pages without retaining a server-side tree/index or cursor.
+Each query is bounded to 128 pages, 20,000 examined entries, 4,000 files, 256 KiB
+of serialized result, 24 nested directory levels and five seconds. A limit
+returns an explicit truncation reason; it never claims a complete empty tree.
+The Desktop-owned mention hook and composer binding remain separate consumer
+integration. This backend change introduces no renderer filesystem access,
+attachment contents or new persistent filename index.
 ## Plan 057 — Read-only local Git service construction
 
 `createLocalReadOnlyGitService` exposes only `probeRepository` and `getStatus`
@@ -1700,6 +1579,23 @@ Profile isolation remains the existing Desktop user-data SQLite owner. Runtime
 factory composition owns injecting this service with the same grant authority and
 SQLite instance. These source changes do not claim installed persistence proof.
 
+## Plan 057 — Canonical local request byte budgets
+
+The existing local HTTP reader enforces the protocol-exported 256 KiB request
+budget after authentication and before schema validation/dispatch. This replaces
+its private 32 KiB literal so valid 24,000-code-unit text prompts fit their JSON
+envelope. Timeouts, response limits, prompt validation and uncertain-delivery
+semantics retain their existing owners. The same protocol owner gives image-bearing
+`turn/start` envelopes a bounded opt-in budget: four images and at most 10 MiB
+decoded in aggregate, with base64 expansion plus the text envelope budget. The SDK
+sets the private opt-in only for authenticated loopback transport; the local HTTP
+reader authenticates before accepting that capacity, then requires the canonical
+start schema and an image-bearing method before dispatch. Other methods keep the
+text budget. The start contract reuses canonical image/text-presence validation
+and may carry an expected provider/model assertion; actual media normalization,
+quota, immutable storage, provider-route checks and runtime admission remain with
+their composed owners. These request contracts enable no execution mode.
+
 ## Plan 057 — Local approval command adapter
 
 `LocalApprovalService` reauthorizes the recorded Thread through the current
@@ -1721,6 +1617,43 @@ This schema foundation does not select runtime behavior, project availability,
 validate actual composed ports or enable attachments, tools or mutations. The
 Turn service/runtime admission and handshake composition retain those obligations.
 Hosted request behavior and existing Git/provider contracts remain unchanged.
+
+## Plan 057 — Generic local runtime composition
+
+The Local App Server constructs one optional LocalTurnService over the same
+process-owned SQLite admission and lifecycle store and the existing workspace,
+Thread and provider owners. The trusted host injects its runtime through one
+structural factory; missing runtime leaves execution unconfigured. The Desktop
+workspace-file composition adopts the renamed composition type without changing
+its behavior. This wiring does not fabricate a native executor or capture port.
+
+The same composition injects LocalProviderPreferences using the existing
+SQLite preferences records, current physical grant callback and provider
+registry. Secret-free metadata has one persistence owner; local preference
+reads and writes no longer require an uncomposed service. Credentials remain
+with the trusted host and provider route owners.
+
+Initialize derives local execution capability and mode/permission choices
+from the actual injected Turn service. Hosted and unconfigured local
+compositions receive no invented runtime configuration or execution capability.
+
+The local turn/diff dispatch now delegates to LocalTurnArtifactReads over the
+actual authorized Turn service and same lifecycle/artifact stores. Missing
+published capture returns the reader's canonical absence rather than a live Git
+substitute. Initialize advertises saved review only with the actual reader port.
+
+One LocalChatMediaStore supplies admission preparation, runtime hydration
+and authorized original-image reads. Its recovery admission lookup uses the
+same process-owned SQLite store independently of the selected workspace. The
+Turn service and runtime share the same media port; no second media journal,
+admission writer or credential store is constructed.
+
+The trusted host may inject saved-artifact commit composition using the same
+persistence, grant authority and immutable reader. Runtime capture receives
+the existing artifact persistence port. Initialize exposes artifact-commit-v1
+only when the actual commit service was constructed; review availability grants
+no mutation authority. Native writer lease and resource proof remain their
+existing owners; generic composition adds no Git runner or lifecycle writer.
 
 ## Plan 057 — Canonical local admission configuration metadata
 
@@ -1765,3 +1698,792 @@ against the same existing one-MiB response budget. This adapter does not select
 history, authorize Threads or introduce a new endpoint; the actual Turn service
 must delegate to the canonical bounded query and reauthorize before returning.
 That service-method integration remains with its current owner.
+
+Trusted hosts import the existing captured-execution and canonical capture/
+artifact Git constructors through explicit private package exports. Their
+implementation and policy remain unchanged; the generic server does not infer
+that those ports are present from package availability.
+
+## Plan 057 — Local runtime before-ready reconciliation
+
+Local App Server startup awaits bounded canonical admission enumeration through
+the sole SQLite owner before constructing/listening on its HTTP server. Each
+saved admission is delegated to the injected runtime recovery port; only the
+canonical runtime decides whether its exact saved attempt is supported and
+emits settlement. Startup never replays a provider request, creates an executor,
+acquires a workspace binding, clears a fence or invents terminal state. Failure
+closes the persistence owner and refuses readiness. Unsupported mutation
+attempts retain their existing quarantine rather than receiving false closure.
+
+Generic local lifecycle replay reauthorizes its canonical Thread after the
+awaited event-store read as well as before it, matching the Turn/history/media
+read boundary. A changed grant refuses the page before bytes are returned.
+
+## Plan 057 — Private bounded startup admission enumeration
+
+LocalTurnAdmissions exposes a private cursor page over its existing canonical
+admission references, limited to 25 records and one MiB of reconstructed data.
+It validates the actual run-event cursor and resumes after the last returned
+record, without a copied status table or recovery writer. Startup admission
+index validation streams existing rows instead of collecting the whole index.
+The sole LocalPersistence owner guards the query; Native runtime policy and
+before-ready reconciliation remain separate consumers and own settlement.
+
+## Local chat image read and SDK hydration boundary
+
+`LocalChatMediaReads` delegates current grant/Thread authorization to the existing
+Turn owner before and after each read, checks canonical user-message membership
+and fingerprint, and reads verified originals from the existing media store.
+The shared `media/readImage` contract transfers bounded 256 KiB chunks without
+host paths. Its optional App Server port rejects absent or nonlocal composition
+with non-retryable 503; actual host injection remains separate.
+SDK `readLocalChatImage` requires ordered ranges, immutable reference agreement
+and the complete SHA-256 before returning bytes, with abort checks before return.
+Clients own transient display URLs. No blob store, admission/lifecycle producer,
+capability advertisement or Desktop activation is added by this boundary.
+
+## Plan 057 — Local server physical shutdown barrier
+
+The generic server exposes a closed promise distinct from HTTP socket closure.
+After connections drain it awaits the composed Native service shutdown before
+closing the sole SQLite writer. Unknown runtime/resource settlement rejects the
+promise, retains persistence and reports runtime-shutdown-failed; the utility
+process exits only after positive closed resolution. The Turn service remains
+the owner of preparation/executor cleanup and canonical interruption. This
+barrier adds no terminal writer, fence release policy or background-work owner.
+
+The utility process routes its normal SIGTERM request through this same HTTP
+close/runtime shutdown/closed barrier. The existing supervisor can observe
+actual process exit after settlement; this handler does not synthesize exit
+evidence, force termination or clear an uncertain writer fence.
+
+The shutdown barrier strongly retains its actual server, runtime, workspace
+resource check and persistence with a referenced keep-alive until positive
+closure. requestShutdown fences Native admission and signals owned work before
+HTTP drain, then awaits the same cleanup promise. Grant-only profiles also
+refuse SQLite closure while the canonical workspace owner retains unknown
+resources. The retention set stores physical owners, not product lifecycle state.
+
+The same process-owned Thread service now reads Native terminal/assistant
+lineage through the existing SQLite admission summary port. This wires the
+canonical read projection into list/get and subsequent Native admission; it
+adds no platform terminal event, status table or second Thread owner.
+
+The trusted host may inject the shared ProviderCatalogService modelCatalog
+port independently of Native Git availability. LocalProviderService and its
+Native consumer share that discovery authority; each admitted executor receives
+a validated frozen model snapshot without adding discovery data to durable
+request fingerprints or resolving credentials in the renderer.
+## Plan 057 — Native Plan process-loss reconciliation
+
+The runtime lifecycle coordinator remains the only terminal writer. Its shared
+restoration reducer retains the existing isolated approval-wait policy and adds
+strict Native read-only restoration, including tool names/batches, durable
+approval/tool receipts and context compaction. Recovery finishes already-durable
+item results before failing remaining work; a typed compaction failure now uses
+the canonical item failure envelope.
+
+The Engine's `LocalNativePlanRecovery` adapter validates the admitted worker,
+permission profile and immutable Plan configuration. It reads complete scoped
+lifecycle history in bounded pages, stages coordinator-produced repair and failure
+events, and appends them in one atomic batch. Durable terminal replay reconciles
+lost acknowledgements. Completed receipts remain unchanged. Oversized unsettled,
+corrupt, mutating or independently owned history does not authorize a partial
+restore. No provider, tool, credential, workspace or writer fence is reacquired,
+replayed or released. Startup must call this adapter only after the existing
+SQLite exclusive-lock owner is open and before new commands become ready.
+
+The private admission enumeration, native runtime port and App Server before-ready
+barrier are separately owned integration dependencies. This leaf does not claim
+to activate that startup barrier or recover captured Build resources.
+
+## Plan 057 — Canonical local Thread runtime read summary
+
+The same SQLite admission owner streams validated admission references and scoped
+lifecycle records to derive Thread runtime facts without writing projection state
+or platform terminal events. An immutable harnessSelection tag on the Run or user
+message denotes delegated ownership and is skipped without parsing driver data;
+Native lifecycle facts must come from the admitted worker's canonical producer.
+Without indexed Native admissions this read leaves the base projection unchanged.
+The latest indexed Native admission supplies its user leaf
+until settled; a settled Turn may supply its completed final assistant item.
+The Thread service applies that leaf only when the admission Run matches its
+existing latest platform Run pointer, preserving newer external runtime leaves.
+Runtime and existing platform terminal facts use the shared event insertion order
+for lastTerminalTurnId; canonical activity timestamps never replace later metadata.
+Thread title, pin/archive metadata, activeRunId pointer and platform projection
+sequence retain their existing owners. The admission producer links the next Turn
+to that last settled Turn and its current canonical leaf. Native factory wiring
+must inject this narrow read port from its existing single LocalPersistence owner.
+No second admission store, lifecycle reducer, terminal writer or Thread table is
+introduced; root startup composition owns the same-store injection.
+The existing SQLite admission transaction also checks Native candidate parent
+Turn/item references against those same current facts after receipt lookup and
+unsettled-Turn refusal. Stale prepared candidates are rejected, never reparented;
+immutable delegated selections remain with their existing admission owner.
+
+## Plan 057 — Canonical named repository HEAD evidence
+
+`DefaultGitService.readRepositoryHead` owns the read-only named-HEAD observation
+used by native workspace manifests. Git reports the actual SHA-1 or SHA-256
+format; born HEAD must resolve to the same nonzero commit, while unborn HEAD
+reuses the snapshot owner's existing missing-HEAD, symbolic branch and absent-ref
+classifier. Its format-sized zero object ID is an explicit absent-HEAD guard,
+never a fabricated commit or captured tree. Two complete observations reject an
+observed change without claiming an atomic hostile-namespace snapshot.
+
+The existing read-only App Server Git adapter forwards this narrow port through
+the same held-root executor and closure checks. No command runner, ref parser,
+GitService interface migration, lifecycle writer or Desktop host authority is
+added. The native runtime consumes the fact in its separately owned composition.
+
+## Plan 057 — Shared provider route and server discovery ownership
+
+`provider-core` owns pure discovered-model route selection and the server-only
+`./discovery` entry for canonical catalog adapters, ranking, cache contracts and
+model.dev enrichment. Brain migrates its active consumers to those exports and
+keeps only hosted composition. Its credential vault delivers the selected key
+and connection configuration from one canonical credential record; hosted Axis
+models are explicitly injected by Brain. Local hosts can supply their own narrow
+credential, registry and cache ports without importing Brain, duplicating routing
+policy, reading hosted credentials or exposing hosted managed-provider access.
+Browser callers retain the pure root entry; server discovery is not re-exported
+through that browser surface. Existing discovery checks migrate their imports
+and required credential-port fixtures without adding test registrations. Native
+App Server catalog injection remains a separately owned consumer integration.
+
+## Plan 057 — Policy-authorized captured file tools
+
+The Native composition supplies one per-attempt canonical ToolAuthorizationPort
+to both RuntimeKernel and captured workers. The Engine requires that owner before
+captured admission or lease acquisition and rejects a different Kernel port.
+Captured composition forwards the same object to the guarded file worker.
+
+Only write_file and edit_file may execute without an approval receipt. They must
+first match the full recorded active canonical tool request and current input,
+with no related approval item/request/decision; orphan approval evidence is
+refused. The same trusted policy owner must independently authorize the exact
+captured Run, item and normalized tool call. The worker repeats authorization
+before native commit, alongside the existing grant, root, lease and immutable
+baseline checks. Explicit approvals retain their existing canonical validation.
+Run_executable still requires explicit approval and the unchanged no-fork port.
+No permission-mode string, profile suffix, synthesized approval, policy copy or
+second lifecycle authority bypasses these checks. Native mode advertisement and
+per-attempt policy construction remain separate composition work.
+
+The private utility-process startup returns a narrow requestShutdown control.
+It starts the same admission/Stop fence and HTTP/physical closure barrier;
+success exits only after positive closed resolution. Runtime shutdown failure
+uses an explicit private fatal reason and retains the process and owners. The
+Desktop supervisor owns validated IPC, child/transport retention and exit
+observation; neither the public SDK nor renderer receives this control. Pending
+fatal exit status remains sticky across repeated normal shutdown requests.
+
+A private closed receipt is sent only after the same positive physical and
+SQLite closure barrier, before process exit. Exit observation alone is not this
+receipt. A shutdown request also prevents a late listen callback from publishing
+readiness; the supervisor binds receipts to its actual child instance.
+
+The same shutdown barrier also owns the actual saved-commit composition. Its
+required private shutdown port fences new physical commits and awaits original
+commit operations and canonical lease/binding closure. A successful irreversible
+commit receipt with uncertain cleanup cannot authorize SQLite closure. The generic
+combiner calls every owner synchronously before HTTP drain, awaits all original
+shutdown results, and retains the actual compositions on any rejection. It adds
+no commit, terminal or resource-proof authority.
+
+Private notification-channel or shutdown-observer failure is not a physical
+closure signal. Unknown shutdown remains retained even if fatal delivery throws;
+failed ready delivery requests the same owned shutdown barrier.
+## Plan 057 — Shared discovered local provider models
+
+LocalProviderService consumes the server-only provider catalog port for model
+listing, refresh and exact-model selection; bounded paged inventory remains
+request-local and coalesces concurrent lookups. The existing shared discovery
+service owns catalog retrieval and caching. The local process accepts this one
+injected catalog; protected credential access remains in its existing host port.
+Saved selection and preference reads validate structure and supported-provider
+identity without catalog access. Preference updates validate only introduced
+model references through the same discovery service; unchanged or removed saved
+references remain recoverable during outages.
+The shared catalog's static refresh reuses the same declared-model helper as
+static reads and returns the existing refresh DTO without adapter discovery,
+credential resolution or provider API calls.
+
+ProtectedProviderInference requires the admitted discovered model identity and
+uses the canonical provider route resolver with the protected connection config.
+It retains provider/model/availability checks and validates Cloudflare routing
+against that same protected config before inference. No static model allowlist,
+second catalog, credential store or app-local routing algorithm replaces these
+owners. Shared provider discovery/routing is now merged, and the private utility
+consumer below supplies the catalog. Native runtime activation and installed
+acceptance remain separately sequenced integration requirements.
+
+### Local discovery's protected utility-process consumer
+
+The existing Desktop utility startup now injects that same shared discovery
+factory alongside workspace file composition. Main alone reads an atomic
+OS-protected key/config value and lends a delivery lease bound to the vault's
+mutation epoch. The supervisor rechecks the exact child, generation, provider
+and current lease immediately before private delivery. Lookup and delivery
+queues are bounded; timed-out work remains counted until its resolver settles.
+Stop and process loss clear delivery timers and prevent late secret delivery.
+No credential-read renderer IPC, Native runtime activation, mode advertisement
+or competing vault is added. The existing packaged credential case remains
+unchanged and exercises this actual first catalog consumer.
+
+## Plan 057 — Native turn service composition
+
+`LocalTurnService` consumes the canonical admission repository and delegates
+approval and interruption to their existing adapters. A matching saved request
+returns its original admission without resolving a new provider or creating an
+executor. Runtime constructs records; the existing repository owns atomic admission
+and RuntimeKernel owns lifecycle events. Immutable admitted configuration selects
+Plan's read-only ports or Build's actually supplied captured ports. Build exposes
+all four existing permission modes through the same validated per-attempt policy;
+the same provider and registry remain execution owners.
+The runtime image helper persists references through the original-byte media port
+before admission and hydrates verified originals only for provider delivery.
+History reads use the canonical bounded repository and reauthorize before return.
+
+These modules do not activate Desktop execution. Read-only activation requires
+the actual grant-held root, protected provider and read-only Git host composition.
+Captured activation additionally requires a physical writer fence and actual
+capture/artifact ports. The same executor supplies positive resource-settlement
+proof; the host retains uncertain resources. Transport completion does not
+establish terminal or physical truth.
+The configuration, Engine admission, bounded history, image-start contract and
+original-byte media ports are real dependencies. Their presence and this service
+source do not advertise availability or wire startup, handshake or HTTP dispatch.
+
+The required startup reconciliation port delegates lost Native Plan admissions to
+its Engine adapter with the same trusted worker, permission profile and lifecycle
+store. The sole App Server startup owner must invoke it before command readiness;
+this port does not run providers, reexecute tools or release captured resources.
+
+Lifecycle replay reauthorizes its canonical Turn after the asynchronous store read
+before returning event bytes, matching history and image-read scope checks.
+
+Native manifest construction consumes the same read-only Git owner's tagged HEAD
+fact and verifies it against porcelain status, the named branch and held grant.
+Unborn repositories use its format-sized absent-HEAD guard, allowing the existing
+canonical capture/first-commit path without inventing a commit or widening the
+manifest schema. A changed or inconsistent HEAD fact aborts preparation.
+
+The canonical workspace owner retains pins whose directory close fails, and raw
+acquisition handles only when their close fails before a pin exists. Its narrow
+`hasUnsettledResources` fact distinguishes clean binding rejection from unknown
+physical ownership; no request failure or rejected Promise proves release.
+
+Native Turn shutdown uses the same single resource owner as ordinary completion.
+It fences preparation and admission dispatch, waits in-flight preparation, sends
+exact-admission Stop through the existing interruption adapter, and awaits the
+original execution cleanup promises. Runtime resource-release proof is required
+for every mode before one binding close; execution fulfillment or rejection is
+never release evidence. Unknown proof, failed binding close or workspace-owner
+quarantine rejects shutdown and retains the original resources. `shutdown()` and
+`hasActiveExecutions` let the generic server await this owner before SQLite close;
+that transport barrier is a separate integration dependency.
+
+A settled read-only preflight may release only with an explicit same-attempt
+factory quiescence proof: kernel ports never returned, no NativeFS tool could
+start, and every requested Git operation returned positive closure. The Engine
+still requires exact durable terminal evidence. Worker absence is not proof;
+unknown Git closure and the captured preparation proof path remain unchanged.
+
+Captured execution receives one immutable per-attempt registry authorization
+instance from the Native factory. The Engine forwards that same object to the
+captured worker factory and requires the identical object in its kernel ports;
+validated permission policy resolution is cached once for that admitted profile.
+The canonical guarded file worker validates write/edit authorization through that
+same instance, including before commit. Supervised file edits require approval;
+the other existing policies may authorize those edits directly. Run_executable
+continues to require explicit exact-command approval in every mode. The actual
+captured ports, writer fence, tool allowlist and no-fork constraints remain required.
+
+After exact saved-receipt reconciliation, atomic admission conflicts return typed
+non-retryable 409 `local_admission_conflict`. Stale parents or unsettled/changed
+intent never cause automatic reparenting, request rewriting or execution retry.
+
+Native Plan recovery refuses any defined opaque harness selection on the Run or
+immutable admitted user content before schema, worker, producer or history checks.
+Those records remain with their independent harness owner; no driver ID parsing,
+selection remapping or delegated lifecycle mutation is introduced.
+
+Native execution captures an available matching discovered model with an explicit
+runtime route, freezes the validated private snapshot and uses its capabilities
+for image admission. The same captured values reach protected inference; volatile
+catalog metadata is not persisted in admission or request fingerprints. Canonical
+provider discovery and inference retain selection and runtime-route validation.
+Known captured model capacity reaches the existing Native metadata port as
+contextWindowTokens. The canonical context assembly and compaction owners retain
+budget calculation; missing capacity stays unknown without a fabricated default.
+
+Concurrent exact image retries derive a validation-only submitted fingerprint
+when another request commits before their image preparation. They use the same
+codec as initial receipt retries without persisting media or resolving providers;
+current Thread authorization and immutable saved-intent checks still gate return.
+
+The actual Desktop utility and per-child supervisor consume that private
+shutdown control and closed receipt. Stop fences request/credential delivery;
+only the matching child's positive receipt clears the ownership obligation.
+Exit, error, timeout or notification loss retain that exact child and block
+restart. Late positive receipts remain valid across request-generation changes.
+The existing before-quit caller waits for this proof; no force-kill is substituted.
+Local lifecycle replay authorizes from the canonical saved Turn admission and
+its currently granted Thread, rather than requiring a first runtime event.
+An admitted Turn may return an actual empty event page while runtime preflight
+is pending. Unknown Turns remain not found; returned event Thread, Turn, attempt
+and admitted worker identity must agree. Authorization is checked again after
+the replay read. No status, event, terminal or retrying prompt is synthesized.
+
+## Plan 057 / 048 — Shared local canonical Thread lineage
+
+The existing SQLite admission summary reads canonical terminal and completed
+assistant facts for every local admitted runtime, using the admitted worker as
+the exact producer identity. Full scope, sequence, item-start and shared insertion
+order checks remain mandatory. Harness selection metadata is not a projection
+bypass or a producer receipt; the reader never parses driver IDs or trusts the
+first observed producer. Historical producer mismatches fail closed and no saved
+record is rewritten. The delegated host must enforce that admitted-worker rule
+for normal execution, preflight and restart before its integration is activated.
+
+The same atomic admission transaction checks parent Turn/item facts for all
+local candidates after receipt lookup and unsettled-Turn refusal. Captured
+selection metadata, including explicit Native selection, cannot bypass that
+check. Native and delegated admission producers consume the same current Thread
+parents; stale prepared candidates conflict rather than being reparented. No
+terminal mirror, projection table, second reducer or recovery authority is added.
+Native process-loss recovery retains its separate opaque delegated exclusion.
+
+## Selected cloud credential custody
+
+`persistence` owns connection identity, encrypted credential material, owner/material
+versions and the durable default-slot fence. `CloudCredentialVault` resolves the
+explicit preference selection through that same custody authority; stale or revoked
+selections remain unavailable without falling back to a different default.
+`ProviderConfigService` supplies the selection callback. Shared provider discovery,
+`AdapterSelectionService` inference and connection status consume one resolved key
+and paired configuration. Disconnect revokes the captured selected connection;
+selection changes conflict instead of reporting a different connection disconnected.
+These metadata/custody checks establish no provider identity, entitlement or host
+confinement claim.
+
+Explicit Connect stages encryption before the existing credential/preference
+transaction. The PostgreSQL preference snapshot uses private row `xmin`; Memory
+keeps its version in the canonical preference-map entry. The guarded commit
+retires only the captured credential, preserves revoked history, inserts a fresh
+credential identity and binds the new selection atomically. No credential is
+revived and no failed Connect clears a sticky selection to permit payer fallback.
+Unknown commit outcomes are reported without automatic creation retries.
+
+## Plan 057 — Workspace-only observational Git contexts
+
+Canonical status, diff, line-count and untracked-file queries may omit Run
+correlation through explicit read contexts. Supplied Run IDs remain validated.
+Mutation, snapshot, captured publication and named Native HEAD contexts retain
+required Run identity; no synthetic Run or Turn is generated for workspace reads.
+
+The existing local read-only Git factory exposes those canonical queries through
+the same held-root lender, no-fork guardian and positive closure boundary. Local
+diff commands disable external diff and text conversion, reject private indexes,
+and propagate failed contained reads rather than reporting empty review. The
+real no-index difference exit remains valid. Hosted command behavior is unchanged.
+The grant-bound HTTP/SDK consumer of this read foundation is described below. Immutable saved
+Turn review and selected-artifact commit retain their existing owners.
+
+## Plan 057 — Shared raw-patch projection
+
+`shared-types/src/git-diff-patch` owns the existing pure raw-patch-to-`DiffContent`
+projection. The SDK's saved-Turn adapter delegates its immutable patch and exact
+path to that owner, preserving file selection, quoted UTF-8 paths, metadata-only
+changes, binary flags and hunk line semantics. This moves the existing algorithm;
+it does not read Git or change lifecycle/artifact ownership. The hosted plugin's
+legacy optional-path diff parser remains unchanged until its separate response
+contract is migrated; it is not used by this shared raw-patch projection.
+
+`shared-types/src/git-status-projection` owns the existing canonical Git status
+response mapping through a narrow structural input. Hosted `GitPlugin` delegates
+the mapper while retaining its own internal-path exclusion, repository and commit
+identity reads, per-file line counts and Git execution policy. Filtering still
+changes displayed files only; staged/unstaged summary flags retain their previous
+all-entry semantics. No new Git parser, command, identity authority or dependency
+is introduced. The actual local workspace query consumer is described below.
+
+## Plan 057 — Grant-scoped live workspace Git review
+
+The existing `git/status` and `git/diff` protocol/SDK methods accept strict local
+workspace scope separately from hosted Run/Session scope. Local diff requires
+one canonical relative path. Dispatch rejects cross-environment scope rather
+than falling back to another owner; response contracts remain unchanged.
+
+`LocalWorkspaceGitReads` consumes the same current grant and held physical root,
+canonical read-only Git service and shared status/raw-patch projections. The
+trusted Desktop factory composes its actual port; initialize advertises
+`workspace-git-reads-v1` only when that port exists. Reads create no Run, Turn,
+executor, snapshot, credential lookup or lifecycle producer. Saved Turn review
+continues to read its immutable artifact, and mutation authority is unchanged.
+
+The service registers original operations before binding, limits concurrency to
+four and reauthorizes after awaited reads and again after original root cleanup.
+Native reserved namespaces use the existing reader predicate. Status inventory,
+patch bytes/lines and serialized results have explicit limits; unsupported or
+oversized reads fail without partial review. Git pathspecs are literal, external
+diff/text conversion is disabled, and failed native closure cannot become empty
+success. An untracked path that cannot produce its exact diff is unavailable.
+
+Its required shutdown port fences reads, requests cancellation and awaits the
+original operations through the existing combined server barrier. The read
+deadline requests abort only; unknown binding cleanup retains the exact binding,
+service and slot and prevents positive SQLite/process closure. No timeout, client
+disconnect, empty active map or forced exit releases those physical obligations.
+
+## Plan 057 — Native predecessor resource settlement evidence
+
+The existing `LocalTurnResources` owner records Native resource settlement only
+after the original executor's combined terminal/capture/quiescence proof, the
+same writer owner's positive release and the original binding's successful close.
+The existing immutable Turn-artifact metadata authority stores the exact admission,
+terminal/publication digests, root and Git metadata identity, grant provenance and
+actual released namespace/writer-file identity. It creates no lifecycle event or
+public review artifact. Unknown write acknowledgements require an exact durable
+record read before the same owned entry is removed; unreadable or absent evidence
+retains that owner and prevents positive shutdown.
+
+The private Native predecessor reader validates those canonical references under
+the successor's already-held physical writer, using a metadata-only tracked loan
+that exposes no file descriptor or execution capability. It never acquires or
+releases a replacement fence. Missing legacy or crash-before-receipt evidence is
+explicit `native_predecessor_recovery_required`; terminal history, artifacts and
+an absent executor map never establish physical settlement. There is no automatic
+historical backfill from a freshly acquired fence.
+
+Unused prepared acquisitions have a separate positive cleanup path on the same
+writer entry. Sticky physical exposure prevents that path after any broad authority
+loan or tracked execution. The trusted first consumer must fence and await its
+original canonical publication before its exact absence read; unknown publication
+or cleanup retains the original binding and lease. This source does not activate
+delegated external execution or supply its missing physical process boundary.
+
+Missing Native resource receipts remain explicit recovery requirements. Legacy
+pre-intent guardians closed the target writer descriptor before execution, so
+acquiring their old fence alone cannot exclude a surviving child. The landed
+child-intent ABI separately proves physical exclusion for its own launches; this
+receipt reader does not backfill missing canonical resource evidence from that
+acquisition, a preparation label or terminal history.
+
+## Plan 057 — Canonical lifecycle event byte transport
+
+The existing lifecycle event store remains the only event authority. Local replay
+uses an exact UTF-8 result budget derived from the actual App Server response
+frame. A page returns its largest contiguous prefix without consuming an excluded
+row. If its first event exceeds the budget, the same admitted, authorized reader
+returns a small versioned reference to that immutable event, including its full
+UTF-8 byte length and SHA-256. `turn/lifecycleEventChunk` reads that same row;
+references do not create artifacts, projections, lifecycle events or another store.
+Admission scope and the current granted Thread are checked before and after reads.
+
+The SDK hydrates bounded byte chunks, validates exact reference/ranges, full digest,
+fatal UTF-8 decoding and canonical event identity/schema, and only then returns the
+unchanged replay result to the existing ordering owner. An aborted or incomplete
+read cannot advance the lifecycle cursor. Transport limits do not truncate tool
+inputs or lower public tool limits. Canonical events have no global size cap;
+complete event materialization uses memory proportional to the declared event and
+allocation/validation failure remains explicit. Original HTTP handlers remain
+owned by the server's persistence shutdown barrier even after a disconnect.
+
+The same server shutdown barrier also drains original HTTP handler promises.
+A disconnected/closed socket is not proof that its asynchronous grant, file,
+history or metadata operation finished. Handlers are registered before their
+first await and stay owned until their original promise settles. Shutdown fences
+new dispatch before and after body reads, preserves authentication checks and
+waits for those originals before SQLite closure and the private closed receipt.
+Existing HTTP fixtures await that positive shutdown contract rather than socket
+closure alone. No request lifecycle event, status store or forced cleanup is added.
+
+## Plan 057 — Native child intent recovery boundary
+
+The existing native writer inode carries a bounded append-only physical child
+intent WAL. A guardian durably appends and fsyncs the exact boot/PID/kernel unique
+process lifetime before releasing its child-owned EOF-safe start pipe. No argv,
+executable, credential or workspace path enters the WAL. Normal completion is
+appended only after exact-child waitpid has reaped the target. The filesystem
+helper still never forks; mutation/private-transaction loans validate the same
+held-root intent header and retain their inherited writer descriptor throughout.
+
+Darwin's public OFD byte-zero lock is the single inherited writer fence, released
+only on last close. A nonoverlapping POSIX byte-one lock serializes WAL appends;
+it is not another checkout/writer registry. Old whole-file flock holders conflict
+on the same inode. No writer path reopens, renames, unlinks or replaces the fence
+namespace, and no unsupported OFD operation selects a flock fallback.
+
+New writer acquisition reconciles pending intents before exposing authority.
+Inclusive stable-lifetime/status lookup and atomic audit-token signaling exclude
+only the exact recorded process across exec and PID reuse. Signal delivery or an
+old token's ESRCH is never exit proof. Unknown identity/API/permission/cleanup or
+deadline results retain the intent and original authority. Complete records have
+SHA-256 checksums; corrupt complete records fail closed. Only an incomplete final
+record, which never passed its fsync/start barrier, may be trimmed under the held
+writer fence. The WAL has a finite four MiB limit and no speculative compaction.
+
+The new process-helper acquisition receipt is ABI v2/intentVersion 1. The actual
+Desktop composition awaits the original bounded helper probe before constructing
+its shared writer owner or enabling captured Build and artifact commit. The probe
+verifies boot/stable-identity/signaling and actual OFD/old-flock/append-lock support
+using one private immediately removed probe inode, with no workspace, real lease,
+provider or target process. Unsupported support leaves capture unavailable; unknown
+helper closure retains the existing startup failure owner. Stable-identity structures follow the pinned Apple XNU ABI
+and unsupported platforms remain unavailable. The same namespace/inode is retained,
+but old binaries do not produce intents: all active writer profiles must migrate
+to this ABI, and mixed-old-binary crash recovery is not advertised as supported.
+Only the owner's actual fresh O_EXCL-created inode may initialize an empty WAL,
+through the required private --initialize-empty flag. An existing empty inode
+returns known busy before taking a new writer lock; it cannot certify legacy
+child exclusion. A partial initial header remains unverified rather than being
+rewritten. Existing complete WAL headers still undergo the same identity,
+checksum and pending-child reconciliation before any capability is exposed.
+
+A live Node owner already retains the same open description when a guardian is
+lost. This boundary addresses combined Node-host and guardian loss before target
+reaping. Its WAL establishes physical exclusion only; canonical recovery, terminal
+settlement, immutable artifacts and Native predecessor receipts retain their own
+existing owners. No process is relaunched and no lifecycle completion is invented.
+
+## Issue 810 — Versioned hosted workspace configuration
+
+The existing `WorkspaceRepository` owns saved configuration for one primary
+repository per user/workspace. Authenticated App Server
+`workspace/configuration/read` and `workspace/configuration/update`, exposed by
+SDK `readHostedWorkspaceConfiguration` / `updateHostedWorkspaceConfiguration`,
+read and edit only the existing name and selected branch. Repository identity
+comes from the exact owned active workspace; updates recheck its GitHub access
+and resolve an explicitly changed branch through the authenticated client.
+
+The existing Postgres workspace row holds the configuration version. Updates
+lock the canonical repository before the owned active workspace, compare the
+privately captured verified repository identity and expected version, then
+atomically change the saved branch and any matching current selection. Stale writes fail, including
+stale no-ops; current no-ops retain their version. Existing selection preserves
+configured names and increments the same version when branch, default branch
+or active state changes. Editing an unselected workspace never selects it.
+`MemoryWorkspaceRepository` implements the same contract for existing consumers.
+
+The existing repository UPSERT cannot rebind a namespace to another provider
+repository identity, including transitions to or from legacy unknown identity.
+Ingress and returned Memory records are detached from caller mutation. Identity
+conflicts are typed nonretryable errors; recovery requires an explicitly reviewed
+identity operation, not automatic reselection or a parallel repository registry.
+
+Workspace list/select renders saved names; session workspace context and
+`AuthorizedWorkspaceRepositoryContext` consume the saved branch for future
+work. Explicit admitted run branches and resume identity keep their existing
+owners and are not rewritten. Configuration reads perform no GitHub or execution
+probe. These records are saved settings, not prepared machines: this slice adds
+no allocation, scripts, network policy, setup secrets, preparation principal,
+Ready binding, runtime identity or alternate environment registry.
+
+## Plan 057 — Lifecycle replay cursor continuation
+
+The SDK's existing lifecycle ordering owner validates replay page progress against
+the last accepted contiguous canonical event. Saved conversation replay and live
+continuation share this check before projecting or yielding the page; page counts
+and omitted request limits no longer imply exhaustion. Empty pages with a
+continuation cursor and cursors beyond accepted events fail explicitly. A final
+nonempty/null page or accepted terminal event remains valid, while empty/null
+means caught up rather than terminal for live polling. Runtime event production,
+canonical terminal state, reducers and transport limits remain unchanged.
+
+## Plan 057 — Optional exact lifecycle replay byte paging
+
+The existing lifecycle event store optionally bounds the exact UTF-8 JSON result
+`{ events, nextSequence }`, with one shared budget and continuity helper for SQLite
+and memory replay. SQLite reads ordered rows incrementally and returns only the
+largest full-event prefix fitting both count and byte limits. The first excluded
+event remains canonical unread history; the cursor is the last returned sequence,
+and only an actual empty suffix returns null. Omitted byte budgets preserve the
+existing internal count-only replay contract.
+
+A first event that cannot fit raises a typed identity/sequence/encoded-size
+descriptor without copying its body, skipping it or claiming EOF. No append or
+lifecycle authority changes. Public HTTP byte paging remains inactive until the
+separately owned lossless event hydration and cursor-aware consumers are wired;
+this foundation alone does not make oversized public replay deliverable. Chunk
+bytes and their real wire digest remain read/transport responsibilities.
+
+## Plans 048 / 061 — Local harness protocol foundation
+
+The platform protocol owns harness family, immutable pre-admission selection,
+instance/operation and measured-usage contracts, canonical question descriptors
+and response normalization. Chat request and queued-input schemas remain unchanged and reject unsupported
+captured selection. Run capture lands with the Kernel's resolved-strategy guard;
+Chat capture requires routed admission, and queued capture requires its actual
+producer migration. Reference contracts
+alone never authorize a Native fallback. The existing lifecycle schema adds typed passive harness measurements
+and provider-limit observations, without introducing a producer or state store.
+
+The worker protocol consumes those public contracts for scoped host commands,
+observations, opening reservations, replies and positive quiescence receipts.
+These definitions do not enable a driver, create a host, resolve credentials or
+certify physical containment. Required initialize environment identity is deferred
+to its actual constructor/handshake consumer and existing fixture migration.
+The active SDK legacy question wrapper remains unchanged until that consumer
+migrates its shared route and removes the old DTO; this foundation alone does not
+claim that client/runtime integration. Native capture, current byte paging and
+provider custody retain their existing owners and exports.
+
+## Plans 048 / 061 — Same-writer local harness persistence foundation
+
+The existing exclusive LocalPersistence SQLite connection owns durable local
+harness bindings, observation ingress/reply claims, opening phases and verified
+attachment retirement. Its constructor validates and initializes those indexes
+and one environment identity; no second writer or runtime registry is introduced.
+Control-plane setup/selection uses that same writer and the caller's canonical
+local actor. It reuses the same strict versioned grant parser as LocalPersistence,
+including v2 Git metadata identity in its grant fingerprint. It stores no
+credentials and starts no provider or process.
+
+This foundation exposes private ports but does not activate a public local
+harness consumer. Binding validation parses captured selection from an opaque
+Run property; the Kernel strategy guard lands atomically with the canonical Run
+field before any public delegated admission is enabled. Missing capture never selects Native
+or reconstructs external ownership. Final constructor/driver wiring remains
+separate. Current Native admission/lineage, immutable artifacts, lifecycle byte
+paging and provider custody retain their existing source and exports.
+
+## Plans 048 / 061 — Kernel delegated execution foundation
+
+RuntimeKernel remains the sole canonical lifecycle, approval and terminal owner.
+It requires a nonnull frozen delegated Run selection and matches every captured
+field to the resolved execution strategy before any binding or runtime effect;
+exact scope and active binding remain independently required; it never routes that intent into Native
+execution or its preparation-failure fallback. Existing Native provider, guarded
+worker, restoration and artifact responsibilities remain on their current path.
+
+Delegated observation ingestion validates worker scope and commits through the
+existing lifecycle writer before its durable ACK. That transition owner rejects
+reused item, tool-call and approval identities before append, including already
+settled identities, so acknowledged history remains restorable. Recovery restores the same
+attempt and committed start snapshot; uncertain physical quiescence retains
+workspace ownership and cannot certify an immutable resume artifact. Canonical
+question/deadline handling and secret-safe public errors share the existing
+approval/lifecycle owner. Worker-protocol is the explicit package dependency.
+
+This is an execution foundation, not driver or public-route activation. Chat and
+queued-input capture, real host/driver construction and initialization identity
+remain with the final consumer slice. No credential resolver, process launcher,
+second event writer or client-owned lifecycle is introduced here.
+
+## Plans 048 / 061 — Private Node harness host foundation
+
+The private harness-core server facade composes pinned driver lookup, scoped
+sessions, host process ownership and an immutable delivery journal. RuntimeKernel
+remains the canonical lifecycle and approval writer; host observations are
+journaled before delivery and acknowledged only after canonical commit. Reply
+claims remain single-use even when external delivery is ambiguous.
+
+Host creation requires an injected launch policy to prove the real filesystem,
+Git, shell and descendant boundary. Path resolution and process-group cleanup
+alone do not establish that proof. Unknown launch or cleanup keeps the host fenced;
+physical quiescence and observation integrity remain distinct receipts. Instance
+auth/config and journal directories are separate from review/snapshot roots, and
+selected credentials never enter public client metadata.
+
+This package has no active local constructor, driver registration or public-route
+consumer yet. Its client facade exports protocol types only; Node SDK and process
+services stay behind the server export. Final driver/constructor wiring is the
+activation boundary, and no Native provider fallback is introduced.
+
+## Plan 057 — Shared durable input repository contract
+
+Event-store owns the placement-independent thread-input repository contract and
+its conflict error. Persistence reexports that same contract for hosted callers;
+its existing Postgres writer remains authoritative. Private optional input identity
+and immutable media batch fields support the same local image owner without
+adding public queue fields or storing image bytes in queue rows. Native SQLite
+and shared command-service activation follow in the same integration slice; this
+contract move alone does not enable local queue or steering.
+
+### Shared queued input command owner
+
+- AppServer `ThreadInputCommandService` owns enqueue/update/remove/CAS steering, authoritative receipt reread, unknown-delivery pause and completed/idle advancement behind storage, authorization, media and runtime ports.
+- Hosted AppServer commands and the existing Hosted terminal callback now use that owner. Brain retains the existing quota/admission/dispatch/model/image and PostgreSQL transaction adapters; no duplicate local policy is activated by this extraction.
+- Native transport composition and positive physical-idle/history integration remain pending. This commit alone does not advertise Native Queue/Steer. No new tests or registrations.
+
+### Queue admission physical boundary
+
+- Shared advancement selects only logically eligible queue intent. Physical idle is not represented as a separate boolean predicate: the actual Native start adapter must verify predecessor settlement under its already-held successor lease before atomic queue/admission publication. Unknown physical authority must pause and reject, preserving intent.
+
+### Hosted shared-input compatibility
+
+- Hosted update/remove known CAS conflict receipts retain their existing HTTP 200 wrapper, and updates to terminal/nonvisible rows retain the original 404. Direct Steer response denials retain the existing HTTP 502/THREAD_INPUT_NOT_CONFIRMED mapping through a private placement brand; queued-Steer and unknown Native delivery keep their existing 503 reconciliation path.
+- Shared policy still owns durable command/CAS/receipt decisions. Placement transport status does not become a second input state owner. No new tests.
+## Plans 048 / 061 — Private Codex RPC driver foundation
+
+The private harness-codex server adapter translates the pinned Codex app-server
+stdio protocol into worker observations and native request replies. The complete
+generated protocol, runtime manifest and generator remain one pinned unit; its
+SandboxPolicy union describes vendor request bytes and owns no canonical policy.
+RuntimeKernel retains lifecycle/approval truth, while harness-core owns journal
+ordering, scoped host processes and durable request-delivery boundaries.
+
+Experimental questions accept blocking requests only; a native nonblocking request
+is rejected before canonical emission rather than inventing a blocking condition.
+The package is not registered by an active product constructor here. Binary/schema
+pins are not OS confinement or installed-feature acceptance; both remain explicitly
+unaccepted in the runtime manifest. Whole-scope quiescence requires actual injected
+proof, and missing evidence stays unknown. Native provider execution is unchanged.
+
+- Hosted queued-Steer target denial retains its original 409 error envelope and
+  operation code; direct Steer retains its conflict receipt. The shared target
+  validation port carries operation context only for this placement mapping.
+
+- Shared advancement propagates original start failures to the terminal observer.
+  Only enqueue suppresses/logs an automatic-start failure after durable intent
+  persistence, preserving its existing pending receipt. Native physical cleanup
+  callbacks retain their original tracked failure and pause owner.
+## Plans 048 / 061 — Private OpenCode v2 driver foundation
+
+The private harness-opencode server adapter translates pinned OpenCode v2 client,
+event and permission representations through the existing worker contracts.
+Canonical selection, policy resolution and effective-policy attestation are
+required injected authorities; the native permission mapper neither grants
+permissions nor certifies enforcement. Real full-scope quiescence and ordered
+stream-drain evidence remain separate from foreground process completion.
+
+This package and its matched dependency graph are an inactive driver foundation,
+not a local registration or route. RuntimeKernel remains the lifecycle/approval
+writer, harness-core retains host/journal ownership, and unsupported resume stays
+unavailable. The driver requires Node 22 and never falls back to Native execution.
+### Original Native provider request settlement
+
+The same Native attempt factory retains every original protected-gateway request
+before invocation. Kernel cancellation polling can settle its observer first;
+that result is not provider-request closure. After the original executor result
+and worker proof settle, the factory fences new requests and awaits all retained
+adapter promises before writer release, binding close and immutable resource
+settlement. A request that ignores cancellation keeps that original obligation;
+no abort acknowledgement, deadline or empty executor map substitutes for it.
+This is buffered-request resource ownership only; it does not invent streaming
+phases, output/retry semantics or another canonical lifecycle producer.
+
+## Shared exact-commit checkout materialization
+
+`git-service`'s private `./pinned-checkout` entry now owns the existing pinned
+checkout sequence: initialize the checkout, configure the credential-free origin
+URL, fetch only the authorized commit with depth one and no tags, then check out
+that exact commit detached. It consumes the existing `GitCommandExecutor` contract
+and stops at the first failed command; it adds no Git transport or security policy.
+
+Secure's real `GitPlugin` pinned-clone branch consumes this helper through the
+existing `SandboxGitCommandExecutor`. Its canonical Node runner owns contained
+Git execution, Linux subreaper/pidfd closure and validated auth environment;
+`SafeCommand` / Toolbox preserve normalized run and original call context. The
+executor borrows the existing checkout lease with no competing outer timeout.
+Its `execIfRunning` transport fails closed without restarting a stopped sandbox
+or falling back to direct Git execution. Scoped auth environment reaches only
+fetch; credentials never enter command arguments or the configured origin URL.
+The replaced `SandboxGitWorkspaceCloner` is deleted. Ordinary unpinned clone
+retains its existing direct `runToolboxCommand` behavior. URL/commit authorization,
+Cloudflare Sandbox execution and immutable checkout ownership remain with their
+existing owners. This migration does not enable managed local checkouts,
+container commands or installed Desktop execution.
