@@ -59,6 +59,7 @@ import type { LocalWorkspaceExecutionBinding } from "./local-workspace.js";
 import type { LocalTurnMediaPort } from "./local-turn-media.js";
 import { attachPreparedLocalImages, localUserProviderMessage } from "./local-turn-images.js";
 import { captureLocalTurnModel } from "./local-turn-model.js";
+import { createLocalNativeThreadTitleGenerator } from "./local-native-thread-titles.js";
 import { prepareLocalNativeSettlement } from "./local-native-settlement.js";
 import { NativeProviderRequests } from "@legioncode/execution-engine/runtime/llm/NativeProviderRequests";
 import type { LocalWorkspaceWriterReleaseReceipt } from "./local-workspace-writer-lease.js";
@@ -360,6 +361,11 @@ export function createLocalNativeRuntime(
       };
   };
   return {
+    createTitleGenerator(admission, model, credentialReference) {
+      return createLocalNativeThreadTitleGenerator({
+        admission, model, credentialReference, acquireRuntimeCredential: options.acquireRuntimeCredential,
+      });
+    },
     async captureRuntimeCredentialReference(providerId, signal) {
       signal?.throwIfAborted();
       const reference = await options.captureRuntimeCredentialReference(providerId, signal);
