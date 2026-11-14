@@ -132,8 +132,10 @@ Before editing an architecture-sensitive path, read:
 - `architecture/RUNTIME-ARCHITECTURE.md`
 - `architecture/CAPABILITY-OWNERSHIP.md`
 
-When ownership, wiring, migration state, or a deletion trigger changes, update
-`architecture/CAPABILITY-OWNERSHIP.md` in the same PR.
+When ownership, wiring, migration state, or a deletion trigger changes, keep
+existing ownership notes current privately and locally. Describe the canonical
+owner and migrated consumers in the PR body; exclude private ownership ledger
+changes from public PRs.
 
 If the canonical owner cannot be identified, stop implementation and perform an
 ownership trace first. Do not add another fallback, state store, projection, or
@@ -169,7 +171,8 @@ When implementing a designated plan:
 6. A plan is not complete while its acceptance path still requires a known
    workaround, manual repair, refresh trick, or retry to pass.
 7. If fixing an encountered bug materially changes architecture or plan scope,
-   update the plan/LLD and capability ownership ledger before continuing.
+   update the plan/LLD and ownership notes locally before continuing. Preserve
+   those private records outside public PRs.
 
 The execution loop is:
 
@@ -472,11 +475,17 @@ Documentation rules:
 
 - Do not create completion summaries, handoff docs, or extra markdown files
   unless explicitly requested.
-- PR descriptions are the source of truth for implementation summaries.
+- PR descriptions are the source of truth for implementation summaries and
+  should identify the canonical code owners and wiring.
+- Keep private plans, LLDs, ownership ledgers, and coordination notes local.
+  Do not add or force-add them to public PRs, including ignored files. Preserve
+  local copies when excluding them from commits or cleaning worktrees.
 - `local/` is for private findings, audits, handoffs, and scratch material.
-- `plans/` is for planning. Many plan files may be intentionally ignored.
-- If closing an architecture red flag, update:
-  `local/findings/red-flags/2026-07-03-ARCHITECTURE-RED-FLAG-TRACKER.md`.
+- `plans/` is for private planning; keep its records out of public PRs.
+- Public product, API, architecture, and security documentation may accompany
+  relevant implementation changes.
+- If closing an architecture red flag, update the existing private tracker
+  locally; exclude its notes from public PRs.
 
 ---
 
