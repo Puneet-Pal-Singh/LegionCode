@@ -1,4 +1,4 @@
-import type { LifecycleEvent, TurnId } from "@repo/platform-protocol";
+import { RunAttemptIdSchema, ThreadIdSchema, type LifecycleEvent, type TurnId } from "@repo/platform-protocol";
 import type { ConversationScope } from "./conversation-scope.js";
 import type { PlatformClient } from "./types.js";
 
@@ -27,7 +27,13 @@ export async function hasCanonicalLifecycleEvidence(
   try {
     const stream = lifecycleClient.followTurnLifecycle(
       { turnId: scope.turnId as TurnId },
-      { signal: abortController.signal },
+      {
+        signal: abortController.signal,
+        expectedLifecycleAttempt: {
+          threadId: ThreadIdSchema.parse(scope.threadId),
+          runAttemptId: RunAttemptIdSchema.parse(scope.runAttemptId),
+        },
+      },
     );
     iterator = stream[Symbol.asyncIterator]();
     while (true) {

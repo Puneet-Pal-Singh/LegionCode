@@ -1,6 +1,5 @@
-import { useMemo } from "react";
 import { useConversationTurnLifecycle, type ConversationLifecycleClient } from "@legioncode/client-ui";
-import { createWebPlatformClient } from "../services/api/platformClient";
+import { useAuthenticatedConversationLifecycleClient } from "./useAuthenticatedConversationLifecycleClient";
 
 /** Hosted transport binding for the shared SDK lifecycle delivery adapter. */
 export function useTurnLifecycleProjection(
@@ -8,9 +7,6 @@ export function useTurnLifecycleProjection(
   shouldFollow: boolean,
   injectedClient?: ConversationLifecycleClient,
 ) {
-  const lifecycleClient = useMemo(
-    () => injectedClient ?? createWebPlatformClient(),
-    [injectedClient],
-  );
-  return useConversationTurnLifecycle(turnId, shouldFollow, lifecycleClient);
+  const { client, hasAuthenticatedOwner } = useAuthenticatedConversationLifecycleClient(injectedClient);
+  return useConversationTurnLifecycle(turnId, shouldFollow && hasAuthenticatedOwner, client);
 }

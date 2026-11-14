@@ -13,6 +13,14 @@ import {
 } from "@legioncode/sdk";
 import { useConversationLifecycleProjections } from "./useConversationLifecycleProjections";
 
+vi.mock("../contexts/AuthContext", () => ({
+  useAuth: () => ({
+    isAuthenticated: true,
+    user: { id: "github_lifecycle_fixture" },
+  }),
+}));
+
+
 const THREAD_ID = "thr_history01" as ThreadId;
 const TURN_ID = "trn_history01" as TurnId;
 const RUN_ATTEMPT_ID = "attempt_history01" as RunAttemptId;

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { TurnIdSchema } from "@legioncode/sdk";
 import type { ConversationTurn, PlatformClient, TurnId } from "@legioncode/sdk";
-import { createWebPlatformClient } from "../services/api/platformClient";
+import { useAuthenticatedConversationLifecycleClient } from "./useAuthenticatedConversationLifecycleClient";
 import {
   replayConversationLifecycleProjection,
   type LifecycleProjection,
@@ -10,8 +10,13 @@ import {
 type ProjectionMap = Readonly<Record<string, LifecycleProjection>>;
 
 interface ConversationLifecycleProjectionState {
-  readonly key: string;
+  readonly scope: HistoricalReadScope;
   readonly projections: ProjectionMap;
+}
+
+interface HistoricalReadScope {
+  readonly client: Pick<PlatformClient, "replayLifecycleEvents">;
+  readonly turnIdsKey: string;
 }
 
 export interface ConversationLifecycleProjections {
@@ -31,10 +36,7 @@ export function useConversationLifecycleProjections(
   activeTurnId: string | null | undefined,
   injectedClient?: Pick<PlatformClient, "replayLifecycleEvents">,
 ): ConversationLifecycleProjections {
-  const client = useMemo(
-    () => injectedClient ?? createWebPlatformClient(),
-    [injectedClient],
-  );
+  const { client, hasAuthenticatedOwner } = useAuthenticatedConversationLifecycleClient(injectedClient);
   const turnIds = useMemo(
     () => [
       ...new Set(
@@ -48,10 +50,15 @@ export function useConversationLifecycleProjections(
     [activeTurnId, turns],
   );
   const turnIdsKey = turnIds.join("\u0000");
+  const ownedReadScope = useMemo<HistoricalReadScope>(
+    () => Object.freeze({ client, turnIdsKey }),
+    [client, turnIdsKey],
+  );
   const [state, setState] =
     useState<ConversationLifecycleProjectionState | null>(null);
 
   useEffect(() => {
+    if (!hasAuthenticatedOwner) return;
     const abortController = new AbortController();
     void Promise.all(
       turnIds.map((turnId) =>
@@ -60,7 +67,7 @@ export function useConversationLifecycleProjections(
     ).then((replayed) => {
       if (abortController.signal.aborted) return;
       setState({
-        key: turnIdsKey,
+        scope: ownedReadScope,
         projections: Object.fromEntries(
           replayed
             .filter(
@@ -72,12 +79,14 @@ export function useConversationLifecycleProjections(
       });
     });
     return () => abortController.abort();
-  }, [client, turnIds, turnIdsKey]);
+  }, [client, hasAuthenticatedOwner, ownedReadScope, turnIds]);
 
-  const isCurrent = state?.key === turnIdsKey;
+  // Before cleanup runs, an old completion can only write its captured scope.
+  // Identical turn IDs never make another account's historical state visible.
+  const isCurrent = hasAuthenticatedOwner && state?.scope === ownedReadScope;
   return {
     projections: isCurrent ? state.projections : {},
-    isLoading: turnIds.length > 0 && !isCurrent,
+    isLoading: hasAuthenticatedOwner && turnIds.length > 0 && !isCurrent,
   };
 }
 
