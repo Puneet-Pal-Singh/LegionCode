@@ -5,7 +5,8 @@ import type { TurnAdmission, WorkspaceId } from "@repo/platform-protocol";
 import type { LocalNativeFileIdentity, LocalNativeReleasedFence } from "@repo/event-store";
 import { acquireNativeWriterFence } from "@legioncode/execution-engine/runtime/desktop/NativeWriterFence";
 import type { SingleProcessMacExecution } from "@legioncode/execution-engine/runtime/desktop/SingleExecutableProcess";
-import type { NativeFilesystemExecution } from "@legioncode/execution-engine/runtime/desktop/NativeFilesystemBridge";
+import type { NativeFilesystemExecution, NativeGitMetadataLayout } from "@legioncode/execution-engine/runtime/desktop/NativeFilesystemBridge";
+import type { MacHostCommandResource } from "@legioncode/execution-engine/runtime/desktop/MacHostBrokerClient";
 import type { LocalMutationLease } from "@legioncode/execution-engine/runtime/desktop/LocalTurnExecutionCapability";
 import type {
   LocalTurnAttemptIdentity,
@@ -16,13 +17,19 @@ import type { LocalWorkspaceExecutionBinding } from "./local-workspace.js";
 export interface LocalWorkspaceWriterAuthority extends LocalMutationLease {
   assertCurrent(): Promise<void>;
   assertSettlementCurrent(): Promise<void>;
+  /** Canonical metadata inspector; available only inside an active mutation loan. */
+  readMetadataLayout(input: { readonly signal: AbortSignal; readonly purpose: "mutation" }): Promise<NativeGitMetadataLayout>;
   readonly rootDirectory: FileHandle;
   readonly writerLease: FileHandle;
+  /** Original host-owned namespace handle, borrowed only with this authority. */
+  readonly namespaceDirectory: FileHandle;
   readonly filesystemRoot: string;
   /** Final capture/publication only; never substitutes for active tool authority. */
   readonly settlementSignal: AbortSignal;
   trackProcess(execution: SingleProcessMacExecution): void;
   trackFilesystem(execution: NativeFilesystemExecution): void;
+  /** Register the original resource.closed promise before broker preparation. */
+  trackHostResource(resource: MacHostCommandResource): void;
   /** Required when construction may have spawned a child without returning its execution. */
   markUnknown(): void;
 }
@@ -46,6 +53,9 @@ export interface LocalWorkspaceWriterLease extends LocalWorkspaceWriterAuthority
   /** Caller must fence and await its original publication before this canonical
    * read. Any admission, tracked physical resource or unknown result retains. */
   releaseUnadmitted(readCanonicalAdmission: () => Promise<TurnAdmission | null>): Promise<boolean>;
+  /** One-shot active-work seal. Refuses ever-exposed leases without consuming
+   * normal settlement/release; proof must certify the same cancelled preparation. */
+  releaseBeforeExposure(proof: LocalTurnExecutor["awaitResourceRelease"]): Promise<boolean>;
 }
 
 export interface LocalWorkspaceWriterReleaseReceipt {
@@ -55,7 +65,7 @@ export interface LocalWorkspaceWriterReleaseReceipt {
 }
 
 type Resource = {
-  readonly execution: SingleProcessMacExecution | NativeFilesystemExecution;
+  readonly execution: SingleProcessMacExecution | NativeFilesystemExecution | MacHostCommandResource;
   readonly closed: Promise<boolean>;
 };
 type Entry = {
@@ -68,9 +78,12 @@ type Entry = {
   readonly loans: Set<Promise<unknown>>;
   readonly resources: Set<Resource>;
   physicalExposure: boolean;
+  executionSealed: boolean;
+  beforeExposureRelease?: Promise<boolean>;
   file?: FileHandle;
   fileIdentity?: BigIntStats;
   namespaceIdentity?: BigIntStats;
+  namespaceDirectory?: FileHandle;
   unknown: boolean;
   releasing: boolean;
   released: boolean;
@@ -179,6 +192,7 @@ export class LocalWorkspaceWriterLeaseOwner {
       loans: new Set(),
       resources: new Set(),
       physicalExposure: false,
+      executionSealed: false,
       unknown: false,
       releasing: false,
       released: false,
@@ -188,7 +202,9 @@ export class LocalWorkspaceWriterLeaseOwner {
     let busy = false;
     try {
       await this.assertDirectory();
-      entry.namespaceIdentity = (await this.directory!).identity;
+      const namespace = await this.directory!;
+      entry.namespaceIdentity = namespace.identity;
+      entry.namespaceDirectory = namespace.handle;
       binding.assertCurrent();
       let initializeEmpty = false;
       try {
@@ -206,7 +222,7 @@ export class LocalWorkspaceWriterLeaseOwner {
         helperPath: this.options.helperPath,
         leaseFile: entry.file,
         rootDirectory: binding.rootDirectory,
-        fenceDirectory: (await this.directory!).handle,
+        fenceDirectory: entry.namespaceDirectory,
         initializeEmpty,
         signal: AbortSignal.any([binding.signal, entry.active.signal]),
       });
@@ -241,7 +257,9 @@ export class LocalWorkspaceWriterLeaseOwner {
 
   private authority(entry: Entry): LocalWorkspaceWriterLease {
     const writerLease = entry.file!;
+    const namespaceDirectory = entry.namespaceDirectory!;
     const markUnknown = () => this.markUnknown(entry);
+    let mutationLoans = 0;
     const track = (
       execution: Resource["execution"],
       proof: Promise<unknown>,
@@ -268,21 +286,62 @@ export class LocalWorkspaceWriterLeaseOwner {
       attempt: entry.attempt,
       rootDirectory: entry.binding.rootDirectory,
       writerLease,
+      namespaceDirectory,
       filesystemRoot: entry.binding.filesystemRoot,
       signal: AbortSignal.any([entry.binding.signal, entry.active.signal]),
       settlementSignal: entry.retained.signal,
       assertCurrent: () => this.assertEntry(entry, false),
       assertSettlementCurrent: () => this.assertEntry(entry, true),
+      readMetadataLayout: async (input: { readonly signal: AbortSignal; readonly purpose: "mutation" }) => {
+        const signal = AbortSignal.any([input.signal, entry.binding.signal, entry.active.signal]);
+        const assertLoan = () => {
+          signal.throwIfAborted();
+          if (input.purpose !== "mutation" || mutationLoans === 0 || entry.unknown ||
+              entry.executionSealed || entry.releasing || entry.released) {
+            throw new LocalWorkspaceWriterLeaseError("workspace_writer_unavailable");
+          }
+        };
+        assertLoan();
+        await this.assertEntry(entry, false);
+        assertLoan();
+        const layout = await entry.binding.inspectMetadataLayout({
+          signal, purpose: "mutation",
+          observeExecution: (execution: NativeFilesystemExecution) => {
+            // Register the ORIGINAL helper lifetime immediately, even if a late
+            // callback has already crossed a seal/release boundary.
+            track(execution, execution.closed);
+            if (entry.unknown || entry.executionSealed || mutationLoans === 0) {
+              markUnknown();
+              throw new LocalWorkspaceWriterLeaseError("workspace_writer_unavailable");
+            }
+          },
+        });
+        await this.assertEntry(entry, false);
+        assertLoan();
+        return layout;
+      },
       trackProcess: (execution: SingleProcessMacExecution) =>
         track(execution, execution.result),
       trackFilesystem: (execution: NativeFilesystemExecution) =>
         track(execution, execution.closed),
+      trackHostResource: (resource: MacHostCommandResource) => {
+        // Observe the original promise and keep exposure sticky even when a
+        // caller registers late. No broker preparation may follow a seal.
+        track(resource, resource.closed);
+        if (entry.unknown || entry.executionSealed) {
+          markUnknown();
+          throw new LocalWorkspaceWriterLeaseError("workspace_writer_unavailable");
+        }
+      },
       markUnknown,
     });
     const borrow = <T>(
       settlement: boolean,
       operation: (value: LocalWorkspaceWriterAuthority) => Promise<T>,
     ): Promise<T> => {
+      if (entry.unknown || entry.releasing || entry.released || (!settlement && entry.executionSealed)) {
+        return Promise.reject(new LocalWorkspaceWriterLeaseError("workspace_writer_unavailable"));
+      }
       // Sticky: even a completed loan may have authorized physical execution.
       entry.physicalExposure = true;
       const loan = (async () => {
@@ -291,7 +350,9 @@ export class LocalWorkspaceWriterLeaseOwner {
             "workspace_writer_unavailable",
           );
         await this.assertEntry(entry, settlement);
-        return await operation(authority);
+        if (!settlement) mutationLoans += 1;
+        try { return await operation(authority); }
+        finally { if (!settlement) mutationLoans -= 1; }
       })();
       entry.loans.add(loan);
       return loan.finally(() => {
@@ -301,6 +362,9 @@ export class LocalWorkspaceWriterLeaseOwner {
     return Object.freeze({
       ...authority,
       withPredecessorVerification: <T>(operation: (identity: LocalWorkspaceWriterReleaseReceipt) => Promise<T>) => {
+        if (entry.unknown || entry.executionSealed || entry.releasing || entry.released) {
+          return Promise.reject(new LocalWorkspaceWriterLeaseError("workspace_writer_unavailable"));
+        }
         const loan = Promise.resolve().then(async () => {
           if (entry.releasing || entry.released) throw new LocalWorkspaceWriterLeaseError("workspace_writer_unavailable");
           await this.assertEntry(entry, false);
@@ -330,7 +394,46 @@ export class LocalWorkspaceWriterLeaseOwner {
         entry.release ??= this.releaseUnadmitted(entry, readCanonicalAdmission);
         return entry.release;
       },
+      releaseBeforeExposure: (proof: LocalTurnExecutor["awaitResourceRelease"]) => this.releaseBeforeExposure(entry, proof),
     });
+  }
+
+  private releaseBeforeExposure(entry: Entry, proof: LocalTurnExecutor["awaitResourceRelease"]): Promise<boolean> {
+    // A refused early path must never poison the original runtime's release.
+    if (entry.physicalExposure || entry.unknown || entry.releasing || entry.released ||
+        entry.release || this.entries.get(entry.key) !== entry) return Promise.resolve(false);
+    if (entry.beforeExposureRelease) return entry.beforeExposureRelease;
+    entry.executionSealed = true;
+    entry.active.abort("Unused preparation is sealing active execution");
+    entry.beforeExposureRelease = Promise.resolve().then(async () => {
+      await Promise.allSettled([...entry.loans]);
+      if (entry.physicalExposure || entry.unknown || entry.resources.size || entry.loans.size || entry.release ||
+          !(await proof(entry.attempt.turnId))) return false;
+      // Existing settlement work may have begun during the canonical CAS/read.
+      // A begun preparation still belongs to its normal runtime cleanup owner.
+      if (entry.physicalExposure || entry.unknown || entry.resources.size || entry.loans.size ||
+          entry.release || entry.releasing || entry.released || this.entries.get(entry.key) !== entry) return false;
+      entry.releasing = true;
+      entry.release = Promise.resolve().then(async () => {
+        try {
+          if (!(await proof(entry.attempt.turnId))) throw new Error("Preparation settlement proof changed");
+          await this.assertEntry(entry, true);
+          if (entry.physicalExposure || entry.unknown || entry.resources.size || entry.loans.size) {
+            throw new Error("Preparation acquired physical work after sealing");
+          }
+          await entry.file!.close();
+          entry.released = true;
+          entry.retained.abort("Unused preparation released");
+          this.entries.delete(entry.key);
+          return true;
+        } catch {
+          this.markUnknown(entry);
+          return false;
+        }
+      });
+      return entry.release;
+    }).catch(() => false);
+    return entry.beforeExposureRelease;
   }
 
   private release(
@@ -428,6 +531,10 @@ export class LocalWorkspaceWriterLeaseOwner {
     };
     check();
     await this.assertDirectory();
+    if ((await this.directory!).handle !== entry.namespaceDirectory) {
+      this.markUnknown(entry);
+      throw new LocalWorkspaceWriterLeaseError("workspace_writer_unavailable");
+    }
     const [root, file, named] = await Promise.all([
       entry.binding.rootDirectory.stat({ bigint: true }),
       entry.file.stat({ bigint: true }),

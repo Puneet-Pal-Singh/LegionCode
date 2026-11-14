@@ -6,6 +6,7 @@ import {
   nativeHelperSources,
   verifyPackagedMacOSMinimum,
   verifyBundledFileHelper,
+  verifyBundledHostBroker,
 } from "./scripts/build-file-helper.mjs";
 
 import { verifyBundledProcessHelper } from "./scripts/verify-process-helper.mjs";
@@ -84,6 +85,22 @@ const config: Configuration = {
           ...processDiagnostics,
         }),
       );
+      if (context.electronPlatformName === "darwin") {
+        const brokerDiagnostics = await verifyBundledHostBroker(
+          join(
+            context.appOutDir,
+            `${context.packager.appInfo.productFilename}.app`,
+            "Contents", "Resources", "native", "legioncode-host-broker",
+          ),
+          context.electronPlatformName,
+          Arch[context.arch],
+        );
+        console.info(JSON.stringify({
+          helper: "legioncode-host-broker",
+          stage: "bundled-link-inspected-before-signing",
+          ...brokerDiagnostics,
+        }));
+      }
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Unknown verifier failure";
       throw new Error(`Packaged native helper verification failed: ${detail}`, { cause: error });

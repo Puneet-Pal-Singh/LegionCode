@@ -2,6 +2,7 @@ export const minimumMacOSVersion: string;
 export const nativeHelperSources: ReadonlyArray<{
   name: string;
   sourcePath: string;
+  additionalSourcePaths?: readonly string[];
 }>;
 export function verifyPackagedMacOSMinimum(
   infoPlistPath: string,
@@ -20,6 +21,7 @@ export function hashNativeHelperCompilationUnit(
   sourcePath: string,
   platform: string,
   architecture: string,
+  helperName?: string,
 ): Promise<string>;
 export function inspectNativeFileHelper(
   path: string,
@@ -37,3 +39,8 @@ export function verifyBundledFileHelper(
   platform: string,
   architecture: string,
 ): Promise<NativeFileHelperDiagnostics & { protocol: "LCFM/1" }>;
+export function verifyBundledHostBroker(
+  executablePath: string,
+  platform: string,
+  architecture: string,
+): Promise<NativeFileHelperDiagnostics & { definedWriterCallbacks: string[] }>;

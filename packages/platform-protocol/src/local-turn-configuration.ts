@@ -53,6 +53,7 @@ export type LocalTurnMediaLimits = z.infer<typeof LocalTurnMediaLimitsSchema>;
 export const LocalCommandExecutionProfileSchema = z.enum([
   "unavailable",
   "single_executable_nofork",
+  "native_host_sandbox",
 ]);
 
 export type LocalCommandExecutionProfile = z.infer<typeof LocalCommandExecutionProfileSchema>;
