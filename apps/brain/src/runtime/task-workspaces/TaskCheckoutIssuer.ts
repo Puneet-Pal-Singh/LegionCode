@@ -1,6 +1,15 @@
 import {
+  snapshotExecutionDomain,
+  serializeExecutionDomain,
+  executionDomainDigest,
+  type ServerExecutionDomainBinding,
+} from "@repo/worker-protocol/private/execution-domain";
+import type { JsonValue } from "@repo/shared-types";
+import {
   PostgresTaskWorkspaceRepository,
   type TaskWorkspaceRepository,
+  type TaskCheckoutIssuanceRepository,
+  type TaskCheckoutIssuanceReservation,
 } from "@repo/persistence";
 import {
   TaskCheckoutSchema,
@@ -56,9 +65,20 @@ export type SecureExecutionSessionFactory = (input: {
   readonly runId: string;
   readonly workspaceScope: SecureExecutionWorkspaceScope;
   readonly persistedReference?: PersistedSecureExecutionSessionReference;
+  readonly executionDomain: ServerExecutionDomainBinding;
 }) => SecureExecutionSessionPort;
 
-interface TaskCheckoutIssueOptions {
+export interface BeforeTaskCheckoutSessionAcquireInput {
+  readonly checkoutId: TaskCheckout["checkoutId"];
+  readonly snapshot: WorkspaceSnapshot;
+  readonly workspaceScope: SecureExecutionWorkspaceScope;
+}
+export type BeforeTaskCheckoutSessionAcquire = (
+  input: BeforeTaskCheckoutSessionAcquireInput,
+) => Promise<ServerExecutionDomainBinding>;
+
+export interface TaskCheckoutIssueOptions {
+  readonly beforeSessionAcquire: BeforeTaskCheckoutSessionAcquire;
   readonly resumeSnapshot?: ResumeWorkspaceSnapshotRef;
   readonly failureCleanup?: (receipt: NativePreparationCleanupReceipt) => void;
 }
@@ -70,14 +90,27 @@ export class TaskCheckoutIssuer {
       env,
     ),
     private readonly repositoryOverride?: TaskWorkspaceRepository,
-    private readonly sessionFactory: SecureExecutionSessionFactory = (input) =>
-      new SecureExecutionSessionClient(
+    private readonly sessionFactory: SecureExecutionSessionFactory = (
+      input,
+    ) => {
+      // The current client resume endpoint can provision a replacement. Keep
+      // persisted sessions unavailable until its original-only owner port joins.
+      if (input.persistedReference)
+        throw new DomainError(
+          "TASK_CHECKOUT_RESUME_UNAVAILABLE",
+          "Original-only secure checkout recovery is unavailable.",
+          503,
+          false,
+        );
+      return new SecureExecutionSessionClient(
         env,
         input.sessionId,
         input.runId,
         input.workspaceScope,
         input.persistedReference,
-      ),
+        input.executionDomain,
+      );
+    },
   ) {}
 
   async issue(
@@ -86,7 +119,16 @@ export class TaskCheckoutIssuer {
   ): Promise<IssuedTaskCheckout> {
     let exposurePossible = false;
     try {
-      return await this.issueOwned(payload, options, () => { exposurePossible = true; }, () => { exposurePossible = false; });
+      return await this.issueOwned(
+        payload,
+        options,
+        () => {
+          exposurePossible = true;
+        },
+        () => {
+          exposurePossible = false;
+        },
+      );
     } catch (error) {
       if (!exposurePossible) options?.failureCleanup?.({ kind: "no_exposure" });
       throw error;
@@ -154,7 +196,16 @@ export class TaskCheckoutIssuer {
     }
 
     noExistingOwnership(); // Positive lookup absence, before any new secure acquire.
-    const snapshot = resumeSnapshot
+    const beforeSessionAcquire = options?.beforeSessionAcquire;
+    if (!beforeSessionAcquire)
+      throw new DomainError(
+        "TASK_CHECKOUT_DOMAIN_REQUIRED",
+        "An admitted execution owner must freeze this checkout before session acquisition.",
+        428,
+        false,
+        payload.correlationId,
+      );
+    const capturedSnapshot = resumeSnapshot
       ? await this.findResumeBaseSnapshot(payload, resumeSnapshot)
       : await this.capture.capture({
           userId: payload.userId,
@@ -167,24 +218,84 @@ export class TaskCheckoutIssuer {
           },
           correlationId: payload.correlationId,
         });
+    const snapshot: WorkspaceSnapshot = Object.freeze({
+      ...capturedSnapshot,
+      repository: Object.freeze({ ...capturedSnapshot.repository }),
+      provenance: Object.freeze({ ...capturedSnapshot.provenance }),
+    });
     const checkoutId = createTaskCheckoutId();
     const filesystemRoot = canonicalTaskCheckoutRoot(checkoutId);
-    const workspaceScope = toSecureExecutionWorkspaceScope({
-      runId: payload.runId,
+    const workspaceScope = Object.freeze(
+      toSecureExecutionWorkspaceScope({
+        runId: payload.runId,
+        threadId: identity.threadId,
+        turnId: identity.turnId,
+        runAttemptId: identity.runAttemptId,
+        workspaceId: identity.workspaceId,
+        root: filesystemRoot,
+      }),
+    );
+    if (
+      snapshot.workspaceId !== workspaceScope.workspaceId ||
+      snapshot.provenance.kind !== "authorized_repository" ||
+      snapshot.provenance.authorizedByUserId !==
+        userIdFromExternalId(payload.userId)
+    ) {
+      throw new DomainError(
+        "TASK_CHECKOUT_SCOPE_MISMATCH",
+        "The captured snapshot does not belong to this authenticated checkout.",
+        409,
+        false,
+        payload.correlationId,
+      );
+    }
+    const reservation: TaskCheckoutIssuanceReservation = {
+      checkoutId,
+      snapshotId: snapshot.snapshotId,
+      workspaceId: snapshot.workspaceId,
       threadId: identity.threadId,
       turnId: identity.turnId,
       runAttemptId: identity.runAttemptId,
-      workspaceId: identity.workspaceId,
-      root: filesystemRoot,
-    });
-    expose(); // Fence before any possible acquire dispatch, including constructor failure.
-    const executionSession = this.sessionFactory({
-      sessionId: payload.sessionId,
-      runId: payload.runId,
-      workspaceScope,
-    });
-
+      filesystemRoot,
+      gitDir: `${filesystemRoot}/.git`,
+      indexFile: `${filesystemRoot}/.git/index`,
+      workingBranch: `task/${checkoutId}`,
+      startTreeId: snapshot.authorizedTreeId,
+      createdAt: new Date().toISOString(),
+      issuanceToken: crypto.randomUUID(),
+    };
+    // A reservation or external freeze may have committed even if its response is lost.
+    expose();
+    let executionSession: SecureExecutionSessionPort | undefined;
     try {
+      await this.withIssuance((repository) =>
+        repository.reserveIssuance(snapshot, reservation),
+      );
+      await this.withIssuance((repository) =>
+        repository.beginIssuanceCallback(checkoutId, reservation.issuanceToken),
+      );
+      // The durable callback-start fence is one-shot. No catch/reopen path calls it again.
+      const executionDomain = this.validateExecutionDomain(
+        await beforeSessionAcquire({ checkoutId, snapshot, workspaceScope }),
+        payload,
+        snapshot,
+        workspaceScope,
+      );
+      const digest = await executionDomainDigest(executionDomain);
+      await this.withIssuance((repository) =>
+        repository.freezeIssuanceDomain(checkoutId, reservation.issuanceToken, {
+          value: JSON.parse(
+            serializeExecutionDomain(executionDomain),
+          ) as JsonValue,
+          digest,
+        }),
+      );
+      executionSession = this.sessionFactory({
+        sessionId: payload.sessionId,
+        runId: payload.runId,
+        workspaceScope,
+        executionDomain,
+      });
       const session = await executionSession.acquire();
       const checkout = TaskCheckoutSchema.parse({
         kind: "task_checkout",
@@ -206,15 +317,13 @@ export class TaskCheckoutIssuer {
         status: "ready",
         settledAt: null,
         failureCode: null,
-        createdAt: new Date().toISOString(),
+        createdAt: reservation.createdAt,
       });
-      const issued = await withBrainPersistenceRepository(
-        this.env,
-        this.repositoryOverride ?? this.env.AUTH_TASK_WORKSPACE_REPOSITORY,
-        (client) => new PostgresTaskWorkspaceRepository(client),
-        async (taskWorkspaces) =>
-          await taskWorkspaces.issueSnapshotCheckout(snapshot, checkout),
-      );
+      const issued = {
+        checkout: await this.withIssuance((repository) =>
+          repository.completeIssuance(checkout, reservation.issuanceToken),
+        ),
+      };
       const issuedCheckout: IssuedTaskCheckout = {
         checkout: issued.checkout,
         authorizedCommitId: snapshot.authorizedCommitId,
@@ -222,10 +331,7 @@ export class TaskCheckoutIssuer {
         executionSession: new TaskCheckoutBoundExecutionSession(
           executionSession,
           issued.checkout,
-          new TaskCheckoutLeaseCoordinator(
-            this.env,
-            this.repositoryOverride,
-          ),
+          new TaskCheckoutLeaseCoordinator(this.env, this.repositoryOverride),
         ),
       } satisfies IssuedTaskCheckout;
       if (resumeSnapshot) {
@@ -245,7 +351,14 @@ export class TaskCheckoutIssuer {
       return issuedCheckout;
     } catch (error) {
       try {
-        await executionSession.release();
+        await this.withIssuance((repository) =>
+          repository.markIssuanceUnknown(checkoutId, reservation.issuanceToken),
+        );
+      } catch {
+        /* The durable reserved/started/frozen state already prevents replay. */
+      }
+      try {
+        await executionSession?.release();
       } catch {
         throw new DomainError(
           "TASK_CHECKOUT_COMPENSATION_FAILED",
@@ -263,6 +376,68 @@ export class TaskCheckoutIssuer {
       // is not an exact physical closure receipt. Keep this exposure unknown.
       throw error;
     }
+  }
+
+  private async withIssuance<T>(
+    operation: (repository: TaskCheckoutIssuanceRepository) => Promise<T>,
+  ): Promise<T> {
+    return await withBrainPersistenceRepository(
+      this.env,
+      this.repositoryOverride ?? this.env.AUTH_TASK_WORKSPACE_REPOSITORY,
+      (client) => new PostgresTaskWorkspaceRepository(client),
+      async (repository) => {
+        const candidate = repository as TaskWorkspaceRepository &
+          Partial<TaskCheckoutIssuanceRepository>;
+        if (
+          typeof candidate.reserveIssuance !== "function" ||
+          typeof candidate.beginIssuanceCallback !== "function" ||
+          typeof candidate.freezeIssuanceDomain !== "function" ||
+          typeof candidate.completeIssuance !== "function" ||
+          typeof candidate.markIssuanceUnknown !== "function" ||
+          typeof candidate.getCheckoutExecutionDomain !== "function"
+        ) {
+          throw new DomainError(
+            "TASK_CHECKOUT_ISSUANCE_UNAVAILABLE",
+            "Durable checkout issuance is unavailable.",
+            503,
+            false,
+          );
+        }
+        return await operation(candidate as TaskCheckoutIssuanceRepository);
+      },
+    );
+  }
+
+  private validateExecutionDomain(
+    value: unknown,
+    payload: ExecuteRunPayload,
+    snapshot: WorkspaceSnapshot,
+    workspaceScope: SecureExecutionWorkspaceScope,
+  ): ServerExecutionDomainBinding {
+    const binding = snapshotExecutionDomain(value);
+    const scope = binding.scope;
+    if (
+      scope.userId !== payload.userId ||
+      scope.brainSessionId !== payload.sessionId ||
+      scope.runId !== payload.runId ||
+      scope.workspaceId !== workspaceScope.workspaceId ||
+      scope.threadId !== workspaceScope.threadId ||
+      scope.turnId !== workspaceScope.turnId ||
+      scope.runAttemptId !== workspaceScope.runAttemptId ||
+      snapshot.workspaceId !== workspaceScope.workspaceId ||
+      snapshot.provenance.kind !== "authorized_repository" ||
+      snapshot.provenance.authorizedByUserId !==
+        userIdFromExternalId(payload.userId!)
+    ) {
+      throw new DomainError(
+        "TASK_CHECKOUT_DOMAIN_SCOPE_MISMATCH",
+        "The execution domain does not match this authorized checkout.",
+        409,
+        false,
+        payload.correlationId,
+      );
+    }
+    return binding;
   }
 
   private async findResumeBaseSnapshot(
@@ -449,13 +624,10 @@ export class TaskCheckoutIssuer {
   private async findExistingCheckout(
     runAttemptId: string,
     correlationId: string,
-  ): Promise<
-    | {
-        readonly checkout: TaskCheckout;
-        readonly snapshot: WorkspaceSnapshot;
-      }
-    | null
-  > {
+  ): Promise<{
+    readonly checkout: TaskCheckout;
+    readonly snapshot: WorkspaceSnapshot;
+  } | null> {
     return await withBrainPersistenceRepository(
       this.env,
       this.repositoryOverride ?? this.env.AUTH_TASK_WORKSPACE_REPOSITORY,
@@ -490,7 +662,8 @@ export class TaskCheckoutIssuer {
   ): Promise<IssuedTaskCheckout> {
     const identity = payload.identity!;
     if (
-      checkout.workspaceId !== workspaceIdFromExternalId(identity.workspaceId) ||
+      checkout.workspaceId !==
+        workspaceIdFromExternalId(identity.workspaceId) ||
       checkout.threadId !== identity.threadId ||
       checkout.turnId !== identity.turnId ||
       checkout.runAttemptId !== identity.runAttemptId ||
@@ -524,10 +697,31 @@ export class TaskCheckoutIssuer {
       workspaceId: checkout.workspaceId,
       root: checkout.filesystemRoot,
     });
+    const persistedDomain = await this.withIssuance((repository) =>
+      repository.getCheckoutExecutionDomain(checkout.checkoutId),
+    );
+    const executionDomain = this.validateExecutionDomain(
+      persistedDomain.value,
+      payload,
+      snapshot,
+      workspaceScope,
+    );
+    if (
+      (await executionDomainDigest(executionDomain)) !== persistedDomain.digest
+    ) {
+      throw new DomainError(
+        "TASK_CHECKOUT_DOMAIN_SCOPE_MISMATCH",
+        "The persisted execution domain digest is invalid.",
+        409,
+        false,
+        payload.correlationId,
+      );
+    }
     const executionSession = this.sessionFactory({
       sessionId: payload.sessionId,
       runId: payload.runId,
       workspaceScope,
+      executionDomain,
       persistedReference: {
         secureSessionId: checkout.secureSessionId,
         leaseId: checkout.leaseId,
@@ -548,15 +742,21 @@ export class TaskCheckoutIssuer {
         { checkoutId: checkout.checkoutId },
       );
     }
-    const resumedCheckout =
-      handle.lease.leaseId === checkout.leaseId &&
-      handle.lease.sandboxId === checkout.sandboxId &&
-      handle.lease.generation === checkout.generation
-        ? checkout
-        : await new TaskCheckoutLeaseCoordinator(
-            this.env,
-            this.repositoryOverride,
-          ).adopt(checkout, handle);
+    if (
+      handle.sessionId !== checkout.secureSessionId ||
+      handle.lease.leaseId !== checkout.leaseId ||
+      handle.lease.sandboxId !== checkout.sandboxId ||
+      handle.lease.generation !== checkout.generation
+    ) {
+      throw new DomainError(
+        "TASK_CHECKOUT_RESUME_UNAVAILABLE",
+        "Only the original frozen checkout generation may be resumed.",
+        409,
+        false,
+        payload.correlationId,
+      );
+    }
+    const resumedCheckout = checkout;
     const issued: IssuedTaskCheckout = {
       checkout: resumedCheckout,
       authorizedCommitId: snapshot.authorizedCommitId,
@@ -564,10 +764,7 @@ export class TaskCheckoutIssuer {
       executionSession: new TaskCheckoutBoundExecutionSession(
         executionSession,
         resumedCheckout,
-        new TaskCheckoutLeaseCoordinator(
-          this.env,
-          this.repositoryOverride,
-        ),
+        new TaskCheckoutLeaseCoordinator(this.env, this.repositoryOverride),
       ),
     };
     if (resumeSnapshot) {
