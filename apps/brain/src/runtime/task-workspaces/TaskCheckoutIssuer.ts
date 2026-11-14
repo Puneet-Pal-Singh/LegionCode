@@ -184,10 +184,8 @@ export class TaskCheckoutIssuer {
       workspaceScope,
     });
 
-    let acquired = false;
     try {
       const session = await executionSession.acquire();
-      acquired = true;
       const checkout = TaskCheckoutSchema.parse({
         kind: "task_checkout",
         checkoutId,
@@ -261,16 +259,8 @@ export class TaskCheckoutIssuer {
           },
         );
       }
-      if (acquired) {
-        // An issuance response can be lost after commit. Successful session
-        // release alone does not prove an unknown persisted checkout settled.
-        const checkoutAbsent = await withBrainPersistenceRepository(
-          this.env, this.repositoryOverride ?? this.env.AUTH_TASK_WORKSPACE_REPOSITORY,
-          client => new PostgresTaskWorkspaceRepository(client),
-          async taskWorkspaces => (await taskWorkspaces.getByRunAttemptId(RunAttemptIdSchema.parse(identity.runAttemptId))) === null,
-        ).catch(() => false);
-        if (checkoutAbsent) options?.failureCleanup?.({ kind: "released" });
-      }
+      // The concrete release port may resolve on HTTP404; a void result
+      // is not an exact physical closure receipt. Keep this exposure unknown.
       throw error;
     }
   }

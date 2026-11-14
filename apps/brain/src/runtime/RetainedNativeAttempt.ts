@@ -13,9 +13,9 @@ export interface NativeAttemptObserver {
 }
 
 /** Issued by the preparation owner at a known capability boundary, never from an error code. */
-export type NativePreparationCleanupReceipt =
-  | { readonly kind: "no_exposure" }
-  | { readonly kind: "released" };
+export interface NativePreparationCleanupReceipt {
+  readonly kind: "no_exposure";
+}
 
 /** Retains the original operation before allowing its admission ACK to escape.
  * waitUntil is bounded host retention, not restart-safe execution. Durable

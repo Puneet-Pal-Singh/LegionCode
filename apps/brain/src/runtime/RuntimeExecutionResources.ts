@@ -225,7 +225,8 @@ async function prepareOwnedRuntimeResources(
     } finally {
       await checkoutLifecycle.release();
     }
-    ownership.closed({ kind: "released" });
+    // A void secure release can include a missing-session response. Without
+    // an exact physical closure receipt, failed exposed preparation stays unknown.
     throw error;
   }
 }

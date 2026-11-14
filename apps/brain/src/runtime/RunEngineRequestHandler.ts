@@ -1452,6 +1452,7 @@ export class RunEngineRequestHandler {
             await resources.drainProviderRequests();
             providerDrained = true;
           }).then(async response => {
+            if (!nativeObserver) return response;
             // This original response producer stays inside the DO attempt; an
             // admission ACK is never mistaken for its body having completed.
             const bytes = await response.arrayBuffer();

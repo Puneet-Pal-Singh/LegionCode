@@ -1293,6 +1293,7 @@ describe("RunEngineRequestHandler", () => {
     await assertOriginalProviderDrain("fulfilled", "ack");
     await assertOriginalProviderDrain("fulfilled", "prepare");
     await assertOriginalProviderDrain("fulfilled", "prepare_closed");
+    await assertOriginalProviderDrain("fulfilled", "unretained");
   });
 
   it("projects a typed activity feed snapshot", async () => {
@@ -1829,7 +1830,7 @@ describe("RunEngineRequestHandler", () => {
   });
 });
 
-async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", failure?: "release" | "ack" | "prepare" | "prepare_closed") {
+async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", failure?: "release" | "ack" | "prepare" | "prepare_closed" | "unretained") {
   const ctx = new MockDurableObjectState();
   const scope = RunInterruptIdentitySchema.parse({
     runId: "run_123e4567e89b42d3a456426614174212",
@@ -1926,7 +1927,7 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", fa
         messages: [{ role: "user", content: "inspect" }],
       }),
     });
-    const acknowledgement = retainNativeAttempt({
+    const acknowledgement = failure === "unretained" ? handler.handleExecuteRequest(request) : retainNativeAttempt({
       owner: { waitUntil: operation => { retained.push(operation); } },
       execute: async observer => {
         expect(retained).toHaveLength(1);
@@ -1945,6 +1946,19 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", fa
       settled: physicallySettled,
       reportError: error => { throw error; },
     });
+    if (failure === "unretained") {
+      await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(1));
+      await observer;
+      settleOriginal({ ok: true } as never);
+      const response = await acknowledgement;
+      expect(response.bodyUsed).toBe(false);
+      expect(responseBodyReading).toBe(false);
+      expect(physicallySettled).not.toHaveBeenCalled();
+      responseBody!.enqueue(new TextEncoder().encode("untouched stream"));
+      responseBody!.close();
+      expect(await response.text()).toBe("untouched stream");
+      return;
+    }
     if (failure === "ack") {
       await expect(acknowledgement).rejects.toThrow("ACK construction failed");
       await retained[0];

@@ -296,8 +296,9 @@ describe("TaskCheckoutIssuer", () => {
       "database unavailable",
     );
     expect(release).toHaveBeenCalledOnce();
-    expect(failureCleanup).toHaveBeenCalledTimes(1);
-    expect(failureCleanup).toHaveBeenCalledWith({ kind: "released" });
+    // Neither a void release (including its HTTP404 path) nor checkout
+    // absence is the exact physical receipt needed to release admission.
+    expect(failureCleanup).not.toHaveBeenCalled();
     failureCleanup.mockClear();
     await expect(issuer.issue({ ...payload(), input: { ...payload().input, repositoryContext: undefined } }, { failureCleanup })).rejects.toMatchObject({ code: "TASK_CHECKOUT_INPUT_REQUIRED" });
     expect(failureCleanup).toHaveBeenCalledTimes(1);
