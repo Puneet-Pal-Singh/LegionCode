@@ -592,7 +592,9 @@ export function createAppServerClient(
     }, AppServerResultSchemas["workspace/grants"])).grants,
     selectWorkspaceGrant: async (workspaceId) => {
       const result = await request(options, { method: "workspace/selectGrant", params: { workspaceId } }, AppServerResultSchemas["workspace/selectGrant"]);
-      if (!result.grant) throw invalidResponse("workspace/selectGrant", "App Server did not return the selected workspace grant");
+      if (!result.grant || result.grant.workspaceId !== workspaceId) {
+        throw invalidResponse("workspace/selectGrant", "App Server did not return the selected workspace grant");
+      }
       return result.grant;
     },
     revokeWorkspace: async (workspaceId) => {

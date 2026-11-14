@@ -20,6 +20,7 @@ import type {
 } from "../../shared/desktop-api";
 import { DesktopSidebar } from "./DesktopSidebar";
 import { useDesktopWorkspacePicker } from "./useDesktopWorkspacePicker";
+import { acquireDesktopWorkspaceAccess, type DesktopWorkspaceAccessSource } from "./desktop-workspace-access";
 import { DesktopSettingsDialog } from "./DesktopSettingsDialog";
 import type { DesktopHostedAccountControls } from "./useDesktopHostedAccount";
 import { DesktopRightPanel } from "./DesktopRightPanel";
@@ -137,6 +138,13 @@ export function DesktopLocalWorkspace({ active = true, onPlacementChange, hosted
     },
     onInitializeError: () => setThreadLoadState("error"),
   });
+
+  const workspaceAccessContext = useRef({ client: appServerClient, enabled: active && sdkReady });
+  workspaceAccessContext.current = { client: appServerClient, enabled: active && sdkReady };
+  useEffect(() => {
+    workspaceAccessContext.current = { client: appServerClient, enabled: active && sdkReady };
+    return () => { workspaceAccessContext.current.enabled = false; };
+  }, [appServerClient, active, sdkReady]);
 
   const projects = useDesktopProjectNavigation({
     client: appServerClient,
@@ -328,7 +336,7 @@ export function DesktopLocalWorkspace({ active = true, onPlacementChange, hosted
   }
 
   async function requestProjectAccess(intent: DesktopProjectIntent): Promise<void> {
-    if (!sdkReady || workspaceCommand.current || workspacePickerActive.current) return;
+    if (!active || !sdkReady || workspaceCommand.current || workspacePickerActive.current) return;
     projects.capture(intent);
     selectionRequest.current += 1;
     drafts.cancelHandoff();
@@ -340,7 +348,7 @@ export function DesktopLocalWorkspace({ active = true, onPlacementChange, hosted
       setThreadError("This saved project's folder association is unavailable. Explicit project recovery is required before its tasks can be opened.");
       return;
     }
-    await chooseWorkspace(true);
+    await changeWorkspace({ kind: "retained", workspaceId: intent.workspaceId });
   }
 
   function startNewTask(workspaceSelectionId?: string): void {
@@ -556,7 +564,12 @@ export function DesktopLocalWorkspace({ active = true, onPlacementChange, hosted
   });
 
   async function grantWorkspace(selection: WorkspaceSelection): Promise<void> {
-    if (!sdkReady || !appServerClient || workspaceCommand.current) return;
+    await changeWorkspace({ kind: "folder", selection });
+  }
+
+  async function changeWorkspace(source: DesktopWorkspaceAccessSource): Promise<void> {
+    if (!active || !sdkReady || !appServerClient || workspaceCommand.current) return;
+    const client = appServerClient;
     workspaceCommand.current = true;
     setWorkspaceBusy(true);
     setWorkspaceError(null);
@@ -565,20 +578,20 @@ export function DesktopLocalWorkspace({ active = true, onPlacementChange, hosted
     selectionRequest.current += 1;
     threadListRequest.current += 1;
     const commandScope = threadScope.current;
+    const isCurrent = (): boolean => threadScope.current === commandScope &&
+      workspaceAccessContext.current.client === client && workspaceAccessContext.current.enabled &&
+      projects.currentIntent.current === intent;
     // Fence old command deliveries, but retain the mounted conversation/draft
     // until the actual grant succeeds. A failed receipt must not erase it.
-    let granted: LocalWorkspaceGrant;
+    let result: Awaited<ReturnType<typeof acquireDesktopWorkspaceAccess>>;
     try {
-      if (!appServerClient) return;
-      granted = await appServerClient.grantWorkspace({
-        selectionToken: selection.selectionToken,
-      });
+      result = await acquireDesktopWorkspaceAccess(client, source, isCurrent);
     } catch (error: unknown) {
-      if (commandScope !== threadScope.current) return;
+      if (!isCurrent()) return;
       setThreadError("Workspace access could not be confirmed. Choose a folder again before opening or creating a task.");
       setWorkspaceError(
         error instanceof AppServerClientError && error.code === "server_error" &&
-        error.method === "workspace/grant" && error.serverError
+        (error.method === "workspace/grant" || error.method === "workspace/selectGrant") && error.serverError
           ? error.message
           : "Workspace access could not be confirmed.",
       );
@@ -588,7 +601,12 @@ export function DesktopLocalWorkspace({ active = true, onPlacementChange, hosted
       setWorkspaceBusy(false);
     }
 
-    if (threadScope.current !== commandScope) return;
+    if (!isCurrent() || result.status === "superseded") return;
+    if (result.status === "grant-required") {
+      await chooseWorkspace(true);
+      return;
+    }
+    const granted = result.grant;
     threadScope.current += 1;
     selectionRequest.current += 1;
     threadListRequest.current += 1;
