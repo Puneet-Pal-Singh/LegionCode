@@ -358,7 +358,7 @@ export class LocalThreadInputRepository implements ThreadInputRepository {
   private authorize(scope: ThreadInputScope, active: boolean): void {
     if (scope.sessionId !== scope.threadId) throw new ThreadInputConflictError("Local input session must be its canonical Thread", "thread_scope_conflict");
     readLocalOwnedThread(this.database, scope, active);
-    const row = this.database.prepare("SELECT value_json FROM workspace_grant WHERE id=1").get() as { value_json: string } | undefined;
+    const row = this.database.prepare("SELECT value_json FROM workspace_grant WHERE workspace_id=?").get(scope.workspaceId) as { value_json: string } | undefined;
     if (!row || parseStoredGrant(JSON.parse(row.value_json)).grant.workspaceId !== scope.workspaceId)
       throw new ThreadInputConflictError("Workspace is no longer granted", "thread_scope_conflict");
   }

@@ -20,7 +20,7 @@ export const LOCAL_USER_ID = UserIdSchema.parse("usr_localdesktop");
 export type LocalThreadServiceOptions = {
   events: LocalPersistence["events"];
   readRuntimeSummary?: LocalPersistence["turnAdmissions"]["readThreadSummary"];
-  getWorkspace: () => Promise<LocalWorkspaceGrant | null>;
+  getWorkspace: (workspaceId?: WorkspaceId) => Promise<LocalWorkspaceGrant | null>;
 };
 
 export class LocalThreadService {
@@ -49,6 +49,12 @@ export class LocalThreadService {
     await this.assertWorkspaceCurrent(workspace);
     return projections
       .filter(({ workspaceId }) => workspaceId === workspace.workspaceId)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  /** Navigation projection only; does not authorize history, files, or mutations. */
+  async listProjectMetadata(): Promise<Thread[]> {
+    return (await this.rebuildProjections()).filter((thread) => thread.userId === LOCAL_USER_ID)
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 
@@ -90,8 +96,9 @@ export class LocalThreadService {
   }
 
   async get(threadId: string): Promise<Thread> {
-    const workspace = await this.requireWorkspace();
-    return await this.readAuthorizedThread(ThreadIdSchema.parse(threadId), workspace);
+    const id = ThreadIdSchema.parse(threadId);
+    const workspace = await this.requireThreadWorkspace(id);
+    return await this.readAuthorizedThread(id, workspace);
   }
 
   rename(threadId: string, input: unknown): Promise<Thread> {
@@ -191,7 +198,7 @@ export class LocalThreadService {
   ): Promise<T> {
     const previous = this.metadataMutations.get(threadId) ?? Promise.resolve();
     // Capture at enqueue time: waiting actions must not adopt a replacement grant.
-    const result = Promise.allSettled([previous, this.requireWorkspace()] as const).then(async ([, grant]) => {
+    const result = Promise.allSettled([previous, this.requireThreadWorkspace(threadId)] as const).then(async ([, grant]) => {
       if (grant.status === "rejected") throw grant.reason;
       const workspace = grant.value;
       await this.assertWorkspaceCurrent(workspace);
@@ -214,7 +221,7 @@ export class LocalThreadService {
   }
 
   private async assertWorkspaceCurrent(expected: LocalWorkspaceGrant): Promise<void> {
-    const current = await this.requireWorkspace();
+    const current = await this.requireWorkspace(expected.workspaceId);
     if (current.workspaceId !== expected.workspaceId || current.grantedAt !== expected.grantedAt
       || current.repositoryIdentity !== expected.repositoryIdentity) {
       throw new Error("Local workspace grant changed during Thread metadata mutation");
@@ -248,13 +255,13 @@ export class LocalThreadService {
     });
   }
 
-  private async rebuildProjections(workspaceId: WorkspaceId): Promise<Thread[]> {
+  private async rebuildProjections(workspaceId?: WorkspaceId): Promise<Thread[]> {
     const events = await this.eventStore.listAll();
     const projections = await this.collectProjections(events, workspaceId);
     return projections;
   }
 
-  private async collectProjections(events: readonly PlatformEvent[], workspaceId: WorkspaceId): Promise<Thread[]> {
+  private async collectProjections(events: readonly PlatformEvent[], workspaceId?: WorkspaceId): Promise<Thread[]> {
     const threadIds = new Set<ThreadId>();
     const grouped = new Map<ThreadId, { event: PlatformEvent; projectionSequence: number }[]>();
     for (const event of events) {
@@ -266,14 +273,25 @@ export class LocalThreadService {
     const threads: Thread[] = [];
     for (const threadId of threadIds) {
       const snapshot = projectThreadEvents(threadId, grouped.get(threadId) ?? []);
-      if (snapshot?.thread.workspaceId === workspaceId) threads.push(await this.withRuntimeSummary(snapshot.thread));
+      if (snapshot && (workspaceId === undefined || snapshot.thread.workspaceId === workspaceId)) threads.push(await this.withRuntimeSummary(snapshot.thread));
     }
     return threads;
   }
 
-  private async requireWorkspace(): Promise<LocalWorkspaceGrant> {
-    const workspace = await this.getWorkspace();
-    if (!workspace || workspace.readiness !== "ready") {
+  private async requireThreadWorkspace(threadId: ThreadId): Promise<LocalWorkspaceGrant> {
+    const created = (await this.eventStore.listAll()).find((event) => event.threadId === threadId &&
+      event.scopeType === "thread" && event.scopeId === threadId && event.sequence === 1 && event.type === "thread.created");
+    if (!created || created.type !== "thread.created" || created.payload.thread.userId !== LOCAL_USER_ID)
+      throw new LocalThreadNotFoundError();
+    const workspace = await this.getWorkspace(created.workspaceId);
+    if (!workspace || workspace.readiness !== "ready" || workspace.workspaceId !== created.workspaceId)
+      throw new LocalThreadNotFoundError();
+    return workspace;
+  }
+
+  private async requireWorkspace(workspaceId?: WorkspaceId): Promise<LocalWorkspaceGrant> {
+    const workspace = await this.getWorkspace(workspaceId);
+    if (!workspace || workspace.readiness !== "ready" || (workspaceId !== undefined && workspace.workspaceId !== workspaceId)) {
       throw new Error("A ready local workspace is required");
     }
     return workspace;

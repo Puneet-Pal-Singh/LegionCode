@@ -154,8 +154,8 @@ export class LocalHarnessControlPlane implements LocalHarnessControlPlanePort {
     const environment = this.read("local_environment_id_v1", false);
     if (environment !== input.environmentId || input.environmentId !== this.environmentId)
       fail("not_found", "Harness operation belongs to another local environment");
-    const row = this.database.prepare("SELECT value_json FROM workspace_grant WHERE id=1")
-      .get() as { value_json: string } | undefined;
+    const row = this.database.prepare("SELECT value_json FROM workspace_grant WHERE workspace_id=?")
+      .get(input.workspaceId) as { value_json: string } | undefined;
     if (!row) fail("not_found", "Local harness workspace is not granted");
     const grant = parseStoredGrant(JSON.parse(row.value_json));
     if (grant.grant.workspaceId !== input.workspaceId || grant.grant.readiness !== "ready" ||
