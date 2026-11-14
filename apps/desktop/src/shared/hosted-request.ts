@@ -87,6 +87,7 @@ const HOSTED_METHODS: ReadonlySet<AppServerRequest["method"]> = new Set([
   "provider/preferences/update", "provider/resolve", "provider/credentials/list",
   "provider/credentials/connect", "provider/credentials/update", "provider/credentials/disconnect",
   "provider/credentials/validate",
+  "media/readImage",
 ]);
 
 /** These are the existing hosted ingress hints, derived only from a validated method. */
@@ -100,6 +101,9 @@ export function parseHostedEnvelope(serializedEnvelope: string): AppServerReques
   if (serializedEnvelope.length > MAX_IMAGE_REQUEST_BYTES) throw new Error("Hosted request is too large");
   const request = AppServerRequestSchema.parse(JSON.parse(serializedEnvelope));
   if (!HOSTED_METHODS.has(request.method)) throw new Error("Method is unavailable on the hosted connection");
+  if (request.method === "media/readImage" && !("sessionId" in request.params)) {
+    throw new Error("Local image scope cannot use the hosted connection");
+  }
   if ((request.method === "provider/preferences/read" || request.method === "provider/preferences/update") && request.params.localScope !== undefined) {
     throw new Error("Local provider scope cannot use the hosted connection");
   }

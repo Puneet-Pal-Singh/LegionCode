@@ -16,6 +16,7 @@ import { composeHostedEditArtifactReads } from "../integration/app-server/Hosted
 import { composeHostedGitOperations } from "../integration/app-server/HostedGitOperations";
 import { composeHostedCodeArtifactReads } from "../integration/app-server/HostedCodeArtifactReads";
 import { composeHostedRepositoryReads } from "../integration/app-server/HostedRepositoryReads";
+import { composeHostedChatMediaReads } from "../integration/app-server/HostedChatMediaReads";
 import { AppServerOperationError, handleAppServerHttpRequest } from "@legioncode/app-server/server";
 import type { AppServerError, ChatRequestBody, HostedChatSubmissionResult } from "@repo/platform-protocol";
 import { bindAuthenticatedChatRequest } from "./ChatRequestBoundary";
@@ -109,6 +110,7 @@ export const AppServerController = {
     let hostedGitOperationsService: ReturnType<typeof composeHostedGitOperations> | undefined;
     let hostedCodeArtifactReadsService: ReturnType<typeof composeHostedCodeArtifactReads> | undefined;
     let hostedRepositoryReadService: ReturnType<typeof composeHostedRepositoryReads> | undefined;
+    let hostedChatMediaService: ReturnType<typeof composeHostedChatMediaReads> | undefined;
     let hostedChatSubmissionService:
       | { execute(params: ChatRequestBody): Promise<HostedChatSubmissionResult> }
       | undefined;
@@ -142,6 +144,7 @@ export const AppServerController = {
         hostedGitOperationsService = composeHostedGitOperations(request, env, auth.userId);
         hostedCodeArtifactReadsService = composeHostedCodeArtifactReads(env, auth.userId);
         hostedRepositoryReadService = composeHostedRepositoryReads(request, env, auth.userId);
+        hostedChatMediaService = composeHostedChatMediaReads(request, env, auth.userId);
         hostedChatSubmissionService = {
           execute: async (params) => {
             const correlationId = request.headers.get("X-Correlation-Id") ?? crypto.randomUUID();
@@ -235,6 +238,7 @@ export const AppServerController = {
         hostedGitOperationsService,
         hostedCodeArtifactReadsService,
         hostedRepositoryReadService,
+        hostedChatMediaService,
         hostedChatSubmissionService,
       },
     );

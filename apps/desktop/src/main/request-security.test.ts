@@ -64,6 +64,17 @@ describe("Desktop App Server request security", () => {
     for (const method of ["workspace/current", "thread/list", "provider/current"]) {
       expect(() => parseHostedEnvelope(JSON.stringify({ protocolVersion: "1.0.0", method, params: {} }))).toThrow();
     }
+    const imageRead = { protocolVersion: "1.0.0", method: "media/readImage", params: {
+      sessionId: "550e8400-e29b-41d4-a716-446655440001", offset: 0,
+      reference: { type: "image_attachment", attachmentId: "img_fixture_123456", name: "image.png", mediaType: "image/png", byteSize: 8 },
+    } };
+    expect(parseHostedEnvelope(JSON.stringify(imageRead))).toEqual(imageRead);
+    expect(() => parseHostedEnvelope(JSON.stringify({ ...imageRead,
+      params: { turnId: "trn_fixture123", attachmentId: "img_fixture_123456", offset: 0 },
+    }))).toThrow("Local image scope");
+    expect(() => parseHostedEnvelope(JSON.stringify({ ...imageRead,
+      params: { ...imageRead.params, turnId: "trn_fixture123" },
+    }))).toThrow();
     let releaseBody!: () => void;
     let metadataReady!: () => void;
     let drained = false;
