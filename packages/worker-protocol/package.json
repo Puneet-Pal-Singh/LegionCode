@@ -16,7 +16,8 @@
     "./git": "./src/git.ts",
     "./protocol": "./src/protocol.ts",
     "./workspaces": "./src/workspaces.ts",
-    "./private/execution-domain": "./src/private/execution-domain.ts"
+    "./private/execution-domain": "./src/private/execution-domain.ts",
+    "./private/native-checkout-bootstrap": "./src/private/native-checkout-bootstrap.ts"
   },
   "scripts": {
     "build": "tsc",
