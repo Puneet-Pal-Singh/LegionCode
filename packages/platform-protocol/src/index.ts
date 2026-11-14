@@ -565,12 +565,16 @@ export {
   LocalWorkspaceCapabilitySchema,
   LocalWorkspaceGrantPathSchema,
   LocalWorkspaceGrantResponseSchema,
+  LocalWorkspaceProjectSchema,
+  LocalWorkspaceProjectsResponseSchema,
   LocalWorkspaceGrantSchema,
   LocalWorkspaceReadinessSchema,
   type GrantLocalWorkspaceRequest,
   type LocalWorkspaceCapability,
   type LocalWorkspaceGrant,
   type LocalWorkspaceGrantResponse,
+  type LocalWorkspaceProject,
+  type LocalWorkspaceProjectsResponse,
   type LocalWorkspaceReadiness,
 } from "./workspace-grants.js";
 export {
