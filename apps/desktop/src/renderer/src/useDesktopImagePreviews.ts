@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { readLocalChatImage, type AppServerClient, type ConversationHistoryMessage } from "@legioncode/sdk";
+import { readChatImage, type AppServerClient, type ConversationHistoryMessage } from "@legioncode/sdk";
 import {
   ChatImageAttachmentRefSchema,
   type ChatImageAttachmentRef,
@@ -7,7 +7,7 @@ import {
   type TurnId,
 } from "@repo/platform-protocol";
 
-type MediaClient = Pick<AppServerClient, "readLocalChatImageChunk">;
+type MediaClient = Pick<AppServerClient, "readChatImageChunk">;
 type Source = {
   turnId: TurnId;
   reference: ChatImageAttachmentRef;
@@ -96,7 +96,7 @@ export function useDesktopImagePreviews(
         loading += 1;
         void (async () => {
           try {
-            const image = await readLocalChatImage(scope.client, source, {
+            const image = await readChatImage(scope.client, source, {
               signal: controller.signal,
             });
             if (!active) return;

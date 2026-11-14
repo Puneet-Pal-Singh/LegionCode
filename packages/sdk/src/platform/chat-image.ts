@@ -1,12 +1,12 @@
 import { ChatImageAttachmentRefSchema, type ChatImageAttachmentRef, type TurnId } from "@repo/platform-protocol";
-import { LOCAL_CHAT_IMAGE_CHUNK_MAX_BYTES } from "@legioncode/app-server/protocol";
+import { CHAT_IMAGE_CHUNK_MAX_BYTES } from "@legioncode/app-server/protocol";
 import type { AppServerClient } from "./app-server-client.js";
 
 /** Hydrates original image bytes through the authenticated SDK port. Callers
  * create/revoke their own transient Blob URLs only after this digest succeeds.
  */
-export async function readLocalChatImage(
-  client: Pick<AppServerClient, "readLocalChatImageChunk">,
+export async function readChatImage(
+  client: Pick<AppServerClient, "readChatImageChunk">,
   input: { turnId: TurnId; reference: ChatImageAttachmentRef },
   options: { signal?: AbortSignal } = {},
 ) {
@@ -15,15 +15,15 @@ export async function readLocalChatImage(
   const bytes = new Uint8Array(reference.byteSize);
   let offset = 0;
   let sha256: string | undefined;
-  const maxChunks = Math.ceil(reference.byteSize / LOCAL_CHAT_IMAGE_CHUNK_MAX_BYTES);
+  const maxChunks = Math.ceil(reference.byteSize / CHAT_IMAGE_CHUNK_MAX_BYTES);
   for (let index = 0; index < maxChunks && offset < reference.byteSize; index += 1) {
     options.signal?.throwIfAborted();
-    const chunk = await client.readLocalChatImageChunk({
+    const chunk = await client.readChatImageChunk({
       turnId: input.turnId, attachmentId: reference.attachmentId,
-      offset, limit: LOCAL_CHAT_IMAGE_CHUNK_MAX_BYTES,
+      offset, limit: CHAT_IMAGE_CHUNK_MAX_BYTES,
     });
     options.signal?.throwIfAborted();
-    const expectedLength = Math.min(LOCAL_CHAT_IMAGE_CHUNK_MAX_BYTES, reference.byteSize - offset);
+    const expectedLength = Math.min(CHAT_IMAGE_CHUNK_MAX_BYTES, reference.byteSize - offset);
     if (chunk.offset !== offset || chunk.byteLength !== expectedLength ||
       chunk.reference.attachmentId !== reference.attachmentId || chunk.reference.name !== reference.name ||
       chunk.reference.mediaType !== reference.mediaType || chunk.reference.byteSize !== reference.byteSize ||

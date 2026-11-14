@@ -3,7 +3,7 @@ import { APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES, appServerJsonByteLength } from "
 import type { LocalWorkspaceListFilesParams, LocalWorkspaceListFilesResult, LocalWorkspaceReadFileParams } from "./protocol.js";
 import type { LocalWorkspaceGitStatusParams, LocalWorkspaceGitDiffParams } from "./protocol.js";
 import type { LocalWorkspaceFileMentionsParams, LocalWorkspaceFileMentionsResult } from "./protocol.js";
-import type { LocalChatImageReadParams, LocalChatImageReadResult } from "./protocol.js";
+import type { ChatImageReadParams, ChatImageReadResult } from "./protocol.js";
 import type { LocalTurnStartParams, LocalTurnInterruptParams, LocalThreadHistoryParams, LocalThreadHistoryResult, CheckoutListFilesResult, CheckoutReadFileResult } from "./protocol.js";
 import type { BYOKPreference, BYOKPreferencesUpdateRequest, BYOKResolution, BYOKResolveRequest } from "@repo/shared-types";
 import type { DiffContent, GitBranchMutationResult, GitPullRequestMutationResult, GitPushMutationResult, GitStatusResponse } from "@repo/shared-types";
@@ -75,7 +75,7 @@ export type AppServerComposition = {
     diff(params: LocalWorkspaceGitDiffParams): Promise<DiffContent>;
   };
   localChatMediaService?: {
-    readImage(params: LocalChatImageReadParams): Promise<LocalChatImageReadResult>;
+    readImage(params: ChatImageReadParams): Promise<ChatImageReadResult>;
   };
   hostedWorkspaceService?: {
     readConfiguration(params: HostedWorkspaceConfigurationReadRequest): Promise<HostedWorkspaceConfiguration>;
