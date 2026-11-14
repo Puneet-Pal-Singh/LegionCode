@@ -12,6 +12,8 @@ import {
   sanitizeUnknownError,
 } from "../../core/security/LogSanitizer";
 import { formatDiagnosticLogLine } from "../../lib/diagnostic-log";
+import { parseNativeCommandClosure, type NativeCommandClosure } from "@repo/shared-types/native-command-closure";
+import { executionDomainDigest, snapshotExecutionDomain, type ServerExecutionDomainBinding } from "@repo/worker-protocol/private/execution-domain";
 
 const DEFAULT_EXECUTION_TIMEOUT_MS = 120_000;
 const LOCAL_DEV_SESSION_RETRY_ATTEMPTS = 10;
@@ -28,6 +30,7 @@ const SecureExecutionSessionResponseSchema = z
         leaseId: LeaseIdSchema,
         sandboxId: z.string().min(1),
         generation: z.number().int().nonnegative(),
+        executionDomainDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
       })
       .passthrough(),
   })
@@ -58,6 +61,7 @@ export interface SecureExecutionSessionHandle {
     readonly leaseId: LeaseId;
     readonly sandboxId: string;
     readonly generation: number;
+    readonly executionDomainDigest?: string;
   };
 }
 
@@ -65,6 +69,8 @@ export interface SecureExecutionSessionPort {
   acquire(): Promise<SecureExecutionSessionHandle>;
   recoverAfterSandboxLoss(): Promise<SecureExecutionSessionHandle>;
   cancelTask(taskId: string): Promise<boolean>;
+  cancelTaskWithNativeClosure?(taskId: string): Promise<{ cancelled: boolean; nativeCommandClosure: NativeCommandClosure | null }>;
+  parseNativeClosure?(value: unknown, taskId: string): Promise<NativeCommandClosure | null>;
   release(): Promise<void>;
 }
 
@@ -73,6 +79,7 @@ export interface PersistedSecureExecutionSessionReference {
   readonly leaseId: LeaseId;
   readonly sandboxId: string;
   readonly generation: number;
+  readonly executionDomainDigest?: string;
 }
 
 /**
@@ -84,6 +91,7 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
   private sessionPromise: Promise<SecureExecutionSessionHandle> | null = null;
   private releasePromise: Promise<void> | null = null;
   private reference: PersistedSecureExecutionSessionReference | undefined;
+  private readonly executionDomain: ServerExecutionDomainBinding | undefined;
 
   constructor(
     private readonly env: Env,
@@ -91,8 +99,16 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
     private readonly runId: string,
     private readonly workspaceScope: SecureExecutionWorkspaceScope,
     persistedReference?: PersistedSecureExecutionSessionReference,
+    executionDomain?: ServerExecutionDomainBinding,
   ) {
-    this.reference = persistedReference;
+    this.reference = persistedReference ? Object.freeze({ ...persistedReference }) : undefined;
+    this.workspaceScope = Object.freeze({ ...workspaceScope });
+    this.executionDomain = executionDomain ? snapshotExecutionDomain(executionDomain) : undefined;
+    const scope = this.executionDomain?.scope;
+    if (scope && (scope.brainSessionId !== brainSessionId || scope.runId !== runId || scope.workspaceId !== workspaceScope.workspaceId ||
+      scope.threadId !== workspaceScope.threadId || scope.turnId !== workspaceScope.turnId || scope.runAttemptId !== workspaceScope.runAttemptId)) {
+      throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
+    }
   }
 
   async acquire(): Promise<SecureExecutionSessionHandle> {
@@ -101,6 +117,7 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
     }
     try {
       const session = await this.sessionPromise;
+      await this.validateDomainHandle(session);
       this.reference = toPersistedReference(session);
       return session;
     } catch (error) {
@@ -126,6 +143,7 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
         body: JSON.stringify({
           runId: this.runId,
           workspaceScope: this.workspaceScope,
+          ...(this.executionDomain ? { executionDomain: this.executionDomain } : {}),
           lease: {
             leaseId: reference.leaseId,
             sandboxId: reference.sandboxId,
@@ -141,6 +159,7 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
     const handle = SecureExecutionSessionResponseSchema.parse(
       await parseJsonResponse(response),
     );
+    await this.validateDomainHandle(handle);
     const exactLease = handle.sessionId === reference.secureSessionId &&
       handle.lease.leaseId === reference.leaseId &&
       handle.lease.sandboxId === reference.sandboxId &&
@@ -164,6 +183,7 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
       );
     }
     const recovered = await this.resume(recoverableReference);
+    await this.validateDomainHandle(recovered);
     this.reference = toPersistedReference(recovered);
     this.sessionPromise = Promise.resolve(recovered);
     this.releasePromise = null;
@@ -178,20 +198,26 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
   }
 
   async cancelTask(taskId: string): Promise<boolean> {
+    return (await this.cancelTaskRequest(taskId, "observed")).cancelled;
+  }
+
+  async cancelTaskWithNativeClosure(taskId: string): Promise<{ cancelled: boolean; nativeCommandClosure: NativeCommandClosure | null }> {
+    return await this.cancelTaskRequest(taskId, "retained");
+  }
+
+  private async cancelTaskRequest(taskId: string, lifetime: "observed" | "retained"): Promise<{ cancelled: boolean; nativeCommandClosure: NativeCommandClosure | null }> {
     const session = await this.acquire();
-    const response = await fetchWithTimeout(
-      this.env.SECURE_API,
-      `http://internal/api/v1/cancel?session=${encodeURIComponent(this.brainSessionId)}`,
-      {
+    const url = `http://internal/api/v1/cancel?session=${encodeURIComponent(this.brainSessionId)}`;
+    const init = {
         method: "POST",
         headers: {
           Authorization: `Bearer ${session.token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ sessionId: session.sessionId, taskId }),
-      },
-      DEFAULT_EXECUTION_TIMEOUT_MS,
-    );
+    };
+    const response = lifetime === "retained" ? await this.env.SECURE_API.fetch(url, init)
+      : await fetchWithTimeout(this.env.SECURE_API, url, init, DEFAULT_EXECUTION_TIMEOUT_MS);
     const body = await parseJsonResponse(response);
     if (!response.ok) {
       const error = SecureExecutionSessionErrorResponseSchema.safeParse(body);
@@ -201,7 +227,35 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
         ),
       );
     }
-    return z.object({ cancelled: z.boolean() }).parse(body).cancelled;
+    const parsed = z.object({ cancelled: z.boolean(), nativeCommandClosure: z.unknown().optional() }).parse(body);
+    return { cancelled: parsed.cancelled, nativeCommandClosure: await this.parseNativeClosure(parsed.nativeCommandClosure, taskId) };
+  }
+
+  /** Private evidence is checked against the originally acquired authenticated
+   * session. Reading a response never provisions or recovers a replacement. */
+  async parseNativeClosure(value: unknown, taskId: string): Promise<NativeCommandClosure | null> {
+    if (this.executionDomain?.domain !== "legioncode_native") return null;
+    const pending = this.sessionPromise;
+    if (!pending) return null;
+    const session = await pending;
+    const reference = this.reference;
+    if (!reference || reference.secureSessionId !== session.sessionId || reference.leaseId !== session.lease.leaseId ||
+      reference.sandboxId !== session.lease.sandboxId || reference.generation !== session.lease.generation) return null;
+    return parseNativeCommandClosure(value, {
+      executionDomainDigest: await executionDomainDigest(this.executionDomain),
+      sessionId: session.sessionId, leaseId: session.lease.leaseId, sandboxId: session.lease.sandboxId,
+      generation: session.lease.generation, taskId, workspaceId: this.workspaceScope.workspaceId,
+      workspaceRoot: this.workspaceScope.root, runId: this.runId, threadId: this.workspaceScope.threadId,
+      turnId: this.workspaceScope.turnId, runAttemptId: this.workspaceScope.runAttemptId,
+    });
+  }
+
+  private async validateDomainHandle(session: SecureExecutionSessionHandle): Promise<void> {
+    const expected = this.executionDomain ? await executionDomainDigest(this.executionDomain) : undefined;
+    if (session.lease.executionDomainDigest !== expected ||
+      (this.reference?.executionDomainDigest !== undefined && this.reference.executionDomainDigest !== expected)) {
+      throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
+    }
   }
 
   private async create(): Promise<SecureExecutionSessionHandle> {
@@ -228,6 +282,7 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
             taskId: `brain-session-${this.brainSessionId}`,
             repoPath: EXECUTION_SESSION_REPO_PATH,
             workspaceScope: this.workspaceScope,
+            ...(this.executionDomain ? { executionDomain: this.executionDomain } : {}),
           }),
         },
         DEFAULT_EXECUTION_TIMEOUT_MS,
@@ -274,6 +329,7 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
         },
         body: JSON.stringify({
           workspaceScope: this.workspaceScope,
+          ...(this.executionDomain ? { executionDomain: this.executionDomain } : {}),
           lease: {
             leaseId: reference.leaseId,
             sandboxId: reference.sandboxId,
@@ -400,6 +456,7 @@ function toPersistedReference(
     leaseId: session.lease.leaseId,
     sandboxId: session.lease.sandboxId,
     generation: session.lease.generation,
+    ...(session.lease.executionDomainDigest ? { executionDomainDigest: session.lease.executionDomainDigest } : {}),
   };
 }
 
