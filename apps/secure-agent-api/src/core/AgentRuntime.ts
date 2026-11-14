@@ -61,7 +61,7 @@ interface RuntimeSessionRecord extends NativeSessionFields, ExecutionDomainSessi
   };
   lease: SandboxExecutionLease;
   cleanupAttempts?: number;
-  cleanupFailureCode?: "SANDBOX_CLEANUP_FAILED";
+  cleanupFailureCode?: "SANDBOX_CLEANUP_FAILED" | "ORIGINAL_COMMAND_CLOSURE_UNKNOWN";
   cleanupRetryAt?: number;
   cleanupInProgress?: boolean;
 }
@@ -290,13 +290,22 @@ export class AgentRuntime extends DurableObject {
       if (result.status === "cancelled" || result.status === "timeout") await nativeCommands.stop();
       await nativeCommands.drainOriginalOperations();
     }
-    if (nativeCommands && !await nativeCommands.awaitClosure()) {
+    const nativeCommandClosure = nativeCommands ? await nativeCommands.closureEvidence() : undefined;
+    if (nativeCommands && (!await nativeCommands.awaitClosure() || nativeCommandClosure?.state !== "settled")) {
+      await this.ctx.blockConcurrencyWhile(async () => {
+        const key = this.getExecutionSessionKey(sessionId);
+        const session = await this.ctx.storage.get<RuntimeSessionRecord | RetiredExecutionSessionRecord>(key);
+        if (session && !isRetiredExecutionSession(session) && this.matchesLease(session.lease, input.lease)) {
+          await this.markSandboxCleanupInProgress([[key, session]]);
+          await this.persistSandboxCleanupRetry([[key, session]], Date.now(), "ORIGINAL_COMMAND_CLOSURE_UNKNOWN");
+          await this.scheduleExecutionSessionAlarm();
+        }
+      });
       return { taskId: input.taskId, leaseId: input.lease.leaseId, correlationId: input.lease.correlationId,
         status: "sandbox_unavailable", retryable: false,
-        nativeCommandClosure: await nativeCommands.closureEvidence(),
+        ...(nativeCommandClosure ? { nativeCommandClosure } : {}),
         error: { code: "NATIVE_COMMAND_CLOSURE_UNKNOWN", message: "The original command remains owned; recovery must reconcile it without rerunning." } };
     }
-    const nativeCommandClosure = nativeCommands ? await nativeCommands.closureEvidence() : undefined;
     if (nativeCommands) this.nativeCommands.delete(commandKey);
     if (result.status === "sandbox_unavailable" && !input.borrowedLease) {
       await this.releaseLease(input.lease.leaseId);
@@ -641,6 +650,7 @@ export class AgentRuntime extends DurableObject {
   private async persistSandboxCleanupRetry(
     group: Array<[string, RuntimeSessionRecord]>,
     now: number,
+    code: RuntimeSessionRecord["cleanupFailureCode"] = "SANDBOX_CLEANUP_FAILED",
   ): Promise<void> {
     for (const [key] of group) {
       const session = await this.ctx.storage.get<RuntimeSessionRecord>(key);
@@ -654,7 +664,7 @@ export class AgentRuntime extends DurableObject {
         ...session,
         cleanupInProgress: true,
         cleanupAttempts: attempts,
-        cleanupFailureCode: "SANDBOX_CLEANUP_FAILED",
+        cleanupFailureCode: code,
         cleanupRetryAt: now + delay,
       });
     }
@@ -689,6 +699,7 @@ export class AgentRuntime extends DurableObject {
           // authority history. Its original-process closure is not a Native proof.
           // Closing/count semantics await the delegated physical owner's contract.
           await this.ctx.storage.put(key, { ...session, token: "", cleanupInProgress: true });
+          await this.persistSandboxCleanupRetry([[key, session]], now, "ORIGINAL_COMMAND_CLOSURE_UNKNOWN");
         }
       }
       return true;
