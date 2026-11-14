@@ -16,6 +16,14 @@ const workspaceScope = {
 
 describe("SecureExecutionSessionClient resume", () => {
   it("rotates through the internal exact-scope endpoint and releases with the new bearer", async () => {
+    const { root: workspaceRoot, ...knownWorkspace } = workspaceScope;
+    const nativeCommandClosure = {
+      state: "settled", profile: "linux-pid-namespace-cgroup-v2", originalTransportSettled: true, operationId: "a".repeat(64), nonce: "a".repeat(64),
+      scope: { ...knownWorkspace, workspaceRoot, sessionId: "sess_resume001", leaseId: "lease_resume001", sandboxId: "sandbox-resume001", generation: 2, taskId: "task_resume001" },
+      root: { device: "1", inode: "9007199254740993" }, sandboxBootId: "123e4567-e89b-42d3-a456-426614174000",
+      namespace: { device: "2", inode: "3", initHostPid: 4 }, cgroup: { device: "5", inode: "6" },
+      metadataIdentity: "linux-git-metadata-v1:"+"d".repeat(64), receiptSha256: "b".repeat(64),
+    };
     const fetch = vi
       .fn()
       .mockResolvedValueOnce(
@@ -30,6 +38,7 @@ describe("SecureExecutionSessionClient resume", () => {
           },
         }),
       )
+      .mockResolvedValueOnce(Response.json({ cancelled: true, nativeCommandClosure }))
       .mockResolvedValueOnce(Response.json({ success: true }));
     const env = {
       SECURE_API: { fetch },
@@ -52,6 +61,12 @@ describe("SecureExecutionSessionClient resume", () => {
       sessionId: "sess_resume001",
       lease: { leaseId: "lease_resume001", generation: 2 },
     });
+    const cancelled = await client.cancelTaskWithNativeClosure("task_resume001");
+    expect(cancelled.cancelled).toBe(true);
+    expect(cancelled.nativeCommandClosure).toEqual(nativeCommandClosure);
+    await expect(client.parseNativeClosure({ ...nativeCommandClosure, scope: { ...nativeCommandClosure.scope, generation: 3 } }, "task_resume001")).resolves.toBeNull();
+    await expect(client.parseNativeClosure({ ...nativeCommandClosure, originalTransportSettled: false }, "task_resume001")).resolves.toBeNull();
+    await expect(client.parseNativeClosure({ ...nativeCommandClosure, nonce: "c".repeat(64) }, "task_resume001")).resolves.toBeNull();
     await client.release();
 
     const resumeRequest = fetch.mock.calls[0]!;
@@ -69,7 +84,9 @@ describe("SecureExecutionSessionClient resume", () => {
         generation: 2,
       },
     });
-    const releaseRequest = fetch.mock.calls[1]!;
+    const cancelRequest = fetch.mock.calls[1]!;
+    expect(JSON.parse(String(cancelRequest[1]?.body))).toEqual({ sessionId: "sess_resume001", taskId: "task_resume001" });
+    const releaseRequest = fetch.mock.calls[2]!;
     expect(releaseRequest[1]?.headers).toMatchObject({
       Authorization: "Bearer rotated-secret-token",
     });

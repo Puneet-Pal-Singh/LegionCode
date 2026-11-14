@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Sandbox } from "@cloudflare/sandbox";
 import { PythonPlugin } from "./PythonPlugin";
 import type { PluginExecutionContext } from "../interfaces/types";
+import type { NativeCommandCapability } from "../toolbox/contracts/OwnedSandboxCommand";
 
 interface ExecResult {
   exitCode: number;
@@ -10,7 +11,8 @@ interface ExecResult {
 }
 
 interface SandboxMock {
-  execCalls: string[];
+  execCalls: string[][];
+  nativeCommands: NativeCommandCapability;
   execOptions: Array<{ cwd?: string; env?: Record<string, string | undefined> }>;
   writeFileCalls: Array<{ fileName: string; content: string }>;
   exec: (
@@ -21,7 +23,7 @@ interface SandboxMock {
 }
 
 function createSandboxMock(responses: ExecResult[]): SandboxMock {
-  const execCalls: string[] = [];
+  const execCalls: string[][] = [];
   const execOptions: Array<{
     cwd?: string;
     env?: Record<string, string | undefined>;
@@ -32,19 +34,16 @@ function createSandboxMock(responses: ExecResult[]): SandboxMock {
     execCalls,
     execOptions,
     writeFileCalls,
-    async exec(
-      command: string,
-      options?: { cwd?: string; env?: Record<string, string | undefined> },
-    ): Promise<ExecResult> {
-      execCalls.push(command);
-      execOptions.push(options ?? {});
-      return (
-        responses.shift() ?? {
-          exitCode: 0,
-          stdout: "",
-          stderr: "",
-        }
-      );
+    async exec(): Promise<ExecResult> { throw new Error("Unowned SDK execution is forbidden"); },
+    nativeCommands: {
+      async execute(spec) {
+        execCalls.push(spec.argv);
+        execOptions.push({ cwd: spec.cwd, env: spec.env });
+        return responses.shift() ?? { exitCode: 0, stdout: "", stderr: "" };
+      },
+      async prepareWorkspace() { throw new Error("Not a provisioning fixture"); },
+      async stop() { return true; },
+      async awaitClosure() { return true; },
     },
     async writeFile(fileName: string, content: string): Promise<void> {
       writeFileCalls.push({ fileName, content });
@@ -56,8 +55,9 @@ function asSandbox(mock: SandboxMock): Sandbox {
   return mock as unknown as Sandbox;
 }
 
-function testExecutionContext(runId = "default"): PluginExecutionContext {
+function testExecutionContext(sandbox: SandboxMock, runId = "default"): PluginExecutionContext {
   return {
+    nativeCommands: sandbox.nativeCommands,
     workspaceScope: {
       runId,
       workspaceId: "workspace-test",
@@ -77,7 +77,7 @@ describe("PythonPlugin", () => {
     const result = await plugin.execute(asSandbox(sandbox), {
       code: "print('hello')",
       requirements: ["requests; rm -rf /"],
-    }, undefined, testExecutionContext());
+    }, undefined, testExecutionContext(sandbox));
 
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/Invalid Python requirement/i);
@@ -101,7 +101,7 @@ describe("PythonPlugin", () => {
       code: "print('ok')",
       requirements: ["requests"],
       runId: "run_py_1",
-    }, undefined, testExecutionContext("run_py_1"));
+    }, undefined, testExecutionContext(sandbox, "run_py_1"));
 
     expect(result.success).toBe(true);
     expect(sandbox.execCalls).toHaveLength(4);
@@ -118,13 +118,13 @@ describe("PythonPlugin", () => {
     const result = await plugin.execute(asSandbox(sandbox), {
       code: "print(42)",
       runId: "run_py_2",
-    }, undefined, testExecutionContext("run_py_2"));
+    }, undefined, testExecutionContext(sandbox, "run_py_2"));
 
     expect(result.success).toBe(true);
     expect(sandbox.writeFileCalls[0]?.fileName).toBe(
       "/home/sandbox/checkouts/run_py_2/main.py",
     );
-    expect(sandbox.execCalls[1]).toBe("'python3' 'main.py'");
+    expect(sandbox.execCalls[1]).toEqual(["python3", "main.py"]);
     expect(sandbox.execOptions[1]?.cwd).toBe("/home/sandbox/checkouts/run_py_2");
   });
 });

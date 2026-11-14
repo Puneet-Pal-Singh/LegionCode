@@ -227,9 +227,11 @@ async function assertNativeOriginalOwnership() {
     correlationId: "correlation-1", expiresAt: Date.now() + 60_000, mutationMode: "serialized",
     workspaceScope: { root: "/home/sandbox/checkouts/fixture", workspaceId: "workspace-1", runId: "run-1", threadId: "thread-1", turnId: "turn-1", runAttemptId: "attempt-1" },
   };
-  const root = { device: 1, inode: 2 };
-  const metadata = { identity: "canonical-fixture-metadata", entries: [{ path: `${lease.workspaceScope.root}/.git`, device: 1, inode: 3, kind: "directory" as const }] };
-  const records = new Map<string, unknown>([["execution:session:session-1", { lease, workspaceScope: lease.workspaceScope, nativeWorkspace: { root, metadata } }]]);
+  const root = { device: "1", inode: "9007199254740993" };
+  const metadata = { identity: "linux-git-metadata-v1:"+"d".repeat(64),
+    paths: { version: 1 as const, workspaceRoot: lease.workspaceScope.root, gitEntry: `${lease.workspaceScope.root}/.git`, gitDirectory: `${lease.workspaceScope.root}/.git`, commonDirectory: `${lease.workspaceScope.root}/.git`, backlinkPath: null, backlinkRecordPath: null },
+    entries: [{ path: `${lease.workspaceScope.root}/.git`, device: "1", inode: "3", kind: "directory" as const }] };
+  const records = new Map<string, unknown>([["execution:session:session-1", { lease, workspaceScope: lease.workspaceScope, nativeWorkspace: { root, metadata, sandboxBootId: "123e4567-e89b-42d3-a456-426614174000" } }]]);
   const state = {
     blockConcurrencyWhile: async <T>(operation: () => Promise<T>) => await operation(),
     storage: {
@@ -247,8 +249,8 @@ async function assertNativeOriginalOwnership() {
   let phase = "prepared", launches = 0, starts = 0;
   const receipt = () => NativeCommandReceiptSchema.parse({
     version: 1, binding: request.binding, state: phase,
-    identity: { bootId: "123e4567-e89b-42d3-a456-426614174000", namespaceDevice: 4, namespaceInode: 5, initHostPid: 6,
-      root, cgroup: { device: 7, inode: 8 }, limits: request.limits, metadataIdentity: metadata.identity },
+    identity: { bootId: "123e4567-e89b-42d3-a456-426614174000", namespaceDevice: "4", namespaceInode: "5", initHostPid: 6,
+      root, cgroup: { device: "7", inode: "8" }, limits: request.limits, metadataIdentity: metadata.identity },
     gateClosed: phase === "closed", admission: phase === "closed", outputLimited: false,
     ...(phase === "closed" ? { exitCode: 0, stdout: btoa("native output") } : {}),
   });
@@ -299,6 +301,18 @@ async function assertNativeOriginalOwnership() {
   expect(await owner.awaitClosure()).toBe(true);
   expect(hasUnsettledNativeCommand(read())).toBe(false);
   expect(read().nativeCommand?.originalTransportSettled).toBe(true);
+  const evidence = await owner.closureEvidence();
+  expect(evidence?.state).toBe("settled");
+  if (evidence?.state !== "settled") throw new Error("Expected exact native closure");
+  expect(evidence.root.inode).toBe("9007199254740993");
+  expect(evidence.scope).toMatchObject({ sessionId: "session-1", taskId: "task-1", generation: 0, runAttemptId: "attempt-1" });
+  expect(JSON.stringify(evidence)).not.toContain(read().nativeCommand!.controlToken);
+
+  const settledSession = records.get("execution:session:session-1") as NativeSessionFields;
+  settledSession.nativeCommand!.binding.generation = 1;
+  expect(hasUnsettledNativeCommand(settledSession)).toBe(true);
+  expect((await owner.closureEvidence())?.state).toBe("unknown");
+  settledSession.nativeCommand!.binding.generation = 0;
 
   // A reconstructed session cannot recreate a lost original transport handle.
   const saved = records.get("execution:session:session-1") as NativeSessionFields;
