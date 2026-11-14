@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { Sandbox } from "@cloudflare/sandbox";
+import { CloudflareToolboxAdapter } from "../adapters/CloudflareToolboxAdapter";
 import type {
   ToolboxCommandExecutionOptions,
   ToolboxCommandExecutor,
@@ -139,6 +141,32 @@ describe("ToolboxSessionService", () => {
       expect(event.runId).toBe("run-events");
       expect(event.toolName).toBe("node.run");
       expect(event.callId).toBe("task-456");
+    }
+
+    for (const message of ["HTTP error! status: 500", "createSession response lost"]) {
+      const exec = vi.fn(async () => { throw new Error(message); });
+      const execIfRunning = vi.fn(async () => ({ exitCode: 0, stdout: "borrowed", stderr: "" }));
+      const adapter = new CloudflareToolboxAdapter({ exec, execIfRunning } as unknown as Sandbox);
+      const failedEvents = createEventPublisherMock();
+      const hosted = new ToolboxSessionService(adapter, failedEvents.publisher);
+      const options = { cwd: "/home/sandbox/checkouts/checkout-1", env: { NODE_ENV: "test" } };
+      const failed = await hosted.execute({
+        runId: "run-ambiguous", toolName: "node.run", callId: "call-ambiguous",
+        command: "npm", args: ["run", "test"], ...options,
+      }, ["npm"]);
+      expect(failed.status).toBe("failed");
+      expect(failed.stderr).toBe(message);
+      expect(exec).toHaveBeenCalledTimes(1);
+      expect(exec).toHaveBeenCalledWith("'npm' 'run' 'test'", options);
+      expect(execIfRunning).not.toHaveBeenCalled();
+      expect(failedEvents.events.map((event) => event.status)).toEqual(["requested", "started", "failed"]);
+      for (const event of failedEvents.events) expect(event.sessionId).toBe(failed.sessionId);
+
+      await expect(adapter.execute("git status", { ...options, borrowedLease: true }))
+        .resolves.toEqual({ exitCode: 0, stdout: "borrowed", stderr: "" });
+      expect(execIfRunning).toHaveBeenCalledTimes(1);
+      expect(execIfRunning).toHaveBeenCalledWith("git status", options);
+      expect(exec).toHaveBeenCalledTimes(1);
     }
   });
 

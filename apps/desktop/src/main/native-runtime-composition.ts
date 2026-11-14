@@ -4,7 +4,8 @@ import { createLocalProviderModelDiscovery } from "@legioncode/app-server/local-
 import { createLocalReadOnlyGitService } from "@legioncode/app-server/local-readonly-git";
 import { LocalWorkspaceGitReads } from "@legioncode/app-server/local-workspace-git-reads";
 import { LocalWorkspaceWriterLeaseOwner } from "@legioncode/app-server/local-workspace-writer-lease";
-import { createLocalCapturedExecutionCapability } from "@legioncode/app-server/local-captured-execution";
+import { createLocalCapturedExecutionCapability, type LocalCapturedReservedLease } from "@legioncode/app-server/local-captured-execution";
+import { prepareLocalNativeQueuedExecution, type LocalNativeQueuedPreparationInput } from "@legioncode/app-server/local-native-queued-preparation";
 import { createCaptureGitService } from "@legioncode/app-server/local-capture-git";
 import { createArtifactGitService } from "@legioncode/app-server/local-artifact-git";
 import { createLocalArtifactCommitComposition } from "@legioncode/app-server/local-artifact-commit-composition";
@@ -92,12 +93,11 @@ export async function createDesktopNativeComposition(
         inspectMetadataLayout: binding.inspectMetadataLayout,
       }),
     }) : undefined,
-    createTurnRuntime: (persistence, media) => createLocalNativeRuntime({
-      persistence,
-      media,
-      capability: leases ? createLocalCapturedExecutionCapability({
+    createTurnRuntime: (persistence, media) => {
+      const captured = leases ? (reservedLease?: LocalCapturedReservedLease) => createLocalCapturedExecutionCapability({
         persistence,
         leases,
+        reservedLease,
         storageDirectory: config.storageDirectory,
         filesystemHelperPath,
         processHelperPath,
@@ -108,21 +108,29 @@ export async function createDesktopNativeComposition(
           metadataIdentity: binding.metadataIdentity,
           inspectMetadataLayout: binding.inspectMetadataLayout,
         }),
-      }) : undefined,
-      releaseExecution: leases ? (attempt, proof, onReleased) => leases.releaseAttempt(attempt, proof, onReleased) : undefined,
-      workerId: WorkerIdSchema.parse("worker_localdesktop"),
-      permissionProfileId: PermissionProfileIdSchema.parse("perm_localdesktop"),
-      resolvePermissionPolicy: (productMode) => new NativePermissionPolicyResolver(productMode).resolve(),
-      nativeFilesystemHelperPath: filesystemHelperPath,
-      resolveRuntimeCredential: credentials.resolveRuntimeCredential.bind(credentials),
-      createGitService: (binding, turnSignal) => createLocalReadOnlyGitService({
-        purpose: "repo_probe",
-        probeRoot: binding.filesystemRoot,
-        withRootAuthority: binding.withRootAuthority,
-        gitExecutable,
-        processHelperPath,
-        turnSignal,
-      }),
-    }),
+      }) : undefined;
+      return createLocalNativeRuntime({
+        persistence,
+        media,
+        capability: captured?.(),
+        prepareQueuedExecution: leases && captured ? (input: LocalNativeQueuedPreparationInput) => prepareLocalNativeQueuedExecution({
+          persistence, leases, createCapturedCapability: (reservedLease) => captured(reservedLease),
+        }, input) : undefined,
+        releaseExecution: leases ? (attempt, proof, onReleased) => leases.releaseAttempt(attempt, proof, onReleased) : undefined,
+        workerId: WorkerIdSchema.parse("worker_localdesktop"),
+        permissionProfileId: PermissionProfileIdSchema.parse("perm_localdesktop"),
+        resolvePermissionPolicy: (productMode) => new NativePermissionPolicyResolver(productMode).resolve(),
+        nativeFilesystemHelperPath: filesystemHelperPath,
+        resolveRuntimeCredential: credentials.resolveRuntimeCredential.bind(credentials),
+        createGitService: (binding, turnSignal) => createLocalReadOnlyGitService({
+          purpose: "repo_probe",
+          probeRoot: binding.filesystemRoot,
+          withRootAuthority: binding.withRootAuthority,
+          gitExecutable,
+          processHelperPath,
+          turnSignal,
+        }),
+      });
+    },
   };
 }
