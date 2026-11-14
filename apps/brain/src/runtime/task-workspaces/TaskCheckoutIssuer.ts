@@ -12,6 +12,7 @@ import {
   type WorkspaceSnapshot,
 } from "@repo/platform-protocol";
 import type { ExecuteRunPayload } from "../parsing/ExecuteRunPayloadSchema";
+import type { NativePreparationCleanupReceipt } from "../RetainedNativeAttempt";
 import {
   toSecureExecutionWorkspaceScope,
   type SecureExecutionWorkspaceScope,
@@ -57,6 +58,11 @@ export type SecureExecutionSessionFactory = (input: {
   readonly persistedReference?: PersistedSecureExecutionSessionReference;
 }) => SecureExecutionSessionPort;
 
+interface TaskCheckoutIssueOptions {
+  readonly resumeSnapshot?: ResumeWorkspaceSnapshotRef;
+  readonly failureCleanup?: (receipt: NativePreparationCleanupReceipt) => void;
+}
+
 export class TaskCheckoutIssuer {
   constructor(
     private readonly env: Env,
@@ -76,7 +82,22 @@ export class TaskCheckoutIssuer {
 
   async issue(
     payload: ExecuteRunPayload,
-    options?: { readonly resumeSnapshot?: ResumeWorkspaceSnapshotRef },
+    options?: TaskCheckoutIssueOptions,
+  ): Promise<IssuedTaskCheckout> {
+    let exposurePossible = false;
+    try {
+      return await this.issueOwned(payload, options, () => { exposurePossible = true; }, () => { exposurePossible = false; });
+    } catch (error) {
+      if (!exposurePossible) options?.failureCleanup?.({ kind: "no_exposure" });
+      throw error;
+    }
+  }
+
+  private async issueOwned(
+    payload: ExecuteRunPayload,
+    options: TaskCheckoutIssueOptions | undefined,
+    expose: () => void,
+    noExistingOwnership: () => void,
   ): Promise<IssuedTaskCheckout> {
     const identity = payload.identity;
     const repository = payload.input.repositoryContext;
@@ -104,11 +125,13 @@ export class TaskCheckoutIssuer {
       : undefined;
     if (resumeSnapshot) this.assertResumeSnapshotScope(payload, resumeSnapshot);
 
+    expose(); // A failed lookup cannot prove an existing checkout is absent.
     const existing = await this.findExistingCheckout(
       identity.runAttemptId,
       payload.correlationId,
     );
     if (existing) {
+      expose(); // Existing physical ownership cannot be inferred clean from a failed resume.
       if (
         resumeSnapshot &&
         (existing.checkout.snapshotId !== resumeSnapshot.baseSnapshotId ||
@@ -130,6 +153,7 @@ export class TaskCheckoutIssuer {
       );
     }
 
+    noExistingOwnership(); // Positive lookup absence, before any new secure acquire.
     const snapshot = resumeSnapshot
       ? await this.findResumeBaseSnapshot(payload, resumeSnapshot)
       : await this.capture.capture({
@@ -153,14 +177,17 @@ export class TaskCheckoutIssuer {
       workspaceId: identity.workspaceId,
       root: filesystemRoot,
     });
+    expose(); // Fence before any possible acquire dispatch, including constructor failure.
     const executionSession = this.sessionFactory({
       sessionId: payload.sessionId,
       runId: payload.runId,
       workspaceScope,
     });
 
+    let acquired = false;
     try {
       const session = await executionSession.acquire();
+      acquired = true;
       const checkout = TaskCheckoutSchema.parse({
         kind: "task_checkout",
         checkoutId,
@@ -233,6 +260,16 @@ export class TaskCheckoutIssuer {
             runAttemptId: identity.runAttemptId,
           },
         );
+      }
+      if (acquired) {
+        // An issuance response can be lost after commit. Successful session
+        // release alone does not prove an unknown persisted checkout settled.
+        const checkoutAbsent = await withBrainPersistenceRepository(
+          this.env, this.repositoryOverride ?? this.env.AUTH_TASK_WORKSPACE_REPOSITORY,
+          client => new PostgresTaskWorkspaceRepository(client),
+          async taskWorkspaces => (await taskWorkspaces.getByRunAttemptId(RunAttemptIdSchema.parse(identity.runAttemptId))) === null,
+        ).catch(() => false);
+        if (checkoutAbsent) options?.failureCleanup?.({ kind: "released" });
       }
       throw error;
     }

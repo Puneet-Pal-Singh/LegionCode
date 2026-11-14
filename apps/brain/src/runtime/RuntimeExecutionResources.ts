@@ -20,6 +20,7 @@ import type { ExecuteRunPayload } from "./parsing/ExecuteRunPayloadSchema";
 import { TaskCheckoutIssuer } from "./task-workspaces/TaskCheckoutIssuer";
 import { TaskCheckoutExecutionOrchestrator } from "./task-workspaces/TaskCheckoutExecutionOrchestrator";
 import { TaskCheckoutRunLifecycle } from "./task-workspaces/TaskCheckoutRunLifecycle";
+import type { NativePreparationCleanupReceipt } from "./RetainedNativeAttempt";
 
 interface RuntimeExecutionResources {
   readonly agent: IAgent | undefined;
@@ -37,6 +38,22 @@ export async function prepareRuntimeExecutionResources(
   ctx: unknown,
   env: Env,
   payload: ExecuteRunPayload,
+  failureCleanup?: (receipt: NativePreparationCleanupReceipt) => void,
+): Promise<RuntimeExecutionResources> {
+  let exposurePossible = false;
+  try {
+    return await prepareOwnedRuntimeResources(ctx, env, payload, {
+      expose: () => { exposurePossible = true; }, closed: receipt => failureCleanup?.(receipt),
+    });
+  } catch (error) {
+    if (!exposurePossible) failureCleanup?.({ kind: "no_exposure" });
+    throw error;
+  }
+}
+
+async function prepareOwnedRuntimeResources(
+  ctx: unknown, env: Env, payload: ExecuteRunPayload,
+  ownership: { expose(): void; closed(receipt: NativePreparationCleanupReceipt): void },
 ): Promise<RuntimeExecutionResources> {
   const { identity, userId, workspaceId, sessionId, runId } = payload;
   if (!identity || !userId || !workspaceId)
@@ -99,8 +116,10 @@ export async function prepareRuntimeExecutionResources(
     );
   }
   const orchestrator = new TaskCheckoutExecutionOrchestrator(env);
+  ownership.expose();
   const issued = await new TaskCheckoutIssuer(env).issue(payload, {
     resumeSnapshot: payload.resumeSnapshotRef,
+    failureCleanup: ownership.closed,
   });
   let checkout;
   try {
@@ -115,6 +134,8 @@ export async function prepareRuntimeExecutionResources(
     );
   } catch (error) {
     await issued.executionSession.release();
+    // The claim response may have been lost after activation; without a
+    // checkout settlement receipt this preparation remains unknown.
     throw error;
   }
   const checkoutLifecycle = new TaskCheckoutRunLifecycle(
@@ -204,6 +225,7 @@ export async function prepareRuntimeExecutionResources(
     } finally {
       await checkoutLifecycle.release();
     }
+    ownership.closed({ kind: "released" });
     throw error;
   }
 }

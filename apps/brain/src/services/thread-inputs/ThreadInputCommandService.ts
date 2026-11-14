@@ -24,6 +24,7 @@ import { assertChatImageModelSupport } from "../chat/ChatImageModelPolicy";
 import { ThreadInputConflictError } from "@repo/persistence";
 import { readRunTerminal } from "./AdmittedTurnExecutionService";
 import { RunAdmissionService } from "../../runtime/RunAdmissionService";
+import type { ClaimedNativeAttempt } from "../../runtime/RetainedNativeAttempt";
 import { toRuntimeRunMode } from "../chat/RuntimeRunMode";
 import { resolveSessionRepositoryContext } from "../workspaces/SessionRepositoryContext";
 
@@ -42,6 +43,27 @@ type StartedThreadInputReceipt = z.infer<
 /** Owns commands that reserve and dispatch a whole admitted turn. */
 export class ThreadInputCommandService {
   constructor(private readonly env: Env) {}
+
+  /** Called by the retained original attempt only after its resource receipt. */
+  async onNativeAttemptSettled(request: Request, attempt: ClaimedNativeAttempt): Promise<void> {
+    const admitted = attempt.admission;
+    const current = await withTurnAdmissionRepository(this.env, repository => repository.getByTurnId(admitted.turnId));
+    if (!current || !admitted.workspaceId || current.state !== "admitted" ||
+        current.userId !== admitted.userId || current.sessionId !== admitted.sessionId ||
+        current.workspaceId !== admitted.workspaceId || current.runId !== admitted.runId ||
+        current.threadId !== admitted.threadId || current.turnId !== admitted.turnId ||
+        current.runAttemptId !== admitted.runAttemptId) {
+      throw new Error("Settled Native attempt no longer matches its durable admission");
+    }
+    const type = await readRunTerminal(this.env, admitted.runId, admitted.turnId, {
+      threadId: admitted.threadId, runAttemptId: admitted.runAttemptId,
+    });
+    if (!type) throw new Error("Settled Native attempt has no canonical terminal receipt");
+    await new RunAdmissionService(this.env).releaseAttempt(admitted.runAttemptId, attempt.correlationId);
+    await this.onTurnTerminal({ type, request,
+      userId: admitted.userId, sessionId: admitted.sessionId, threadId: admitted.threadId,
+      workspaceId: admitted.workspaceId, correlationId: attempt.correlationId });
+  }
 
   async reconcileTerminal(input: {
     readonly request: Request;
@@ -216,17 +238,6 @@ export class ThreadInputCommandService {
             return settled;
           },
           onDispatchSettled: releaseGrantOnce,
-          onTerminal: (type) =>
-            this.onTurnTerminal({
-              type,
-              request,
-              executionContext: input.executionContext,
-              userId: input.userId,
-              sessionId: input.sessionId,
-              threadId: command.threadId,
-              workspaceId: command.workspaceId,
-              correlationId: input.correlationId,
-            }),
         });
       } else if (
         resumed.admission.executionState === "running" ||
@@ -509,17 +520,6 @@ export class ThreadInputCommandService {
             return settled;
           },
           onDispatchSettled: releaseGrantOnce,
-          onTerminal: (type) =>
-            this.onTurnTerminal({
-              type,
-              request: input.request,
-              executionContext: input.executionContext,
-              userId: input.userId,
-              sessionId: input.sessionId,
-              threadId: command.threadId,
-              workspaceId: command.workspaceId,
-              correlationId: input.correlationId,
-            }),
         });
       } else if (
         result.admission.executionState === "running" ||

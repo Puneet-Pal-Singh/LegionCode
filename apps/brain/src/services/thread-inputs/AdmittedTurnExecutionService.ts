@@ -51,9 +51,6 @@ export interface AdmittedTurnExecution {
   readonly repository: AuthorizedWorkspaceRepositoryContext | null;
   readonly onStartupFailure: (error: unknown) => Promise<boolean>;
   readonly onDispatchSettled: () => Promise<void>;
-  readonly onTerminal?: (
-    type: "turn.completed" | "turn.failed" | "turn.interrupted",
-  ) => Promise<void>;
 }
 
 export async function prepareAdmittedTurnModel(input: {
@@ -164,21 +161,12 @@ export async function dispatchAdmittedTurn(
       executionPayload,
     );
     await response.arrayBuffer();
-    const terminal = await readRunTerminal(
-      input.env,
-      input.run.id,
-      input.identity.turnId,
-    );
-    if (terminal) await input.onDispatchSettled();
-    if (terminal) await input.onTerminal?.(terminal);
+    // The DO owns physical completion, capacity release and queue advancement.
+    // Neither this ACK body nor a terminal projection proves original cleanup.
     if (!response.ok) {
       const error = new Error(
         `RunEngine rejected admitted turn with HTTP ${response.status}`,
       );
-      if (response.status === 400) {
-        const settled = await input.onStartupFailure(error);
-        if (settled) await input.onDispatchSettled();
-      }
       throw error;
     }
   };
@@ -192,7 +180,9 @@ export async function dispatchAdmittedTurn(
     throw error;
   });
   if (input.executionContext) input.executionContext.waitUntil(task);
-  else await task;
+  // The started/resumed receipt must follow the DO's durable ownership ACK.
+  // Actual execution continues under the DO's independent retained attempt.
+  await task;
 }
 
 export async function settleUnclaimedStartupFailure(input: {
@@ -319,6 +309,7 @@ export async function readRunTerminal(
   env: Env,
   runId: string,
   turnId: string,
+  expected?: { readonly threadId: string; readonly runAttemptId: string },
 ): Promise<"turn.completed" | "turn.failed" | "turn.interrupted" | null> {
   let afterSequence: number | null = null;
   while (true) {
@@ -344,6 +335,9 @@ export async function readRunTerminal(
     for (const event of body.events) {
       if (typeof event !== "object" || event === null || !("type" in event))
         continue;
+      if (expected && (!("turnId" in event) || event.turnId !== turnId ||
+          !("threadId" in event) || event.threadId !== expected.threadId ||
+          !("runAttemptId" in event) || event.runAttemptId !== expected.runAttemptId)) continue;
       const type = (event as { type?: unknown }).type;
       if (
         type === "turn.completed" ||

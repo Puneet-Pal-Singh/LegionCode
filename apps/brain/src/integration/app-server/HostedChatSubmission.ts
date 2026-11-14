@@ -78,6 +78,7 @@ export async function submitHostedChat(
     identity,
   } = chatRequest;
   const admissionService = new RunAdmissionService(env);
+  let nativeOwnershipTransferred = false;
   let admissionGrant:
     | Awaited<ReturnType<RunAdmissionService["enforce"]>>
     | undefined;
@@ -191,12 +192,14 @@ export async function submitHostedChat(
         clientMessageId: body.clientMessageId ?? null,
       }),
     );
+    // Transfer before transport: a lost ACK can still leave a claimed attempt.
+    nativeOwnershipTransferred = useCaseResult.executionPayload.input.harnessMode === "platform_owned";
     const doResponse = await executeViaRunEngineDurableObject(
       env,
       runId,
       useCaseResult.executionPayload,
     );
-    new ThreadInputCommandService(env).scheduleTerminalReconciliation({
+    if (!nativeOwnershipTransferred) new ThreadInputCommandService(env).scheduleTerminalReconciliation({
       response: doResponse,
       request: req,
       executionContext,
@@ -247,7 +250,7 @@ export async function submitHostedChat(
     );
     throw error;
   } finally {
-    if (admissionGrant) {
+    if (admissionGrant && !nativeOwnershipTransferred) {
       await admissionService.release(admissionGrant, correlationId);
     }
   }

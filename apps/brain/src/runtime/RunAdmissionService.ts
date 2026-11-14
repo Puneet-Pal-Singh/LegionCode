@@ -7,6 +7,7 @@ import {
 } from "./RunAdmissionPolicy";
 import {
   RunAdmissionLimiterClient,
+  runAdmissionLeaseForAttempt,
   type RunAdmissionLease,
 } from "./RunAdmissionLimiterClient";
 import { isRunAdmissionBlocked } from "./RunEmergencyShutoffPolicy";
@@ -55,6 +56,12 @@ export class RunAdmissionService {
         error,
       );
     }
+  }
+
+  /** The retained original attempt calls this only after positive cleanup.
+   * Failure propagates so queued work cannot advance on an unconfirmed release. */
+  async releaseAttempt(runAttemptId: string, correlationId: string): Promise<void> {
+    await this.limiterClient.release(runAdmissionLeaseForAttempt(runAttemptId), correlationId);
   }
 
   private enforceEmergencyShutoff(correlationId: string): void {

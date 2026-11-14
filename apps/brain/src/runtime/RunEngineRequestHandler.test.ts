@@ -43,6 +43,7 @@ import { RunInterruptIdentitySchema } from "./RunInterruptContract";
 import { InMemoryRunInterruptRegistry } from "./RunInterruptRegistry";
 import { AIService } from "../services/AIService";
 import * as executionResources from "./RuntimeExecutionResources";
+import { retainNativeAttempt } from "./RetainedNativeAttempt";
 import { InMemoryRunApprovalResolutionRegistry } from "./RunApprovalResolutionRegistry";
 import type { RunApprovalResolutionRegistry } from "./RunApprovalResolutionRegistry";
 
@@ -525,7 +526,13 @@ describe("RunEngineRequestHandler", () => {
       } as unknown as Env,
       runImmediately,
     );
-    const response = await handler.handleExecuteRequest(
+    const retained: Promise<unknown>[] = [];
+    const accepted = vi.fn(() => new Response("unexpected ACK", { status: 202 }));
+    const settled = vi.fn();
+    const response = await retainNativeAttempt({
+      owner: { waitUntil: operation => { retained.push(operation); } },
+      accepted, settled, reportError: error => { throw error; },
+      execute: observer => handler.handleExecuteRequest(
       new Request("https://run-engine/execute", {
         method: "POST",
         body: JSON.stringify({
@@ -551,8 +558,11 @@ describe("RunEngineRequestHandler", () => {
           },
           messages: [{ role: "user", content: "read README" }],
         }),
-      }),
-    );
+      }), observer),
+    });
+    await retained[0];
+    expect(accepted).not.toHaveBeenCalled();
+    expect(settled).not.toHaveBeenCalled();
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toMatchObject({
@@ -1279,6 +1289,10 @@ describe("RunEngineRequestHandler", () => {
     // is still pending. Both runner outcomes must retain the physical lease.
     await assertOriginalProviderDrain("fulfilled");
     await assertOriginalProviderDrain("rejected");
+    await assertOriginalProviderDrain("fulfilled", "release");
+    await assertOriginalProviderDrain("fulfilled", "ack");
+    await assertOriginalProviderDrain("fulfilled", "prepare");
+    await assertOriginalProviderDrain("fulfilled", "prepare_closed");
   });
 
   it("projects a typed activity feed snapshot", async () => {
@@ -1815,7 +1829,7 @@ describe("RunEngineRequestHandler", () => {
   });
 });
 
-async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected") {
+async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", failure?: "release" | "ack" | "prepare" | "prepare_closed") {
   const ctx = new MockDurableObjectState();
   const scope = RunInterruptIdentitySchema.parse({
     runId: "run_123e4567e89b42d3a456426614174212",
@@ -1834,12 +1848,19 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected") {
   const structuredProvider = vi.spyOn(AIService.prototype, "generateStructured").mockImplementation(() => original);
   const provider = outcome === "fulfilled" ? structuredProvider : textProvider;
   const settle = vi.fn(async () => undefined);
-  const release = vi.fn(async () => undefined);
+  const release = vi.fn(async () => {
+    if (failure === "release") throw new Error("Physical release is unresolved");
+  });
   const prepare = executionResources.prepareRuntimeExecutionResources;
-  const resources = vi.spyOn(executionResources, "prepareRuntimeExecutionResources").mockImplementation(async (...args) => ({
-    ...await prepare(...args),
-    checkoutLifecycle: { isSettled: false, settle, release } as unknown as NonNullable<Awaited<ReturnType<typeof prepare>>["checkoutLifecycle"]>,
-  }));
+  const resources = vi.spyOn(executionResources, "prepareRuntimeExecutionResources").mockImplementation(async (...args) => {
+    if (failure === "prepare_closed") {
+      args[3]?.({ kind: "no_exposure" });
+      throw new Error("Preparation failed before exposure");
+    }
+    if (failure === "prepare") throw new Error("Preparation closure has no receipt");
+    return { ...await prepare(...args),
+      checkoutLifecycle: { isSettled: false, settle, release } as unknown as NonNullable<Awaited<ReturnType<typeof prepare>>["checkoutLifecycle"]> };
+  });
   let lockHeld = false;
   const lock: RunEngineRequestLock = Object.assign(async <T>(_run: string, operation: () => Promise<T>) => {
     lockHeld = true;
@@ -1847,6 +1868,8 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected") {
   }, { hasQueuedOrActiveRun: () => lockHeld });
   const registry = new InMemoryRunInterruptRegistry();
   const interrupt = vi.spyOn(RuntimeKernelNativeRunner.prototype, "interrupt").mockResolvedValue(undefined);
+  let responseBody: ReadableStreamDefaultController<Uint8Array> | undefined;
+  let responseBodyReading = false;
   let observerReady!: () => void;
   const observer = new Promise<void>(resolve => { observerReady = resolve; });
   const runner = vi.spyOn(RuntimeKernelNativeRunner.prototype, "execute").mockImplementation(async () => {
@@ -1862,7 +1885,10 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected") {
       : gateway.generateText(request)).rejects.toMatchObject({ name: "LLMTimeoutError" });
     observerReady();
     if (outcome === "rejected") throw new Error("observer stopped after timeout");
-    return new Response("done");
+    return new Response(new ReadableStream<Uint8Array>({
+      start(controller) { responseBody = controller; },
+      pull() { responseBodyReading = true; },
+    }, { highWaterMark: 0 }));
   });
   try {
     const handler = new RunEngineRequestHandler(ctx as unknown as DurableObjectState, {
@@ -1873,7 +1899,11 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected") {
         getCanonicalAssistantMessageId: async () => null,
       },
       AUTH_TURN_ADMISSION_REPOSITORY: {
-        claimExecution: async () => ({ status: "claimed" }),
+        claimExecution: async () => ({ status: "claimed", admission: {
+          ...scope, userId: "user-1", clientMessageId: "client-1", state: "admitted", executionState: "running",
+          revisionOfTurnId: null, continuationOfTurnId: null, originalPromptId: null, continuationTerminalSequence: null,
+          requestFingerprint: null, admissionOrder: 1, createdAt: "2026-11-14T00:00:00Z", admittedAt: "2026-11-14T00:00:00Z",
+        } }),
         markRecoveryRequired: async () => false,
       },
     } as unknown as Env, lock, undefined, {
@@ -1881,7 +1911,13 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected") {
       lifecycleEventStore: { replay: async () => ({ events: [{ type: "turn.completed" }], nextSequence: null }) } as unknown as LifecycleEventStore,
     });
     let handlerSettled = false;
-    const execution = handler.handleExecuteRequest(new Request("https://brain.local/execute", {
+    const retained: Promise<unknown>[] = [];
+    const physicallySettled = vi.fn(async () => {
+      expect(lockHeld).toBe(false);
+      expect(release).toHaveBeenCalledTimes(failure === "prepare_closed" ? 0 : 1);
+    });
+    let executionResponse: Response | undefined;
+    const request = new Request("https://brain.local/execute", {
       method: "POST", body: JSON.stringify({
         ...scope, identity: scope, userId: "user-1", correlationId: "drain-fixture",
         input: { mode: "build", agentType: "coding", prompt: "inspect", sessionId: scope.sessionId,
@@ -1889,11 +1925,45 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected") {
           executionBackend: "cloudflare_sandbox", harnessMode: "platform_owned", authMode: "api_key" },
         messages: [{ role: "user", content: "inspect" }],
       }),
-    })).then(response => { handlerSettled = true; return response; });
+    });
+    const acknowledgement = retainNativeAttempt({
+      owner: { waitUntil: operation => { retained.push(operation); } },
+      execute: async observer => {
+        expect(retained).toHaveLength(1);
+        const response = await handler.handleExecuteRequest(request, observer);
+        executionResponse = response;
+        handlerSettled = true;
+        return response;
+      },
+      accepted: attempt => {
+        expect(registry.hasActiveOwner(scope.turnId)).toBe(true);
+        expect(Object.isFrozen(attempt.admission)).toBe(true);
+        expect(attempt.admission).toMatchObject(scope);
+        if (failure === "ack") throw new Error("ACK construction failed");
+        return Response.json({ accepted: true }, { status: 202 });
+      },
+      settled: physicallySettled,
+      reportError: error => { throw error; },
+    });
+    if (failure === "ack") {
+      await expect(acknowledgement).rejects.toThrow("ACK construction failed");
+      await retained[0];
+      expect(provider).not.toHaveBeenCalled();
+      expect(physicallySettled).not.toHaveBeenCalled();
+      return;
+    }
+    const ack = await acknowledgement;
+    expect(ack.status).toBe(202);
+    if (failure === "prepare" || failure === "prepare_closed") {
+      await retained[0];
+      expect(provider).not.toHaveBeenCalled();
+      expect(physicallySettled).toHaveBeenCalledTimes(failure === "prepare_closed" ? 1 : 0);
+      return;
+    }
+    expect(await registry.request(scope.turnId, "Stop before runtime preparation completes")).toBe(true);
     await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(1));
     // Await the runner observer (including the actual gateway timeout), not the raw request.
     await observer;
-    expect(await registry.request(scope.turnId, "Stop")).toBe(true);
     expect(interrupt).toHaveBeenCalledTimes(1);
     expect(handlerSettled).toBe(false);
     expect(lockHeld).toBe(true);
@@ -1905,8 +1975,19 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected") {
     expect(provider).toHaveBeenCalledTimes(1);
     if (outcome === "fulfilled") settleOriginal({ ok: true } as never);
     else rejectOriginal(new Error("original SDK body failed later"));
-    const response = await execution;
-    expect(response.status).toBe(outcome === "fulfilled" ? 200 : 500);
+    if (outcome === "fulfilled") {
+      // Even after the SDK settles, the original response body is still owned.
+      await vi.waitFor(() => expect(responseBodyReading).toBe(true));
+      expect(handlerSettled).toBe(false);
+      expect(lockHeld).toBe(true);
+      expect(settle).not.toHaveBeenCalled();
+      expect(release).not.toHaveBeenCalled();
+      responseBody!.enqueue(new TextEncoder().encode("done"));
+      responseBody!.close();
+    }
+    await retained[0];
+    expect(executionResponse?.status).toBe(outcome === "fulfilled" && failure !== "release" ? 200 : 500);
+    expect(physicallySettled).toHaveBeenCalledTimes(failure === "release" ? 0 : 1);
     expect(settle).toHaveBeenCalledTimes(1);
     expect(release).toHaveBeenCalledTimes(1);
     expect(lockHeld).toBe(false);

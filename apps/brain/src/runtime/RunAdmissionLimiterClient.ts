@@ -28,6 +28,10 @@ export interface RunAdmissionLease {
   leaseId: string;
 }
 
+export function runAdmissionLeaseForAttempt(runAttemptId: string): RunAdmissionLease {
+  return { leaseId: `run-attempt:${runAttemptId}` };
+}
+
 export class RunAdmissionLimiterClient {
   constructor(private readonly env: Env) {}
 
@@ -64,7 +68,7 @@ export class RunAdmissionLimiterClient {
     policy: AdmissionPolicy,
     correlationId: string,
   ): Promise<RunAdmissionLease> {
-    const leaseId = `run-attempt:${identity.runAttemptId}`;
+    const { leaseId } = runAdmissionLeaseForAttempt(identity.runAttemptId);
     const decision = parseResponse(
       AcquireDecisionSchema,
       await this.post(

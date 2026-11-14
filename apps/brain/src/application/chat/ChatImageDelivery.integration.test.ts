@@ -126,9 +126,12 @@ describe("authenticated image submission through native provider delivery", () =
     expect(resources.runEngineDeps.workspaceBootstrapper).toBeUndefined();
     expect(resources.artifacts).toBeUndefined();
     expect(await resolveSessionRepositoryContext({ env, sessionId, userId, workspaceId: identity.workspaceId })).toBeNull();
+    const preparationCleanup = vi.fn();
     await expect(prepareRuntimeExecutionResources({}, env, {
       ...first.executionPayload, input: { ...first.executionPayload.input, repositoryContext: { owner: "other", repo: "repo" } },
-    })).rejects.toMatchObject({ code: "RUN_SCOPE_MISMATCH" });
+    }, preparationCleanup)).rejects.toMatchObject({ code: "RUN_SCOPE_MISMATCH" });
+    expect(preparationCleanup).toHaveBeenCalledTimes(1);
+    expect(preparationCleanup).toHaveBeenCalledWith({ kind: "no_exposure" });
     await expect(prepareRuntimeExecutionResources({}, env, { ...first.executionPayload, userId: "different-owner" })).rejects.toMatchObject({ code: "RUN_SCOPE_MISMATCH" });
     const projectlessRuntime = createRuntime(first.executionPayload, false, true);
     await projectlessRuntime.execute();

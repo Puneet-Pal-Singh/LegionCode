@@ -49,6 +49,7 @@ import {
   type ExecuteRunPayload,
 } from "./parsing/ExecuteRunPayloadSchema";
 import { prepareRuntimeExecutionResources } from "./RuntimeExecutionResources";
+import type { NativeAttemptObserver, NativePreparationCleanupReceipt } from "./RetainedNativeAttempt";
 import {
   DomainError,
   isDomainError,
@@ -1228,9 +1229,10 @@ export class RunEngineRequestHandler {
     );
   }
 
-  async handleExecuteRequest(request: Request): Promise<Response> {
+  async handleExecuteRequest(request: Request, observer?: NativeAttemptObserver): Promise<Response> {
     let executionClaim: { turnId: TurnId; claimId: string } | null = null;
     let startupInterruptReason: string | null = null;
+    let preparationCleanup: NativePreparationCleanupReceipt | undefined;
     let payload: ExecuteRunPayload;
     try {
       payload = await parseExecuteRunRequest(request);
@@ -1251,6 +1253,7 @@ export class RunEngineRequestHandler {
       return runEngineErrorResponse(request, this.env, message, 400);
     }
 
+    const nativeObserver = payload.input.harnessMode === "platform_owned" ? observer : undefined;
     const workspaceId = BrainWorkspaceIdSchema.safeParse(payload.workspaceId);
     if (!workspaceId.success) {
       return runEngineErrorResponse(
@@ -1377,10 +1380,22 @@ export class RunEngineRequestHandler {
         }
         executionClaim = { turnId, claimId };
         this.interruptRegistry.beginStartup(turnId);
+        if (!claimResult.admission) {
+          throw new Error("Claimed Native execution has no durable admission receipt");
+        }
+        // Preserve the exact canonical receipt, including forthcoming binding fields.
+        const claimedAdmission = Object.freeze({ ...claimResult.admission });
+        nativeObserver?.claimed(Object.freeze({
+          admission: claimedAdmission, correlationId: payload.correlationId,
+        }));
         const runtimeState = this.createRuntimeState();
-        const resources = await prepareRuntimeExecutionResources(this.ctx, this.env, payload);
+        const resources = await prepareRuntimeExecutionResources(this.ctx, this.env, payload, receipt => { preparationCleanup = receipt; });
         const taskCheckoutLifecycle = resources.checkoutLifecycle;
         const editArtifactCoordinator = resources.artifacts;
+        let providerDrained = false;
+        let bodyDrained = false;
+        let artifactsSettled = false;
+        let checkoutSettled = taskCheckoutLifecycle === undefined;
         try {
           const userMessageId = readLatestUserMessageId(payload.messages);
           editArtifactCoordinator?.setMessageContext({ userMessageId: userMessageId ?? undefined });
@@ -1433,7 +1448,19 @@ export class RunEngineRequestHandler {
             continuationOfTurnId: identity.continuationOfTurnId,
             originalPromptId: identity.originalPromptId,
             workspace: resources.workspace,
-          }).finally(() => resources.drainProviderRequests());
+          }).finally(async () => {
+            await resources.drainProviderRequests();
+            providerDrained = true;
+          }).then(async response => {
+            // This original response producer stays inside the DO attempt; an
+            // admission ACK is never mistaken for its body having completed.
+            const bytes = await response.arrayBuffer();
+            bodyDrained = true;
+            return new Response(bytes, { status: response.status, statusText: response.statusText, headers: response.headers });
+          }, error => {
+            bodyDrained = true; // Rejected execution produced no response body.
+            throw error;
+          });
           console.log(
             formatDiagnosticLogLine("run/runtime", "engine-executed", {
               correlationId: payload.correlationId,
@@ -1467,6 +1494,7 @@ export class RunEngineRequestHandler {
             });
           }
           await editArtifactCoordinator?.waitForPendingCapture();
+          artifactsSettled = true;
           const lifecycleEvents = await readAllLifecycleEvents(
             this.createLifecycleEventStore(),
             turnId,
@@ -1494,6 +1522,7 @@ export class RunEngineRequestHandler {
                       : "RUNTIME_TERMINAL_FAILURE",
                 },
           );
+          checkoutSettled = true;
           console.log(
             formatDiagnosticLogLine("run/runtime", "artifacts-settled", {
               correlationId: payload.correlationId,
@@ -1514,6 +1543,7 @@ export class RunEngineRequestHandler {
                 status: "failed",
                 failureCode: "RUN_PIPELINE_FAILED",
               });
+              checkoutSettled = true;
             } catch {
               throw new DomainError(
                 "TASK_CHECKOUT_SETTLEMENT_FAILED",
@@ -1530,14 +1560,29 @@ export class RunEngineRequestHandler {
           }
           throw error;
         } finally {
-          startupInterruptReason =
-            this.interruptRegistry.takePendingRequest(turnId) ??
-            startupInterruptReason;
-          this.interruptRegistry.unregister(turnId);
-          this.approvalResolutionRegistry.unregister(turnId);
-          this.contextCompactionRegistry.unregister(turnId);
-          this.threadInputRegistry.unregister(turnId);
-          await taskCheckoutLifecycle?.release();
+          try {
+            await resources.drainProviderRequests();
+            providerDrained = true;
+            if (!artifactsSettled) {
+              await editArtifactCoordinator?.waitForPendingCapture();
+              artifactsSettled = true;
+            }
+            await taskCheckoutLifecycle?.release();
+            // Repository tools need their own original-operation closure receipt.
+            // Until that owner supplies it, retain ambiguous capacity and queue work.
+            const toolClosureProven = !resources.workspace || payload.input.mode === "plan";
+            if (providerDrained && bodyDrained && artifactsSettled && checkoutSettled && toolClosureProven) {
+              nativeObserver?.cleanupSettled();
+            }
+          } finally {
+            startupInterruptReason =
+              this.interruptRegistry.takePendingRequest(turnId) ??
+              startupInterruptReason;
+            this.interruptRegistry.unregister(turnId);
+            this.approvalResolutionRegistry.unregister(turnId);
+            this.contextCompactionRegistry.unregister(turnId);
+            this.threadInputRegistry.unregister(turnId);
+          }
         }
       });
     } catch (error: unknown) {
@@ -1636,6 +1681,10 @@ export class RunEngineRequestHandler {
         500,
         "RUNTIME_EXECUTION_FAILED",
       );
+    } finally {
+      // This receipt comes from the preparation owner, after known no-exposure
+      // or successful compensation. An arbitrary preparation Error grants nothing.
+      if (preparationCleanup && executionClaim) nativeObserver?.cleanupSettled();
     }
   }
 

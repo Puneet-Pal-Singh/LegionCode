@@ -46,6 +46,9 @@ import { InMemoryRunApprovalResolutionRegistry } from "./RunApprovalResolutionRe
 import { InMemoryRunContextCompactionRegistry } from "./RunContextCompactionRegistry";
 import { InMemoryRunThreadInputRegistry } from "./RunThreadInputRegistry";
 import { RunExecutionLock } from "./RunExecutionLock";
+import { retainNativeAttempt } from "./RetainedNativeAttempt";
+import { runEngineJsonResponse, withRunEngineHeaders } from "./RunEngineHttpResponse";
+import { ThreadInputCommandService } from "../services/thread-inputs/ThreadInputCommandService";
 import { reportBrainError } from "../core/observability/BrainErrorReporter";
 
 const ScopeIdSchema = z
@@ -88,7 +91,19 @@ export class RunEngineRuntime extends DurableObject {
     const requestHandler = this.createRequestHandler();
 
     if (url.pathname === "/execute" && request.method === "POST") {
-      return requestHandler.handleExecuteRequest(request);
+      return retainNativeAttempt({
+        owner: this.ctx,
+        execute: observer => requestHandler.handleExecuteRequest(request, observer),
+        accepted: ({ admission }) => withRunEngineHeaders(request, env,
+          runEngineJsonResponse(request, env, { accepted: true, runId: admission.runId,
+            sessionId: admission.sessionId, workspaceId: admission.workspaceId,
+            threadId: admission.threadId, turnId: admission.turnId, runAttemptId: admission.runAttemptId }, 202), {
+              "X-Run-Id": admission.runId, "X-Thread-Id": admission.threadId,
+              "X-Turn-Id": admission.turnId, "X-Run-Attempt-Id": admission.runAttemptId,
+          }),
+        settled: attempt => new ThreadInputCommandService(env).onNativeAttemptSettled(request, attempt),
+        reportError: error => reportBrainError(env, { request, operation: "run.engine.retained-attempt", error }),
+      });
     }
 
     if (url.pathname === "/turn/start" && request.method === "POST") {

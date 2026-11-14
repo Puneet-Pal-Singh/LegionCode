@@ -95,6 +95,29 @@ describe("ChatController DO runtime migration", () => {
     expect(admissionBody.constraints[0]?.scopeKey).toBe(
       "thread:thr_server_scope",
     );
+    const releaseCalls = () => admissionLimiter.fetch.mock.calls.filter(
+      ([input]) => new URL(String(input)).pathname === "/release-concurrency",
+    );
+    expect(releaseCalls()).toHaveLength(0);
+    runtime.fetch.mockRejectedValueOnce(new Error("ACK delivery disconnected"));
+    const ambiguous = await ChatController.handle(await createChatRequest(env, { identity }), env);
+    expect(ambiguous.status).toBe(500);
+    expect(releaseCalls()).toHaveLength(0);
+    runtime.fetch.mockResolvedValueOnce(new Response(JSON.stringify({ code: "TURN_EXECUTION_ALREADY_CLAIMED" }), {
+      status: 409, headers: { "Content-Type": "application/json" },
+    }));
+    const duplicate = await ChatController.handle(await createChatRequest(env, { identity }), env);
+    expect(duplicate.status).toBe(409);
+    expect(releaseCalls()).toHaveLength(0);
+    runtime.fetch.mockResolvedValueOnce(new Response(JSON.stringify({ accepted: true }), {
+      status: 202, headers: { "Content-Type": "application/json", "X-Turn-Id": identity.turnId,
+        "X-Thread-Id": identity.threadId, "X-Run-Attempt-Id": identity.runAttemptId },
+    }));
+    const accepted = await ChatController.handle(await createChatRequest(env, { identity }), env);
+    expect(accepted.status).toBe(202);
+    expect(accepted.headers.get("X-Run-Attempt-Id")).toBe(identity.runAttemptId);
+    expect(releaseCalls()).toHaveLength(0);
+
   });
 
   it("rejects chat execution without a pre-stream bootstrap identity", async () => {
