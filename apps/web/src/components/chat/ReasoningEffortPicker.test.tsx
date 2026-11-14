@@ -39,6 +39,7 @@ describe("ReasoningEffortPicker", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Reasoning effort" }));
+    const option = screen.getByRole("menuitemradio", { name: "High" });
     rerender(
       <ReasoningEffortPicker
         providerId="openai"
@@ -48,8 +49,7 @@ describe("ReasoningEffortPicker", () => {
       />,
     );
 
-    const option = screen.getByRole("menuitemradio", { name: "High" });
-    expect(option).toBeDisabled();
+    expect(option).not.toBeInTheDocument();
     fireEvent.click(option);
     expect(screen.getByRole("button", { name: "Reasoning effort" })).toHaveTextContent(
       "Default",

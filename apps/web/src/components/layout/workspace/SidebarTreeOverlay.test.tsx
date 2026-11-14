@@ -1,6 +1,6 @@
 import type { Repository } from "../../../services/GitHubService";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { SidebarTreeOverlay } from "./SidebarTreeOverlay";
 
 const mockSelectFile = vi.hoisted(() => vi.fn());
@@ -68,6 +68,15 @@ const baseProps = {
   onClose: vi.fn(),
 };
 
+let ActualFileExplorer: typeof import("../../FileExplorer").FileExplorer;
+
+beforeAll(async () => {
+  const actual = await vi.importActual<typeof import("../../FileExplorer")>(
+    "../../FileExplorer",
+  );
+  ActualFileExplorer = actual.FileExplorer;
+});
+
 describe("SidebarTreeOverlay", () => {
   it("opens changed files in a half-width overlay", () => {
     render(<SidebarTreeOverlay {...baseProps} activeTab="changes" />);
@@ -100,12 +109,11 @@ describe("SidebarTreeOverlay", () => {
     expect(screen.getByRole("button", { name: "Task checkout" })).toBeDisabled();
     unmount();
 
-    const { FileExplorer } = await vi.importActual<typeof import("../../FileExplorer")>("../../FileExplorer");
     const entries = Array.from({ length: 200 }, (_, index) => ({ name: `file-${index}.txt`, type: "file" as const }));
     mockListCheckoutFiles.mockResolvedValueOnce({ entries, truncated: true, nextOffset: 200 })
       .mockResolvedValueOnce({ entries: [{ name: "file-200.txt", type: "file" }], truncated: true, nextOffset: 201 });
     const explorerProps = { sessionId: "session-1", runId: "run-1", checkoutTurn: baseProps.checkoutTurn };
-    const explorer = render(<FileExplorer {...explorerProps} />);
+    const explorer = render(<ActualFileExplorer {...explorerProps} />);
     fireEvent.click(await screen.findByRole("button", { name: "Load more files in ." }));
     expect(await screen.findByText("file-200.txt")).toBeInTheDocument();
     expect(mockListCheckoutFiles).toHaveBeenLastCalledWith(expect.objectContaining({ path: ".", offset: 200 }), expect.any(AbortSignal));
@@ -114,7 +122,7 @@ describe("SidebarTreeOverlay", () => {
     fireEvent.click(screen.getByRole("button", { name: "Load more files in ." }));
     const oldSignal = mockListCheckoutFiles.mock.calls.at(-1)![1] as AbortSignal;
     mockListCheckoutFiles.mockResolvedValueOnce({ entries: [{ name: "new-scope.txt", type: "file" }], truncated: false, nextOffset: null });
-    explorer.rerender(<FileExplorer {...explorerProps} checkoutTurn={{ turnId: "trn_next", runAttemptId: "attempt_next" }} />);
+    explorer.rerender(<ActualFileExplorer {...explorerProps} checkoutTurn={{ turnId: "trn_next", runAttemptId: "attempt_next" }} />);
     expect(oldSignal.aborted).toBe(true);
     expect(await screen.findByText("new-scope.txt")).toBeInTheDocument();
     await act(async () => { resolveOld({ entries: [{ name: "stale-private.txt", type: "file" }], truncated: false, nextOffset: null }); });
