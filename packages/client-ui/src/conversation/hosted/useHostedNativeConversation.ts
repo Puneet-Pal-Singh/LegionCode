@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   buildConversationTurns,
   dispatchHostedConversationSubmission,
@@ -18,6 +18,7 @@ import {
   userIdFromExternalId,
   type GetTurnDiffResponse,
   type SubmitLifecycleApprovalRequest,
+  type ReplayLifecycleEventsResponse,
 } from "@repo/platform-protocol";
 import { useConversationTurnLifecycle } from "../chat-interface/useConversationTurnLifecycle.js";
 import type { Message } from "@ai-sdk/react";
@@ -33,6 +34,7 @@ import {
   type HostedNativeDraft,
 } from "./hostedNativeConversation.js";
 import { useHostedConversationHistory } from "./useHostedConversationHistory.js";
+import { HostedRecoveryObservation } from "./hostedRecoveryObservation.js";
 import { buildChatAppendMessage } from "../chatImageAttachments.js";
 
 type ApprovalDecision = Pick<SubmitLifecycleApprovalRequest, "approvalId" | "decision" | "grantScope">;
@@ -65,6 +67,10 @@ export function useHostedNativeConversation(options: HostedNativeConversationOpt
   const command = useRef<Promise<SubmissionOutcome> | null>(null);
   const stopCommand = useRef<Promise<void> | null>(null);
   const approvalCommand = useRef<ApprovalCommand | null>(null);
+  const recoveryObserverRef = useRef<HostedRecoveryObservation | null>(null);
+  if (!recoveryObserverRef.current) recoveryObserverRef.current = new HostedRecoveryObservation();
+  const recoveryObserver = recoveryObserverRef.current;
+  recoveryObserver.setIdentity(identity);
   const observedTerminal = useRef<{ identity: HostedConversationIdentity; eventId: string } | null>(null);
   const [delivery, setDelivery] = useState<DeliveryState | null>(null);
   const history = useHostedConversationHistory(identity);
@@ -79,10 +85,12 @@ export function useHostedNativeConversation(options: HostedNativeConversationOpt
     !visibleDelivery.submitting && !visibleDelivery.pendingDraft && history.scope &&
     history.messages.some((message) => message.role === "user" &&
       message.id === deliveredDraft.id && readCanonicalTurnId(message) === deliveredScope.turnId));
-  const scope = deliveryAcknowledged ? history.scope : visibleDelivery?.scope ?? history.scope;
-  const selectedScope = useRef(scope);
-  selectedScope.current = scope;
-  const lifecycle = useMemo(() => hostedLifecycleClient(client, scope), [client, scope]);
+  const scopeCandidate = deliveryAcknowledged ? history.scope : visibleDelivery?.scope ?? history.scope;
+  const scope = recoveryObserver.selectScope(identity, scopeCandidate);
+  const observeReplay = useCallback((page: ReplayLifecycleEventsResponse) => {
+    recoveryObserver.observeReplay(identity, page);
+  }, [identity, recoveryObserver]);
+  const lifecycle = useMemo(() => hostedLifecycleClient(client, scope, identity, observeReplay), [client, scope, identity, observeReplay]);
   const live = useConversationTurnLifecycle(scope?.turnId, identity.enabled && scope !== null, lifecycle);
   const activeProjection = identity.enabled && live.isReplayReady ? live.projection : null;
   const selectedProjection = useRef(activeProjection);
@@ -91,6 +99,8 @@ export function useHostedNativeConversation(options: HostedNativeConversationOpt
   selectedContext.current = history.workspaceContext;
   const projections = useMemo(() => mergeLifecycleProjections(history.projections, {}, activeProjection),
     [history.projections, activeProjection]);
+  recoveryObserver.observeProjections(identity, history.projections, live.projection);
+  const recovery = recoveryObserver.recovery;
   // Only the canonical history reader can confirm a durable source message.
   // Optimistic rows below may already carry reserved identity and are not receipts.
   const canonicalMessages: readonly Message[] = history.messages;
@@ -113,6 +123,9 @@ export function useHostedNativeConversation(options: HostedNativeConversationOpt
     captured && owner.current === captured && !captured.controller.signal.aborted &&
     current.current === captured.identity && captured.identity.enabled,
   );
+  const assertMutationAllowed = (capturedIdentity: HostedConversationIdentity, target?: ConversationScope | null): void => {
+    recoveryObserver.assertMutationAllowed(capturedIdentity, target);
+  };
   const updateDelivery = (captured: Owner, update: Partial<DeliveryState>) => {
     if (!active(captured)) return;
     setDelivery((previous) => ({
@@ -170,18 +183,19 @@ export function useHostedNativeConversation(options: HostedNativeConversationOpt
   const canSubmit = identity.enabled && history.historyReady && !history.loading &&
     history.workspaceContext?.workspaceStatus !== "archived" && !missingRunningScope &&
     !history.scopeRecoveryError &&
-    !pendingDraft && !isSubmitting && !isStopping && (!scope || Boolean(activeProjection?.terminal));
-  const canStop = identity.enabled && !isStopping && (isSubmitting || Boolean(scope &&
+    !recovery && !pendingDraft && !isSubmitting && !isStopping && (!scope || Boolean(activeProjection?.terminal));
+  const canStop = identity.enabled && !recovery && !isStopping && (isSubmitting || Boolean(scope &&
     !activeProjection?.terminal && (hasAcceptedScope || (activeProjection && activeProjection.lastSequence > 0) || pendingDraft)));
 
   async function submit(draft: HostedNativeDraft): Promise<SubmissionOutcome> {
     const captured = owner.current;
     const context = history.workspaceContext;
     if (!active(captured) || current.current !== identity || !history.isReadable() || !context ||
-      history.loading || selectedContext.current !== context || selectedScope.current !== scope ||
+      history.loading || selectedContext.current !== context || recoveryObserver.selectedScope !== scope ||
       isStopping || context.workspaceStatus === "archived" || command.current) {
       return { status: "inactive" };
     }
+    assertMutationAllowed(identity, recoveryObserver.selectedScope);
     // Capture caller-owned data before any await. A retry cannot replace this snapshot.
     const frozenDraft = captureHostedNativeDraft(draft);
     const fingerprint = JSON.stringify([identity.submissionKey, frozenDraft]);
@@ -197,14 +211,18 @@ export function useHostedNativeConversation(options: HostedNativeConversationOpt
     const intentKey = `explicit:${identity.submissionKey}:${draft.id}`;
     const isInvocationActive = () => active(captured);
     const stopExact = async (selected: ConversationScope) => {
+      assertMutationAllowed(identity, selected);
       if (active(captured) && stopCommand.current) return stopCommand.current;
-      await interruptAndAwaitTerminal({ ...hostedLifecycleClient(client, selected), interruptTurn: (request) => client.interruptTurn(request) },
+      await interruptAndAwaitTerminal({ ...hostedLifecycleClient(client, selected, identity, observeReplay), interruptTurn: (request) => {
+        assertMutationAllowed(identity, selected);
+        return client.interruptTurn(request);
+      } },
         selected, () => { if (active(captured)) live.retry(); });
     };
     const operation = submitConversationMessage({
       sessionId: identity.sessionId, runId: identity.runId, runScopeGeneration: binding.generation,
       clientMessageId: draft.id, intentKey, intentFingerprint: fingerprint,
-      lifecycleClient: hostedLifecycleClient(client),
+      lifecycleClient: hostedLifecycleClient(client, undefined, identity, observeReplay),
       resolveProviderConfig: async () => frozenDraft.configuration,
       isInvocationActive,
       onInactiveScopeAfterProviderResolution: () => undefined,
@@ -214,23 +232,28 @@ export function useHostedNativeConversation(options: HostedNativeConversationOpt
         updateDelivery(captured, { acceptedScope: null, pendingDraft: frozenDraft, optimisticDraft: frozenDraft, optimisticScope: null, fingerprint, submitting: true, error: null });
       },
       reserveScope: async (acquired) => {
+        assertMutationAllowed(identity, recoveryObserver.selectedScope);
         const reserved = await client.reserveTurnScope({
           sessionId: identity.sessionId, runId: RunIdSchema.parse(acquired.originalRunId),
           clientMessageId: acquired.clientMessageId,
         });
-        return hostedConversationScope(identity, reserved, context);
+        const reservedScope = hostedConversationScope(identity, reserved, context);
+        assertMutationAllowed(identity, reservedScope);
+        return reservedScope;
       },
       onReserved: (reserved) => {
         if (!active(captured)) return false;
+        assertMutationAllowed(identity, reserved);
         hostedConversationScope(identity, reserved, context);
-        selectedScope.current = reserved;
+        recoveryObserver.selectReservedScope(reserved);
         updateDelivery(captured, { scope: reserved, optimisticScope: reserved });
         return true;
       },
       dispatch: async ({ scope: reserved, attempt: acquired }) => {
+        assertMutationAllowed(identity, reserved);
         const request = ChatRequestBodySchema.parse(hostedNativeRequest(frozenDraft, reserved, context));
         await dispatchHostedConversationSubmission({
-          client: hostedSubmissionClient(client), attempt: acquired, request,
+          client: hostedSubmissionClient(client, () => assertMutationAllowed(identity, reserved)), attempt: acquired, request,
           onAcknowledgement: () => { if (active(captured)) live.retry(); },
         });
       },
@@ -266,8 +289,9 @@ export function useHostedNativeConversation(options: HostedNativeConversationOpt
 
   async function stop(): Promise<void> {
     const captured = owner.current;
-    const selected = selectedScope.current;
+    const selected = recoveryObserver.selectedScope;
     if (!active(captured) || current.current !== identity || selected !== scope) return;
+    assertMutationAllowed(identity, selected);
     const pending = attempt.current?.owner === captured && attempt.current.attempt.active ? attempt.current.attempt : null;
     if (pending) pending.stopRequested = true;
     if (pending && !pending.scope) {
@@ -281,7 +305,10 @@ export function useHostedNativeConversation(options: HostedNativeConversationOpt
     }
     if (stopCommand.current) return stopCommand.current;
     updateDelivery(captured, { stopping: true, error: null });
-    const operation = interruptAndAwaitTerminal({ ...hostedLifecycleClient(client, selected), interruptTurn: (request) => client.interruptTurn(request) },
+    const operation = interruptAndAwaitTerminal({ ...hostedLifecycleClient(client, selected, identity, observeReplay), interruptTurn: (request) => {
+        assertMutationAllowed(identity, selected);
+        return client.interruptTurn(request);
+      } },
       selected, () => { if (active(captured)) live.retry(); }).then(() => {
       if (!active(captured)) return;
       updateDelivery(captured, { stopping: false });
@@ -296,10 +323,11 @@ export function useHostedNativeConversation(options: HostedNativeConversationOpt
   }
 
   async function decideApproval(decision: ApprovalDecision): Promise<void> {
+    assertMutationAllowed(identity, recoveryObserver.selectedScope);
     const captured = owner.current;
     const selected = scope;
     const approval = activeProjection?.pendingApproval;
-    if (!active(captured) || current.current !== identity || selectedScope.current !== selected || !selected ||
+    if (!active(captured) || current.current !== identity || recoveryObserver.selectedScope !== selected || !selected ||
       !approval || activeProjection?.terminal || approval.approvalId !== decision.approvalId) {
       throw new Error("Read the current hosted approval before deciding it.");
     }
@@ -324,6 +352,7 @@ export function useHostedNativeConversation(options: HostedNativeConversationOpt
       throw new Error("A different decision for this approval is still pending.");
     }
     let capturedCommand: ApprovalCommand;
+    assertMutationAllowed(identity, selected);
     const operation = client.submitLifecycleApproval({
       ...chosen, turnId: TurnIdSchema.parse(selected.turnId),
       decidedBy: userIdFromExternalId(identity.accountId), reason: null,
@@ -369,10 +398,14 @@ export function useHostedNativeConversation(options: HostedNativeConversationOpt
     scopeRecoveryError: history.scopeRecoveryError,
     historicalReplayError: history.replayError,
     deliveryError: visibleDelivery?.error ?? null,
-    continuationError: identity.enabled ? live.error : null,
-    continuationStatus: identity.enabled ? live.continuationStatus : null,
+    continuationError: identity.enabled ? recovery
+      ? "This task needs recovery review. Work was not restarted." : live.error : null,
+    continuationStatus: identity.enabled && !recovery ? live.continuationStatus : null,
+    recoveryRequired: recovery !== null,
+    recovery,
     isSubmitting, isStopping, canSubmit, canStop, pendingDraft,
     submit, stop, decideApproval, readTurnDiff,
+    isMutationAllowed: () => recoveryObserver.isMutationAllowed(identity),
     reload: () => { if (current.current === identity) { history.reload(); live.retry(); } },
   };
 }

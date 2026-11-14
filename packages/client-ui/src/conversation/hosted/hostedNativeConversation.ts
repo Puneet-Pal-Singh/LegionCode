@@ -8,9 +8,13 @@ import {
 } from "@legioncode/sdk";
 import {
   ChatRequestBodySchema,
+  userIdFromExternalId,
+  workspaceIdFromExternalId,
+  runIdFromTurnId,
   type ChatRequestBody,
   type HostedSession,
   type HostedSessionWorkspaceContext,
+  type ReplayLifecycleEventsResponse,
 } from "@repo/platform-protocol";
 import { buildChatAppendMessage, type ChatImageAttachment } from "../chatImageAttachments.js";
 
@@ -125,7 +129,7 @@ export function hostedConversationScope(
 }
 
 /** SDK ordering plus the full restored attempt tuple, before any event is projected. */
-export function hostedLifecycleClient(client: AppServerClient, scope?: ConversationScope | null) {
+export function hostedLifecycleClient(client: AppServerClient, scope?: ConversationScope | null, identity?: HostedConversationIdentity, observeReplay?: (page: ReplayLifecycleEventsResponse) => void) {
   return createAppServerLifecycleClient({
     replayLifecycleEvents: async (request, options) => {
       const page = await client.replayLifecycleEvents(request, options);
@@ -133,17 +137,31 @@ export function hostedLifecycleClient(client: AppServerClient, scope?: Conversat
         event.threadId !== scope.threadId || event.runAttemptId !== scope.runAttemptId)) {
         throw new Error("Lifecycle replay belongs to another hosted attempt.");
       }
+      const recovery = page.recovery;
+      if (recovery && (!identity || recovery.turnId !== request.turnId ||
+          recovery.userId !== userIdFromExternalId(identity.accountId) || recovery.sessionId !== identity.sessionId ||
+          (identity.workspaceId !== null && recovery.workspaceId !== workspaceIdFromExternalId(identity.workspaceId)) ||
+          (identity.threadId !== null && recovery.threadId !== identity.threadId) ||
+          recovery.runId !== (scope?.runId ?? runIdFromTurnId(request.turnId)) ||
+          (scope && (recovery.threadId !== scope.threadId || recovery.turnId !== scope.turnId ||
+            recovery.runAttemptId !== scope.runAttemptId || recovery.workspaceId !== workspaceIdFromExternalId(scope.workspaceId))))) {
+        throw new Error("Recovery replay belongs to another hosted attempt.");
+      }
+      observeReplay?.(page);
       return page;
     },
   });
 }
 
 /** Adapt the existing SDK method shapes; this port has no HTTP or admission authority. */
-export function hostedSubmissionClient(client: AppServerClient): Pick<PlatformClient, "submitHostedChat"> {
+export function hostedSubmissionClient(client: AppServerClient, assertCanDispatch?: () => void): Pick<PlatformClient, "submitHostedChat"> {
   return {
     submitHostedChat: (request, options) => {
+      assertCanDispatch?.();
       if (options?.signal?.aborted) return Promise.reject(new Error("Hosted submission was cancelled before dispatch."));
       return client.submitHostedChat(request, (serialized) => {
+        // Run before the SDK marks the frozen envelope dispatched.
+        assertCanDispatch?.();
         if (options?.signal?.aborted) throw new Error("Hosted submission was cancelled before dispatch.");
         return options?.beforeSendHostedChatEnvelope?.(serialized) ?? serialized;
       }, options?.onChatSubmissionResponse);

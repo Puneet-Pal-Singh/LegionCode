@@ -77,7 +77,7 @@ export function useHostedConversationHistory(identity: HostedConversationIdentit
         await Promise.all(turnIds.slice(offset, offset + 4).map(async (turnId) => {
           try {
             const projection = await replayConversationLifecycleProjection({
-              turnId, lifecycleClient: hostedLifecycleClient(identity.client), signal: controller.signal,
+              turnId, lifecycleClient: hostedLifecycleClient(identity.client, undefined, identity), signal: controller.signal,
             });
             if (!active() || !projection) return;
             setState((previous) => previous?.identity === identity
