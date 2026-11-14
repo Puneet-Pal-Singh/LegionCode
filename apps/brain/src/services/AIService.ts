@@ -36,6 +36,7 @@ import {
 import type { StructuredGenerationInput } from "./ai/StructuredGenerationInput";
 import type { ChatStreamInput } from "./ai/ChatStreamInput";
 import { PROVIDER_SDK_MAX_RETRIES } from "@legioncode/execution-engine/runtime/provider/ProviderRequestPolicy";
+import { createStructuredProviderInferenceAdapter } from "@legioncode/execution-engine/runtime/provider/ProviderInferenceFactory";
 
 export class AIService {
   private adapter: ProviderAdapter;
@@ -155,9 +156,17 @@ export class AIService {
     const nativeStructured = Boolean(this.providerConfigService?.getNativeProviderSelection?.());
     let sdkModelConfig: SDKModelConfig;
     if (nativeStructured && this.providerConfigService) {
-      sdkModelConfig = await createNativeStructuredModelConfiguration({
+      const native = await createNativeStructuredModelConfiguration({
         credentials: this.providerConfigService, selection, runtimeModelId, providerTransport, providerEndpoint,
       });
+      if (native.kind === "responses") {
+        return createStructuredProviderInferenceAdapter(native.config).generate({
+          messages, schema, model: native.model, temperature,
+          ...(maxTokens !== undefined ? { maxOutputTokens: maxTokens } : {}),
+          ...(abortSignal ? { signal: abortSignal } : {}),
+        });
+      }
+      sdkModelConfig = native.config;
     } else {
       const overrideApiKey =
         selection.providerId && selection.providerId !== AXIS_PROVIDER_ID

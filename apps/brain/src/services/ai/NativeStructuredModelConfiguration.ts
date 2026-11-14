@@ -2,10 +2,14 @@ import {
   builtinProviderRegistry,
   normalizeRuntimeModelId,
   ProviderModelRouteResolver,
+  resolveProviderRuntimeRoute,
 } from "@repo/provider-core";
 import { buildCloudflareAIRoute, buildCloudflareAIRouteHeaders, type CloudflareConnectionConfig } from "@repo/provider-core/discovery";
 import type { ProviderConnectionConfig, ProviderModelTransport } from "@repo/shared-types";
-import { toOpenAICompatibleBaseURL } from "@legioncode/execution-engine/runtime/provider/ProviderInferenceFactory";
+import {
+  toOpenAICompatibleBaseURL,
+  type ProviderInferenceConfiguration,
+} from "@legioncode/execution-engine/runtime/provider/ProviderInferenceFactory";
 import { ValidationError } from "../../domain/errors";
 import type { ProviderConfigService } from "../providers";
 import type { ModelSelection } from "./ModelSelectionPolicy";
@@ -15,6 +19,10 @@ import { buildProviderTransportRoute } from "./ProviderRouteMetadata";
 type NativeCredentialPort = Pick<ProviderConfigService,
   "getNativeProviderSelection" | "assertNativeProviderSelection" | "resolveCredential" | "resolveManagedAxisMaterial">;
 
+export type NativeStructuredModelConfiguration =
+  | { readonly kind: "sdk"; readonly config: SDKModelConfig }
+  | { readonly kind: "responses"; readonly config: ProviderInferenceConfiguration; readonly model: string };
+
 /** Private Native path: one acquired material/config pair, no environment fallback. */
 export async function createNativeStructuredModelConfiguration(input: {
   readonly credentials: NativeCredentialPort;
@@ -22,16 +30,19 @@ export async function createNativeStructuredModelConfiguration(input: {
   readonly runtimeModelId?: string;
   readonly providerTransport?: ProviderModelTransport;
   readonly providerEndpoint?: string;
-}): Promise<SDKModelConfig> {
+}): Promise<NativeStructuredModelConfiguration> {
   const { credentials, selection } = input;
   const native = credentials.getNativeProviderSelection();
   if (!native || selection.providerId !== native.providerId || selection.model !== native.modelId) throw unsupported();
   credentials.assertNativeProviderSelection(native.providerId, native.modelId);
+  const fixed = resolveProviderRuntimeRoute(native.providerId, native.modelId);
   const supplied = buildProviderTransportRoute({
     providerId: native.providerId, providerTransport: input.providerTransport, providerEndpoint: input.providerEndpoint,
   });
-  const runtimeModelId = normalizeRuntimeModelId(native.providerId, input.runtimeModelId ?? native.modelId);
-  if (supplied?.transport === "openai-responses") throw unsupported();
+  const runtimeModelId = fixed?.runtimeModelId ?? normalizeRuntimeModelId(native.providerId, input.runtimeModelId ?? native.modelId);
+  if (fixed && ((supplied && (supplied.transport !== fixed.providerTransport || supplied.endpoint !== fixed.providerEndpoint)) ||
+      (input.runtimeModelId !== undefined && normalizeRuntimeModelId(native.providerId, input.runtimeModelId) !== fixed.runtimeModelId))) throw unsupported();
+  if (!fixed && supplied?.transport === "openai-responses") throw unsupported();
 
   if (native.providerId === "axis") {
     const material = await credentials.resolveManagedAxisMaterial("axis");
@@ -39,11 +50,22 @@ export async function createNativeStructuredModelConfiguration(input: {
         toOpenAICompatibleBaseURL(supplied.endpoint) !== material.endpoint))) throw unsupported();
     // The managed authority supplied this exact key and endpoint together. Do not
     // feed it into the public BYOK override resolver or reread the environment.
-    return { provider: "openai-compatible", apiKey: material.apiKey, baseURL: material.endpoint, model: runtimeModelId };
+    return { kind: "sdk", config: { provider: "openai-compatible", apiKey: material.apiKey, baseURL: material.endpoint, model: runtimeModelId } };
   }
 
   const credential = await credentials.resolveCredential(native.providerId);
   if (!credential) throw unsupported();
+  if (credential.connectionConfig && credential.connectionConfig.providerId !== native.providerId) throw unsupported();
+  if (fixed?.providerTransport === "openai-responses") {
+    if (credential.connectionConfig !== undefined) throw unsupported();
+    return {
+      kind: "responses", model: fixed.runtimeModelId,
+      config: {
+        providerId: native.providerId, transport: "openai-responses", endpoint: fixed.providerEndpoint,
+        apiKey: credential.apiKey, defaultModel: fixed.runtimeModelId,
+      },
+    };
+  }
   const discoveredRoute = supplied ? {
     providerId: native.providerId, modelId: runtimeModelId,
     transport: supplied.transport, endpoint: supplied.endpoint,
@@ -61,14 +83,13 @@ export async function createNativeStructuredModelConfiguration(input: {
   } else if (route.transport === "google-generative") {
     provider = "google-native"; baseURL = route.endpoint;
   } else {
-    // The installed structured SDK has no Responses transport implementation.
     throw unsupported();
   }
   if (!credential.connectionConfig || !isCloudflareConfig(credential.connectionConfig)) {
     const expected = builtinProviderRegistry.getProvider(native.providerId)?.baseUrl;
     if (!expected || baseURL.replace(/\/$/, "") !== expected.replace(/\/$/, "")) throw unsupported();
   }
-  return { provider, apiKey: credential.apiKey, baseURL, model: route.runtimeModelId };
+  return { kind: "sdk", config: { provider, apiKey: credential.apiKey, baseURL, model: route.runtimeModelId } };
 }
 
 function isCloudflareConfig(config: ProviderConnectionConfig): config is CloudflareConnectionConfig {
