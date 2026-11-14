@@ -46,7 +46,7 @@ static inline bool lc_host_setup_helper(const lc_host_approval *approval, char p
   if (code) CFRelease(code); return okay;
 }
 static inline bool lc_host_setup_metadata_pins(const lc_host_approval *approval, const lc_host_setup_metadata_execution *state) {
-  const lc_host_scope *resource = state->resource; struct stat root, fence, namespace;
+  const lc_host_scope *resource = state->resource; struct stat root, fence, namespace; char namespace_path[PATH_MAX];
   const lc_writer_setup_acquisition *acquisition = state->acquisition;
   return resource && resource->used && !resource->released && !resource->sealed &&
     resource->record.purpose == LC_HOST_RESOURCE_SETUP_QUALIFICATION && resource->record.phase == LC_HOST_IDLE &&
@@ -62,7 +62,9 @@ static inline bool lc_host_setup_metadata_pins(const lc_host_approval *approval,
     (uint64_t)fence.st_dev == state->binding.fence.device && (uint64_t)fence.st_ino == state->binding.fence.inode &&
     !fstat(resource->namespace, &namespace) && S_ISDIR(namespace.st_mode) && namespace.st_uid == approval->actor && (namespace.st_mode & 0777) == 0700 &&
     (uint64_t)namespace.st_dev == state->binding.namespace.device && (uint64_t)namespace.st_ino == state->binding.namespace.inode &&
-    (uint64_t)namespace.st_dev == approval->writer_namespace.device && (uint64_t)namespace.st_ino == approval->writer_namespace.inode;
+    (uint64_t)namespace.st_dev == approval->writer_namespace.device && (uint64_t)namespace.st_ino == approval->writer_namespace.inode &&
+    !fcntl(resource->namespace, F_GETPATH, namespace_path) && !strcmp(namespace_path, approval->writer_namespace_path) &&
+    lc_host_scope_path_current((lc_host_scope *)resource);
 }
 static inline void lc_host_setup_metadata_cancel(lc_host_setup_metadata_execution *state) {
   if (!state || state->version != 1 || state->phase == LC_SETUP_METADATA_READY) return;
