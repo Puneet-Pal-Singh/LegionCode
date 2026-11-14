@@ -31,6 +31,7 @@ type supervisor struct {
 	gate     *os.File
 	pidfd    int
 	nsfd     *os.File
+	domain   *commandDomain
 	gateOnce sync.Once
 	ackOnce  sync.Once
 	ack      chan struct{}
@@ -59,6 +60,18 @@ func serveCommand(input request) error {
 	if err := verifyHeldCwd(root, input.Cwd); err != nil {
 		return err
 	}
+	domain, err := prepareCommandDomain(input)
+	if err != nil {
+		return err
+	}
+	defer domain.file.Close()
+	defer domain.parent.Close()
+	beforeBirth := true
+	defer func() {
+		if beforeBirth {
+			_ = domain.removeEmpty()
+		}
+	}()
 	if err := preparePrivateDirectory(privateRoot); err != nil {
 		return err
 	}
@@ -78,7 +91,7 @@ func serveCommand(input request) error {
 	if err != nil {
 		return err
 	}
-	owner := &supervisor{input: input, pidfd: -1, ack: make(chan struct{}), started: make(chan struct{}),
+	owner := &supervisor{input: input, domain: domain, pidfd: -1, ack: make(chan struct{}), started: make(chan struct{}),
 		current: receipt{Version: protocolVersion, Binding: input.Binding, State: "preparing"}}
 	server := &http.Server{Handler: owner, ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout: 5 * time.Second, WriteTimeout: 10 * time.Second, MaxHeaderBytes: 4096,
@@ -95,6 +108,9 @@ func serveCommand(input request) error {
 		case <-owner.ack:
 		}
 	}()
+	// From this point a failure retains the exact domain for reconciliation;
+	// only explicit settled-receipt ACK below may remove it.
+	beforeBirth = false
 	if err := owner.execute(root, rootfs); err != nil {
 		return err
 	}
@@ -104,6 +120,9 @@ func serveCommand(input request) error {
 	value := owner.snapshot()
 	if value.State != "closed" && value.State != "not_started" {
 		return errors.New("closure_unknown")
+	}
+	if err := domain.removeEmpty(); err != nil {
+		return errors.New("resource_cleanup_unconfirmed")
 	}
 	if err := json.NewEncoder(os.Stdout).Encode(value); err != nil {
 		return errors.New("transport_unsettled")
@@ -205,6 +224,11 @@ func (owner *supervisor) stop(reason string) {
 		}
 	})
 	owner.current.State, owner.current.Reason = "stopping", reason
+	// This closes the complete bounded domain, including namespace members
+	// which detached or stopped holding the original output pipes.
+	if owner.domain == nil || owner.domain.kill() != nil {
+		owner.current.State, owner.current.Reason = "unknown", "resource_signal_unconfirmed"
+	}
 	if owner.pidfd >= 0 {
 		if err := signalPIDFD(owner.pidfd, syscall.SIGKILL); err != nil && err != syscall.ESRCH {
 			owner.current.State, owner.current.Reason = "unknown", "namespace_signal_unconfirmed"
@@ -273,6 +297,10 @@ func (owner *supervisor) execute(workspace *os.File, rootfs string) error {
 		GidMappingsEnableSetgroups: true,
 		Credential:                 &syscall.Credential{Uid: 0, Gid: 0, Groups: []uint32{}},
 		Pdeathsig:                  syscall.SIGKILL, PidFD: &initPIDFD,
+		// Go uses clone3(CLONE_INTO_CGROUP) when UseCgroupFD is set. It
+		// returns an error on unsupported/denied clone3; no clone fallback or
+		// post-birth cgroup.procs migration is permitted.
+		UseCgroupFD: true, CgroupFD: int(owner.domain.file.Fd()),
 	}
 	if err := child.Start(); err != nil {
 		owner.mu.Lock()
@@ -287,7 +315,11 @@ func (owner *supervisor) execute(workspace *os.File, rootfs string) error {
 	_ = stderrWrite.Close()
 	owner.mu.Lock()
 	owner.pidfd = initPIDFD
+	stoppedDuringBirth := owner.current.GateClosed
 	owner.mu.Unlock()
+	if stoppedDuringBirth {
+		owner.stop("stop_during_preparation")
+	}
 	if initPIDFD >= 0 {
 		defer func() {
 			owner.mu.Lock()
@@ -298,6 +330,7 @@ func (owner *supervisor) execute(workspace *os.File, rootfs string) error {
 	}
 	identity, identityErr := readNamespaceIdentity(child.Process.Pid, owner.input.ExpectedRoot)
 	if identityErr == nil {
+		identity.value.Cgroup, identity.value.Limits = owner.domain.identity, owner.domain.limits
 		owner.mu.Lock()
 		owner.current.Identity, owner.nsfd = identity.value, identity.file
 		owner.mu.Unlock()
@@ -311,7 +344,7 @@ func (owner *supervisor) execute(workspace *os.File, rootfs string) error {
 	if initPIDFD < 0 || identityErr != nil {
 		owner.stop("namespace_identity_unavailable")
 	}
-	config := initRequest{Root: owner.input.Root, RootFS: rootfs, Cwd: owner.input.Cwd, Argv: owner.input.Argv, Environment: owner.input.Environment}
+	config := initRequest{Root: owner.input.Root, RootFS: rootfs, Cwd: owner.input.Cwd, Argv: owner.input.Argv, Environment: owner.input.Environment, CgroupPath: commandCgroupPath + owner.input.Binding.Nonce}
 	if err := json.NewEncoder(configWrite).Encode(config); err != nil {
 		owner.stop("namespace_configuration_unavailable")
 	}
@@ -356,11 +389,32 @@ func (owner *supervisor) execute(workspace *os.File, rootfs string) error {
 		positiveWait = ok && (status.Exited() || status.Signaled())
 	}
 	stdoutErr, stderrErr, statusErr := <-stdoutDone, <-stderrDone, <-statusDone
+	// A successful init wait alone is insufficient for the resource receipt.
+	// Hold the actual cgroup descriptor and require a kernel population result.
+	empty, resourceErr := owner.domain.empty()
+	if resourceErr == nil && !empty {
+		_ = owner.domain.kill()
+		// No timed-out population check may produce a closed receipt.
+		deadline := time.Now().Add(time.Second)
+		for !empty && resourceErr == nil && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+			empty, resourceErr = owner.domain.empty()
+		}
+	}
 	owner.mu.Lock()
 	defer owner.mu.Unlock()
-	owner.current.GateClosed = true
+	owner.gateOnce.Do(func() {
+		if owner.gate != nil {
+			_ = owner.gate.Close()
+		}
+		owner.current.GateClosed = true
+	})
 	if !positiveWait || stdoutErr != nil || stderrErr != nil || statusErr != nil {
 		owner.current.State, owner.current.Reason = "unknown", "original_output_unsettled"
+		return nil
+	}
+	if resourceErr != nil || !empty {
+		owner.current.State, owner.current.Reason = "unknown", "resource_closure_unconfirmed"
 		return nil
 	}
 	owner.current.State = "closed"

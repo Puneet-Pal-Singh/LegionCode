@@ -43,6 +43,13 @@ type rootIdentity struct {
 	Inode  uint64 `json:"inode"`
 }
 
+type resourceLimits struct {
+	MemoryBytes     uint64 `json:"memoryBytes"`
+	Pids            uint64 `json:"pids"`
+	CPUQuotaMicros  uint64 `json:"cpuQuotaMicros"`
+	CPUPeriodMicros uint64 `json:"cpuPeriodMicros"`
+}
+
 type request struct {
 	Version      int               `json:"version"`
 	Binding      binding           `json:"binding"`
@@ -54,6 +61,7 @@ type request struct {
 	Environment  map[string]string `json:"environment"`
 	TimeoutMS    int64             `json:"timeoutMs"`
 	OutputLimit  int               `json:"outputLimit"`
+	Limits       resourceLimits    `json:"limits"`
 }
 
 // Only this non-credential subset crosses into the namespace init process.
@@ -63,14 +71,17 @@ type initRequest struct {
 	Cwd         string            `json:"cwd"`
 	Argv        []string          `json:"argv"`
 	Environment map[string]string `json:"environment"`
+	CgroupPath  string            `json:"cgroupPath"`
 }
 
 type namespaceIdentity struct {
-	BootID          string       `json:"bootId"`
-	NamespaceDevice uint64       `json:"namespaceDevice"`
-	NamespaceInode  uint64       `json:"namespaceInode"`
-	InitHostPID     int          `json:"initHostPid"`
-	Root            rootIdentity `json:"root"`
+	BootID          string         `json:"bootId"`
+	NamespaceDevice uint64         `json:"namespaceDevice"`
+	NamespaceInode  uint64         `json:"namespaceInode"`
+	InitHostPID     int            `json:"initHostPid"`
+	Root            rootIdentity   `json:"root"`
+	Cgroup          rootIdentity   `json:"cgroup"`
+	Limits          resourceLimits `json:"limits"`
 }
 
 type receipt struct {
@@ -135,6 +146,11 @@ func validateRequest(value request) error {
 	if len(value.Argv) == 0 || len(value.Argv) > 1024 || value.Argv[0] == "" ||
 		value.TimeoutMS < 100 || value.TimeoutMS > 3_600_000 || value.OutputLimit < 1024 || value.OutputLimit > maxOutputBytes {
 		return errors.New("invalid_command")
+	}
+	if value.Limits.MemoryBytes < 64*1024*1024 || value.Limits.MemoryBytes > 1024*1024*1024 ||
+		value.Limits.Pids < 16 || value.Limits.Pids > 256 || value.Limits.CPUPeriodMicros != 100_000 ||
+		value.Limits.CPUQuotaMicros < 10_000 || value.Limits.CPUQuotaMicros > 100_000 {
+		return errors.New("unsupported_resource_limits")
 	}
 	for _, arg := range value.Argv {
 		if len(arg) > 8192 || strings.ContainsRune(arg, 0) {

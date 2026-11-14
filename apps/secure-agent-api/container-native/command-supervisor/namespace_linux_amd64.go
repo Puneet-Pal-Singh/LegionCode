@@ -43,6 +43,12 @@ func runNamespaceInit() int {
 		return reject()
 	}
 	_ = config.Close()
+	// Read membership before pivot_root removes the host cgroup filesystem.
+	// The untrusted process never receives a cgroup descriptor or mount.
+	membership, membershipErr := os.ReadFile("/proc/self/cgroup")
+	if !strings.HasPrefix(input.CgroupPath, commandCgroupPath) || membershipErr != nil || strings.TrimSpace(string(membership)) != "0::"+input.CgroupPath {
+		return reject()
+	}
 	if setupFilesystem(input, workspace) != nil {
 		return reject()
 	}
