@@ -31,7 +31,7 @@ export async function captureNativeAxisMaterial(
   ]));
   const digest = await crypto.subtle.digest("SHA-256", encoded);
   const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-  return Object.freeze({ apiKey, endpoint: baseURL, materialFingerprint: `sha256:${hex}` });
+  return Object.freeze({ apiKey, endpoint: baseURL, materialFingerprint: hex });
 }
 
 /** Revalidate once and return that SAME captured key/endpoint across the await.
@@ -40,7 +40,7 @@ export async function acquireNativeAxisMaterial(
   env: Env,
   expectedFingerprint: string,
 ): Promise<NativeAxisCredentialMaterial> {
-  if (!/^sha256:[0-9a-f]{64}$/.test(expectedFingerprint)) throw unavailable();
+  if (!/^[0-9a-f]{64}$/.test(expectedFingerprint)) throw unavailable();
   const material = await captureNativeAxisMaterial(env);
   if (material.materialFingerprint !== expectedFingerprint) throw unavailable();
   return material;
