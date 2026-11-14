@@ -114,12 +114,12 @@ describe("SidebarTreeOverlay", () => {
       .mockResolvedValueOnce({ entries: [{ name: "file-200.txt", type: "file" }], truncated: true, nextOffset: 201 });
     const explorerProps = { sessionId: "session-1", runId: "run-1", checkoutTurn: baseProps.checkoutTurn };
     const explorer = render(<ActualFileExplorer {...explorerProps} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Load more files in ." }));
+    fireEvent.click(await screen.findByText("Load more files in .", { selector: "button" }));
     expect(await screen.findByText("file-200.txt")).toBeInTheDocument();
     expect(mockListCheckoutFiles).toHaveBeenLastCalledWith(expect.objectContaining({ path: ".", offset: 200 }), expect.any(AbortSignal));
     let resolveOld!: (value: { entries: typeof entries; truncated: boolean; nextOffset: null }) => void;
     mockListCheckoutFiles.mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve; }));
-    fireEvent.click(screen.getByRole("button", { name: "Load more files in ." }));
+    fireEvent.click(screen.getByText("Load more files in .", { selector: "button" }));
     const oldSignal = mockListCheckoutFiles.mock.calls.at(-1)![1] as AbortSignal;
     mockListCheckoutFiles.mockResolvedValueOnce({ entries: [{ name: "new-scope.txt", type: "file" }], truncated: false, nextOffset: null });
     explorer.rerender(<ActualFileExplorer {...explorerProps} checkoutTurn={{ turnId: "trn_next", runAttemptId: "attempt_next" }} />);
