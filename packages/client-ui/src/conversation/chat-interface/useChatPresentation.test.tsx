@@ -82,6 +82,9 @@ describe("useChatPresentation", () => {
     await act(async () => { outcome = await mounted.result.current.submit(draft); });
     expect(outcome).toMatchObject({ status: "unconfirmed" });
     expect(mounted.result.current.pendingDraft).toEqual(draft);
+    expect(mounted.result.current.messages[0]).toMatchObject({ id: draft.id,
+      data: { metadata: { canonicalIdentity: fixture.scope } } });
+    expect(mounted.result.current.canonicalMessages).toEqual([]);
     expect(mounted.result.current.canSubmit).toBe(false);
     await expect(mounted.result.current.submit({ ...draft, prompt: "Different work" })).rejects.toThrow("unchanged");
     expect(fixture.submissions).toHaveLength(1);
@@ -106,6 +109,10 @@ describe("useChatPresentation", () => {
     expect(fixture.submissions[0]).toBe(fixture.submissions[1]);
     expect(fixture.requests.filter((request) => request.method === "turn/reserve")).toHaveLength(1);
     await waitFor(() => expect(mounted.result.current.activeProjection?.pendingApproval?.approvalId).toBe("appr_hosted01"));
+    // Even a reserved identity plus live approval does not turn an optimistic
+    // source row into evidence from the saved-history reader.
+    expect(mounted.result.current.messages[0]?.id).toBe(draft.id);
+    expect(mounted.result.current.canonicalMessages).toEqual([]);
     const oldStop = mounted.result.current.stop;
     mounted.unmount();
     expect(fixture.requests.filter((request) => request.method === "turn/interrupt")).toHaveLength(0);
@@ -116,6 +123,8 @@ describe("useChatPresentation", () => {
     await waitFor(() => expect(reopened.result.current.activeProjection?.pendingApproval?.approvalId).toBe("appr_hosted01"));
     expect(reopened.result.current.scope).toMatchObject(fixture.scope);
     expect(reopened.result.current.messages[0]).toMatchObject({ id: draft.id, content: draft.prompt });
+    expect(reopened.result.current.canonicalMessages[0]).toMatchObject({ id: draft.id, content: draft.prompt,
+      data: { metadata: { canonicalIdentity: fixture.scope } } });
     expect(fixture.submissions).toHaveLength(2);
     await act(async () => { await oldStop(); });
     expect(fixture.requests.filter((request) => request.method === "turn/interrupt")).toHaveLength(0);

@@ -88,6 +88,9 @@ export function useHostedNativeConversation(options: HostedNativeConversationOpt
   selectedContext.current = history.workspaceContext;
   const projections = useMemo(() => mergeLifecycleProjections(history.projections, {}, activeProjection),
     [history.projections, activeProjection]);
+  // Only the canonical history reader can confirm a durable source message.
+  // Optimistic rows below may already carry reserved identity and are not receipts.
+  const canonicalMessages: readonly Message[] = history.messages;
   const messages = useMemo(() => {
     const draft = visibleDelivery?.optimisticDraft;
     if (!draft || history.messages.some((message) => message.id === draft.id)) return history.messages;
@@ -350,7 +353,7 @@ export function useHostedNativeConversation(options: HostedNativeConversationOpt
   }
 
   return {
-    messages, conversationTurns, projections, activeProjection, scope,
+    messages, canonicalMessages, conversationTurns, projections, activeProjection, scope,
     workspaceContext: history.workspaceContext,
     historyReady: history.historyReady, loading: history.loading,
     historyError: history.historyError ?? (missingRunningScope && history.historyReady ? "The saved running task has no recoverable canonical turn scope." : null),
