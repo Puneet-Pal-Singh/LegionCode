@@ -15,16 +15,26 @@ static const char lc_qualification_test_script[] =
   " const closed=(p)=>new Promise((resolve,reject)=>{p.on(\"error\",reject);p.on(\"close\",(c,s)=>c===0&&s===null?resolve():reject(Error(\"child closure\")))});\n"
   " const denied=(f)=>{try{f()}catch(e){if(e.code===\"EPERM\"||e.code===\"EACCES\")return;throw e}throw Error(\"access unexpectedly allowed\")};\n"
   " (async()=>{\n"
-  "  assert(process.execPath===cfg.node,\"selected Node identity\");\n"
-  "  const left=cp.spawn(cfg.node,[\"-e\",\"process.stdout.write('native-pipeline\\\\n')\"],{env:{},stdio:[\"ignore\",\"pipe\",\"pipe\"]});\n"
-  "  const right=cp.spawn(\"/bin/bash\",[\"--noprofile\",\"--norc\",\"-c\",\"IFS= read -r value; printf '%s' \\\"$value\\\"\"],{env:{},stdio:[\"pipe\",\"pipe\",\"pipe\"]});\n"
+  "  assert(process.execPath===cfg.node,\"selected Node identity\");assert(process.env.PATH===cfg.path||process.env.PATH.endsWith(\":\"+cfg.path),\"captured PATH inherited through npm\");\n"
+  "  const childEnv={PATH:cfg.path,LANG:\"C.UTF-8\",LC_ALL:\"C.UTF-8\"};\n"
+  "  const left=cp.spawn(\"node\",[\"-e\",\"process.stdout.write('native-pipeline\\\\n')\"],{env:childEnv,stdio:[\"ignore\",\"pipe\",\"pipe\"]});\n"
+  "  const right=cp.spawn(\"/bin/bash\",[\"--noprofile\",\"--norc\",\"-c\",\"IFS= read -r value; printf '%s' \\\"$value\\\"\"],{env:childEnv,stdio:[\"pipe\",\"pipe\",\"pipe\"]});\n"
   "  const lc=closed(left),rc=closed(right);let output=\"\",diagnostics=\"\";\n"
   "  left.stderr.on(\"data\",b=>diagnostics+=b);right.stderr.on(\"data\",b=>diagnostics+=b);right.stdout.on(\"data\",b=>{output+=b;if(output.length>4096)throw Error(\"pipeline bound\")});\n"
   "  left.stdout.pipe(right.stdin);await Promise.all([lc,rc]);assert(output===\"native-pipeline\"&&!diagnostics,\"real subprocess pipeline\");\n"
-  "  const detached=cp.spawn(cfg.node,[__filename,\"detached\"],{env:{},detached:true,stdio:\"ignore\"});detached.on(\"error\",e=>{throw e});detached.unref();\n"
+  "  const bin=cp.spawn(\"native-qualification-bin\",[],{env:{PATH:process.env.PATH,LANG:\"C.UTF-8\",LC_ALL:\"C.UTF-8\"},stdio:[\"ignore\",\"pipe\",\"pipe\"]});bin.stdout.resume();bin.stderr.resume();await closed(bin);assert(fs.readFileSync(\".qualifier-package-bin\").equals(nonce),\"ordinary package.bin env-node shebang\");\n"
+  "  const detached=cp.spawn(\"node\",[__filename,\"detached\"],{env:childEnv,detached:true,stdio:\"ignore\"});detached.on(\"error\",e=>{throw e});detached.unref();\n"
   "  const until=Date.now()+5000;while(!fs.existsSync(\".qualifier-detached-ack\")&&Date.now()<until)await new Promise(r=>setTimeout(r,20));\n"
   "  const marker=fs.readFileSync(\".qualifier-descendant\");assert(marker.length===40&&marker.subarray(0,4).toString()===\"LCQD\"&&marker.subarray(4,36).equals(nonce)&&marker.readUInt32BE(36)===detached.pid&&fs.readFileSync(\".qualifier-detached-ack\").equals(nonce),\"ROOT observed detached child\");\n"
   "  fs.writeFileSync(\".qualifier-write\",nonce);assert(fs.readFileSync(\".qualifier-write\").equals(nonce),\"workspace write positive\");\n"
+  "  const run=async(name,args)=>{const p=cp.spawn(name,args,{env:childEnv,stdio:[\"ignore\",\"pipe\",\"pipe\"]}),done=closed(p),output=[],errors=[];let size=0;\n"
+  "   p.stdout.on(\"data\",b=>{size+=b.length;if(size>4096)throw Error(\"core output bound\");output.push(b)});p.stderr.on(\"data\",b=>errors.push(b));await done;assert(!Buffer.concat(errors).length,\"core diagnostics\");return Buffer.concat(output)};\n"
+  "  await run(\"mkdir\",[\".qualifier-core\"]);await run(\"cp\",[\".qualifier-write\",\".qualifier-core/copied\"]);\n"
+  "  await run(\"mv\",[\".qualifier-core/copied\",\".qualifier-core/moved\"]);assert((await run(\"cat\",[\".qualifier-core/moved\"])).equals(nonce),\"ordinary cp/mv/cat\");\n"
+  "  assert((await run(\"ls\",[\".qualifier-core\"])).toString().includes(\"moved\"),\"ordinary ls\");await run(\"rm\",[\".qualifier-core/moved\"]);\n"
+  "  assert(!fs.existsSync(\".qualifier-core/moved\"),\"ordinary rm\");fs.rmdirSync(\".qualifier-core\");\n"
+  "  await run(\"./.qualifier-core-script\",[]);assert(fs.readFileSync(\".qualifier-sh\",\"utf8\")===\"native-shell\",\"ordinary sh shebang\");\n"
+  "  fs.writeFileSync(\".qualifier-core-utils\",nonce);\n"
   "  denied(()=>fs.linkSync(\".qualifier-write\",\".qualifier-hardlink\"));denied(()=>fs.symlinkSync(cfg.outside,\".qualifier-symlink\"));\n"
   "  denied(()=>fs.writeFileSync(\".git/qualification-canary\",\"must remain unchanged\"));\n"
   "  denied(()=>fs.renameSync(\".git\",\".qualifier-moved-git\"));\n"
@@ -46,7 +56,7 @@ static const char lc_qualification_build_script[] =
   "const fs=require(\"node:fs\"),crypto=require(\"node:crypto\");\n"
   "const cfg=JSON.parse(fs.readFileSync(\".qualifier-config.json\",\"utf8\")),nonce=Buffer.from(cfg.nonce,\"hex\");\n"
   "const result=fs.readFileSync(\".qualifier-result\");\n"
-  "if(process.execPath!==cfg.node||result.length!==40||result.subarray(0,4).toString()!==\"LCQ1\"||!result.subarray(4,36).equals(nonce)||result.readUInt32BE(36)!==511||!fs.readFileSync(\".qualifier-descendant\").subarray(4,36).equals(nonce))throw Error(\"package result identity\");\n"
+  "if(process.execPath!==cfg.node||!(process.env.PATH===cfg.path||process.env.PATH.endsWith(\":\"+cfg.path))||!fs.readFileSync(\".qualifier-package-bin\").equals(nonce)||!fs.readFileSync(\".qualifier-core-utils\").equals(nonce)||result.length!==40||result.subarray(0,4).toString()!==\"LCQ1\"||!result.subarray(4,36).equals(nonce)||result.readUInt32BE(36)!==511||!fs.readFileSync(\".qualifier-descendant\").subarray(4,36).equals(nonce))throw Error(\"package result identity\");\n"
   "fs.writeFileSync(\".qualifier-build\",crypto.createHash(\"sha256\").update(result).digest());\n"
 ;
 static const char lc_qualification_flood_script[] =
@@ -54,6 +64,19 @@ static const char lc_qualification_flood_script[] =
   "const chunk=Buffer.alloc(8192,120);\n"
   "function flood(){for(let i=0;i<64;i++){if(!process.stdout.write(chunk)){process.stdout.once(\"drain\",flood);return}}setImmediate(flood)}\n"
   "flood();\n"
+;
+
+static const char lc_qualification_package_bin_script[] =
+  "#!/usr/bin/env node\n"
+  "\"use strict\";\n"
+  "const fs=require(\"node:fs\"),cfg=JSON.parse(fs.readFileSync(\".qualifier-config.json\",\"utf8\"));\n"
+  "if(process.execPath!==cfg.node||!(process.env.PATH===cfg.path||process.env.PATH.endsWith(\":\"+cfg.path)))throw Error(\"selected env-node role\");\n"
+  "fs.writeFileSync(\".qualifier-package-bin\",Buffer.from(cfg.nonce,\"hex\"));\n"
+;
+
+static const char lc_qualification_core_shell_script[] =
+  "#!/bin/sh\n"
+  "printf '%s' 'native-shell' > .qualifier-sh\n"
 ;
 
 static inline bool lc_qualification_json(const char *text, char *out, size_t bound) {
@@ -66,13 +89,7 @@ static inline bool lc_qualification_json(const char *text, char *out, size_t bou
   out[at++] = 34; out[at] = 0; return true;
 }
 static inline bool lc_qualification_quote(const char *text, char *out, size_t bound) {
-  size_t at = 0; if (bound < 3) return false; out[at++] = 39;
-  for (const char *p = text; *p; p++) {
-    size_t size = *p == 39 ? 4 : 1; if (at + size + 2 > bound) return false;
-    if (*p == 39) { out[at++] = 39; out[at++] = 92; out[at++] = 39; out[at++] = 39; }
-    else out[at++] = *p;
-  }
-  out[at++] = 39; out[at] = 0; return true;
+  return lc_host_toolchain_quote(text, out, bound);
 }
 static inline bool lc_qualification_write(int root, const char *name, const void *bytes, size_t size, uid_t actor, gid_t group, mode_t mode) {
   int fd = openat(root, name, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, mode);
