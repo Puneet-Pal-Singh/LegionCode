@@ -55,6 +55,8 @@ import {
   RunIdSchema,
   ProviderIdSchema,
   type LocalWorkspaceGrant,
+  type LocalWorkspaceProjectsResponse,
+  type WorkspaceId,
   type AppServerInitializeResponse,
   type ProviderId,
   type Thread,
@@ -261,10 +263,12 @@ export type AppServerClient = {
   readLocalChatImageChunk(params: LocalChatImageReadParams): Promise<LocalChatImageReadResult>;
   readWorkspaceFile(params: LocalWorkspaceReadFileParams): Promise<CheckoutReadFileResult>;
   getWorkspaceGrant(): Promise<LocalWorkspaceGrant | null>;
+  listLocalWorkspaceProjects(): Promise<LocalWorkspaceProjectsResponse>;
+  forgetLocalWorkspaceProject(workspaceId: WorkspaceId): Promise<void>;
   grantWorkspace(source: WorkspaceGrantSource): Promise<LocalWorkspaceGrant>;
   revokeWorkspace(): Promise<void>;
   listThreads(): Promise<Thread[]>;
-  createThread(title?: string): Promise<Thread>;
+  createThread(title?: string, expectedWorkspace?: Pick<LocalWorkspaceGrant, "workspaceId" | "grantedAt">): Promise<Thread>;
   getThread(threadId: Thread["id"]): Promise<Thread>;
   renameThread(threadId: Thread["id"], title: string): Promise<Thread>;
   pinThread(threadId: Thread["id"]): Promise<Thread>;
@@ -557,6 +561,12 @@ export function createAppServerClient(
     getRepositoryContents: async (params) => request(options, {
       method: "repository/contents", params,
     }, AppServerResultSchemas["repository/contents"]),
+    listLocalWorkspaceProjects: async () => request(options, {
+      method: "workspace/localProjects", params: {},
+    }, AppServerResultSchemas["workspace/localProjects"]),
+    forgetLocalWorkspaceProject: async (workspaceId) => {
+      await request(options, { method: "workspace/forgetLocalProject", params: { workspaceId } }, AppServerResultSchemas["workspace/forgetLocalProject"]);
+    },
     getWorkspaceGrant: async () => {
       const result = await request(options, {
         method: "workspace/current",
@@ -586,10 +596,10 @@ export function createAppServerClient(
       const result = await request(options, { method: "thread/list", params: {} }, AppServerResultSchemas["thread/list"]);
       return result.threads;
     },
-    createThread: async (title) => {
+    createThread: async (title, expectedWorkspace) => {
       const result = await request(options, {
         method: "thread/create",
-        params: title === undefined ? {} : { title },
+        params: { ...(title === undefined ? {} : { title }), ...(expectedWorkspace ? { expectedWorkspace } : {}) },
       }, AppServerResultSchemas["thread/create"]);
       return result.thread;
     },

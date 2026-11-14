@@ -1,5 +1,5 @@
 import { ApprovalDock } from "@legioncode/client-ui";
-import type { AppServerClient, LifecycleProjection } from "@legioncode/sdk";
+import { projectApprovalPresentation, type AppServerClient, type LifecycleProjection } from "@legioncode/sdk";
 import type { TurnAdmission } from "@repo/platform-protocol";
 import type { ApprovalDecisionKind } from "@repo/shared-types";
 import { useState } from "react";
@@ -29,7 +29,7 @@ export function DesktopApproval({ client, admission, projection, canStop, onStop
       default: return [];
     }
   });
-  const toolName = approval.metadata?.toolName;
+  const presentation = projectApprovalPresentation(approval);
   const busyDecision: ApprovalDecisionKind | null = command.delivery
     ? command.delivery.decision === "approved"
       ? command.delivery.grantScope === "matching_in_chat" ? "allow_persistent_rule" : "allow_once"
@@ -39,7 +39,8 @@ export function DesktopApproval({ client, admission, projection, canStop, onStop
   return <ApprovalDock
     question={approval.question}
     categoryLabel="Local action"
-    title={typeof toolName === "string" ? toolName : undefined}
+    title={presentation.title}
+    command={presentation.command}
     matchingInChatOption={matching}
     decisions={decisions}
     busyDecision={busyDecision}

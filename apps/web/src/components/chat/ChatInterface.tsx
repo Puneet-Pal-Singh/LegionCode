@@ -1,6 +1,7 @@
 import { resolveHydratedChatImageSource } from "./chatMessageImagePresentation";
 import { loadCodeArtifactContent } from "../../services/api/codeArtifactReads";
 import { ChatDebugPanel } from "./chat-interface/ChatDebugPanel";
+import { WebComposerWorkspaceBar } from "./WebComposerWorkspaceBar";
 import { buildConversationTurns } from "@legioncode/sdk";
 import { useRef, useEffect, useMemo, useCallback } from "react";
 import {
@@ -475,9 +476,36 @@ export function ChatInterface({
   useEffect(() => {
     onPresentationReadyChange?.(!showStableSessionPlaceholder);
   }, [onPresentationReadyChange, showStableSessionPlaceholder]);
+  const workspaceControlsDisabledReason = pendingApproval
+    ? "Resolve the pending approval before changing workspace controls."
+    : activeRunLoading
+      ? "Stop the current run before changing workspace controls."
+      : isTranscriptHydrating ||
+          !hasHydrated ||
+          scopeRecoveryError ||
+          continuationRecovery
+        ? "Restore this chat before changing workspace controls."
+        : undefined;
+  // This conversation's draft/image owner has no cross-project handoff. Keep
+  // its persisted project fixed; AgentSetup owns the draft-preserving picker.
+  const projectUnavailableReason = "Start a new task to change projects.";
   const renderComposerControls = (layout: ComposerLayout) => (
     <ChatComposerControls
       layout={layout}
+      workspaceBar={layout === "hero" ? (
+        <WebComposerWorkspaceBar
+          scopeKey={JSON.stringify([
+            sessionId,
+            runId,
+            conversationScope?.workspaceId,
+            conversationScope?.threadId,
+          ])}
+          projectName={projectName}
+          onProjectClick={onProjectClick}
+          projectUnavailableReason={projectUnavailableReason}
+          disabledReason={workspaceControlsDisabledReason}
+        />
+      ) : undefined}
       error={chatErrorNotice}
       continuation={continuationRecovery}
       approval={{
@@ -503,11 +531,12 @@ export function ChatInterface({
       queuePanel={
         <ThreadInputQueuePanel
           queuingEnabled={composerPreferences.followUpBehavior === "queue"}
-          onDisableQueuing={() =>
-            updateComposerPreferences({ followUpBehavior: "steer" })
+          onQueuingChange={(enabled) =>
+            updateComposerPreferences({ followUpBehavior: enabled ? "queue" : "steer" })
           }
           snapshot={queue.snapshot}
           error={queue.error}
+          onRetry={queue.refresh}
           active={activeRunLoading}
           resolveImageSource={resolveQueueImageSource}
           onUpdate={queue.update}
@@ -602,8 +631,10 @@ export function ChatInterface({
     <ChatInterfaceView
       ref={scrollRef}
       showHeroComposer={showHeroComposer}
+      showProjectChip={false}
       projectName={projectName}
       onProjectClick={onProjectClick}
+      projectUnavailableReason={workspaceControlsDisabledReason ?? projectUnavailableReason}
       showSessionPlaceholder={showStableSessionPlaceholder}
       placeholderError={chatErrorNotice}
       continuation={continuationRecovery}

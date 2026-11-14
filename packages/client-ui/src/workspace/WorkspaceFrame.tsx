@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { PanelLeftOpen } from "lucide-react";
+import { shouldIgnoreGlobalKeyDown } from "../hooks/global-keydown.js";
+import { getVisibleFocusTargets } from "../hooks/modal-focus.js";
+import { WorkspaceSummaryOverlay, WorkspaceSummaryProvider } from "./WorkspaceSummaryLayout.js";
 
 const COMPACT_WORKSPACE_QUERY = "(max-width: 1023px)";
-const SIDEBAR_FOCUSABLE_SELECTOR =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export interface WorkspaceFrameProps {
   sidebar: ReactNode;
@@ -11,6 +12,7 @@ export interface WorkspaceFrameProps {
   children: ReactNode;
   rightPanel?: ReactNode;
   rightPanelLabel?: string;
+  rightPanelWidth?: number;
   className?: string;
   sidebarOpen?: boolean;
   onSidebarOpenChange?: (open: boolean) => void;
@@ -39,6 +41,7 @@ export function WorkspaceFrame({
   children,
   rightPanel,
   rightPanelLabel = "Workspace details",
+  rightPanelWidth,
   className,
   sidebarOpen,
   onSidebarOpenChange,
@@ -60,7 +63,8 @@ export function WorkspaceFrame({
 
     if (previous.isSidebarOpen === isSidebarOpen) return;
     if (!previous.isSidebarOpen && isSidebarOpen && isCompact) {
-      sidebarRef.current?.querySelector<HTMLElement>(SIDEBAR_FOCUSABLE_SELECTOR)?.focus();
+      const sidebarElement = sidebarRef.current;
+      if (sidebarElement) (getVisibleFocusTargets(sidebarElement)[0] ?? sidebarElement).focus();
     } else if (previous.isSidebarOpen && !isSidebarOpen && previous.isCompact) {
       menuButtonRef.current?.focus();
     }
@@ -70,6 +74,7 @@ export function WorkspaceFrame({
     if (!isCompact || !isSidebarOpen) return;
 
     const handleKeyDown = (event: KeyboardEvent): void => {
+      if (shouldIgnoreGlobalKeyDown(event)) return;
       if (event.key === "Escape") {
         event.preventDefault();
         setSidebarOpen(false);
@@ -87,9 +92,7 @@ export function WorkspaceFrame({
         .map((id) => document.getElementById(id))
         .filter((element): element is HTMLElement => Boolean(element?.getAttribute("role") === "dialog"));
       const focusRoots = [sidebarElement, ...ownedDialogs];
-      const focusable = focusRoots.flatMap((element) => Array.from(
-        element.querySelectorAll<HTMLElement>(SIDEBAR_FOCUSABLE_SELECTOR),
-      )).filter((element) => element.tabIndex >= 0 && isVisibleFocusTarget(element));
+      const focusable = focusRoots.flatMap(getVisibleFocusTargets);
       if (focusable.length === 0) {
         event.preventDefault();
         sidebarElement.focus();
@@ -114,9 +117,12 @@ export function WorkspaceFrame({
   }, [isCompact, isSidebarOpen]);
 
   const isModalOpen = isCompact && isSidebarOpen;
+  const panelStyle: (CSSProperties & { "--lc-workspace-panel-width"?: string }) | undefined =
+    rightPanelWidth === undefined ? undefined : { "--lc-workspace-panel-width": `${rightPanelWidth}px` };
 
   return (
-    <div className={`lc-workspace-frame${className ? ` ${className}` : ""}`}>
+    <WorkspaceSummaryProvider>
+    <div className={`lc-workspace-frame${className ? ` ${className}` : ""}`} style={panelStyle}>
       <div
         ref={sidebarRef}
         className={`lc-workspace-sidebar${isSidebarOpen ? " lc-workspace-sidebar-open" : ""}`}
@@ -160,26 +166,9 @@ export function WorkspaceFrame({
             <aside className="lc-workspace-right-panel" aria-label={rightPanelLabel}>{rightPanel}</aside>
           ) : null}
         </div>
+        <WorkspaceSummaryOverlay />
       </div>
     </div>
+    </WorkspaceSummaryProvider>
   );
-}
-
-function isVisibleFocusTarget(element: HTMLElement): boolean {
-  for (
-    let current: HTMLElement | null = element;
-    current;
-    current = current.parentElement
-  ) {
-    const style = window.getComputedStyle(current);
-    if (
-      current.hidden ||
-      style.display === "none" ||
-      style.visibility === "hidden" ||
-      style.visibility === "collapse"
-    ) {
-      return false;
-    }
-  }
-  return true;
 }

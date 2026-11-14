@@ -50,6 +50,19 @@ export function initializeAppServer(
     };
   }
 
+  const capabilities: AppServerInitializeResponse["capabilities"] =
+    options.environment === "local"
+      ? [
+          ...LOCAL_APP_SERVER_CAPABILITIES,
+          ...(options.localWorkspaceFilesAvailable ? ["workspace-files-v1" as const] : []),
+          ...(options.localWorkspaceGitReadsAvailable ? ["workspace-git-reads-v1" as const] : []),
+          ...(options.localTurnExecutionAvailable ? ["turn-execution-v1" as const] : []),
+          ...(options.localSavedReviewAvailable ? ["artifact-review-v1" as const] : []),
+          ...(options.localSavedCommitAvailable ? ["artifact-commit-v1" as const] : []),
+        ]
+      : [];
+  const availableCapabilities = new Set<string>(capabilities);
+
   return {
     statusCode: 200,
     payload: {
@@ -59,25 +72,14 @@ export function initializeAppServer(
       ...(options.environment === "local" && options.localTurnConfiguration
         ? { localTurnConfiguration: options.localTurnConfiguration }
         : {}),
-      capabilities:
-        options.environment === "local"
-          ? [
-              ...LOCAL_APP_SERVER_CAPABILITIES,
-              ...(options.localWorkspaceFilesAvailable ? ["workspace-files-v1"] : []),
-              ...(options.localWorkspaceGitReadsAvailable ? ["workspace-git-reads-v1"] : []),
-              ...(options.localTurnExecutionAvailable ? ["turn-execution-v1"] : []),
-              ...(options.localSavedReviewAvailable ? ["artifact-review-v1"] : []),
-              ...(options.localSavedCommitAvailable ? ["artifact-commit-v1"] : []),
-            ]
-          : [],
+      capabilities,
       unavailableCapabilities:
         options.environment === "local"
           ? LOCAL_APP_SERVER_UNAVAILABLE_CAPABILITIES.filter((capability) =>
-              (capability !== "turn-execution-v1" || !options.localTurnExecutionAvailable) &&
-              (capability !== "artifact-review-v1" || !options.localSavedReviewAvailable),
+              !availableCapabilities.has(capability),
             ).map((capability) => ({
               capability,
-              reason: "This local capability is planned for a later slice",
+              reason: capability === "artifact-commit-v1" ? "Saved commits are unavailable." : "This local capability is planned for a later slice",
             }))
           : [],
     },

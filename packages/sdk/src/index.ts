@@ -45,6 +45,10 @@ export {
   type ConversationSubmissionDispatch,
 } from "./platform/conversation-submission.js";
 export {
+  dispatchHostedConversationSubmission,
+  type HostedConversationSubmissionBindings,
+} from "./platform/hosted-conversation-submission.js";
+export {
   AppServerTransportError,
   createAppServerHttpTransport,
   type AppServerHttpTransportOptions,
@@ -323,6 +327,10 @@ export {
   type WorkflowRequestAnswer,
 } from "./workflow/turn-workflow-projection.js";
 export {
+  projectApprovalPresentation,
+  type WorkflowApprovalPresentation,
+} from "./workflow/approval-presentation.js";
+export {
   groupToolActivity,
   buildSegmentTitle,
   buildActiveWorkflowTrace,
@@ -349,6 +357,7 @@ export {
 } from "./platform/read-file-output.js";
 
 export * from "./platform/conversation-history.js";
+export * from "./platform/local-thread-history.js";
 
 export {
   createLifecycleProjection,
@@ -405,6 +414,8 @@ export type {
   LocalTurnInterruptParams,
   LocalThreadHistoryParams,
   LocalThreadHistoryResult,
+  LocalThreadHistoryMessagesContinuation,
+  LocalThreadHistoryMessagesWindow,
 } from "@legioncode/app-server/protocol";
 export { TurnAdmissionSchema, type TurnAdmission } from "@repo/platform-protocol";
 
@@ -421,3 +432,5 @@ export {
   type LocalTurnMediaLimits,
 } from "@repo/platform-protocol";
 export { readLocalChatImage } from "./platform/local-chat-image.js";
+
+export { loadCompletePickerInventory, loadManageProviderModelInventory, shouldLoadCompletePickerInventory, includeManagedPickerModels, assertProviderModelDiscoveryAvailable, PROVIDER_MODEL_CACHE_MAX_AGE_MS } from "./providers/model-inventory.js";

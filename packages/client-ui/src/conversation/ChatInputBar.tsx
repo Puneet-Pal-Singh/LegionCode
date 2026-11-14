@@ -1,4 +1,4 @@
-import { useRef, useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { useRef, useEffect, useLayoutEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import {
   X,
@@ -26,7 +26,7 @@ import {
 } from "./chatImageAttachments.js";
 import { ChatImageAttachmentStrip } from "./ChatImageAttachmentStrip.js";
 import { ChatImageDropOverlay } from "./ChatImageDropOverlay.js";
-import { useChatImageAttachmentDraft } from "./useChatImageAttachmentDraft.js";
+import { useChatImageAttachmentDraft, type ChatImageAttachmentDraftBinding } from "./useChatImageAttachmentDraft.js";
 import { useChatComposerTextareaAutosize } from "./useChatComposerTextareaAutosize.js";
 import type { ReviewCommentDraft } from "../review/reviewComments.js";
 import { getReviewCommentDisplayLabel } from "../review/reviewComments.js";
@@ -34,6 +34,7 @@ import type { ContextBudgetSnapshot, UsageCostSnapshot } from "@legioncode/sdk";
 import {
   ChatComposerContextControl,
   ChatComposerPermissionControl,
+  ChatComposerToolbar,
 } from "./ChatComposerStatusControls.js";
 import { MarkdownMessageContent } from "./chat-message/MessageContent.js";
 import {
@@ -53,10 +54,15 @@ const PLAN_PLACEHOLDER =
   "Inspect the codebase and outline a safe plan without executing changes";
 
 export interface ChatInputBarProps {
+  /** New-chat welcome controls, rendered below the input surface. */
+  workspaceBar?: ReactNode;
+  imageDraft?: ChatImageAttachmentDraftBinding;
   composerPreferences?: ComposerPreferences;
   isHidden?: boolean;
   submissionUnavailableReason?: string;
+  showSubmissionUnavailableNotice?: boolean;
   attachmentsAvailable?: boolean;
+  attachmentsUnavailableReason?: string;
   renderModelPicker?: (onModelSwitchWarning: () => void) => ReactNode;
   providerNotice?: ReactNode;
   providerQuota?: ReactNode;
@@ -83,10 +89,13 @@ export interface ChatInputBarProps {
   placeholder?: string;
   sessionId: string;
   mode?: RunMode;
+  availableModes?: readonly RunMode[];
   onModeChange?: (mode: RunMode) => void;
-  repoTree?: Array<{ path: string; type: string; sha: string }>;
+  repoTree?: Array<{ path: string; type: string; sha?: string }>;
   isLoadingRepoTree?: boolean;
   repoTreeError?: string | null;
+  repoTreeNotice?: string | null;
+  onFileMentionQueryChange?: (query: string | null) => void;
   retryRepoTree?: () => void;
   layout?: "docked" | "hero";
   contextBudget?: ContextBudgetSnapshot | null;
@@ -94,10 +103,25 @@ export interface ChatInputBarProps {
   onCompact?: () => void;
   onContextOpen?: () => void;
   permissionMode?: ProductMode;
+  availablePermissionModes?: readonly ProductMode[];
+  permissionEnvironment?: "hosted" | "local";
   onPermissionModeChange?: (mode: ProductMode) => void;
 }
 
-export function ChatInputBar({
+export function ChatInputBar(props: ChatInputBarProps) {
+  return props.imageDraft
+    ? <ChatInputBarView {...props} imageDraft={props.imageDraft} />
+    : <OwnedImageDraftInputBar {...props} />;
+}
+
+function OwnedImageDraftInputBar(props: ChatInputBarProps) {
+  const imageDraft = useChatImageAttachmentDraft(!props.isHidden && (props.attachmentsAvailable ?? true));
+  return <ChatInputBarView {...props} imageDraft={imageDraft} />;
+}
+
+function ChatInputBarView({
+  workspaceBar,
+  imageDraft,
   composerPreferences = {
     plainTextComposer: true,
     sendShortcut: "enter",
@@ -116,7 +140,9 @@ export function ChatInputBar({
   onResume,
   isHidden = false,
   submissionUnavailableReason,
+  showSubmissionUnavailableNotice = true,
   attachmentsAvailable = true,
+  attachmentsUnavailableReason,
   reviewComments = [],
   onRemoveReviewComment,
   reviewCommentError = null,
@@ -127,9 +153,12 @@ export function ChatInputBar({
   sessionId,
   mode = DEFAULT_RUN_MODE,
   onModeChange,
+  availableModes,
   repoTree = [],
   isLoadingRepoTree = false,
   repoTreeError = null,
+  repoTreeNotice = null,
+  onFileMentionQueryChange,
   retryRepoTree,
   layout = "docked",
   contextBudget = null,
@@ -137,13 +166,16 @@ export function ChatInputBar({
   onCompact,
   onContextOpen,
   permissionMode,
+  availablePermissionModes,
+  permissionEnvironment,
   onPermissionModeChange,
-}: ChatInputBarProps) {
+}: Omit<ChatInputBarProps, "imageDraft"> & { imageDraft: ChatImageAttachmentDraftBinding }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [isFocused, setIsFocused] = useState(false);
   const unavailableDescriptionId = useId();
-  const imageDraft = useChatImageAttachmentDraft(!isHidden && attachmentsAvailable);
+  useLayoutEffect(() => imageDraft.bindCapture(!isHidden && attachmentsAvailable),
+    [imageDraft.bindCapture, isHidden, attachmentsAvailable]);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [highlightedFileIndex, setHighlightedFileIndex] = useState(0);
   const [switchWarningMessage, setSwitchWarningMessage] = useState<
@@ -162,6 +194,17 @@ export function ChatInputBar({
   const hasImageAttachments = imageDraft.attachments.length > 0;
   const hasInput = input.trim().length > 0;
   const hasReviewComments = reviewComments.length > 0;
+  const unavailableReason = submissionUnavailableReason ??
+    (hasImageAttachments && !attachmentsAvailable
+      ? attachmentsUnavailableReason
+      : undefined);
+  // Hosts may omit passive delivery/readiness copy without weakening Send.
+  // A draft's incompatible attachments remain actionable and visible.
+  const visibleUnavailableReason = showSubmissionUnavailableNotice
+    ? unavailableReason
+    : hasImageAttachments && !attachmentsAvailable
+      ? attachmentsUnavailableReason
+      : undefined;
   const submissionAvailable = !submissionUnavailableReason &&
     (attachmentsAvailable || !hasImageAttachments);
   const canSubmit = submissionAvailable && (hasInput || hasReviewComments || hasImageAttachments);
@@ -215,6 +258,7 @@ export function ChatInputBar({
   );
   const shouldShowFilePicker =
     activeMention !== null && dismissedMentionKey !== activeMentionKey;
+  useEffect(() => { onFileMentionQueryChange?.(!isHidden && shouldShowFilePicker ? activeMention?.query ?? null : null); }, [isHidden, shouldShowFilePicker, activeMention?.query, onFileMentionQueryChange]);
   const canCompactContext =
     Boolean(onCompact) &&
     contextBudget !== null &&
@@ -403,6 +447,7 @@ export function ChatInputBar({
     if (guardActiveRunSwitch()) {
       return;
     }
+    if (availableModes && !availableModes.includes(nextMode)) return;
     onModeChange?.(nextMode);
   };
 
@@ -530,6 +575,7 @@ export function ChatInputBar({
               aria-label="Repository files"
               className="max-h-[19rem] overflow-y-auto p-2"
             >
+              {repoTreeNotice && !isLoadingRepoTree && !repoTreeError ? <div role="status" className="px-3 py-2 text-[11px] text-amber-200">{repoTreeNotice}</div> : null}
               {isLoadingRepoTree ? (
                 <div className="px-3 py-4 text-[11px] text-zinc-500">
                   Loading repository files...
@@ -746,7 +792,7 @@ export function ChatInputBar({
             onClick={syncCursorPosition}
             onKeyUp={syncCursorPosition}
             onSelect={syncCursorPosition}
-            aria-describedby={submissionUnavailableReason ? unavailableDescriptionId : undefined}
+            aria-describedby={visibleUnavailableReason ? unavailableDescriptionId : undefined}
             aria-autocomplete="list"
             aria-controls={shouldShowFilePicker ? filePickerListId : undefined}
             aria-expanded={shouldShowFilePicker}
@@ -777,7 +823,7 @@ export function ChatInputBar({
                   Plan mode inspects and outlines steps without running normal
                   mutating execution.
                 </span>
-                {onModeChange ? (
+                {onModeChange && (!availableModes || availableModes.includes("build")) ? (
                   <button
                     type="button"
                     onClick={() => handleModeChange("build")}
@@ -802,69 +848,69 @@ export function ChatInputBar({
             </div>
           ) : null}
 
-          {submissionUnavailableReason ? (
+          {visibleUnavailableReason ? (
             <p id={unavailableDescriptionId} role="status" className="mt-3 text-xs text-zinc-400">
-              {submissionUnavailableReason}
+              {visibleUnavailableReason}
             </p>
           ) : null}
           {providerNotice}
-          {/* Toolbar */}
-          <div className="mt-2 flex min-w-0 items-center justify-between gap-2 pt-2">
-            {/* Left: Add button + Model picker */}
-            <div className="scrollbar-hide flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto sm:gap-2">
+          <ChatComposerToolbar
+            addControl={
               <ChatComposerPlusMenu
                 mode={mode}
+                availableModes={availableModes}
                 attachmentsAvailable={attachmentsAvailable}
-                disabled={isComposerActiveRun}
-                onModeChange={handleModeChange}
+                disabled={isComposerActiveRun || isHidden}
+                onModeChange={onModeChange ? handleModeChange : undefined}
                 onAttachImages={() => { if (attachmentsAvailable) imageInputRef.current?.click(); }}
                 onAddRepositoryContext={insertMentionTrigger}
               />
-
-              <div className="h-3.5 w-px bg-zinc-700/80" />
-
-              {renderModelPicker?.(() =>
-                showSwitchWarning(IDLE_SWITCH_WARNING),
-              )}
+            }
+            modelPicker={renderModelPicker?.(() =>
+              showSwitchWarning(IDLE_SWITCH_WARNING),
+            )}
+            permissionControl={
               <ChatComposerPermissionControl
                 key={sessionId}
                 value={permissionMode}
+                availableModes={availablePermissionModes}
+                environmentKind={permissionEnvironment}
                 onChange={onPermissionModeChange}
                 disabled={isComposerActiveRun || isHidden}
               />
-
-              {providerQuota}
-            </div>
-
-            {/* Attachment and voice actions stay hidden until they trigger real flows. */}
-            <div className="flex shrink-0 items-center gap-1.5">
-              {showContextWindowUsage ? (
-                <ChatComposerContextControl
-                  budget={contextBudget}
-                  usage={usage}
-                  onCompact={onCompact}
-                  onOpenDetails={onContextOpen}
+            }
+            providerQuota={providerQuota}
+            actions={
+              <>
+                {showContextWindowUsage ? (
+                  <ChatComposerContextControl
+                    budget={contextBudget}
+                    usage={usage}
+                    onCompact={onCompact}
+                    onOpenDetails={onContextOpen}
+                  />
+                ) : null}
+                <ComposerSubmitControls
+                  isActive={isComposerActiveRun}
+                  canResume={submissionAvailable && canResume && !canSubmit}
+                  onResume={onResume}
+                  canSubmit={canSubmit}
+                  canSendMessage={canSendMessage}
+                  canStop={shouldShowStop}
+                  followUpAvailable={
+                    submissionAvailable && onFollowUpSubmit !== undefined && !hasReviewComments
+                  }
+                  preferences={composerPreferences}
+                  modifierShortcutLabel={modifierShortcutLabel}
+                  onSend={() => void submitComposer()}
+                  onFollowUp={(delivery) => void submitComposer(delivery)}
+                  onStop={onStop}
                 />
-              ) : null}
-              <ComposerSubmitControls
-                isActive={isComposerActiveRun}
-                canResume={submissionAvailable && canResume && !canSubmit}
-                onResume={onResume}
-                canSubmit={canSubmit}
-                canSendMessage={canSendMessage}
-                canStop={shouldShowStop}
-                followUpAvailable={
-                  submissionAvailable && onFollowUpSubmit !== undefined && !hasReviewComments
-                }
-                preferences={composerPreferences}
-                modifierShortcutLabel={modifierShortcutLabel}
-                onSend={() => void submitComposer()}
-                onFollowUp={(delivery) => void submitComposer(delivery)}
-                onStop={onStop}
-              />
-            </div>
-          </div>
+              </>
+            }
+          />
         </div>
+        {!isHidden && layout === "hero" && workspaceBar ? <div className="mt-2 min-w-0">{workspaceBar}</div> : null}
       </form>
       {providerDialog}
     </>

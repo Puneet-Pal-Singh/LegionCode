@@ -29,6 +29,7 @@ import {
   type CompletedTurnReview,
 } from "./useCompletedTurnReview.js";
 import { ChatMessage } from "../ChatMessage.js";
+import { ChangedFilesCard } from "../chat-message/ChangedFilesCard.js";
 import { lifecyclePhaseLabel } from "@legioncode/sdk";
 import { CanonicalWorkflowSurface } from "../workflow/CanonicalWorkflowSurface.js";
 import { PendingWorkflowSurface } from "../workflow/PendingWorkflowSurface.js";
@@ -46,8 +47,10 @@ export interface ChatInterfaceViewProps {
   runAttemptId: string | null;
   artifactIdentity?: EditArtifactIdentity | null;
   showHeroComposer: boolean;
+  showProjectChip?: boolean;
   projectName?: string;
   onProjectClick?: () => void;
+  projectUnavailableReason?: string;
   showSessionPlaceholder: boolean;
   placeholderError?: ChatErrorNoticeProps | null;
   continuation?: {
@@ -115,7 +118,7 @@ export const ChatInterfaceView = forwardRef<
 >(function ChatInterfaceView(props, scrollRef) {
   return (
     <div
-      className="flex min-h-0 flex-1 flex-col bg-black"
+      className="flex min-h-0 min-w-0 flex-1 flex-col bg-black"
       data-thread-surface={props.threadId ?? undefined}
     >
       {props.lifecycleProjection ? (
@@ -125,12 +128,14 @@ export const ChatInterfaceView = forwardRef<
       ) : null}
       <div
         ref={scrollRef}
-        className="min-h-0 flex-1 overflow-y-auto px-3 py-3 sm:px-6 sm:py-4"
+        className="min-h-0 min-w-0 flex-1 overflow-y-auto px-3 py-3 sm:px-6 sm:py-4"
       >
         {props.showHeroComposer ? (
           <HeroComposer
             projectName={props.projectName}
             onProjectClick={props.onProjectClick}
+            projectUnavailableReason={props.projectUnavailableReason}
+            showProjectChip={props.showProjectChip}
           >
             {props.renderComposer("hero")}
           </HeroComposer>
@@ -259,6 +264,7 @@ function resolveUserMessageEdit(
   const hasContinuationTarget = entry.editTargetTurnId !== undefined;
   if (
     !props.onUserMessageEdit ||
+    entry.editUnavailable ||
     entry.message.role !== "user" ||
     entry.historyStatus === "revised" ||
     (hasContinuationTarget
@@ -438,17 +444,6 @@ function TerminalMessage(
   const completedTurnReview = useCompletedTurnReview(props.projection, null);
   if (!terminal) return null;
 
-  if (terminal.state === "interrupted") return null;
-
-  if (terminal.state !== "completed") {
-    return (
-      <ConversationTerminalMarker
-        interrupted={false}
-        content={terminal.content}
-      />
-    );
-  }
-
   const openCanonicalTurnReview = () => {
     if (!completedTurnReview.turnId) return;
     props.selectCanonicalTurnReview({
@@ -459,6 +454,23 @@ function TerminalMessage(
     });
     props.onReviewOpen?.();
   };
+
+  if (terminal.state !== "completed") {
+    return (
+      <>
+        {terminal.state !== "interrupted" ? (
+          <ConversationTerminalMarker interrupted={false} content={terminal.content} />
+        ) : null}
+        {completedTurnReview.turnId && !completedTurnReview.error && completedTurnReview.files.length > 0 ? (
+          <ChangedFilesCard
+            files={completedTurnReview.files}
+            loadFileDiff={completedTurnReview.loadFileDiff}
+            onReviewOpen={openCanonicalTurnReview}
+          />
+        ) : null}
+      </>
+    );
+  }
 
   return (
     <ChatMessage
@@ -512,42 +524,50 @@ function TerminalMessage(
   );
 }
 
-function HeroComposer({
+export function HeroComposer({
   children,
   projectName,
   onProjectClick,
+  projectUnavailableReason,
+  showProjectChip = true,
 }: {
   children: ReactNode;
   projectName?: string;
   onProjectClick?: () => void;
+  projectUnavailableReason?: string;
+  showProjectChip?: boolean;
 }) {
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-4xl items-center justify-center py-8">
-      <div className="w-full">
+    <div className="mx-auto flex min-h-full min-w-0 w-full max-w-4xl items-center justify-center py-8">
+      <div className="min-w-0 w-full">
         <h1 className="mb-5 text-center text-3xl font-semibold tracking-tight text-zinc-100 sm:text-5xl">
           What should we build{projectName ? " in " : "?"}
           {projectName ? (
             <button
               type="button"
               onClick={onProjectClick}
-              className="inline-flex items-center gap-2 text-zinc-400 underline decoration-zinc-700 decoration-dotted underline-offset-8 transition hover:text-zinc-100"
+              disabled={!onProjectClick || Boolean(projectUnavailableReason)}
+              title={projectUnavailableReason}
+              className="inline-flex min-w-0 max-w-full items-center gap-2 text-zinc-400 underline decoration-zinc-700 decoration-dotted underline-offset-8 transition hover:text-zinc-100"
               aria-label={`Change project from ${projectName}`}
             >
-              {projectName}?
-              <ChevronDown size={22} aria-hidden="true" />
+              <span className="min-w-0 [overflow-wrap:anywhere]">{projectName}?</span>
+              <ChevronDown size={22} className="shrink-0" aria-hidden="true" />
             </button>
           ) : null}
         </h1>
-        {projectName ? (
+        {projectName && showProjectChip ? (
           <div className="mb-4 flex justify-center">
             <button
               type="button"
               onClick={onProjectClick}
-              className="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-3 py-2 text-sm text-zinc-200 transition hover:bg-zinc-800"
+              disabled={!onProjectClick || Boolean(projectUnavailableReason)}
+              title={projectUnavailableReason}
+              className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-lg bg-zinc-900 px-3 py-2 text-sm text-zinc-200 transition hover:bg-zinc-800"
             >
-              <Folder size={15} aria-hidden="true" />
-              {projectName}
-              <ChevronDown size={14} aria-hidden="true" />
+              <Folder size={15} className="shrink-0" aria-hidden="true" />
+              <span className="min-w-0 [overflow-wrap:anywhere]">{projectName}</span>
+              <ChevronDown size={14} className="shrink-0" aria-hidden="true" />
             </button>
           </div>
         ) : null}

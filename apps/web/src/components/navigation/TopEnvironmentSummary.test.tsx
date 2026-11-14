@@ -26,7 +26,7 @@ describe("TopEnvironmentSummary", () => {
     );
 
     expect(mockEnvironmentSummary).toHaveBeenCalledWith(
-      expect.objectContaining({ branch: "main", changedFileCount: 0 }),
+      expect.objectContaining({ branch: "main", changedFileCount: undefined }),
     );
   });
 });

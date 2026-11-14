@@ -1,6 +1,7 @@
 import type { LocalPersistence } from "@repo/event-store/local";
-import { projectThreadEvents } from "@repo/persistence";
+import { buildThreadTitlePreview, projectThreadEvents } from "@repo/persistence";
 import { LocalThreadPinService } from "./local-thread-pins.js";
+import { LocalThreadGeneratedTitleMetadata } from "./local-thread-generated-titles.js";
 import { ThreadCreateParamsSchema, ThreadRenameParamsSchema } from "./protocol.js";
 import {
   EVENT_SCHEMA_VERSION,
@@ -13,6 +14,7 @@ import {
   type PlatformEvent,
   type Thread,
   type ThreadId,
+  type TurnAdmission,
   type WorkspaceId,
 } from "@repo/platform-protocol";
 
@@ -29,6 +31,7 @@ export class LocalThreadService {
   private readonly readRuntimeSummary: LocalThreadServiceOptions["readRuntimeSummary"];
   private readonly metadataMutations = new Map<ThreadId, Promise<void>>();
   private readonly pins: LocalThreadPinService;
+  readonly generatedTitles: LocalThreadGeneratedTitleMetadata;
 
   constructor(options: LocalThreadServiceOptions) {
     this.eventStore = options.events;
@@ -41,6 +44,35 @@ export class LocalThreadService {
         (workspace) => mutation({ readThread: () => this.readAuthorizedThread(threadId, workspace) }),
       ),
     });
+    this.generatedTitles = new LocalThreadGeneratedTitleMetadata({
+      events: this.eventStore,
+      serializeMetadataMutation: (threadId, mutation) => this.serializeMetadataMutation(
+        threadId,
+        (workspace) => mutation({
+          workspace,
+          readThread: () => this.readAuthorizedThread(threadId, workspace),
+          assertCurrent: () => this.assertWorkspaceCurrent(workspace),
+        }),
+      ),
+      serializeRecoveryMutation: (threadId, workspaceId, mutation) => this.enqueueMetadataMutation(
+        threadId, Promise.resolve(), () => mutation({
+          readThread: async () => {
+            const thread = await this.projectThread(threadId, workspaceId);
+            if (thread.userId !== LOCAL_USER_ID) throw new LocalThreadNotFoundError();
+            return thread;
+          },
+        }),
+      ),
+    });
+  }
+
+  /** Explicit startup metadata recovery; no filesystem grant or inference is acquired. */
+  async recoverGeneratedTitleMetadata(readFirst: (threadId: ThreadId) => Promise<TurnAdmission | null>): Promise<void> {
+    const threads = await this.listProjectMetadata();
+    for (const thread of threads) {
+      if (thread.titleSource === "preview" && thread.titleStatus === "pending")
+        await this.generatedTitles.recover(thread, () => readFirst(thread.id));
+    }
   }
 
   async list(): Promise<Thread[]> {
@@ -52,9 +84,20 @@ export class LocalThreadService {
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 
+  /** Navigation projection only. Does not authorize history, files, or mutations. */
+  async listProjectMetadata(): Promise<Thread[]> {
+    return (await this.rebuildProjections())
+      .filter((thread) => thread.userId === LOCAL_USER_ID)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
   async create(input: unknown): Promise<Thread> {
     const workspace = await this.requireWorkspace();
     const request = ThreadCreateParamsSchema.parse(input ?? {});
+    if (request.expectedWorkspace && (
+      request.expectedWorkspace.workspaceId !== workspace.workspaceId ||
+      request.expectedWorkspace.grantedAt !== workspace.grantedAt
+    )) throw new Error("The local workspace grant changed before Thread creation");
     const now = new Date().toISOString();
     const thread = ThreadSchema.parse({
       id: createThreadId(),
@@ -74,6 +117,7 @@ export class LocalThreadService {
       updatedAt: now,
       lastEventSequence: 1,
     });
+    await this.assertWorkspaceCurrent(workspace);
     await this.eventStore.append({
       threadId: thread.id,
       workspaceId: thread.workspaceId,
@@ -99,6 +143,52 @@ export class LocalThreadService {
     return this.serializeMetadataMutation(id, (workspace) => this.renameCurrent(id, input, workspace));
   }
 
+  /** First-message metadata shares the exact queue used by explicit renames. */
+  previewFirstAdmission(
+    admission: TurnAdmission,
+    readFirstAdmission: () => Promise<TurnAdmission | null>,
+  ): Promise<Thread> {
+    return this.serializeMetadataMutation(admission.turn.threadId, async (workspace) => {
+      const thread = await this.readAuthorizedThread(admission.turn.threadId, workspace);
+      if (admission.run.workspaceId !== thread.workspaceId || admission.run.userId !== thread.userId ||
+          admission.run.threadId !== thread.id) throw new LocalThreadNotFoundError();
+      if (thread.titleSource !== "none" || thread.titleVersion !== 1) return thread;
+      const first = await readFirstAdmission();
+      if (!first || first.run.workspaceId !== thread.workspaceId || first.run.userId !== thread.userId ||
+          first.run.threadId !== thread.id || first.turn.threadId !== thread.id ||
+          first.turn.runId !== first.run.id || first.userMessage.type !== "user_message") {
+        throw new Error("Initial Thread title requires its first durable user admission");
+      }
+      const title = buildThreadTitlePreview(
+        typeof first.userMessage.content.text === "string" ? first.userMessage.content.text : "",
+      );
+      const titleVersion = thread.titleVersion + 1;
+      const payload = ThreadTitleUpdatedPayloadSchema.parse({
+        threadId: thread.id,
+        firstMessageId: first.userMessage.id,
+        title,
+        titleVersion,
+        source: "preview",
+        titleStatus: "ready",
+        timestamp: new Date().toISOString(),
+      });
+      await this.assertWorkspaceCurrent(workspace);
+      await this.eventStore.append({
+        threadId: thread.id,
+        workspaceId: thread.workspaceId,
+        runId: first.run.id,
+        scopeType: "thread",
+        scopeId: thread.id,
+        type: "thread.title.updated",
+        payload,
+        idempotencyKey: `thread-title:${thread.id}:${first.userMessage.id}:preview:${titleVersion}`,
+        producer: { kind: "control_plane", id: "local-app-server" },
+        schemaVersion: EVENT_SCHEMA_VERSION,
+      });
+      return this.readAuthorizedThread(thread.id, workspace);
+    });
+  }
+
   pin(threadId: string): Promise<Thread> {
     return this.pins.pin(threadId);
   }
@@ -113,7 +203,7 @@ export class LocalThreadService {
       ...(input && typeof input === "object" ? input : {}),
       threadId,
     });
-    if (thread.title === request.title) return thread;
+    if (thread.title === request.title && thread.titleSource === "user") return thread;
     const titleVersion = thread.titleVersion + 1;
     const timestamp = new Date().toISOString();
     const payload = ThreadTitleUpdatedPayloadSchema.parse({
@@ -189,13 +279,22 @@ export class LocalThreadService {
     threadId: ThreadId,
     mutation: (workspace: LocalWorkspaceGrant) => Promise<T>,
   ): Promise<T> {
-    const previous = this.metadataMutations.get(threadId) ?? Promise.resolve();
     // Capture at enqueue time: waiting actions must not adopt a replacement grant.
-    const result = Promise.allSettled([previous, this.requireWorkspace()] as const).then(async ([, grant]) => {
-      if (grant.status === "rejected") throw grant.reason;
-      const workspace = grant.value;
+    return this.enqueueMetadataMutation(threadId, this.requireWorkspace(), async (workspace) => {
       await this.assertWorkspaceCurrent(workspace);
       return mutation(workspace);
+    });
+  }
+
+  private enqueueMetadataMutation<T, TScope>(
+    threadId: ThreadId,
+    scope: Promise<TScope>,
+    mutation: (scope: TScope) => Promise<T>,
+  ): Promise<T> {
+    const previous = this.metadataMutations.get(threadId) ?? Promise.resolve();
+    const result = Promise.allSettled([previous, scope] as const).then(async ([, authorized]) => {
+      if (authorized.status === "rejected") throw authorized.reason;
+      return mutation(authorized.value);
     });
     // A failed action must not poison the next action or leave a rejected cleanup promise.
     const settled = result.then(() => undefined, () => undefined);
@@ -248,13 +347,13 @@ export class LocalThreadService {
     });
   }
 
-  private async rebuildProjections(workspaceId: WorkspaceId): Promise<Thread[]> {
+  private async rebuildProjections(workspaceId?: WorkspaceId): Promise<Thread[]> {
     const events = await this.eventStore.listAll();
     const projections = await this.collectProjections(events, workspaceId);
     return projections;
   }
 
-  private async collectProjections(events: readonly PlatformEvent[], workspaceId: WorkspaceId): Promise<Thread[]> {
+  private async collectProjections(events: readonly PlatformEvent[], workspaceId?: WorkspaceId): Promise<Thread[]> {
     const threadIds = new Set<ThreadId>();
     const grouped = new Map<ThreadId, { event: PlatformEvent; projectionSequence: number }[]>();
     for (const event of events) {
@@ -266,7 +365,13 @@ export class LocalThreadService {
     const threads: Thread[] = [];
     for (const threadId of threadIds) {
       const snapshot = projectThreadEvents(threadId, grouped.get(threadId) ?? []);
-      if (snapshot?.thread.workspaceId === workspaceId) threads.push(await this.withRuntimeSummary(snapshot.thread));
+      if (!snapshot || snapshot.thread.userId !== LOCAL_USER_ID ||
+          (workspaceId !== undefined && snapshot.thread.workspaceId !== workspaceId)) continue;
+      // Navigation grants metadata access only. Runtime history remains scoped
+      // to the physically authorized workspace's existing list/get path.
+      threads.push(workspaceId === undefined
+        ? snapshot.thread
+        : await this.withRuntimeSummary(snapshot.thread));
     }
     return threads;
   }

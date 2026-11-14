@@ -19,12 +19,18 @@ import {
   ENVIRONMENT_STATUS_CHANNEL,
   ENVIRONMENT_RESTART_CHANNEL,
   WORKSPACE_PICK_CHANNEL,
+  WORKSPACE_OPEN_REQUESTED_CHANNEL,
   CREDENTIAL_COMMAND_CHANNEL,
   DesktopCredentialCommandSchema,
 } from "../shared/desktop-api";
 import { createWindowOptions } from "./window-options";
+import { installDesktopApplicationMenu } from "./application-menu";
 import { LocalAppServerSupervisor } from "./local-app-server-supervisor";
 import { DesktopCredentialVault } from "./desktop-credential-vault";
+import { DesktopHostedAccount } from "./hosted-account";
+import { DesktopHostedAppServer } from "./hosted-app-server";
+import { HOSTED_REQUEST_CHANNEL, HOSTED_RESPONSE_CHANNEL } from "../shared/hosted-request";
+import { HOSTED_ACCOUNT_CHANNEL, HostedAccountCommandSchema } from "../shared/hosted-account";
 import {
   assertTrustedDesktopFrame as assertTrustedFrameFacts,
   resolveDesktopAppServerRequest,
@@ -37,6 +43,8 @@ const preloadPath = fileURLToPath(
 const isPrimaryInstance = app.requestSingleInstanceLock();
 if (!isPrimaryInstance) app.quit();
 let credentialVault: DesktopCredentialVault | null = null;
+let hostedAccount: DesktopHostedAccount | null = null;
+let hostedAppServer: DesktopHostedAppServer | null = null;
 const localAppServer = new LocalAppServerSupervisor(
   (request) => providerRequestHeaders(request),
   async (providerId) => credentialVault?.acquireRuntimeCredentialLease(providerId) ?? null,
@@ -46,6 +54,17 @@ const expectedRendererUrls = new Map<number, string>();
 let isQuitting = false;
 let shutdownPromise: Promise<void> | null = null;
 let environmentGeneration = 0;
+
+app.on("second-instance", () => {
+  if (!isPrimaryInstance || isQuitting || shutdownPromise) return;
+  const window = BrowserWindow.getAllWindows().find(
+    (candidate) => !candidate.isDestroyed() && !candidate.webContents.isDestroyed(),
+  );
+  if (!window) return;
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+});
 
 async function providerRequestHeaders(
   request: AppServerRequest,
@@ -94,6 +113,26 @@ function handleNativeInvoke<T>(
 handleNativeInvoke(ENVIRONMENT_SNAPSHOT_CHANNEL, () =>
   localAppServer.getEnvironment(),
 );
+handleNativeInvoke(HOSTED_REQUEST_CHANNEL, async (event, value) => {
+  if (!hostedAppServer || isQuitting || shutdownPromise) throw new Error("Hosted connection is unavailable");
+  try {
+    return await hostedAppServer.request(value, (metadata) => {
+      assertTrustedDesktopFrame(event);
+      event.sender.send(HOSTED_RESPONSE_CHANNEL, metadata);
+    });
+  } catch {
+    throw new Error("Desktop hosted request was rejected");
+  }
+});
+handleNativeInvoke(HOSTED_ACCOUNT_CHANNEL, async (event, value) => {
+  const command = HostedAccountCommandSchema.parse(value);
+  if (!hostedAccount || isQuitting || shutdownPromise) throw new Error("Hosted account is unavailable");
+  if (command.operation === "status") return hostedAccount.status();
+  if (command.operation === "disconnect") return hostedAccount.disconnect();
+  const parent = BrowserWindow.fromWebContents(event.sender);
+  if (!parent) throw new Error("Desktop window is unavailable");
+  return hostedAccount.connect(parent);
+});
 handleNativeInvoke(ENVIRONMENT_RESTART_CHANNEL, async () => {
   if (shutdownPromise || isQuitting) throw new Error("Local runtime shutdown is pending");
   environmentGeneration += 1;
@@ -176,7 +215,7 @@ handleNativeInvoke(APP_SERVER_REQUEST_CHANNEL, async (event, value) => {
 function createWindow(): void {
   const window = new BrowserWindow(createWindowOptions(preloadPath));
   const webContents = window.webContents;
-  const developmentUrl = process.env.ELECTRON_RENDERER_URL;
+  const developmentUrl = app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL;
   let rendererUrl: string;
 
   if (developmentUrl) {
@@ -216,6 +255,18 @@ handleNativeInvoke(BUILD_INFO_CHANNEL, () => ({
 
 void app.whenReady().then(() => {
   if (!isPrimaryInstance) return;
+  hostedAccount = new DesktopHostedAccount();
+  hostedAppServer = new DesktopHostedAppServer(hostedAccount);
+  credentialVault = new DesktopCredentialVault(app.getPath("userData"), {
+    isEncryptionAvailable: () =>
+      safeStorage.isEncryptionAvailable() &&
+      (process.platform !== "linux" ||
+        ["gnome_libsecret", "kwallet", "kwallet5", "kwallet6"].includes(
+          safeStorage.getSelectedStorageBackend(),
+        )),
+    encryptString: (value) => safeStorage.encryptString(value),
+    decryptString: (value) => safeStorage.decryptString(value),
+  });
   const appData = realpathSync(app.getPath("appData"));
   let nativeWriterFenceDirectory: string | undefined;
   if (process.platform === "darwin") {
@@ -251,15 +302,12 @@ void app.whenReady().then(() => {
     nativeFilesystemHelperPath, nativeProcessHelperPath,
   });
   createWindow();
-  credentialVault = new DesktopCredentialVault(app.getPath("userData"), {
-    isEncryptionAvailable: () =>
-      safeStorage.isEncryptionAvailable() &&
-      (process.platform !== "linux" ||
-        ["gnome_libsecret", "kwallet", "kwallet5", "kwallet6"].includes(
-          safeStorage.getSelectedStorageBackend(),
-        )),
-    encryptString: (value) => safeStorage.encryptString(value),
-    decryptString: (value) => safeStorage.decryptString(value),
+  installDesktopApplicationMenu(() => {
+    const window = BrowserWindow.getFocusedWindow();
+    if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return;
+    const expectedRendererUrl = expectedRendererUrls.get(window.webContents.id);
+    if (!expectedRendererUrl || window.webContents.getURL() !== expectedRendererUrl) return;
+    window.webContents.send(WORKSPACE_OPEN_REQUESTED_CHANNEL);
   });
 });
 
@@ -281,7 +329,7 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   if (!shutdownPromise) {
     pendingWorkspaceSelections.clear();
-    shutdownPromise = localAppServer.stop().then(() => {
+    shutdownPromise = Promise.all([localAppServer.stop(), hostedAccount?.close()]).then(() => {
       isQuitting = true;
       app.quit();
     }).catch(() => {

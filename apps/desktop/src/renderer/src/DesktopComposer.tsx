@@ -1,145 +1,294 @@
-import { ChatInputBar } from "@legioncode/client-ui";
-import type { AppServerClient } from "@legioncode/sdk";
 import {
-  PRODUCT_MODES,
+  ChatErrorNotice,
+  ChatInputBar,
+  useComposerPreferences,
+  type ChatImageAttachmentDraftBinding,
+} from "@legioncode/client-ui";
+import {
+  type LocalWorkspaceGrant,
   type ThreadId,
   type WorkspaceId,
 } from "@repo/platform-protocol";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import {
+  LocalTurnConfigurationSchema,
+  type LocalTurnConfiguration,
+  type LocalTurnConfigurationOptions,
+  type LocalTurnStartParams,
+  type ContextBudgetSnapshot,
+  type UsageCostSnapshot,
+} from "@legioncode/sdk";
+import {
+  useDesktopFileMentions,
+  type DesktopFileMentionsClient,
+} from "./useDesktopFileMentions";
+import {
+  DesktopModelPicker,
+  useDesktopModelPicker,
+  type DesktopModelPickerClient,
+} from "./DesktopModelPicker";
+import {
+  type DesktopComposerDraftBinding,
+} from "./useDesktopComposerDraft";
 
-interface Props {
-  client: Pick<AppServerClient, "getProviderSelection">;
-  workspaceId: WorkspaceId;
-  threadId: ThreadId;
+export interface DesktopComposerProps {
+  client: (DesktopModelPickerClient & DesktopFileMentionsClient) | null;
+  workspaceId: WorkspaceId | null;
+  grantedAt: LocalWorkspaceGrant["grantedAt"] | null;
+  fileAvailability: { available: true } | { available: false; reason: string };
+  threadId: ThreadId | null;
+  providerReady?: boolean;
+  unboundDraft?: DesktopComposerDraftBinding;
+  draft?: DesktopComposerDraftBinding;
+  imageDraft?: ChatImageAttachmentDraftBinding;
+  workspaceBar?: ReactNode;
   busy: boolean;
+  layout?: "hero" | "docked";
   isHidden?: boolean;
   submissionUnavailableReason?: string;
-  onSubmit: (prompt: string) => Promise<boolean>;
+  onSubmit?: (
+    prompt: string,
+    configuration: LocalTurnConfiguration,
+    expectedSelection: NonNullable<
+      Awaited<ReturnType<DesktopModelPickerClient["getProviderSelection"]>>
+    >,
+    images?: LocalTurnStartParams["images"],
+  ) => Promise<boolean>;
   onStop?: () => Promise<void>;
-  onOpenSettings: () => void;
+  onConnectProvider: () => void;
+  onManageModels: () => void;
   providerRevision: number;
+  configurationOptions: LocalTurnConfigurationOptions | null;
+  initialConfiguration: LocalTurnConfiguration | null;
+  pendingConfiguration: LocalTurnConfiguration | null;
+  pendingSelection: NonNullable<
+    Awaited<ReturnType<DesktopModelPickerClient["getProviderSelection"]>>
+  > | null;
+  contextBudget?: ContextBudgetSnapshot | null;
+  usage?: UsageCostSnapshot | null;
 }
 
-type Selection = Awaited<ReturnType<AppServerClient["getProviderSelection"]>>;
-
 /** Draft and delivery state only. The provider route is read from the App Server. */
-export function DesktopComposer(props: Props) {
+export function DesktopComposer(props: DesktopComposerProps) {
+  const draft = props.draft ?? props.unboundDraft;
+  if (!draft) throw new Error("Desktop composer requires its scoped draft binding.");
   return (
-    <ThreadComposer key={`${props.workspaceId}:${props.threadId}`} {...props} />
+    <ThreadComposer
+      key={props.workspaceId && props.threadId ? `${props.workspaceId}:${props.threadId}` : "unbound-composer"}
+      {...props}
+      draft={draft}
+    />
   );
 }
 
 function ThreadComposer({
   client,
+  workspaceId,
+  grantedAt,
+  fileAvailability,
   threadId,
+  providerReady = true,
+  unboundDraft,
+  draft,
+  imageDraft,
+  workspaceBar,
   busy,
+  layout,
   isHidden = false,
   submissionUnavailableReason,
   onSubmit,
   onStop,
-  onOpenSettings,
+  onConnectProvider,
+  onManageModels,
   providerRevision,
-}: Props) {
-  const [input, setInput] = useState("");
+  configurationOptions,
+  initialConfiguration,
+  pendingConfiguration,
+  pendingSelection,
+  contextBudget = null,
+  usage = null,
+}: DesktopComposerProps & { draft: DesktopComposerDraftBinding }) {
+  const preferences = useComposerPreferences();
+  const scopeReady = Boolean(client && providerReady && workspaceId && grantedAt && threadId);
+  const updateDraft = draft.update;
+  const initialMode = initialConfiguration?.mode ?? (configurationOptions
+    ? configurationOptions.modes.includes("build") ? "build" : "plan"
+    : undefined);
+  useEffect(() => {
+    if (draft !== unboundDraft || draft.value.configurationTouched || !initialMode) return;
+    updateDraft((current) => current.configurationTouched || current.configuration.mode === initialMode
+      ? current
+      : { ...current, configuration: { ...current.configuration, mode: initialMode } });
+  }, [initialMode, draft, unboundDraft, updateDraft]);
+  const configuration = pendingConfiguration ?? draft.value.configuration;
+  const availableProductModes = configurationOptions?.productModesByMode?.[configuration.mode]
+    ?? configurationOptions?.productModes ?? [];
+  const configurationLocked = busy || pendingConfiguration !== null;
+  const input = draft.value.input;
+  // Without a Thread this is only a DOM/list key, never an SDK identity.
+  const inputDomId = useId();
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const slash = mentionQuery?.lastIndexOf("/") ?? -1;
+  const mentionDirectory =
+    slash >= 0 ? mentionQuery!.slice(0, slash).replace(/^(?:\.\/)+/, "") || "." : ".";
+  const mentions = useDesktopFileMentions({
+    client,
+    workspace: scopeReady && workspaceId && grantedAt ? { workspaceId, grantedAt, readiness: "ready" } : null,
+    directory: mentionDirectory,
+    availability:
+      scopeReady && fileAvailability.available && mentionQuery !== null && !isHidden
+        ? { available: true }
+        : {
+            available: false,
+            reason: fileAvailability.available
+              ? "Type @ to add files."
+              : fileAvailability.reason,
+          },
+  });
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [stopping, setStopping] = useState(false);
-  const [route, setRoute] = useState<{
-    client: Props["client"];
-    selection: Selection;
-    error?: string;
-  } | null>(null);
   const submittingRequest = useRef(false);
   const stoppingRequest = useRef(false);
 
-  useEffect(() => {
-    let active = true;
-    setRoute(null);
-    void client
-      .getProviderSelection()
-      .then((selection) => {
-        if (active) setRoute({ client, selection });
-      })
-      .catch(() => {
-        if (active)
-          setRoute({
-            client,
-            selection: null,
-            error:
-              "Provider selection could not be loaded. Open Settings to retry.",
-          });
-      });
-    return () => {
-      active = false;
-    };
-  }, [client, providerRevision]);
-
-  const selection = route?.client === client ? route.selection : null;
+  const modelPicker = useDesktopModelPicker(
+    client,
+    providerRevision,
+    workspaceId && grantedAt ? { workspaceId, grantedAt } : null,
+    providerReady,
+  );
+  const selectedRoute = pendingSelection ?? modelPicker.selection;
+  const selectedModel = selectedRoute
+    ? modelPicker.current?.models[selectedRoute.providerId]?.find(
+        (model) => model.id === selectedRoute.modelId,
+      )
+    : undefined;
+  const attachmentsAvailable = Boolean(
+    scopeReady &&
+    configurationOptions?.attachments &&
+    selectedModel?.capabilities?.supportsVision === true,
+  );
+  const attachmentsUnavailableReason = !scopeReady
+    ? "Choose or restore a workspace and create a task before adding images."
+    : !configurationOptions?.attachments
+    ? "Image attachments are unavailable in the current Desktop runtime."
+    : "Select a model that supports images to send these attachments.";
+  const displayError = error ?? modelPicker.error;
   const unavailable =
     submissionUnavailableReason ??
+    (!scopeReady
+      ? "Choose or restore a workspace and create a task before sending."
+      : !onSubmit ? "Message delivery is unavailable for this task." : undefined) ??
+    (!configurationOptions
+      ? "Local execution configuration is unavailable. Restart Desktop to reconnect."
+      : !configurationOptions.modes.includes(configuration.mode)
+        ? "This execution mode is unavailable in the current environment."
+        : !availableProductModes.includes(configuration.productMode)
+          ? "This permission level is unavailable in the current environment."
+          : undefined) ??
     (submitting ? "Confirming message delivery…" : undefined) ??
-    (route?.client !== client
-      ? "Loading the selected provider and model…"
-      : route.error) ??
-    (!selection
-      ? "Select a provider and model in Settings before sending."
-      : undefined);
+    (pendingSelection ? undefined : modelPicker.unavailableReason);
 
   return (
     <div>
-      {error ? (
-        <p role="alert" className="mb-2 text-sm text-red-300">
-          {error}
-        </p>
+      {displayError ? (
+        <ChatErrorNotice
+          message={displayError}
+          remediation="Your draft has been kept."
+          actionLabel="Provider setup"
+          onOpen={modelPicker.error ? onConnectProvider : undefined}
+        />
       ) : null}
       <ChatInputBar
+        workspaceBar={workspaceBar}
+        imageDraft={imageDraft}
         isHidden={isHidden}
-        sessionId={threadId}
+        {...mentions}
+        onFileMentionQueryChange={setMentionQuery}
+        layout={layout}
+        sessionId={threadId ?? inputDomId}
         input={input}
         onChange={(value) => {
-          setInput(value);
+          updateDraft((current) => ({ ...current, input: value }));
           setError(null);
         }}
-        mode="plan"
-        permissionMode={PRODUCT_MODES.ASK_ALWAYS}
-        showContextWindowUsage={false}
+        mode={configuration.mode}
+        permissionEnvironment="local"
+        availableModes={configurationOptions?.modes ?? []}
+        onModeChange={
+          configurationLocked || !configurationOptions
+            ? undefined
+            : (mode) => {
+                if (!configurationOptions.modes.includes(mode)) return;
+                updateDraft((current) => {
+                  const allowed = configurationOptions.productModesByMode?.[mode]
+                    ?? configurationOptions.productModes;
+                  const supervised = LocalTurnConfigurationSchema.parse({ mode }).productMode;
+                  return {
+                    ...current,
+                    configurationTouched: true,
+                    configuration: {
+                      ...current.configuration, mode,
+                      productMode: allowed.includes(current.configuration.productMode)
+                        ? current.configuration.productMode
+                        : allowed.includes(supervised) ? supervised : current.configuration.productMode,
+                    },
+                  };
+                });
+              }
+        }
+        permissionMode={configuration.productMode}
+        availablePermissionModes={availableProductModes}
+        onPermissionModeChange={
+          configurationLocked || !configurationOptions
+            ? undefined
+            : (productMode) => {
+                if (!availableProductModes.includes(productMode))
+                  return;
+                updateDraft((current) => ({
+                  ...current,
+                  configurationTouched: true,
+                  configuration: { ...current.configuration, productMode },
+                }));
+              }
+        }
+        composerPreferences={preferences}
+        contextBudget={contextBudget}
+        usage={usage}
+        showContextWindowUsage={preferences.showContextWindowUsage}
         submissionUnavailableReason={unavailable}
-        attachmentsAvailable={false}
-        renderModelPicker={() => (
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            aria-label="Select provider and model"
-            className="max-w-64 truncate rounded px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
-            title={
-              selection
-                ? `${selection.providerId} / ${selection.modelId}`
-                : "Select provider and model in Settings"
-            }
-          >
-            {selection
-              ? `${selection.providerId} / ${selection.modelId}`
-              : "Select model"}
-          </button>
-        )}
-        providerNotice={
-          unavailable ? undefined : (
-            <p className="text-xs text-zinc-500">
-              Local read-only turn. Attachments, Queue and Steer are
-              unavailable.
-            </p>
-          )
+        showSubmissionUnavailableNotice={false}
+        attachmentsAvailable={attachmentsAvailable}
+        attachmentsUnavailableReason={attachmentsUnavailableReason}
+        renderModelPicker={
+          isHidden
+            ? undefined
+            : (onModelSwitchWarning) => (
+                <DesktopModelPicker
+                  controls={modelPicker}
+                  selectionOverride={pendingSelection ?? undefined}
+                  disabled={configurationLocked}
+                  onModelSwitchWarning={onModelSwitchWarning}
+                  onConnectProvider={onConnectProvider}
+                  onManageModels={onManageModels}
+                />
+              )
         }
         isLoading={busy}
         canStop={busy && Boolean(onStop) && !stopping}
         onSubmit={async (attachments) => {
+          const images = attachments?.imageAttachments.map(
+            ({ dataUrl, name, mediaType }) => ({ dataUrl, name, mediaType }),
+          );
           if (
             isHidden ||
-            attachments?.imageAttachments.length ||
+            !scopeReady ||
+            !onSubmit ||
+            (images?.length && !attachmentsAvailable) ||
             unavailable ||
             busy ||
             submittingRequest.current ||
-            !input.trim()
+            (!input.trim() && !images?.length)
           )
             return false;
           const prompt = input;
@@ -147,9 +296,17 @@ function ThreadComposer({
           setSubmitting(true);
           setError(null);
           try {
-            const accepted = await onSubmit(prompt);
+            const expectedSelection = pendingSelection ?? modelPicker.selection;
+            if (!expectedSelection)
+              throw new Error("Select a provider and model before sending.");
+            const accepted = await onSubmit(
+              prompt,
+              configuration,
+              expectedSelection,
+              images,
+            );
             if (accepted)
-              setInput((current) => (current === prompt ? "" : current));
+              updateDraft((current) => current.input === prompt ? { ...current, input: "" } : current);
             return accepted;
           } catch (error) {
             setError(

@@ -1,5 +1,6 @@
 import {
   AppServerRequestSchema,
+  assertLocalAppServerRequestBudget,
   type AppServerRequest,
 } from "@legioncode/app-server/protocol";
 
@@ -65,6 +66,7 @@ export function resolveDesktopAppServerRequest(
   selections: WorkspaceSelectionTokens,
 ): AppServerRequest {
   const request = AppServerRequestSchema.parse(value);
+  assertLocalAppServerRequestBudget(request);
   if (request.method !== "workspace/grant") return request;
   if (!("selectionToken" in request.params)) {
     throw new Error("Desktop workspace grants require a picker selection");

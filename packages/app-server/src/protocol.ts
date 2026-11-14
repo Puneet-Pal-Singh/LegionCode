@@ -19,11 +19,14 @@ import {
   HostedChatSubmissionResultSchema,
   ConversationHistoryRequestSchema,
   ConversationHistoryResponseSchema,
+  ConversationHistoryMessageSchema,
+  ItemIdSchema,
   CodeArtifactContentRequestSchema,
   CodeArtifactContentResponseSchema,
   AppServerErrorSchema,
   AppServerInitializeResponseSchema,
   LocalWorkspaceGrantResponseSchema,
+  LocalWorkspaceProjectsResponseSchema,
   LocalWorkspaceGrantSchema,
   ProviderIdSchema,
   ModelIdSchema,
@@ -81,6 +84,7 @@ import {
   PromptArtifactReviewSourceSchema,
 } from "@repo/shared-types";
 import { z } from "zod";
+
 
 const GitRequestContextSchema = z.object({
   runId: z.string().min(1),
@@ -161,7 +165,10 @@ const WorkspaceGrantSourceSchema = z.union([
 ]);
 
 export const ThreadCreateParamsSchema = z
-  .object({ title: z.string().trim().min(1).max(80).optional() })
+  .object({
+    title: z.string().trim().min(1).max(80).optional(),
+    expectedWorkspace: LocalWorkspaceGrantSchema.pick({ workspaceId: true, grantedAt: true }).strict().optional(),
+  })
   .strict();
 export const ThreadRenameParamsSchema = z
   .object({ threadId: ThreadIdSchema, title: z.string().trim().min(1).max(80) })
@@ -176,12 +183,18 @@ export const LOCAL_APP_SERVER_IMAGE_REQUEST_HEADER = "x-legioncode-image-request
 export const MAX_LOCAL_APP_SERVER_IMAGE_REQUEST_BYTES =
   4 * Math.ceil((10 * 1024 * 1024) / 3) + MAX_LOCAL_APP_SERVER_REQUEST_BYTES;
 
-/** Budget eligibility only. The canonical start schema and shared media codec
- * still validate/decode/normalize every image before storage or admission. */
+/** Budget eligibility only. Canonical start/queue/steer owners and the shared
+ * media codec still validate/decode/normalize every image before publication. */
 export function isLocalAppServerImageRequest(request: AppServerRequest): boolean {
-  return request.method === "turn/start" && "images" in request.params &&
-    Array.isArray(request.params.images) && request.params.images.length > 0 &&
-    request.params.images.length <= MAX_LOCAL_APP_SERVER_IMAGES;
+  let images: unknown;
+  switch (request.method) {
+    case "turn/start": images = request.params.images; break;
+    case "turn/steer":
+    case "thread/input/enqueue":
+    case "thread/input/update": images = request.params.content.images; break;
+    default: return false;
+  }
+  return Array.isArray(images) && images.length > 0 && images.length <= MAX_LOCAL_APP_SERVER_IMAGES;
 }
 export function localAppServerRequestByteLimit(request: AppServerRequest): number {
   return isLocalAppServerImageRequest(request)
@@ -220,23 +233,65 @@ export const LocalTurnStartParamsSchema = z.object({
   }
 });
 export type LocalTurnStartParams = z.infer<typeof LocalTurnStartParamsSchema>;
+export const LocalThreadHistoryMessagesContinuationSchema = z.object({
+  turnIds: z.array(TurnIdSchema).min(1).max(100).refine((ids) => new Set(ids).size === ids.length, "History Turn IDs must be unique"),
+  throughCursor: EventCursorSchema,
+  direction: z.enum(["forward", "backward"]),
+  cursor: EventCursorSchema.nullable(),
+}).strict();
+export type LocalThreadHistoryMessagesContinuation = z.infer<typeof LocalThreadHistoryMessagesContinuationSchema>;
+export const LocalThreadHistoryMessagesWindowSchema = z.object({
+  turnIds: LocalThreadHistoryMessagesContinuationSchema.shape.turnIds,
+  throughCursor: EventCursorSchema,
+  firstCursor: EventCursorSchema.nullable(), lastCursor: EventCursorSchema.nullable(),
+  hasEarlier: z.boolean(), hasLater: z.boolean(),
+  lastUserByTurn: z.array(z.object({ turnId: TurnIdSchema, itemId: ItemIdSchema }).strict()).min(1).max(100),
+}).strict().superRefine((window, context) => {
+  if (window.lastUserByTurn.length !== window.turnIds.length || window.lastUserByTurn.some((last, index) => last.turnId !== window.turnIds[index]))
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Last-user identities must match the exact history Turn set" });
+  if ((window.firstCursor === null) !== (window.lastCursor === null))
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "History window cursor boundaries must agree" });
+});
+export type LocalThreadHistoryMessagesWindow = z.infer<typeof LocalThreadHistoryMessagesWindowSchema>;
 export const LocalThreadHistoryParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   threadId: ThreadIdSchema,
   afterCursor: EventCursorSchema.nullable().optional(),
   /** Explicit bounded tail; omitted keeps the existing forward cursor behavior. */
   latest: z.boolean().optional(),
+  messageLimit: z.number().int().min(1).max(100).optional(),
+  messagesContinuation: LocalThreadHistoryMessagesContinuationSchema.optional(),
   /** Maximum whole Turns; the response byte budget can return fewer rows. */
   limit: z.number().int().min(1).max(100).optional(),
 }).strict().refine((params) => !params.latest || params.afterCursor == null,
-  "Latest history cannot be combined with an after cursor");
+  "Latest history cannot be combined with an after cursor").refine((params) => !params.messagesContinuation ||
+    (params.latest === undefined && params.afterCursor === undefined && params.limit === undefined),
+  "User-message continuation cannot change the admission page");
 export type LocalThreadHistoryParams = z.infer<typeof LocalThreadHistoryParamsSchema>;
 export const LocalThreadHistoryResultSchema = z.object({
+  messages: z.array(ConversationHistoryMessageSchema).max(100),
+  messagesWindow: LocalThreadHistoryMessagesWindowSchema.optional(),
+  messagesContinuation: LocalThreadHistoryMessagesContinuationSchema.optional(),
   admissions: z.array(TurnAdmissionSchema),
   nextCursor: EventCursorSchema.nullable(),
   /** Present on latest requests, measured by a real one-row lookbehind. */
   hasEarlier: z.boolean().optional(),
-}).strict();
+}).strict().superRefine((result, context) => {
+  const window = result.messagesWindow;
+  const continuation = result.messagesContinuation;
+  if (!window) {
+    if (result.messages.length || continuation)
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "Saved user messages require their canonical window" });
+    return;
+  }
+  if ((window.firstCursor === null) !== (result.messages.length === 0))
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Saved message rows must match their window boundaries" });
+  if (continuation && (continuation.throughCursor !== window.throughCursor ||
+      continuation.turnIds.length !== window.turnIds.length || continuation.turnIds.some((turnId, index) => turnId !== window.turnIds[index]) ||
+      continuation.cursor !== (continuation.direction === "forward" ? window.lastCursor : window.firstCursor) ||
+      !(continuation.direction === "forward" ? window.hasLater : window.hasEarlier)))
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Saved message continuation must match the exact snapshot window" });
+});
 export type LocalThreadHistoryResult = z.infer<typeof LocalThreadHistoryResultSchema>;
 export const LocalTurnInterruptParamsSchema = z.object({
   // These hosted-only fields are never accepted on a local command.
@@ -508,6 +563,8 @@ export const AppServerMethodSchema = z.enum([
   "media/readImage",
   "workspace/readFile",
   "workspace/current",
+  "workspace/localProjects",
+  "workspace/forgetLocalProject",
   "workspace/grant",
   "workspace/revoke",
   "thread/list",
@@ -603,6 +660,8 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("media/readImage"), params: LocalChatImageReadParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/readFile"), params: LocalWorkspaceReadFileParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/current"), params: EmptyParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("workspace/localProjects"), params: EmptyParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("workspace/forgetLocalProject"), params: z.object({ workspaceId: WorkspaceIdSchema }).strict() }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/grant"), params: WorkspaceGrantSourceSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/revoke"), params: EmptyParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("thread/list"), params: EmptyParamsSchema }).strict(),
@@ -694,6 +753,8 @@ export const AppServerResultSchemas = {
   "media/readImage": LocalChatImageReadResultSchema,
   "workspace/readFile": LocalWorkspaceReadFileResultSchema,
   "workspace/current": LocalWorkspaceGrantResponseSchema,
+  "workspace/localProjects": LocalWorkspaceProjectsResponseSchema,
+  "workspace/forgetLocalProject": z.object({ forgotten: z.literal(true) }).strict(),
   "workspace/grant": LocalWorkspaceGrantResponseSchema,
   "workspace/revoke": z.object({ revoked: z.literal(true) }).strict(),
   "thread/list": z.object({ threads: z.array(ThreadSchema) }).strict(),
@@ -785,6 +846,8 @@ export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
   success("media/readImage", AppServerResultSchemas["media/readImage"]),
   success("workspace/readFile", AppServerResultSchemas["workspace/readFile"]),
   success("workspace/current", AppServerResultSchemas["workspace/current"]),
+  success("workspace/localProjects", AppServerResultSchemas["workspace/localProjects"]),
+  success("workspace/forgetLocalProject", AppServerResultSchemas["workspace/forgetLocalProject"]),
   success("workspace/grant", AppServerResultSchemas["workspace/grant"]),
   success("workspace/revoke", AppServerResultSchemas["workspace/revoke"]),
   success("thread/list", AppServerResultSchemas["thread/list"]),

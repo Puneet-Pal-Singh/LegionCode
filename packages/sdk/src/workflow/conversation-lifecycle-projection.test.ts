@@ -44,6 +44,17 @@ describe("LifecycleProjection", () => {
     expect(projection.terminal?.state).toBe("completed");
     expect(projection.phase).toBe("completed");
     expect(projection.activeThinking).toBe(false);
+    const accepted = applyLifecycleEvent(createLifecycleProjection(TURN_ID), lifecycleEvent(1, "turn.input.accepted", {
+      payload: { inputId: "input-1", clientInputId: "client-input-1", transcriptMessageId: "input-message-1" },
+    }));
+    expect(accepted.inputSequence).toBe(1);
+    const applied = applyLifecycleEvent(accepted, lifecycleEvent(2, "turn.input.applied", {
+      payload: { inputId: "input-1", acceptedSequence: 1, modelStep: 2, contextRevision: 1 },
+    }));
+    expect(applied.inputSequence).toBe(2);
+    expect(applyLifecycleEvent(applied, lifecycleEvent(1, "turn.input.accepted", {
+      payload: { inputId: "input-1", clientInputId: "client-input-1", transcriptMessageId: "input-message-1" },
+    })).inputSequence).toBe(2);
   });
 
   it("keeps assistant final text separate from reasoning summaries", () => {

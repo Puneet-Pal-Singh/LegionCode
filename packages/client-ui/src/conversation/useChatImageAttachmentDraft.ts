@@ -11,7 +11,9 @@ export function useChatImageAttachmentDraft(
   enabled = true,
   initialAttachments: ChatImageAttachment[] = [],
 ) {
+  const active = useRef(true);
   const enabledRef = useRef(enabled);
+  const captureLease = useRef<{ enabled: boolean } | null>(null);
   enabledRef.current = enabled;
   const attachmentsRef = useRef<ChatImageAttachment[]>(initialAttachments);
   const detachedAttachmentsRef = useRef(new Map<string, ChatImageAttachment>());
@@ -21,6 +23,7 @@ export function useChatImageAttachmentDraft(
   const [isDraggingImages, setIsDraggingImages] = useState(false);
 
   const replaceAttachments = useCallback((next: ChatImageAttachment[]) => {
+    if (!active.current) return;
     attachmentsRef.current = next;
     setAttachments(next);
   }, []);
@@ -31,6 +34,7 @@ export function useChatImageAttachmentDraft(
       let added = false;
 
       for (const file of files) {
+        if (!active.current) return;
         const validationError = validateNextImageAttachment({
           file,
           existingAttachments: attachmentsRef.current,
@@ -42,6 +46,10 @@ export function useChatImageAttachmentDraft(
 
         try {
           const attachment = await createChatImageAttachment(file, source);
+          if (!active.current) {
+            URL.revokeObjectURL(attachment.previewUrl);
+            return;
+          }
           const latestValidationError = validateNextImageAttachment({
             file,
             existingAttachments: attachmentsRef.current,
@@ -61,6 +69,7 @@ export function useChatImageAttachmentDraft(
         }
       }
 
+      if (!active.current) return;
       if (firstError) {
         setError(firstError);
       } else if (added) {
@@ -72,6 +81,7 @@ export function useChatImageAttachmentDraft(
 
   const remove = useCallback(
     (attachmentId: string) => {
+      if (!active.current) return;
       const removed = attachmentsRef.current.find(
         (attachment) => attachment.id === attachmentId,
       );
@@ -87,6 +97,7 @@ export function useChatImageAttachmentDraft(
   );
 
   const clear = useCallback(() => {
+    if (!active.current) return;
     for (const attachment of attachmentsRef.current) {
       URL.revokeObjectURL(attachment.previewUrl);
     }
@@ -95,6 +106,7 @@ export function useChatImageAttachmentDraft(
   }, [replaceAttachments]);
 
   const detachForSubmit = useCallback(() => {
+    if (!active.current) return [];
     const detached = attachmentsRef.current;
     for (const attachment of detached) {
       detachedAttachmentsRef.current.set(attachment.id, attachment);
@@ -106,6 +118,10 @@ export function useChatImageAttachmentDraft(
 
   const settleDetached = useCallback(
     (detached: readonly ChatImageAttachment[], accepted: boolean) => {
+      if (!active.current) {
+        for (const attachment of detached) URL.revokeObjectURL(attachment.previewUrl);
+        return;
+      }
       for (const attachment of detached) {
         detachedAttachmentsRef.current.delete(attachment.id);
       }
@@ -172,7 +188,7 @@ export function useChatImageAttachmentDraft(
       if (!event.dataTransfer?.types.includes("Files")) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = "copy";
-      if (enabledRef.current) setIsDraggingImages(true);
+      if (captureLease.current?.enabled ?? enabledRef.current) setIsDraggingImages(true);
     };
     const handleWindowDrop = (event: DragEvent) => {
       if (!event.dataTransfer?.types.includes("Files")) return;
@@ -182,7 +198,7 @@ export function useChatImageAttachmentDraft(
       // dropped files must not be captured into the hidden draft.
       event.preventDefault();
       setIsDraggingImages(false);
-      if (!enabledRef.current) return;
+      if (!(captureLease.current?.enabled ?? enabledRef.current)) return;
       // A drop on the composer already ran the scoped handler. The window
       // listener only owns drops over the surrounding chat surface.
       if (alreadyHandled) return;
@@ -207,8 +223,11 @@ export function useChatImageAttachmentDraft(
   }, [addFiles]);
 
   useEffect(() => {
+    active.current = true;
     const detachedAttachments = detachedAttachmentsRef.current;
     return () => {
+      active.current = false;
+      captureLease.current = null;
       for (const attachment of attachmentsRef.current) {
         URL.revokeObjectURL(attachment.previewUrl);
       }
@@ -217,6 +236,22 @@ export function useChatImageAttachmentDraft(
       }
       detachedAttachments.clear();
     };
+  }, []);
+
+  // An injected view leases capture eligibility without moving attachment
+  // ownership. A removed view cannot disable a newer view's lease.
+  const bindCapture = useCallback((enabled: boolean) => {
+    const lease = { enabled };
+    captureLease.current = lease;
+    if (!enabled && active.current) setIsDraggingImages(false);
+    return () => {
+      if (captureLease.current !== lease) return;
+      captureLease.current = null;
+      if (active.current) setIsDraggingImages(false);
+    };
+  }, []);
+  const reportError = useCallback((message: string | null) => {
+    if (active.current) setError(message);
   }, []);
 
   return {
@@ -232,6 +267,9 @@ export function useChatImageAttachmentDraft(
     handleDragOver,
     handleDragLeave,
     handleDrop,
-    reportError: setError,
+    reportError,
+    bindCapture,
   };
 }
+
+export type ChatImageAttachmentDraftBinding = ReturnType<typeof useChatImageAttachmentDraft>;

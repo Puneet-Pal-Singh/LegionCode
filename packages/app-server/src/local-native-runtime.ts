@@ -1,3 +1,6 @@
+import type { BYOKDiscoveredProviderModel } from "@repo/shared-types";
+import type { StoredThreadInput } from "@repo/event-store";
+import { localQueuedInputMediaRead, type LocalQueuedInputMediaPort } from "./local-queued-input-media.js";
 import { lstat } from "node:fs/promises";
 import { isDeepStrictEqual } from "node:util";
 import { basename, isAbsolute } from "node:path";
@@ -19,6 +22,7 @@ import {
   type LifecycleEvent,
   type PermissionProfileId,
   type TurnAdmission,
+  type TurnId,
   type WorkerId,
   type ProductMode,
   type LocalTurnConfiguration,
@@ -49,6 +53,7 @@ import type { LocalWorkspaceExecutionBinding } from "./local-workspace.js";
 import type { LocalTurnMediaPort } from "./local-turn-media.js";
 import { attachPreparedLocalImages, localUserProviderMessage } from "./local-turn-images.js";
 import { captureLocalTurnModel } from "./local-turn-model.js";
+import { createLocalNativeThreadTitleGenerator } from "./local-native-thread-titles.js";
 import { prepareLocalNativeSettlement } from "./local-native-settlement.js";
 import { LocalNativeProviderRequests } from "./local-native-provider-requests.js";
 import type { LocalWorkspaceWriterReleaseReceipt } from "./local-workspace-writer-lease.js";
@@ -58,18 +63,33 @@ type NativeMessages = Parameters<
   typeof createLocalNativeProviderPorts
 >[0]["messages"];
 
+/** Returned synchronously so the original acquisition is retained before I/O. */
+export interface LocalNativeQueuedPreparation {
+  ready(): Promise<{
+    capability: LocalTurnExecutionCapability<LocalWorkspaceExecutionBinding>;
+    predecessorTurnId: TurnId | null;
+  }>;
+  releaseUnadmitted(): Promise<boolean>;
+}
+
 export interface LocalNativeRuntimeOptions {
   readonly persistence: Pick<
     LocalPersistence,
     "turnAdmissions" | "lifecycleEvents" | "turnArtifacts"
-  >;
+  > & Partial<Pick<LocalPersistence, "threadInputs">>;
   readonly workerId: WorkerId;
   readonly permissionProfileId: PermissionProfileId;
   readonly resolvePermissionPolicy: (productMode: ProductMode) => Promise<PermissionPolicy>;
   readonly nativeFilesystemHelperPath: string;
   readonly resolveRuntimeCredential: ProtectedProviderGatewayOptions["resolveCredential"];
-  readonly media?: LocalTurnMediaPort;
+  readonly media?: LocalTurnMediaPort & Partial<LocalQueuedInputMediaPort>;
   readonly capability?: LocalTurnExecutionCapability<LocalWorkspaceExecutionBinding>;
+  /** Same actual host writer; absence leaves queued execution unavailable. */
+  readonly prepareQueuedExecution?: (input: {
+    binding: LocalWorkspaceExecutionBinding;
+    admission: TurnAdmission;
+    signal: AbortSignal;
+  }) => LocalNativeQueuedPreparation;
   /** The same host writer owner releases only after this factory's combined proof. */
   readonly releaseExecution?: (
     attempt: LocalTurnAttemptIdentity,
@@ -107,58 +127,17 @@ export function createLocalNativeRuntime(
       ? Object.freeze({ ...options.capability })
       : { artifactCapture: "omitted_read_only" };
   const releaseExecution = options.releaseExecution;
-  if (availableCapability.artifactCapture === "required" && !releaseExecution) {
+  if ((availableCapability.artifactCapture === "required" || options.prepareQueuedExecution) && !releaseExecution) {
     throw new Error(
       "Captured execution requires the canonical host writer's release port",
     );
   }
-  return {
-    reconcileLostTurn(admission) {
-      return reconcileLocalNativePlanTurn({
-        admission,
-        lifecycleEvents: options.persistence.lifecycleEvents,
-        workerId,
-        permissionProfileId,
-        producerId: workerId,
-        clock: { now: () => new Date().toISOString() },
-      });
-    },
-    configurationOptions: {
-      modes: availableCapability.artifactCapture === "required" ? ["plan", "build"] : ["plan"],
-      productModes: Object.values(PRODUCT_MODES),
-      productModesByMode: {
-        plan: Object.values(PRODUCT_MODES),
-        ...(availableCapability.artifactCapture === "required" ? { build: Object.values(PRODUCT_MODES) } : {}),
-      },
-      ...(options.media ? { attachments: options.media.limits } : {}),
-    },
-    async createAdmission(input) {
-      if (input.workspace.readiness !== "ready")
-        throw new Error("Native workspace is unavailable");
-      const configuration = LocalTurnConfigurationSchema.parse(input.configuration);
-      if (configuration.mode === "build" && availableCapability.artifactCapture !== "required") {
-        throw new Error("Local Build mode requires the actual captured execution ports");
-      }
-      const admission = createLocalTurnAdmission(
-        {
-          thread: input.thread,
-          workspaceId: input.workspace.workspaceId,
-          clientRequestId: input.clientRequestId,
-          prompt: input.prompt,
-          providerId: input.providerId,
-          modelId: input.modelId,
-          workerId,
-          permissionProfileId: profileFor(configuration),
-          configuration,
-          imageFingerprint: input.media?.preparation.fingerprint,
-        },
-        configuration.mode === "build" ? "auto_edit" : "plan",
-      );
-      if (!input.media) return admission;
-      if (!options.media) throw new Error("Local image admission is unavailable");
-      return attachPreparedLocalImages(admission, input.media.preparation, input.media.imageCount, options.media);
-    },
-    createExecutor(binding, preparedAdmission, model) {
+  const createExecutor = (
+    binding: LocalWorkspaceExecutionBinding,
+    preparedAdmission: TurnAdmission,
+    model: BYOKDiscoveredProviderModel,
+    heldCapability?: LocalTurnExecutionCapability<LocalWorkspaceExecutionBinding>,
+  ): ReturnType<LocalTurnRuntime["createExecutor"]> => {
       const modelSnapshot = captureLocalTurnModel(model, {
         providerId: preparedAdmission.run.providerId,
         modelId: preparedAdmission.run.modelId,
@@ -167,7 +146,11 @@ export function createLocalNativeRuntime(
       const configuration = readConfiguration(preparedAdmission);
       const selectedProfileId = profileFor(configuration);
       const capability: LocalTurnExecutionCapability<LocalWorkspaceExecutionBinding> =
-        configuration.mode === "build" ? availableCapability : { artifactCapture: "omitted_read_only" };
+        heldCapability ?? (configuration.mode === "build" ? availableCapability : { artifactCapture: "omitted_read_only" });
+      if (heldCapability && heldCapability.artifactCapture !==
+          (configuration.mode === "build" ? "required" : "omitted_read_only")) {
+        throw new Error("Queued capability must match the exact admitted execution mode");
+      }
       let permissionPolicy: Promise<PermissionPolicy> | undefined;
       const resolvePolicy = () => permissionPolicy ??= Promise.resolve()
         .then(() => options.resolvePermissionPolicy(configuration.productMode))
@@ -236,6 +219,7 @@ export function createLocalNativeRuntime(
             },
             binding: bound,
             readFile: filesystem.readFile.bind(filesystem),
+            listDirectory: filesystem.listDirectory.bind(filesystem),
           });
         },
         async createKernelPorts(admission, bound, signal, execution) {
@@ -331,18 +315,22 @@ export function createLocalNativeRuntime(
           return executor.execute(admission);
         },
         interrupt: executor.interrupt.bind(executor),
+        acceptThreadInputAttempt: executor.acceptThreadInputAttempt.bind(executor),
+        supportsImageInput: modelSnapshot.capabilities?.supportsVision === true,
         resolveApproval: executor.resolveApproval,
         async awaitResourceRelease(turnId) {
           if (!(await proveRelease(turnId))) return false;
-          if (capability.artifactCapture === "omitted_read_only") {
+          if (capability.artifactCapture === "omitted_read_only" && !heldCapability) {
             positivelyReleased = true;
             return true;
           }
           if (!attempt || attempt.turnId !== turnId || !releaseExecution)
             return false;
           const released = await releaseExecution(attempt, proveRelease, (receipt) => { releasedWriter = receipt; });
-          positivelyReleased = released === true;
-          return released;
+          // A queued candidate already acquired its writer before admission.
+          // The owner's missing-entry proof fallback cannot release that fence.
+          positivelyReleased = released === true && (!heldCapability || releasedWriter !== undefined);
+          return positivelyReleased;
         },
         async prepareResourceSettlement(savedAdmission) {
           if (!positivelyReleased || !attempt ||
@@ -352,9 +340,9 @@ export function createLocalNativeRuntime(
               attempt.runAttemptId !== savedAdmission.runAttemptId) {
             throw new Error("Native resource settlement requires the original positive release");
           }
-          const writerFence = capability.artifactCapture === "omitted_read_only"
-            ? { kind: "read_only" as const }
-            : releasedWriter ? { kind: "released" as const, identity: releasedWriter.writerFence }
+          const writerFence = releasedWriter
+            ? { kind: "released" as const, identity: releasedWriter.writerFence }
+            : capability.artifactCapture === "omitted_read_only" && !heldCapability ? { kind: "read_only" as const }
             : executor.hasPreparationResourceProof(savedAdmission.turn.id)
               ? { kind: "not_acquired" as const }
               : undefined;
@@ -365,7 +353,77 @@ export function createLocalNativeRuntime(
           });
         },
       };
+  };
+  return {
+    createTitleGenerator(admission, model) {
+      return createLocalNativeThreadTitleGenerator({
+        admission, model, resolveCredential: options.resolveRuntimeCredential,
+      });
     },
+    reconcileLostTurn(admission) {
+      return reconcileLocalNativePlanTurn({
+        admission,
+        lifecycleEvents: options.persistence.lifecycleEvents,
+        workerId,
+        permissionProfileId,
+        producerId: workerId,
+        clock: { now: () => new Date().toISOString() },
+      });
+    },
+    configurationOptions: {
+      modes: availableCapability.artifactCapture === "required" ? ["plan", "build"] : ["plan"],
+      productModes: Object.values(PRODUCT_MODES),
+      productModesByMode: {
+        plan: Object.values(PRODUCT_MODES),
+        ...(availableCapability.artifactCapture === "required" ? { build: Object.values(PRODUCT_MODES) } : {}),
+      },
+      commandExecution: {
+        plan: "unavailable",
+        ...(availableCapability.artifactCapture === "required" && availableCapability.commandExecution
+          ? { build: availableCapability.commandExecution }
+          : {}),
+      },
+      ...(options.media ? { attachments: options.media.limits } : {}),
+    },
+    async createAdmission(input) {
+      if (input.workspace.readiness !== "ready")
+        throw new Error("Native workspace is unavailable");
+      const configuration = LocalTurnConfigurationSchema.parse(input.configuration);
+      if (configuration.mode === "build" && availableCapability.artifactCapture !== "required") {
+        throw new Error("Local Build mode requires the actual captured execution ports");
+      }
+      const admission = createLocalTurnAdmission(
+        {
+          thread: input.thread,
+          workspaceId: input.workspace.workspaceId,
+          clientRequestId: input.clientRequestId,
+          prompt: input.prompt,
+          providerId: input.providerId,
+          modelId: input.modelId,
+          workerId,
+          permissionProfileId: profileFor(configuration),
+          configuration,
+          imageFingerprint: input.media?.preparation.fingerprint,
+        },
+        configuration.mode === "build" ? "auto_edit" : "plan",
+      );
+      if (!input.media) return admission;
+      if (!options.media) throw new Error("Local image admission is unavailable");
+      return attachPreparedLocalImages(admission, input.media.preparation, input.media.imageCount, options.media);
+    },
+    createExecutor,
+    ...(options.prepareQueuedExecution ? {
+      prepareQueuedExecution(input: Parameters<NonNullable<LocalTurnRuntime["prepareQueuedExecution"]>>[0]) {
+        const preparation = options.prepareQueuedExecution!(input);
+        let ready: Promise<{ executor: ReturnType<LocalTurnRuntime["createExecutor"]>; predecessorTurnId: TurnId | null }> | undefined;
+        return {
+          ready: () => ready ??= preparation.ready().then(({ capability, predecessorTurnId }) => ({
+            executor: createExecutor(input.binding, input.admission, input.model, capability), predecessorTurnId,
+          })),
+          releaseUnadmitted: () => preparation.releaseUnadmitted(),
+        };
+      },
+    } : {}),
   };
 }
 
@@ -469,7 +527,7 @@ async function readConversation(
   persistence: LocalNativeRuntimeOptions["persistence"],
   current: TurnAdmission,
   signal: AbortSignal,
-  media?: LocalTurnMediaPort,
+  media?: LocalTurnMediaPort & Partial<LocalQueuedInputMediaPort>,
 ): Promise<NativeMessages> {
   const messages: NativeMessages = [];
   let afterCursor: EventCursor | null = null;
@@ -501,7 +559,21 @@ async function readConversation(
             : [],
         ),
       );
+      if (events.some((event) => event.threadId !== admission.run.threadId || event.turnId !== admission.turn.id ||
+          event.runAttemptId !== admission.runAttemptId || event.producer.id !== admission.run.workerId))
+        throw new Error("Native history lifecycle crosses canonical admission scope");
+      const nativeInputOwner = !("harnessSelection" in admission.run && admission.run.harnessSelection !== undefined) &&
+        admission.userMessage.type === "user_message" && admission.userMessage.content.harnessSelection === undefined;
+      const inputs = nativeInputOwner ? await persistence.threadInputs?.listAcceptedForTurn({ sessionId: admission.run.threadId,
+        threadId: admission.run.threadId, workspaceId: admission.run.workspaceId, userId: admission.run.userId,
+        turnId: admission.turn.id, runAttemptId: admission.runAttemptId }) : undefined;
       for (const event of events) {
+        if (nativeInputOwner && event.type === "turn.input.applied") {
+          const input = inputs?.find((item) => item.itemId === event.payload.inputId && item.receipt?.status === "applied" &&
+            item.receipt.acceptedSequence === event.payload.acceptedSequence && item.receipt.appliedSequence === event.sequence);
+          if (!input) throw new Error("Applied Native input has no canonical durable inbox owner");
+          messages.push(await queuedUserProviderMessage(input, media, signal));
+        }
         if (
           event.type === "item.completed" &&
           assistantIds.has(event.itemId) &&
@@ -519,6 +591,17 @@ async function readConversation(
   throw new Error(
     "Native admission is missing from canonical conversation history",
   );
+}
+
+async function queuedUserProviderMessage(item: StoredThreadInput,
+  media: (LocalTurnMediaPort & Partial<LocalQueuedInputMediaPort>) | undefined,
+  signal: AbortSignal): Promise<NativeMessages[number]> {
+  signal.throwIfAborted();
+  if (!item.mediaRefs.length) return { role: "user", content: item.text };
+  if (!media?.resolveQueuedForProvider || !item.mediaRevision || !item.mediaFingerprint)
+    throw new Error("Native input image history has no canonical media owner");
+  const parts = await media.resolveQueuedForProvider({ ...localQueuedInputMediaRead(item), signal });
+  return { role: "user", content: [{ type: "text", text: item.text }, ...parts] };
 }
 
 async function readLifecycle(

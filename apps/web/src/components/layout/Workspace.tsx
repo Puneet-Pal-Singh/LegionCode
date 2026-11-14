@@ -1,3 +1,4 @@
+import { clampRightSidebarWidth, WorkspaceSummaryLayout } from "@legioncode/client-ui";
 import {
   useRef,
   useEffect,
@@ -46,7 +47,6 @@ import { useCompletedTurnReview } from "@legioncode/client-ui";
 import { buildHookSettingsAuditReadModel, type HookSettingsAuditReadModel } from "@legioncode/sdk";
 import { useWorkspaceViewport } from "../../hooks/useWorkspaceViewport";
 import type { SavedChatSourcesProjection } from "../../lib/saved-chat-sources";
-import type { TopEnvironmentSummaryProps } from "../navigation/TopEnvironmentSummary";
 
 interface WorkspaceProps {
   sessionId: string;
@@ -87,7 +87,6 @@ interface WorkspaceProps {
   onTabChange?: (tab: TabType) => void;
   summaryActionRequest?: { id: number; action: "changes" | "commit" | "sources" } | null;
   savedSources?: SavedChatSourcesProjection;
-  environmentSummary?: TopEnvironmentSummaryProps;
   onOpenRepositoryPicker?: () => void;
 }
 
@@ -124,7 +123,6 @@ export function Workspace({
   onTabChange,
   summaryActionRequest,
   savedSources,
-  environmentSummary,
   onOpenRepositoryPicker,
 }: WorkspaceProps) {
   const isSessionPersisted = isSessionPersistenceReady(
@@ -609,7 +607,8 @@ export function Workspace({
         }
       >
         <div className="ui-center-surface flex min-h-0 flex-1 overflow-hidden relative">
-          {/* Chat Area */}
+          {/* Measure only the chat area after the real review pane takes its space. */}
+          <WorkspaceSummaryLayout allowInline={!isCompact || !isRightSidebarOpen}>
           <main className="ui-center-surface relative flex min-h-0 min-w-0 flex-1 flex-col overflow-clip">
             {initialPromptSubmission &&
             initialPromptSubmission.status === "failed" ? (
@@ -707,6 +706,7 @@ export function Workspace({
               }}
             />
           </main>
+          </WorkspaceSummaryLayout>
 
           {isConversationSurfaceReady && isRightSidebarOpen ? (
             <SidebarHeader
@@ -731,7 +731,7 @@ export function Workspace({
                 onGitReviewOpenChange?.(true);
               }}
               onCloseSidebar={() => setIsRightSidebarOpen?.(false)}
-              environmentSummary={environmentSummary}
+              position={isMobile ? "inline" : "fixed"}
             />
           ) : null}
 
@@ -758,7 +758,7 @@ export function Workspace({
                 onResizeEnd={() => setIsResizing(false)}
                 onResize={(delta) =>
                   setSidebarWidth((prev) =>
-                    Math.max(320, Math.min(720, prev + delta)),
+                    clampRightSidebarWidth(prev + delta),
                   )
                 }
               />

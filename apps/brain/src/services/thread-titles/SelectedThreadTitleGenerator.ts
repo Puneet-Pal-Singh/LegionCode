@@ -7,6 +7,7 @@ import type {
   ThreadTitleGenerator,
 } from "./ThreadTitleGenerationCoordinator";
 import { ThreadTitleOutputSchema } from "./ThreadTitleOutput";
+import { resolveThreadTitleProviderOptions } from "@legioncode/app-server/thread-titles";
 
 /** Use the frozen first-request route and existing provider services, never picker defaults. */
 export function createSelectedThreadTitleGenerator(
@@ -30,7 +31,6 @@ export function createSelectedThreadTitleGenerator(
     (provider.capabilities.jsonMode ||
       provider.adapterFamily === "anthropic-native" ||
       provider.adapterFamily === "google-native");
-  const reasoning = capabilities?.supportsReasoning ?? model?.supportsReasoning;
   const service = new AIService(
     env,
     createPostgresProviderConfigService(
@@ -45,7 +45,8 @@ export function createSelectedThreadTitleGenerator(
     outputFormat: structured ? "json" : "text",
     async generateText(request) {
       // Unknown/reasoning models need room for private reasoning before visible output.
-      const maxTokens = reasoning === false ? request.maxOutputTokens : 2048;
+      const providerOptions = resolveThreadTitleProviderOptions(request.maxOutputTokens, capabilities, model?.supportsReasoning);
+      const maxTokens = providerOptions.maxOutputTokens;
       if (structured) {
         const result = await service.generateStructured({
           ...request,
@@ -58,9 +59,7 @@ export function createSelectedThreadTitleGenerator(
       return service.generateText({
         ...request,
         maxOutputTokens: maxTokens,
-        ...(capabilities?.reasoningEfforts?.includes("low")
-          ? { reasoningEffort: "low" }
-          : {}),
+        ...(providerOptions.reasoningEffort ? { reasoningEffort: providerOptions.reasoningEffort } : {}),
       });
     },
   };

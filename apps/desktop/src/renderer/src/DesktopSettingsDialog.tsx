@@ -1,7 +1,18 @@
-import { useEffect, useId, useRef } from "react";
+import {
+  SharedSettingsDialog,
+  ComposerSettingsSection,
+  HooksSettingsView,
+  updateComposerPreferences,
+  useComposerPreferences,
+  type SettingsSection,
+} from "@legioncode/client-ui";
 import type { AppServerClient } from "@legioncode/sdk";
+import type { Thread } from "@repo/platform-protocol";
 import type { DesktopBuildInfo } from "../../shared/desktop-api";
+import { DesktopArchivedSettings } from "./DesktopArchivedSettings";
+import { DesktopHostedAccount } from "./DesktopHostedAccount";
 import { DesktopProviderSetup } from "./DesktopProviderSetup";
+import { useDesktopProviderSettings } from "./useDesktopProviderSettings";
 
 interface Props {
   open: boolean;
@@ -9,31 +20,57 @@ interface Props {
   client: AppServerClient | null;
   ready: boolean;
   build: DesktopBuildInfo;
+  initialSection?: SettingsSection;
+  providerDialogVariant?: "connect-only" | "manage-models-only" | null;
+  onUnarchiveThread?: (threadId: Thread["id"]) => Promise<void>;
 }
 
-export function DesktopSettingsDialog({ open, onClose, client, ready, build }: Props) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  const title = useId();
-  useEffect(() => {
-    const element = dialog.current;
-    if (!element) return;
-    if (open && !element.open) element.showModal();
-    if (!open && element.open) element.close();
-  }, [open]);
-
+export function DesktopSettingsDialog({
+  open,
+  onClose,
+  client,
+  ready,
+  initialSection = "general",
+  providerDialogVariant,
+  onUnarchiveThread,
+}: Props) {
+  const provider = useDesktopProviderSettings(client, ready && open);
+  const preferences = useComposerPreferences();
+  if (providerDialogVariant)
+    return (
+      <DesktopProviderSetup
+        isOpen={open}
+        onClose={onClose}
+        variant={providerDialogVariant}
+        provider={provider}
+      />
+    );
   return (
-    <dialog ref={dialog} className="desktop-settings-dialog" aria-labelledby={title} onClose={onClose}>
-      <header className="desktop-settings-header">
-        <div><h2 id={title}>Settings</h2><p>Local providers and models</p></div>
-        <button type="button" autoFocus onClick={() => dialog.current?.close()}>Close settings</button>
-      </header>
-      <div className="desktop-settings-body">
-        {open ? <DesktopProviderSetup client={client} ready={ready} /> : null}
-        <details className="desktop-about">
-          <summary>About LegionCode Desktop</summary>
-          <dl><div><dt>Version</dt><dd>{build.version}</dd></div><div><dt>Platform</dt><dd>{build.platform} · {build.arch}</dd></div></dl>
-        </details>
-      </div>
-    </dialog>
+    <SharedSettingsDialog
+      isOpen={open}
+      onClose={onClose}
+      initialSection={initialSection}
+      provider={provider}
+      generalScopeDescription="Model visibility is saved for the granted workspace. Provider routes are explicit and protected credentials stay in OS-backed storage."
+      composerSettings={
+        <>
+          <DesktopHostedAccount />
+          <ComposerSettingsSection
+            preferences={preferences}
+            onChange={updateComposerPreferences}
+          />
+        </>
+      }
+      archivedContent={
+        <DesktopArchivedSettings
+          client={client}
+          ready={ready && open}
+          onUnarchiveThread={onUnarchiveThread}
+        />
+      }
+      hooksContent={
+        <HooksSettingsView unavailableReason="Hook definition management is not available in this local environment. No hook has been enabled or executed by these settings." />
+      }
+    />
   );
 }

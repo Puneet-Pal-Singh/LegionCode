@@ -84,8 +84,9 @@ const config: Configuration = {
           ...processDiagnostics,
         }),
       );
-    } catch {
-      throw new Error("Packaged native helper verification failed");
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Unknown verifier failure";
+      throw new Error(`Packaged native helper verification failed: ${detail}`, { cause: error });
     }
   },
   npmRebuild: true,
@@ -95,6 +96,7 @@ const config: Configuration = {
   },
   files: ["out/**/*", "package.json"],
   mac: {
+    icon: "../web/public/assets/legioncode-icon-512.png",
     minimumSystemVersion: minimumMacOSVersion,
     category: "public.app-category.developer-tools",
     target: ["dmg", "zip"],

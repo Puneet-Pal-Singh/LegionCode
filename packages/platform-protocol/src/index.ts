@@ -2,9 +2,11 @@ export {
   LocalTurnConfigurationSchema,
   LocalTurnConfigurationOptionsSchema,
   LocalTurnMediaLimitsSchema,
+  parseLocalQueuedInputConfiguration,
   type LocalTurnConfiguration,
   type LocalTurnConfigurationOptions,
   type LocalTurnMediaLimits,
+  type LocalQueuedInputConfiguration,
 } from "./local-turn-configuration.js";
 export {
   APP_SERVER_PROTOCOL_VERSION,
@@ -113,7 +115,10 @@ export {
   HostedChatSubmissionResultSchema,
   type HostedChatSubmissionResult,
 } from "./chat-submission.js";
-export { ChatRunModeSchema, type ChatRunMode } from "./run-mode.js";
+export {
+  ChatRunModeSchema,
+  type ChatRunMode,
+} from "./run-mode.js";
 export {
   WORKFLOW_INTENTS,
   WORKFLOW_ENTRYPOINTS,
@@ -563,12 +568,16 @@ export {
   LocalWorkspaceCapabilitySchema,
   LocalWorkspaceGrantPathSchema,
   LocalWorkspaceGrantResponseSchema,
+  LocalWorkspaceProjectSchema,
+  LocalWorkspaceProjectsResponseSchema,
   LocalWorkspaceGrantSchema,
   LocalWorkspaceReadinessSchema,
   type GrantLocalWorkspaceRequest,
   type LocalWorkspaceCapability,
   type LocalWorkspaceGrant,
   type LocalWorkspaceGrantResponse,
+  type LocalWorkspaceProject,
+  type LocalWorkspaceProjectsResponse,
   type LocalWorkspaceReadiness,
 } from "./workspace-grants.js";
 export {
@@ -665,6 +674,11 @@ export {
   type CommitTurnArtifactRequest,
   type CommitTurnArtifactResponse,
 } from "./git-artifact-operations.js";
+
+export {
+  ApprovalExecutionPresentationSchema,
+  type ApprovalExecutionPresentation,
+} from "./approval-presentation.js";
 
 export {
   UserInputQuestionSchema,

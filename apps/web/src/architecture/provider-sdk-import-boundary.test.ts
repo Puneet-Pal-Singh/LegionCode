@@ -49,6 +49,8 @@ const ALLOWED_IMPORT_FILES = new Set([
   "components/navigation/TopEnvironmentSummary.tsx",
   "services/provider/ProviderStore.ts",
   "services/provider/ProviderSelectionPreferences.ts",
+  // Thin forwarding module for the shared browser-safe inventory implementation.
+  "services/provider/ProviderModelInventoryLoader.ts",
 ]);
 
 describe("Architecture Boundary: Provider SDK import ownership", () => {

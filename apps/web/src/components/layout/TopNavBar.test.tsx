@@ -28,14 +28,12 @@ vi.mock("../navigation/TopEnvironmentSummary", () => ({
 
 describe("TopNavBar shared adapter", () => {
   it("routes review, IDE, and summary actions", () => {
-    const onReview = vi.fn();
     const onOpenIde = vi.fn();
     const onOpenChanges = vi.fn();
     const onToggleRightSidebar = vi.fn();
 
     render(
       <TopNavBar
-        onReview={onReview}
         onOpenIde={onOpenIde}
         onToggleRightSidebar={onToggleRightSidebar}
         isAuthenticated
@@ -49,26 +47,33 @@ describe("TopNavBar shared adapter", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    expect(screen.queryByRole("button", { name: "Review" })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Toggle summary" })
+        .compareDocumentPosition(screen.getByRole("button", { name: "Toggle right sidebar" })) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open IDE" }));
     fireEvent.click(screen.getByRole("button", { name: "Toggle summary" }));
-    expect(onReview).toHaveBeenCalledOnce();
     expect(onOpenIde).toHaveBeenCalledWith("vscode");
     expect(onOpenChanges).toHaveBeenCalledOnce();
     expect(onToggleRightSidebar).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Toggle right sidebar" }));
+    expect(onToggleRightSidebar).toHaveBeenCalledOnce();
   });
 
   it("keeps review controls hidden while the right panel is open", () => {
     render(
       <TopNavBar
-        onReview={vi.fn()}
         onToggleRightSidebar={vi.fn()}
         isRightSidebarOpen
         isAuthenticated
+        environmentSummary={{ repo: null, branch: "main", onOpenChanges: vi.fn() }}
       />,
     );
 
     expect(screen.queryByRole("button", { name: "Review" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open IDE" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Toggle summary" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Toggle right sidebar" })).not.toBeInTheDocument();
   });
 });

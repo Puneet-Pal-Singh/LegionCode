@@ -1,4 +1,5 @@
 import type { AgentSession } from "../types/session.js";
+import { shouldRetainCurrentTitleProjection } from "@legioncode/client-ui";
 
 /**
  * Resolves a stale replay/hydration race without making title state browser
@@ -13,7 +14,7 @@ export function mergeServerSessionProjection(
     throw new Error("Cannot merge session projections with different ids");
   }
 
-  if (shouldRetainCurrentTitle(current, incoming)) {
+  if (shouldRetainCurrentTitleProjection(current, incoming)) {
     return {
       ...incoming,
       name: current.name,
@@ -24,24 +25,4 @@ export function mergeServerSessionProjection(
   }
 
   return incoming;
-}
-
-function shouldRetainCurrentTitle(
-  current: AgentSession,
-  incoming: AgentSession,
-): boolean {
-  if (current.titleSource === "user" && incoming.titleSource !== "user") {
-    return true;
-  }
-
-  const currentVersion = current.titleVersion;
-  const incomingVersion = incoming.titleVersion;
-  if (incomingVersion !== undefined && currentVersion === undefined) {
-    return false;
-  }
-  if (currentVersion !== undefined && incomingVersion !== undefined) {
-    return currentVersion > incomingVersion;
-  }
-
-  return current.updatedAt > incoming.updatedAt;
 }

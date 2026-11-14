@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ChatRunModeSchema } from "./run-mode.js";
 import { PRODUCT_MODES, ProductModeSchema } from "./permissions.js";
+import { ModelIdSchema, ProviderIdSchema, type ModelId, type ProviderId } from "./ids.js";
 
 /** Complete immutable configuration captured when a local Turn is admitted. */
 export const LocalTurnConfigurationSchema = z.object({
@@ -9,6 +10,35 @@ export const LocalTurnConfigurationSchema = z.object({
 }).strict();
 
 export type LocalTurnConfiguration = z.infer<typeof LocalTurnConfigurationSchema>;
+
+const LocalQueuedInputConfigurationSchema = z.object({
+  mode: z.enum(["plan", "auto_edit"]).optional(),
+  productMode: ProductModeSchema.optional(),
+  providerId: ProviderIdSchema.optional(),
+  modelId: ModelIdSchema.optional(),
+}).strict().superRefine((value, context) => {
+  if ((value.providerId === undefined) !== (value.modelId === undefined))
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["providerId"],
+      message: "Provider and model must be supplied together" });
+});
+
+export interface LocalQueuedInputConfiguration {
+  readonly configuration: LocalTurnConfiguration;
+  readonly expectedSelection?: { readonly providerId: ProviderId; readonly modelId: ModelId };
+}
+
+/** Interpret captured Native intent only; never inherit current UI or runtime policy. */
+export function parseLocalQueuedInputConfiguration(value: unknown): LocalQueuedInputConfiguration {
+  const captured = LocalQueuedInputConfigurationSchema.parse(value);
+  return Object.freeze({
+    configuration: Object.freeze(LocalTurnConfigurationSchema.parse({
+      mode: captured.mode === "auto_edit" ? "build" : "plan", productMode: captured.productMode,
+    })),
+    ...(captured.providerId !== undefined && captured.modelId !== undefined ? {
+      expectedSelection: Object.freeze({ providerId: captured.providerId, modelId: captured.modelId }),
+    } : {}),
+  });
+}
 
 /** Availability is projected from the host's actually composed execution and policy ports. */
 export const LocalTurnMediaLimitsSchema = z.object({
@@ -19,10 +49,20 @@ export const LocalTurnMediaLimitsSchema = z.object({
 
 export type LocalTurnMediaLimits = z.infer<typeof LocalTurnMediaLimitsSchema>;
 
+/** Declared agent command backend; independent of approvals and artifact capture. */
+export const LocalCommandExecutionProfileSchema = z.enum([
+  "unavailable",
+  "single_executable_nofork",
+]);
+
+export type LocalCommandExecutionProfile = z.infer<typeof LocalCommandExecutionProfileSchema>;
+
 export const LocalTurnConfigurationOptionsSchema = z.object({
   modes: z.array(ChatRunModeSchema).min(1).max(2),
   productModes: z.array(ProductModeSchema).min(1).max(4),
   productModesByMode: z.record(ChatRunModeSchema, z.array(ProductModeSchema).min(1).max(4)).optional(),
+  /** Omitted entries are unknown, never an inferred execution or isolation promise. */
+  commandExecution: z.record(ChatRunModeSchema, LocalCommandExecutionProfileSchema).optional(),
   attachments: LocalTurnMediaLimitsSchema.optional(),
 }).strict();
 

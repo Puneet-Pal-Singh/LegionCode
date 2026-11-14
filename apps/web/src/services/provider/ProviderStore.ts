@@ -44,12 +44,14 @@ import {
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
 import { preloadConnectedProviderModels } from "./ConnectedProviderModelPreloader.js";
 import {
+  PROVIDER_MODEL_CACHE_MAX_AGE_MS,
   loadCompletePickerInventory,
+  loadManageProviderModelInventory,
+  includeManagedPickerModels,
   shouldLoadCompletePickerInventory,
 } from "./ProviderModelInventoryLoader.js";
 
 const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
-const PROVIDER_MODEL_CACHE_MAX_AGE_MS = 60 * 60 * 1_000;
 
 export type ProviderModelsMetadataState = ProviderModelsMetadata;
 
@@ -1080,23 +1082,12 @@ export class ProviderStore {
   ): Promise<ProviderModelOption[]> {
     this.log("[loadManageProviderModels] Starting", { providerId, limit });
     try {
-      let cursor: string | undefined;
-      let result: ProviderModelsPageResult | null = null;
-      let models: ProviderModelOption[] = [];
-      do {
-        result = await this.apiClient.getProviderModels(providerId, {
-          view: "all",
-          surface: "manage",
-          limit,
-          cursor,
-        });
-        models = mergeModelsById(models, result.models);
-        cursor = result.page.hasMore ? result.page.nextCursor : undefined;
-      } while (cursor);
-
-      if (!result) {
-        return this.state.manageProviderModels[providerId] ?? [];
-      }
+      const result = await loadManageProviderModelInventory({
+        providerId,
+        limit,
+        loadPage: (query) => this.apiClient.getProviderModels(providerId, query),
+      });
+      const models = result.models;
       if (this.isWorkspaceEpochStale("loadManageProviderModels", epoch)) {
         return models;
       }
@@ -1754,25 +1745,11 @@ export class ProviderStore {
     visibleModelIds: Record<string, Set<string>>,
     manageModelsOverride?: ProviderModelOption[],
   ): ProviderModelOption[] {
-    const visibleSet = visibleModelIds[providerId];
-    if (!visibleSet || visibleSet.size === 0) {
-      return pickerModels;
-    }
-
-    const manageModels =
-      manageModelsOverride ?? this.state.manageProviderModels[providerId] ?? [];
-    if (manageModels.length === 0) {
-      return pickerModels;
-    }
-
-    const curatedVisibleModels = manageModels.filter((model) =>
-      visibleSet.has(model.id),
+    return includeManagedPickerModels(
+      pickerModels,
+      manageModelsOverride ?? this.state.manageProviderModels[providerId] ?? [],
+      visibleModelIds[providerId],
     );
-    if (curatedVisibleModels.length === 0) {
-      return pickerModels;
-    }
-
-    return mergeModelsById(pickerModels, curatedVisibleModels);
   }
 
   private isWorkspaceEpochStale(operation: string, epoch: number): boolean {

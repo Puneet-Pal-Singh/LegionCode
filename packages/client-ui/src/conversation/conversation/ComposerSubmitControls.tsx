@@ -43,7 +43,7 @@ export function ComposerSubmitControls({
       behavior === "queue" ? "Queue follow-up message" : "Steer active task";
     return (
       <div className="flex shrink-0 items-center gap-1.5">
-        <motion.button
+        {followUpAvailable ? <motion.button
           type="button"
           onClick={() => onFollowUp(behavior)}
           disabled={!canSubmit || !followUpAvailable}
@@ -62,7 +62,7 @@ export function ComposerSubmitControls({
           }`}
         >
           <ArrowUp size={16} />
-        </motion.button>
+        </motion.button> : null}
         {canStop && onStop ? (
           <motion.button
             type="button"
