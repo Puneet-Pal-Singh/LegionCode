@@ -61,6 +61,8 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y skopeo
+          skopeo inspect --config --raw "docker-daemon:${IMAGE_TAG}" > native-container-package/checked-docker-config.json
+          skopeo inspect --config "docker-daemon:${IMAGE_TAG}" > native-container-package/expected-oci-config.json
           skopeo copy --format oci "docker-daemon:${IMAGE_TAG}" oci:native-container-package/oci:candidate
 
       - name: Generate SBOM from the exact local image
@@ -79,7 +81,7 @@ jobs:
           CHECKED_IMAGE_ID: ${{ steps.image.outputs.image_id }}
         run: |
           python3 - <<'PY'
-          import hashlib, json, os, pathlib, subprocess
+          import gzip, hashlib, json, os, pathlib, subprocess
           root = pathlib.Path('native-container-package')
           layout = root / 'oci'
           digest = lambda data: hashlib.sha256(data).hexdigest()
@@ -96,11 +98,44 @@ jobs:
           manifest = json.loads(blob(descriptor))
           assert manifest['schemaVersion'] == 2
           assert manifest['mediaType'] == 'application/vnd.oci.image.manifest.v1+json'
-          assert manifest['config']['digest'] == os.environ['CHECKED_IMAGE_ID']
+          # Docker-to-OCI conversion rewrites the configuration encoding. Pin
+          # the checked original bytes, then verify the exact OCI projection,
+          # execution defaults and every uncompressed filesystem layer.
+          checked_bytes = (root / 'checked-docker-config.json').read_bytes()
+          assert 'sha256:' + digest(checked_bytes) == os.environ['CHECKED_IMAGE_ID']
+          checked = json.loads(checked_bytes)
           config = json.loads(blob(manifest['config']))
+          assert config == json.loads((root / 'expected-oci-config.json').read_text())
           assert config['architecture'] == 'amd64' and config['os'] == 'linux'
-          for layer in manifest['layers']:
+          assert config['architecture'] == checked['architecture'] and config['os'] == checked['os']
+          assert config['rootfs'] == checked['rootfs'] and config['rootfs']['type'] == 'layers'
+          defaults = {'User': '', 'ExposedPorts': {}, 'Env': [], 'Entrypoint': [], 'Cmd': [],
+              'Volumes': {}, 'WorkingDir': '', 'Labels': {}, 'StopSignal': '', 'ArgsEscaped': False}
+          original_runtime = checked.get('config') or {}
+          oci_runtime = config.get('config') or {}
+          for key, default in defaults.items():
+              left, right = original_runtime.get(key), oci_runtime.get(key)
+              assert (default if left is None else left) == (default if right is None else right), key
+          legacy_defaults = {'Hostname': '', 'Domainname': '', 'AttachStdin': False, 'AttachStdout': False,
+              'AttachStderr': False, 'Tty': False, 'OpenStdin': False, 'StdinOnce': False,
+              'Image': '', 'NetworkDisabled': False, 'MacAddress': '', 'Healthcheck': {}, 'OnBuild': [], 'Shell': []}
+          for key, value in original_runtime.items():
+              if key in defaults:
+                  continue
+              assert key in legacy_defaults, f'Unsupported Docker configuration field: {key}'
+              assert value is None or value == legacy_defaults[key], f'Nondefault Docker-only configuration: {key}'
+          assert len(manifest['layers']) == len(config['rootfs']['diff_ids'])
+          for layer, expected in zip(manifest['layers'], config['rootfs']['diff_ids']):
               blob(layer)
+              algorithm, value = layer['digest'].split(':')
+              path = layout / 'blobs' / algorithm / value
+              kind = layer['mediaType']
+              assert kind in ['application/vnd.oci.image.layer.v1.tar', 'application/vnd.oci.image.layer.v1.tar+gzip']
+              checksum = hashlib.sha256()
+              with (gzip.open(path, 'rb') if kind.endswith('+gzip') else path.open('rb')) as stream:
+                  for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                      checksum.update(chunk)
+              assert 'sha256:' + checksum.hexdigest() == expected
           inspected, = json.loads((root / 'docker-inspect.json').read_text())
           assert inspected['Id'] == os.environ['CHECKED_IMAGE_ID']
           assert 0 < inspected['Size'] <= 1_350_000_000
@@ -125,6 +160,8 @@ jobs:
               'version': 1, 'sourceCommit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
               'workflowRunId': os.environ['GITHUB_RUN_ID'], 'workflowRunAttempt': os.environ['GITHUB_RUN_ATTEMPT'],
               'platform': 'linux/amd64', 'checkedImageId': inspected['Id'], 'imageDigest': descriptor['digest'],
+              'configurationConversion': 'docker-v2s2-to-oci-v1', 'ociConfigDigest': manifest['config']['digest'],
+              'checkedConfigSha256': digest(checked_bytes),
               'imageBytes': inspected['Size'], 'helperSha256': digest(helper),
               'policySourceSha256': digest(json.dumps(policy_inputs, sort_keys=True, separators=(',', ':')).encode()),
               'sbomSha256': digest((root / 'sbom.spdx.json').read_bytes()), 'inputs': inputs,
