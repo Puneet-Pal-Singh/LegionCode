@@ -161,6 +161,7 @@ export class ResumeTurnService {
     });
     const resumed = await withTurnAdmissionRepository(this.env, async (repository) =>
       await repository.admitContinuation({
+        executionRoute: "native",
         sessionId: input.sessionId,
         clientMessageId: input.clientCommandId,
         threadId: input.threadId,

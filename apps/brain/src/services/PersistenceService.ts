@@ -24,6 +24,7 @@ import { persistChatMessageImages } from "./chat/ChatMessageImagePersistence";
 import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
 import { PostgresTurnAdmissionRepository } from "@repo/persistence";
 import { withBrainPersistenceRepository } from "./persistence/BrainPersistenceRepositoryFactory";
+import { createNativeProviderAdmissionCapture } from "./providers/NativeProviderAdmissionCapture";
 
 interface PersistMessageContext {
   userId?: string;
@@ -254,9 +255,10 @@ export class PersistenceService {
     return await withBrainPersistenceRepository(
       this.env,
       this.env.AUTH_TURN_ADMISSION_REPOSITORY,
-      (client) => new PostgresTurnAdmissionRepository(client),
+      (client) => new PostgresTurnAdmissionRepository(client, createNativeProviderAdmissionCapture(this.env)),
       async (repository) => {
         const result = await repository.admitWithPrompt({
+          executionRoute: "native",
           sessionId: input.sessionId,
           clientMessageId,
           turnId: input.identity.turnId,
