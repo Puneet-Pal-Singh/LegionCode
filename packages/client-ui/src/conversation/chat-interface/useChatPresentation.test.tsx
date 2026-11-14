@@ -169,6 +169,62 @@ describe("useChatPresentation", () => {
     expect(stopping.result.current.pendingDraft).not.toBeNull();
     expect(stopping.result.current.isStopping).toBe(false);
     stopping.unmount();
+
+    const shared = hostedFixture();
+    shared.acknowledge = true;
+    const sharedTask = renderHook(() => useHostedNativeConversation(shared.options));
+    await waitFor(() => expect(sharedTask.result.current.canSubmit).toBe(true));
+    await act(async () => { await sharedTask.result.current.submit(hostedDraft()); });
+    await waitFor(() => expect(sharedTask.result.current.activeProjection?.pendingApproval?.approvalId).toBe("appr_hosted01"));
+    await act(async () => { await sharedTask.result.current.decideApproval({
+      approvalId: sharedTask.result.current.activeProjection!.pendingApproval!.approvalId, decision: "approved",
+    }); });
+    const completeTurn = () => shared.events.push(LifecycleEventSchema.parse({
+      ...shared.events.find((event) => event.turnId === shared.currentScope.turnId && event.type === "turn.started")!,
+      eventId: `evt_complete_${shared.currentScope.turnId}`,
+      sequence: shared.events.filter((event) => event.turnId === shared.currentScope.turnId).length + 1,
+      idempotencyKey: `complete.${shared.currentScope.turnId}`,
+      type: "turn.completed", payload: { outcome: { status: "completed" } },
+    }));
+    act(() => { completeTurn(); sharedTask.result.current.reload(); });
+    await waitFor(() => expect(sharedTask.result.current.canSubmit).toBe(true));
+    const external = TurnScopeBootstrapSchema.parse({ ...shared.scope, turnId: "trn_external02", runAttemptId: "attempt_external02" });
+    shared.currentScope = external;
+    shared.messages.push({ id: "external-client-prompt", role: "user", content: "Work from Web", createdAt: "2026-11-14T00:00:01.000Z",
+      data: { metadata: { canonicalIdentity: external } } });
+    shared.events.push(LifecycleEventSchema.parse({ ...shared.events[0], threadId: external.threadId,
+      turnId: external.turnId, runAttemptId: external.runAttemptId,
+      eventId: "evt_external02", sequence: 1, idempotencyKey: "external.1", type: "turn.started", payload: {},
+    }));
+    act(() => { sharedTask.result.current.reload(); });
+    await waitFor(() => expect(sharedTask.result.current.scope?.turnId).toBe(external.turnId));
+    await waitFor(() => expect(sharedTask.result.current.canStop).toBe(true));
+    expect(sharedTask.result.current.canSubmit).toBe(false);
+    expect(shared.requests.filter((request) => request.method === "turn/reserve")).toHaveLength(1);
+    expect(shared.submissions).toHaveLength(1);
+
+    // An older server snapshot arriving during a new local reservation cannot
+    // replace that reservation or attach the old turn to its optimistic user.
+    act(() => { completeTurn(); sharedTask.result.current.reload(); });
+    await waitFor(() => expect(sharedTask.result.current.canSubmit).toBe(true));
+    shared.reservationScope = TurnScopeBootstrapSchema.parse({ ...shared.scope, turnId: "trn_localnext03", runAttemptId: "attempt_localnext03" });
+    let releaseOldHistory!: () => void;
+    let releaseNewReserve!: () => void;
+    let releaseNewAck!: () => void;
+    shared.reserveGate = new Promise<void>((resolve) => { releaseNewReserve = resolve; });
+    shared.submissionGate = new Promise<void>((resolve) => { releaseNewAck = resolve; });
+    let freshSubmission!: ReturnType<typeof sharedTask.result.current.submit>;
+    act(() => { freshSubmission = sharedTask.result.current.submit(hostedDraft()); });
+    await waitFor(() => expect(shared.requests.filter((request) => request.method === "turn/reserve")).toHaveLength(2));
+    shared.historyGate = new Promise<void>((resolve) => { releaseOldHistory = resolve; });
+    act(() => { sharedTask.result.current.reload(); });
+    await act(async () => { releaseNewReserve(); });
+    await waitFor(() => expect(sharedTask.result.current.scope?.turnId).toBe(shared.reservationScope.turnId));
+    await act(async () => { releaseOldHistory(); });
+    expect(sharedTask.result.current.scope?.turnId).toBe(shared.reservationScope.turnId);
+    await act(async () => { releaseNewAck(); await freshSubmission; });
+    await waitFor(() => expect(sharedTask.result.current.scope?.turnId).toBe(shared.reservationScope.turnId));
+    sharedTask.unmount();
   }, 15_000);
 
   it("reveals an optimistically admitted prompt while canonical replay hydrates", () => {
@@ -378,6 +434,8 @@ function hostedFixture() {
   const state = {
     acknowledge: false,
     reserved: false,
+    currentScope: scope,
+    reservationScope: scope,
     admitted: false,
     interruptFailure: false,
     historyGate: null as Promise<void> | null,
@@ -389,8 +447,8 @@ function hostedFixture() {
     requests: [] as Envelope[],
   };
   const event = (type: string, payload: unknown, extras = {}) => LifecycleEventSchema.parse({
-    eventId: `evt_hosted${state.events.length + 1}`, threadId: scope.threadId, turnId: scope.turnId,
-    runAttemptId: scope.runAttemptId, sequence: state.events.length + 1,
+    eventId: `evt_hosted${state.events.length + 1}`, threadId: state.currentScope.threadId, turnId: state.currentScope.turnId,
+    runAttemptId: state.currentScope.runAttemptId, sequence: state.events.filter((event) => event.turnId === state.currentScope.turnId).length + 1,
     idempotencyKey: `hosted.${state.events.length + 1}`, type, payload, createdAt: stamp,
     producer: { kind: "runtime_kernel", id: "hosted-fixture" }, schemaVersion: 1, ...extras,
   });
@@ -402,9 +460,11 @@ function hostedFixture() {
       protocolVersion: envelope.protocolVersion, method: envelope.method, ok: true, result,
     }), { status: 200, headers: { "Content-Type": "application/json" } });
     switch (envelope.method) {
-      case "session/history":
+      case "session/history": {
+        const messages = [...state.messages];
         if (state.historyGate) await state.historyGate;
-        return success({ messages: state.messages, snapshot: "1", nextCursor: null });
+        return success({ messages, snapshot: "1", nextCursor: null });
+      }
       case "session/workspaceContext":
         return success({ sessionId, workspaceId: scope.workspaceId, threadId: state.reserved ? scope.threadId : null,
           workspaceStatus: "active", repository: null, selectedBranch: null, runBranch: null });
@@ -414,7 +474,7 @@ function hostedFixture() {
           error: { code: "conflict", statusCode: 409, operationCode: "TURN_ADMISSION_RECOVERY_REQUIRED", retryable: false,
             message: "Turn admission is reserved but prompt persistence has not completed" },
         }), { status: 409, headers: { "Content-Type": "application/json" } });
-        return state.reserved ? success(scope) : new Response(JSON.stringify({
+        return state.reserved ? success(state.currentScope) : new Response(JSON.stringify({
           protocolVersion: envelope.protocolVersion, method: envelope.method, ok: false,
           error: { code: "not_found", message: "No reserved turn" },
         }), { status: 404, headers: { "Content-Type": "application/json" } });
@@ -422,29 +482,31 @@ function hostedFixture() {
         expect(envelope.params).toMatchObject({ sessionId, runId });
         if (state.reserveGate) await state.reserveGate;
         state.reserved = true;
-        return success(scope);
+        state.admitted = false;
+        state.currentScope = state.reservationScope;
+        return success(state.reservationScope);
       case "turn/submit": {
         state.submissions.push(String(init?.body));
         const request = ChatRequestBodySchema.parse(envelope.params);
-        expect(request).toMatchObject({ identity: scope, harnessMode: "platform_owned", authMode: "api_key" });
+        expect(request).toMatchObject({ identity: state.currentScope, harnessMode: "platform_owned", authMode: "api_key" });
         if (state.acknowledge) {
           state.admitted = true;
           state.events.push(event("turn.started", {}));
           state.events.push(event("approval.requested", { question: "Run the project check?", options: [
             { id: "allow_once", label: "Allow once", description: null },
           ] }, { itemId: "itm_hosted01", approvalId: "appr_hosted01" }));
-          state.messages = [{ id: request.clientMessageId!, role: "user", content: "Inspect the project", createdAt: stamp,
-            data: { metadata: { canonicalIdentity: scope } } }];
+          state.messages.push({ id: request.clientMessageId!, role: "user", content: "Inspect the project", createdAt: stamp,
+            data: { metadata: { canonicalIdentity: state.currentScope } } });
         }
         const headers: Record<string, string> = { "Content-Type": "application/json" };
         if (state.acknowledge) Object.assign(headers, {
-          "X-Run-Id": runId, "X-Thread-Id": scope.threadId, "X-Turn-Id": scope.turnId, "X-Run-Attempt-Id": scope.runAttemptId,
+          "X-Run-Id": runId, "X-Thread-Id": state.currentScope.threadId, "X-Turn-Id": state.currentScope.turnId, "X-Run-Attempt-Id": state.currentScope.runAttemptId,
         });
         if (state.submissionGate) await state.submissionGate;
         return new Response("{broken-json", { status: 200, headers });
       }
       case "turn/lifecycleEvents":
-        return success({ events: state.events.filter((item) => item.sequence > Number(envelope.params.afterSequence ?? 0)), nextSequence: null });
+        return success({ events: state.events.filter((item) => item.turnId === envelope.params.turnId && item.sequence > Number(envelope.params.afterSequence ?? 0)), nextSequence: null });
       case "turn/approval": {
         const decided = event("approval.decided", { status: "approved" }, { itemId: "itm_hosted01", approvalId: "appr_hosted01" });
         state.events.push(decided);

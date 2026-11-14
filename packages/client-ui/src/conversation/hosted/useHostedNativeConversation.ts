@@ -5,6 +5,7 @@ import {
   findSubmissionAttempt,
   interruptAndAwaitTerminal,
   mergeLifecycleProjections,
+  readCanonicalTurnId,
   RunIdSchema,
   submitConversationMessage,
   TurnIdSchema,
@@ -64,7 +65,17 @@ export function useHostedNativeConversation(options: HostedNativeConversationOpt
   const [delivery, setDelivery] = useState<DeliveryState | null>(null);
   const history = useHostedConversationHistory(identity);
   const visibleDelivery = identity.enabled && delivery?.identity === identity ? delivery : null;
-  const scope = visibleDelivery?.scope ?? history.scope;
+  // A local reservation bridges admission to saved history. Once that exact
+  // source user message is canonical, the server's current scope wins, including
+  // a later turn started by another client. Older reads cannot acknowledge a
+  // newer reservation because they lack its client message ID and turn identity.
+  const deliveredScope = visibleDelivery?.scope;
+  const deliveredDraft = visibleDelivery?.optimisticDraft;
+  const deliveryAcknowledged = Boolean(deliveredScope && deliveredDraft &&
+    !visibleDelivery.submitting && !visibleDelivery.pendingDraft && history.scope &&
+    history.messages.some((message) => message.role === "user" &&
+      message.id === deliveredDraft.id && readCanonicalTurnId(message) === deliveredScope.turnId));
+  const scope = deliveryAcknowledged ? history.scope : visibleDelivery?.scope ?? history.scope;
   const selectedScope = useRef(scope);
   selectedScope.current = scope;
   const lifecycle = useMemo(() => hostedLifecycleClient(client, scope), [client, scope]);
@@ -113,6 +124,12 @@ export function useHostedNativeConversation(options: HostedNativeConversationOpt
       if (owner.current === captured) owner.current = null;
     };
   }, [identity]);
+
+  useEffect(() => {
+    if (!deliveryAcknowledged || !visibleDelivery) return;
+    setDelivery((previous) => previous === visibleDelivery
+      ? { ...previous, scope: null, optimisticDraft: null, optimisticScope: null } : previous);
+  }, [deliveryAcknowledged, visibleDelivery]);
 
   useEffect(() => {
     if (!activeProjection?.terminal) return;
