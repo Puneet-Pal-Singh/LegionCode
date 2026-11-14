@@ -15,7 +15,6 @@ import type {
   CreatePullRequestFromRunPayload,
   GitStatusResponse,
 } from "@repo/shared-types";
-import type { NativeCommandClosure } from "@repo/shared-types/native-command-closure";
 import type { ProtocolError } from "@repo/platform-protocol";
 import { resolveCommitIdentityForStoredOAuthSession } from "./git/GitCommitIdentityService";
 import {
@@ -32,6 +31,11 @@ import {
   type SecureExecutionStatus,
 } from "./secure-execution/SecureExecutionContract";
 import { SecureRuntimeFailureMapper } from "./secure-execution/SecureRuntimeFailureMapper";
+import {
+  NativeExecutionLifetime,
+  observeExecutionWithTimeout,
+  type NativeExecutionOperation,
+} from "./secure-execution/NativeExecutionLifetime";
 import type { SecureExecutionWorkspaceScope } from "../runtime/RuntimeWorkspaceScope";
 import {
   SecureExecutionSessionClient,
@@ -60,13 +64,6 @@ interface LegacyExecutionResult {
   truncated?: boolean;
 }
 
-interface NativeExecutionOperation {
-  original: Promise<unknown>;
-  readonly transports: Set<Promise<unknown>>;
-  dispatched: boolean;
-  closure: NativeCommandClosure | null;
-}
-
 interface ExecutionOptions {
   onOutput?: (chunk: { message: string; source?: "stdout" | "stderr"; timestamp?: number }) => Promise<void> | void;
   scope?: SecureExecutionWorkspaceScope;
@@ -91,8 +88,7 @@ interface GitHubAuthState {
 export class ExecutionService {
   private readonly workspaceScope: SecureExecutionWorkspaceScope;
   private readonly executionSession: SecureExecutionSessionPort;
-  private readonly nativeOperations = new Set<NativeExecutionOperation>();
-  private nativeDispatchSealed = false;
+  private readonly nativeExecutionLifetime = new NativeExecutionLifetime();
 
   constructor(
     private env: Env,
@@ -114,37 +110,20 @@ export class ExecutionService {
   execute(
     plugin: string, action: string, payload: Record<string, unknown>, options?: ExecutionOptions,
   ): Promise<LegacyExecutionResult> {
-    if (this.nativeDispatchSealed) return Promise.reject(new Error("Native execution dispatch is closed"));
     // Retain the original public operation before auth, session acquisition or
     // any dispatch can await. Observer completion never retires this evidence.
-    const operation: NativeExecutionOperation = {
-      original: Promise.resolve(), transports: new Set(), dispatched: false, closure: null,
-    };
-    this.nativeOperations.add(operation);
+    const operation = this.nativeExecutionLifetime.registerOperation();
+    if (!operation) return Promise.reject(new Error("Native execution dispatch is closed"));
     const capturedOptions = options ? {
       ...options, scope: options.scope ? Object.freeze({ ...options.scope }) : undefined,
     } : undefined;
-    operation.original = Promise.resolve().then(() => this.executeOwned(plugin, action, payload, capturedOptions, operation));
-    void operation.original.catch(() => undefined);
-    return operation.original as Promise<LegacyExecutionResult>;
+    return this.nativeExecutionLifetime.retainOriginal(operation, () =>
+      this.executeOwned(plugin, action, payload, capturedOptions, operation));
   }
 
   async awaitQuiescence(input: { readonly turnId: string; readonly timeoutMs: number }): Promise<boolean> {
     if (input.turnId !== this.workspaceScope.turnId) return false;
-    this.nativeDispatchSealed = true;
-    const originals = [...this.nativeOperations].map(operation => operation.original);
-    try {
-      await observeWithTimeout((async () => {
-        await Promise.allSettled(originals);
-        // Public operations may have created execute/cancel transports while
-        // draining. No new public operation or Secure dispatch can cross the seal.
-        await Promise.allSettled([...this.nativeOperations].flatMap(operation => [...operation.transports]));
-      })(), input.timeoutMs);
-    } catch {
-      return false;
-    }
-    return [...this.nativeOperations].every(operation =>
-      !operation.dispatched || operation.closure?.state === "settled");
+    return await this.nativeExecutionLifetime.awaitQuiescence(input.timeoutMs);
   }
 
   private async executeOwned(
@@ -433,8 +412,7 @@ export class ExecutionService {
     try {
       // Acquisition/auth may have crossed the final drain seal. Recheck at
       // the actual creator boundary, with no await before the original fetch.
-      if (this.nativeDispatchSealed) throw new Error("Native execution dispatch is closed");
-      operation.dispatched = true;
+      this.nativeExecutionLifetime.assertDispatchAllowed(operation);
       const original = this.env.SECURE_API.fetch(
         `http://internal/api/v1/execute?session=${encodeURIComponent(this.sessionId)}`,
         {
@@ -461,13 +439,12 @@ export class ExecutionService {
           const candidate = body && typeof body === "object" && "nativeCommandClosure" in body
             ? body.nativeCommandClosure : undefined;
           const closure = await this.executionSession.parseNativeClosure?.(candidate, taskId);
-          if (closure?.state === "settled") operation.closure = closure;
+          this.nativeExecutionLifetime.recordClosure(operation, closure);
         });
         return { response, outcome };
       });
-      operation.transports.add(original);
-      void original.catch(() => undefined);
-      const request = observeWithTimeout(original, timeoutMs);
+      this.nativeExecutionLifetime.retainTransport(operation, original);
+      const request = observeExecutionWithTimeout(original, timeoutMs);
       let removeCancellationListener = () => {};
       const signal = options?.signal;
       const cancellation = signal
@@ -476,11 +453,10 @@ export class ExecutionService {
               try {
                 const originalCancel = this.executionSession.cancelTaskWithNativeClosure
                   ? this.executionSession.cancelTaskWithNativeClosure(taskId).then(result => {
-                      if (result.nativeCommandClosure?.state === "settled") operation.closure = result.nativeCommandClosure;
+                      this.nativeExecutionLifetime.recordClosure(operation, result.nativeCommandClosure);
                     })
                   : this.executionSession.cancelTask(taskId).then(() => undefined);
-                operation.transports.add(originalCancel);
-                void originalCancel.catch(() => undefined);
+                this.nativeExecutionLifetime.retainTransport(operation, originalCancel);
                 await originalCancel;
                 reject(new DOMException("Run was cancelled", "AbortError"));
               } catch (error) {
@@ -1036,23 +1012,5 @@ function assertPullRequestWorkspaceBinding(
     throw new Error(
       "Workspace repository binding does not match the selected GitHub repository for this pull request.",
     );
-  }
-}
-
-async function observeWithTimeout<T>(
-  original: Promise<T>, timeoutMs: number,
-): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(() => {
-      reject(new Error(`Execution request timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-  });
-  try {
-    return await Promise.race([original, timeoutPromise]);
-  } finally {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
   }
 }
