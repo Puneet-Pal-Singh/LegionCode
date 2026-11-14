@@ -7,8 +7,9 @@
 #include "legioncode-host-record.h"
 
 typedef struct {
-  bool used, sealed, released, stdout_closed, stderr_closed, access_ready;
+  bool used, sealed, released, owner_disconnected, retirement_unknown, stdout_closed, stderr_closed, access_ready;
   lc_host_scope_record record;
+  const lc_host_approval *approval; int state_directory;
   char capability[65], command_id[257], command_digest[65], name[80];
   int root, namespace, fence, work, journal, stdout_fd, stderr_fd;
   pid_t child, signaler;
@@ -37,7 +38,8 @@ static inline bool lc_host_scope_save(int state, lc_host_scope *scope) {
 }
 static inline bool lc_host_scope_current(lc_host_scope *scope) {
   lc_host_file_identity root, namespace, fence;
-  return scope->used && !scope->released && lc_host_identity(scope->root, true, &root) &&
+  return scope->used && !scope->released && scope->approval &&
+    lc_host_reservation_current(scope->state_directory, scope->approval, &scope->record.binding, scope->record.uid_slot_generation) && lc_host_identity(scope->root, true, &root) &&
     lc_host_identity(scope->namespace, true, &namespace) && lc_host_identity(scope->fence, false, &fence) &&
     lc_host_same(namespace, scope->record.binding.namespace) && lc_host_same(root, scope->record.binding.root) &&
     lc_host_same(fence, scope->record.binding.fence) && lc_host_writer_supported() &&
@@ -68,7 +70,7 @@ static inline bool lc_host_command_seen(lc_host_scope *scope, const char *id) {
   return false;
 }
 static inline bool lc_host_scope_open(int state, const lc_host_approval *approval, xpc_object_t request,
-                                     lc_host_scope *scope) {
+                                     lc_host_scope *scope, const lc_host_record_scan *history) {
   static const char *const fields[] = { "version", "operation", "generation", "workspaceId", "threadId", "runId",
     "turnId", "runAttemptId", "policy", "policyGeneration", "rootFd", "fenceFd", "namespaceFd", LC_HOST_METADATA_FIELDS };
   if (!lc_host_fields(request, fields, sizeof(fields) / sizeof(fields[0])) || !lc_host_writer_supported()) return false;
@@ -77,6 +79,7 @@ static inline bool lc_host_scope_open(int state, const lc_host_approval *approva
   if (!lc_host_get(request, "policyGeneration", policy_generation, sizeof(policy_generation)) || strcmp(policy_generation, approval->policy_generation)) return false;
   memset(scope, 0, sizeof(*scope)); scope->root = scope->namespace = scope->fence = scope->work = scope->journal = -1;
   scope->stdout_fd = scope->stderr_fd = -1;
+  scope->approval = approval; scope->state_directory = state;
   for (size_t i = 0; i < LC_HOST_METADATA_PATHS; i++) scope->metadata_pins.fd[i] = -1;
   scope->root = xpc_fd_dup(xpc_dictionary_get_value(request, "rootFd"));
   scope->fence = xpc_fd_dup(xpc_dictionary_get_value(request, "fenceFd"));
@@ -93,9 +96,10 @@ static inline bool lc_host_scope_open(int state, const lc_host_approval *approva
       lc_host_beneath(scope->record.namespace_path, scope->record.root_path)) goto unused;
   if (!lc_host_metadata_read(request, &scope->record.metadata) ||
       !lc_host_metadata_open(&scope->record.metadata, &scope->metadata_pins, scope->record.root_path, scope->root)) goto unused;
-  lc_host_scope_record previous; char previous_name[80]; bool present, reserved;
-  if (!lc_host_request_scope(request, scope->record.binding.scope_sha256) ||
-      !lc_host_record_find(state, approval->actor, scope->record.binding.scope_sha256, &previous, previous_name, &present) || present ||
+  bool reserved;
+  if (!lc_host_request_scope(request, scope->record.binding.scope_sha256) || !history ||
+      history->phase != LC_HOST_SCAN_COMPLETE || history->actor != approval->actor || history->present ||
+      memcmp(history->scope, scope->record.binding.scope_sha256, 32) ||
       !lc_host_reservation_seen(state, approval, scope->record.binding.scope_sha256, &reserved) || reserved) goto unused;
   unsigned char capability[32]; arc4random_buf(capability, sizeof(capability));
   lc_host_hex(capability, sizeof(capability), scope->capability, sizeof(scope->capability));
@@ -104,7 +108,7 @@ static inline bool lc_host_scope_open(int state, const lc_host_approval *approva
   scope->record.binding.abi = LC_HOST_ABI; scope->record.binding.actor_uid = approval->actor;
   if (!lc_host_unhex(policy, scope->record.binding.policy_sha256, 32) ||
       !lc_host_unhex(policy_generation, scope->record.binding.approved_policy_generation, 32) ||
-      !lc_host_reserve_principal(state, approval, &scope->record.binding, &scope->record.principal)) goto unused;
+      !lc_host_reserve_principal(state, approval, &scope->record.binding, &scope->record.principal, &scope->record.uid_slot_generation)) goto unused;
   scope->record.version = LC_HOST_RESOURCE_RECORD_VERSION;
   scope->record.purpose = LC_HOST_RESOURCE_NATIVE; scope->record.phase = LC_HOST_IDLE;
   if (!lc_host_boot(scope->record.boot)) goto unused;
@@ -120,7 +124,7 @@ static inline bool lc_host_scope_open(int state, const lc_host_approval *approva
     lc_host_scope_unknown(state, scope); return false;
   }
   int work_parent = lc_host_open_protected(LC_HOST_WORK, true); char directory[64];
-  snprintf(directory, sizeof(directory), "uid.%u", scope->record.principal.uid);
+  snprintf(directory, sizeof(directory), "uid.%u.%llu", scope->record.principal.uid, (unsigned long long)scope->record.uid_slot_generation);
   if (work_parent < 0) { lc_host_scope_unknown(state, scope); return false; }
   bool created = !mkdirat(work_parent, directory, 0700) && !fchownat(work_parent, directory,
     scope->record.principal.uid, scope->record.principal.gid, AT_SYMLINK_NOFOLLOW) && lc_host_sync(work_parent);
@@ -276,6 +280,10 @@ static inline bool lc_host_drain(int *fd, unsigned char *bytes, size_t *size, bo
 }
 static inline void lc_host_scope_tick(int state, lc_host_scope *scope) {
   if (!scope->used || scope->record.phase == LC_HOST_CLOSED) return;
+  /* A stale projection/late callback cannot signal or alter ACLs belonging to a
+   * later generation, even if its numerical UID has since been reused. */
+  if (!scope->approval || !lc_host_reservation_current(state, scope->approval,
+      &scope->record.binding, scope->record.uid_slot_generation)) return;
   if (scope->record.phase == LC_HOST_IDLE && !scope->sealed) return;
   uint64_t now;
   if (!lc_host_monotonic(&now)) { lc_host_scope_unknown(state, scope); return; }
@@ -314,7 +322,10 @@ static inline void lc_host_scope_tick(int state, lc_host_scope *scope) {
     return;
   }
   size_t count = 0;
+  struct stat restored_work;
   if (!lc_host_restore_created(&scope->access, scope->work, 0, &count) ||
+      fchown(scope->work, scope->access.actor, scope->access.actor_gid) || fstat(scope->work, &restored_work) ||
+      restored_work.st_uid != scope->access.actor || restored_work.st_gid != scope->access.actor_gid || !lc_host_sync(scope->work) ||
       !lc_host_metadata_current(&scope->record.metadata, &scope->metadata_pins) ||
       !lc_host_metadata_receipt_matches(&scope->record.metadata, &scope->metadata_pins, scope->root) ||
       !lc_host_scope_current(scope) || !lc_writer_host_resource_complete(scope->fence, scope->root, scope->namespace, &scope->record.binding)) {

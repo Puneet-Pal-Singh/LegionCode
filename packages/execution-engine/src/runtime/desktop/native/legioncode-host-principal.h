@@ -19,7 +19,7 @@ static inline bool lc_host_groups_private(gid_t gid) {
 }
 
 /* Scope zero is stronger than a PID list snapshot: after the durable creator
- * gate closes, no trusted bootstrap may enter this never-reused real UID. A
+ * gate closes, no trusted bootstrap may enter this generation of the real UID. A
  * successful nonnull one-PID query returning zero has scanned allproc/zombproc.
  * libproc returns zero on error too; errno must be cleared and checked. */
 static inline bool lc_host_uid_zero(uid_t uid) {
@@ -41,15 +41,24 @@ static inline bool lc_host_principal_valid(const lc_host_principal *principal) {
       mbr_uuid_to_id(group_guid, &id, &type) || type != ID_TYPE_GID || id != principal->gid) return false;
   return lc_host_uid_zero(principal->uid);
 }
-/* The original resource-ID prefix remains recognizable. The appended binding
- * preserves the attempt association even if the first full scope save fails. */
+/* The current slot is ROOT custody, not historical cleanup authority. A UID
+ * can be claimed again only after a durable final retirement of its previous
+ * resource. Historical resource records remain immutable and discoverable. */
+static bool lc_host_allocator_unknown = false;
+#define LC_HOST_SLOT_CLAIMED 1U
+#define LC_HOST_SLOT_AVAILABLE 2U
 typedef struct {
   unsigned char resource_id[32];
   uint32_t version, bytes;
+  uint64_t slot_generation;
+  uint32_t state, reserved;
   lc_host_writer_binding binding;
-  unsigned char digest[32];
+  unsigned char cleanup_receipt[32], retirement_receipt[32], digest[32];
 } lc_host_reservation;
-_Static_assert(sizeof(lc_host_reservation) == 344, "Protected host reservation format");
+_Static_assert(sizeof(lc_host_reservation) == 424, "Protected host slot format");
+static inline bool lc_host_nonzero(const unsigned char *bytes, size_t size) {
+  unsigned char value = 0; for (size_t i = 0; i < size; i++) value |= bytes[i]; return value != 0;
+}
 static inline bool lc_host_reservation_read(int state, const lc_host_approval *approval,
     uid_t uid, lc_host_reservation *reservation) {
   char path[PATH_MAX]; struct stat st, held, current;
@@ -59,7 +68,12 @@ static inline bool lc_host_reservation_read(int state, const lc_host_approval *a
   bool okay = !fstat(fd, &st) && st.st_size == sizeof(*reservation) && lc_host_io(fd, reservation, sizeof(*reservation), false);
   if (close(fd)) okay = false;
   unsigned char digest[32]; CC_SHA256(reservation, (CC_LONG)offsetof(lc_host_reservation, digest), digest);
-  if (!okay || reservation->version != 1 || reservation->bytes != sizeof(*reservation) ||
+  if (!okay || reservation->version != 2 || reservation->bytes != sizeof(*reservation) ||
+      !reservation->slot_generation || reservation->reserved ||
+      (reservation->state != LC_HOST_SLOT_CLAIMED && reservation->state != LC_HOST_SLOT_AVAILABLE) ||
+      (reservation->state == LC_HOST_SLOT_AVAILABLE ?
+        !lc_host_nonzero(reservation->cleanup_receipt, 32) || !lc_host_nonzero(reservation->retirement_receipt, 32) :
+        lc_host_nonzero(reservation->cleanup_receipt, 32) || lc_host_nonzero(reservation->retirement_receipt, 32)) ||
       memcmp(digest, reservation->digest, 32) || reservation->binding.abi != LC_HOST_ABI || reservation->binding.reserved ||
       reservation->binding.actor_uid != approval->actor || reservation->binding.execution_uid != uid ||
       memcmp(reservation->resource_id, reservation->binding.resource_id, 32) ||
@@ -69,6 +83,32 @@ static inline bool lc_host_reservation_read(int state, const lc_host_approval *a
     if (principal->uid == uid && !memcmp(principal->guid, reservation->binding.principal_guid, 16)) return true;
   }
   return false;
+}
+/* Called only on the sole broker queue. An orphan .next, partial write, failed
+ * fsync, or differing old generation blocks reuse. Never unlink to repair it. */
+static inline bool lc_host_reservation_replace(int state, const lc_host_approval *approval,
+    const lc_host_reservation *expected, lc_host_reservation *next) {
+  lc_host_reservation current; char name[64], temporary[80];
+  if (!lc_host_reservation_read(state, approval, expected->binding.execution_uid, &current) ||
+      memcmp(&current, expected, sizeof(current))) return false;
+  snprintf(name, sizeof(name), "used.%u", expected->binding.execution_uid);
+  snprintf(temporary, sizeof(temporary), "%s.next", name);
+  CC_SHA256(next, (CC_LONG)offsetof(lc_host_reservation, digest), next->digest);
+  int fd = openat(state, temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+  if (fd < 0) return false;
+  bool okay = lc_host_io(fd, next, sizeof(*next), true) && lc_host_sync(fd);
+  if (close(fd)) okay = false;
+  if (!okay || !lc_host_reservation_read(state, approval, expected->binding.execution_uid, &current) ||
+      memcmp(&current, expected, sizeof(current))) { lc_host_allocator_unknown = true; return false; }
+  if (renameat(state, temporary, state, name) || !lc_host_sync(state)) { lc_host_allocator_unknown = true; return false; }
+  return true;
+}
+static inline bool lc_host_reservation_current(int state, const lc_host_approval *approval,
+    const lc_host_writer_binding *binding, uint64_t generation) {
+  lc_host_reservation reservation;
+  return lc_host_reservation_read(state, approval, binding->execution_uid, &reservation) &&
+    reservation.state == LC_HOST_SLOT_CLAIMED && reservation.slot_generation == generation &&
+    !memcmp(&reservation.binding, binding, sizeof(*binding));
 }
 static inline bool lc_host_reservation_seen(int state, const lc_host_approval *approval,
     const unsigned char scope[32], bool *seen) {
@@ -92,23 +132,35 @@ static inline bool lc_host_reservation_seen(int state, const lc_host_approval *a
   if (closedir(directory)) okay = false; return okay;
 }
 static inline bool lc_host_reserve_principal(int state, const lc_host_approval *approval,
-                                            lc_host_writer_binding *binding, lc_host_principal *out) {
+    lc_host_writer_binding *binding, lc_host_principal *out, uint64_t *slot_generation) {
+  if (lc_host_allocator_unknown) return false;
   for (size_t i = 0; i < approval->principal_count; i++) {
     const lc_host_principal *principal = &approval->principals[i]; char name[64];
     snprintf(name, sizeof(name), "used.%u", principal->uid);
+    lc_host_reservation next; memset(&next, 0, sizeof(next));
+    memcpy(next.resource_id, binding->resource_id, 32); next.version = 2; next.bytes = sizeof(next);
+    next.state = LC_HOST_SLOT_CLAIMED; next.slot_generation = 1;
+    next.binding = *binding; next.binding.execution_uid = principal->uid;
+    memcpy(next.binding.principal_guid, principal->guid, 16);
     int fd = openat(state, name, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
-    if (fd < 0) { if (errno == EEXIST) continue; return false; }
-    binding->execution_uid = principal->uid; memcpy(binding->principal_guid, principal->guid, 16);
-    lc_host_reservation reservation; memset(&reservation, 0, sizeof(reservation));
-    memcpy(reservation.resource_id, binding->resource_id, 32); reservation.version = 1; reservation.bytes = sizeof(reservation);
-    reservation.binding = *binding;
-    CC_SHA256(&reservation, (CC_LONG)offsetof(lc_host_reservation, digest), reservation.digest);
-    /* Consume before checking/mutation. Partial reservations remain blocking;
-     * this UID and original attempt are never returned to a provisioning pool. */
-    bool okay = lc_host_io(fd, &reservation, sizeof(reservation), true) && lc_host_sync(fd) && lc_host_sync(state);
-    if (close(fd)) okay = false;
+    bool okay;
+    if (fd < 0) {
+      if (errno != EEXIST) return false;
+      lc_host_reservation previous;
+      if (!lc_host_reservation_read(state, approval, principal->uid, &previous)) return false;
+      if (previous.state != LC_HOST_SLOT_AVAILABLE) continue;
+      if (previous.slot_generation == UINT64_MAX || !lc_host_principal_valid(principal)) return false;
+      next.slot_generation = previous.slot_generation + 1;
+      okay = lc_host_reservation_replace(state, approval, &previous, &next);
+    } else {
+      CC_SHA256(&next, (CC_LONG)offsetof(lc_host_reservation, digest), next.digest);
+      okay = lc_host_io(fd, &next, sizeof(next), true) && lc_host_sync(fd) && lc_host_sync(state);
+      if (close(fd)) okay = false;
+    }
+    /* A failed reservation is not rolled back. It retains the exact identity
+     * and generation until explicit custody recovery; no other resource uses it. */
     if (!okay || !lc_host_principal_valid(principal)) return false;
-    *out = *principal; return true;
+    *binding = next.binding; *out = *principal; *slot_generation = next.slot_generation; return true;
   }
   return false;
 }

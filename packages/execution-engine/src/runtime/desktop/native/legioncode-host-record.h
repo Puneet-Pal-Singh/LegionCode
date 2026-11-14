@@ -11,6 +11,9 @@ typedef enum { LC_HOST_IDLE = 1, LC_HOST_PREPARED, LC_HOST_RUNNING, LC_HOST_CLOS
 typedef struct {
   LC_HOST_RESOURCE_PREFIX_FIELDS;
   lc_host_principal principal;
+  uint64_t uid_slot_generation;
+  uint32_t retirement_requested, retirement_confirmed;
+  unsigned char retirement_nonce[32], retirement_receipt[32];
   lc_host_metadata metadata;
   unsigned char setup_nonce[32], setup_manifest_sha256[32];
   uint32_t setup_metadata_started, setup_metadata_inspected;
@@ -64,6 +67,10 @@ static inline bool lc_host_record_read(int state, const char *name, lc_host_scop
       (record->purpose == LC_HOST_RESOURCE_NATIVE ? nonce || manifest || record->setup_metadata_started || record->setup_metadata_inspected : !nonce || !manifest || record->setup_metadata_started > 1 || record->setup_metadata_inspected > 1 || (record->setup_metadata_inspected && !record->setup_metadata_started)) ||
       (record->purpose == LC_HOST_RESOURCE_SETUP_QUALIFICATION && !record->setup_metadata_inspected &&
         ((record->phase != LC_HOST_IDLE && record->phase != LC_HOST_UNKNOWN && record->phase != LC_HOST_CLOSING) || record->command_count || record->cleanup_closed)) ||
+      !record->uid_slot_generation || record->retirement_requested > 1 || record->retirement_confirmed > 1 ||
+      (record->retirement_requested ? !record->cleanup_closed || !lc_host_nonzero(record->retirement_nonce, 32) :
+        lc_host_nonzero(record->retirement_nonce, 32) || record->retirement_confirmed) ||
+      (record->retirement_confirmed ? !lc_host_nonzero(record->retirement_receipt, 32) : lc_host_nonzero(record->retirement_receipt, 32)) ||
       record->phase < LC_HOST_IDLE || record->phase > LC_HOST_UNKNOWN || record->command_count > 256 ||
       record->cleanup_closed > 1 || (record->cleanup_closed && (record->phase != LC_HOST_CLOSED || !receipt)) ||
       (!record->cleanup_closed && receipt) || !guid || record->binding.reserved ||
@@ -84,34 +91,65 @@ static inline bool lc_host_record_read(int state, const char *name, lc_host_scop
   return !fstat(state, &held) && !lstat(LC_HOST_STATE, &current) &&
     held.st_dev == current.st_dev && held.st_ino == current.st_ino;
 }
-/* Scan disk, including retired slots. Unreadable/partial records block new UID
- * provisioning; they cannot be skipped to manufacture a fresh attempt. */
-static inline bool lc_host_record_find(int state, uid_t actor, const unsigned char scope[32],
-    lc_host_scope_record *found, char name[80], bool *present) {
-  int independent = openat(state, ".", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-  struct stat held, scan;
-  if (independent < 0) return false;
-  if (fstat(state, &held) || fstat(independent, &scan) || held.st_dev != scan.st_dev || held.st_ino != scan.st_ino) { close(independent); return false; }
-  DIR *directory = fdopendir(independent); if (!directory) { close(independent); return false; }
-  bool okay = true; size_t count = 0; *present = false;
-  for (;;) {
-    errno = 0; struct dirent *entry = readdir(directory);
-    if (!entry) { if (errno) okay = false; break; }
-    if (strncmp(entry->d_name, "resource.", 9)) continue;
-    size_t length = strlen(entry->d_name);
-    if (length == 80 && !strcmp(entry->d_name + 73, ".access")) {
-      char owner[80]; memcpy(owner, entry->d_name, 73); owner[73] = 0;
-      lc_host_scope_record owner_record;
-      if (!lc_host_record_read(state, owner, &owner_record)) { okay = false; break; }
-      continue;
+/* History is permanent. Discovery retains an ORIGINAL read-only query and
+ * yields after every directory entry; there is no app-lifetime history cap or
+ * synchronous walk on the control queue. A changed directory restarts this same
+ * query before its result may authorize admission. */
+typedef enum { LC_HOST_SCAN_PENDING, LC_HOST_SCAN_COMPLETE, LC_HOST_SCAN_UNKNOWN } lc_host_scan_phase;
+typedef struct {
+  DIR *directory; struct stat snapshot;
+  uid_t actor; unsigned char scope[32];
+  lc_host_scan_phase phase; bool present;
+  lc_host_scope_record found; char name[80];
+} lc_host_record_scan;
+static inline bool lc_host_scan_snapshot(const struct stat *a, const struct stat *b) {
+  return a->st_dev == b->st_dev && a->st_ino == b->st_ino &&
+    a->st_mtimespec.tv_sec == b->st_mtimespec.tv_sec && a->st_mtimespec.tv_nsec == b->st_mtimespec.tv_nsec &&
+    a->st_ctimespec.tv_sec == b->st_ctimespec.tv_sec && a->st_ctimespec.tv_nsec == b->st_ctimespec.tv_nsec;
+}
+static inline bool lc_host_scan_close(lc_host_record_scan *scan) {
+  if (!scan->directory) return true;
+  DIR *original = scan->directory; scan->directory = NULL;
+  if (closedir(original)) { scan->phase = LC_HOST_SCAN_UNKNOWN; return false; }
+  return true;
+}
+static inline bool lc_host_scan_begin(int state, uid_t actor, const unsigned char scope[32], lc_host_record_scan *scan) {
+  memset(scan, 0, sizeof(*scan)); scan->actor = actor; memcpy(scan->scope, scope, 32);
+  scan->phase = LC_HOST_SCAN_UNKNOWN;
+  int fd = openat(state, ".", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC); struct stat held;
+  if (fd < 0) return false;
+  if (fstat(state, &held) || fstat(fd, &scan->snapshot) || !lc_host_scan_snapshot(&held, &scan->snapshot)) { close(fd); return false; }
+  scan->directory = fdopendir(fd); if (!scan->directory) { close(fd); return false; }
+  scan->phase = LC_HOST_SCAN_PENDING; return true;
+}
+/* One call performs at most one bounded resource-record read/hash. Even dots,
+ * unrelated files, and access journals consume this entry budget. */
+static inline void lc_host_scan_step(int state, lc_host_record_scan *scan) {
+  if (scan->phase != LC_HOST_SCAN_PENDING || !scan->directory) return;
+  errno = 0; struct dirent *entry = readdir(scan->directory);
+  if (!entry) {
+    int error = errno; struct stat current, named;
+    bool okay = !error && !fstat(state, &current) && !lstat(LC_HOST_STATE, &named) &&
+      S_ISDIR(named.st_mode) && current.st_dev == named.st_dev && current.st_ino == named.st_ino && lc_host_protected_fd(state, true);
+    bool stable = okay && lc_host_scan_snapshot(&scan->snapshot, &current);
+    if (!lc_host_scan_close(scan)) return;
+    if (!okay) { scan->phase = LC_HOST_SCAN_UNKNOWN; return; }
+    if (!stable) {
+      unsigned char original_scope[32]; memcpy(original_scope, scan->scope, 32); uid_t actor = scan->actor;
+      (void)lc_host_scan_begin(state, actor, original_scope, scan); return;
     }
-    lc_host_scope_record record;
-    if (++count > LC_HOST_MAX_PRINCIPALS || !lc_host_record_read(state, entry->d_name, &record)) { okay = false; break; }
-    if (record.binding.actor_uid != actor || memcmp(record.binding.scope_sha256, scope, 32)) continue;
-    if (*present) { okay = false; break; }
-    *present = true; *found = record; strcpy(name, entry->d_name);
+    scan->phase = LC_HOST_SCAN_COMPLETE; return;
   }
-  if (closedir(directory)) okay = false; return okay;
+  if (strncmp(entry->d_name, "resource.", 9)) return;
+  char owner[80]; bool access = strlen(entry->d_name) == 80 && !strcmp(entry->d_name + 73, ".access");
+  if (access) { memcpy(owner, entry->d_name, 73); owner[73] = 0; }
+  lc_host_scope_record record;
+  if (!lc_host_record_read(state, access ? owner : entry->d_name, &record)) {
+    scan->phase = LC_HOST_SCAN_UNKNOWN; (void)lc_host_scan_close(scan); return;
+  }
+  if (access || record.binding.actor_uid != scan->actor || memcmp(record.binding.scope_sha256, scan->scope, 32)) return;
+  if (scan->present) { scan->phase = LC_HOST_SCAN_UNKNOWN; (void)lc_host_scan_close(scan); return; }
+  scan->present = true; scan->found = record; strcpy(scan->name, entry->d_name);
 }
 static inline bool lc_host_request_scope(xpc_object_t request, unsigned char out[32]) {
   CC_SHA256_CTX digest; CC_SHA256_Init(&digest);
