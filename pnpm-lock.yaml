@@ -795,6 +795,9 @@ importers:
       '@repo/platform-protocol':
         specifier: workspace:*
         version: link:../platform-protocol
+      '@repo/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
       '@repo/worker-protocol':
         specifier: workspace:*
         version: link:../worker-protocol

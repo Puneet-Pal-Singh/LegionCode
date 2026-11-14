@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
+import type { RuntimeCredentialReference } from "@repo/shared-types";
 import { z } from "zod";
 import {
   APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES, appServerJsonByteLength,
@@ -38,6 +39,8 @@ export type LocalQueuedInputStart = ThreadInputScope & {
   readonly itemId: string; readonly expectedVersion: number; readonly expectedRevision: number;
   readonly explicitStart: boolean; readonly candidate: TurnAdmission;
   readonly expectedPredecessorTurnId: TurnId | null;
+  /** Private attempt capture, never an inbox DTO or event field. */
+  readonly credentialAcquisition?: RuntimeCredentialReference | null;
 };
 
 /** One adapter on LocalPersistence's existing connection. All command, receipt,
@@ -246,7 +249,7 @@ export class LocalThreadInputRepository implements ThreadInputRepository {
           (images.length > 0 && candidate.userMessage.content.imageFingerprint !== item.mediaFingerprint) ||
           images.some((image, index) => image.name !== item.mediaRefs[index]?.name || image.mediaType !== item.mediaRefs[index]?.mediaType || image.byteSize !== item.mediaRefs[index]?.byteSize))
         throw corrupt("Queued candidate differs from its canonical intent or image batch");
-      const result = this.admissions.admitWithin(candidate);
+      const result = this.admissions.admitWithin(candidate, input.credentialAcquisition);
       if (!result.newlyAdmitted) throw corrupt("Queued admission exists without its atomic queue receipt");
       this.put({ ...item, state: "consumed", version: item.version + 1, receipt: ThreadInputReceiptSchema.parse({ status: "started", itemId: item.itemId,
         turnId: result.admission.turn.id, runAttemptId: result.admission.runAttemptId, runId: result.admission.run.id }) }, item.version);
