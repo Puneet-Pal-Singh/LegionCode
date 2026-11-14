@@ -12,7 +12,7 @@ import {
   parsePlatformOperationErrorCode,
   parseProtocolErrorEnvelope,
 } from "./errors.js";
-import { createAppServerClient, AppServerClientError } from "./app-server-client.js";
+import { createAppServerClient, AppServerClientError, type AppServerRequest } from "./app-server-client.js";
 import { createAppServerHttpTransport, AppServerTransportError } from "./app-server-http-transport.js";
 import { AppServerErrorSchema, AppServerFailureResponseSchema } from "@legioncode/app-server/protocol";
 import type {
@@ -41,6 +41,7 @@ export interface PlatformHttpTransportOptions {
   fetchImpl?: typeof fetch;
   credentials?: RequestCredentials;
   responsePreviewLimit?: number;
+  prepareRequest?: (envelope: AppServerRequest) => (() => void) | undefined;
 }
 
 export function createPlatformHttpTransport(
@@ -59,6 +60,7 @@ export function createPlatformHttpTransport(
       clientVersion: "0.1.0",
       transport: createAppServerHttpTransport({
         baseUrl: options.baseUrl,
+        prepareRequest: options.prepareRequest,
         credentials: options.credentials ?? "include",
         fetchImpl: async (input, init) => {
           const headers = new Headers(init?.headers);
@@ -91,6 +93,7 @@ export function createPlatformHttpTransport(
       clientVersion: "0.1.0",
       transport: createAppServerHttpTransport({
         baseUrl: options.baseUrl,
+        prepareRequest: options.prepareRequest,
         credentials: options.credentials ?? "include",
         fetchImpl: async (input, init) => {
           const headers = new Headers(init?.headers);
@@ -131,6 +134,7 @@ export function createPlatformHttpTransport(
         clientVersion: "0.1.0",
         transport: createAppServerHttpTransport({
           baseUrl: options.baseUrl,
+          prepareRequest: options.prepareRequest,
           credentials: options.credentials ?? "include",
           fetchImpl: async (input, init) => {
             const headers = new Headers(init?.headers);
