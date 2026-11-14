@@ -459,7 +459,7 @@ export class RunEngineRequestHandler {
       ...(admission.originalPromptId ? { originalPromptId: admission.originalPromptId } : {}),
     };
     const storedIdentity = this.turnRuntimeIdentities.get(payload.turnId);
-    if (storedIdentity && !sameRuntimeAdmission({ ...storedIdentity, ownerUserId: admission.userId }, admission))
+    if (storedIdentity && !sameRuntimeAdmission({ ...storedIdentity, ownerUserId: storedIdentity.ownerUserId ?? admission.userId }, admission))
       return runEngineErrorResponse(request, this.env, "Interrupt scope does not match its runtime owner", 409);
     await this.mapTurnToRun(payload.turnId, payload.runId, {
       ...(storedIdentity ?? durableIdentity), ownerUserId: admission.userId, pendingInterruptReason: payload.reason,
@@ -1397,6 +1397,7 @@ export class RunEngineRequestHandler {
           storedRunId !== payload.runId ||
           workspaceIdFromExternalId(storedIdentity.workspaceId) !== workspaceIdFromExternalId(workspaceId.data) ||
           storedIdentity.sessionId !== payload.sessionId ||
+          (storedIdentity.ownerUserId !== undefined && storedIdentity.ownerUserId !== payload.userId) ||
           storedIdentity.threadId !== identity.threadId ||
           storedIdentity.runAttemptId !== identity.runAttemptId ||
           storedIdentity.revisionOfTurnId !== identity.revisionOfTurnId
