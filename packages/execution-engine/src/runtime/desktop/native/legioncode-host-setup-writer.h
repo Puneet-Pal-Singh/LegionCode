@@ -3,10 +3,10 @@
 /* Included only by the existing privileged adapter. Its three borrow-only APIs
  * above/below this setup entry remain unchanged. No codec or lock is replaced. */
 #include "legioncode-host-contract.h"
+#include "legioncode-host-actor.h"
 #include <grp.h>
 #include <pwd.h>
 #include <sys/wait.h>
-extern int lc_setup_posix_getgroups(int, gid_t []) __asm("_getgroups");
 
 static bool lc_setup_original_files(int fence, int root, int directory, const lc_host_writer_binding *binding) {
   struct stat r, d, f, named; unsigned char encoded[272]; char name[64];
@@ -47,13 +47,6 @@ static bool lc_setup_reservation(lc_writer_setup_acquisition *state, uint32_t ac
     lc_sync(state->reservation_fd) && lc_sync(state->reservation_directory_fd);
   free(bytes); return okay;
 }
-static bool lc_setup_drop_actor(uid_t uid, gid_t gid) {
-  struct lc_proc_bsd_unique credentials; gid_t groups[NGROUPS_MAX];
-  return !setgroups(0, NULL) && !setgid(gid) && !setuid(uid) && lc_identity(getpid(), &credentials) &&
-    credentials.bsd.pbi_uid == uid && credentials.bsd.pbi_ruid == uid && credentials.bsd.pbi_svuid == uid &&
-    credentials.bsd.pbi_gid == gid && credentials.bsd.pbi_rgid == gid && credentials.bsd.pbi_svgid == gid &&
-    lc_setup_posix_getgroups(NGROUPS_MAX, groups) == 0;
-}
 void lc_writer_setup_qualification_cancel(lc_writer_setup_acquisition *state) {
   if (!state || state->version != 1 || state->phase == LC_WRITER_SETUP_ACQUIRED) return;
   state->phase = LC_WRITER_SETUP_UNKNOWN;
@@ -65,7 +58,7 @@ bool lc_writer_setup_qualification_poll(lc_writer_setup_acquisition *state) {
   if (state->phase != LC_WRITER_SETUP_PENDING && state->phase != LC_WRITER_SETUP_UNKNOWN) return false;
   uint64_t now;
   if (!lc_clock(&now) || now >= state->deadline_milliseconds) lc_writer_setup_qualification_cancel(state);
-  if (state->control_fd >= 0) {
+  if (state->control_fd >= 0 && state->control_nonblocking) {
     for (unsigned int reads = 0; reads < 4; reads++) {
       unsigned char bytes[16]; ssize_t count = read(state->control_fd, bytes, sizeof(bytes));
       if (count < 0 && errno == EINTR) continue;
@@ -106,7 +99,8 @@ bool lc_writer_setup_qualification_acquire(int fence, int root, int directory, u
       fstat(fence, &original) || !lc_clock(&state->deadline_milliseconds)) { state->phase = LC_WRITER_SETUP_UNKNOWN; return false; }
   int gate[2]; if (pipe(gate)) { state->phase = LC_WRITER_SETUP_UNKNOWN; return false; }
   state->control_fd = gate[0]; state->control_write_fd = gate[1]; state->deadline_milliseconds += 6000;
-  if (fcntl(gate[0], F_SETFD, FD_CLOEXEC) || fcntl(gate[1], F_SETFD, FD_CLOEXEC) || fcntl(gate[0], F_SETFL, O_NONBLOCK)) {
+  state->control_nonblocking = fcntl(gate[0], F_SETFL, O_NONBLOCK) == 0;
+  if (!state->control_nonblocking || fcntl(gate[0], F_SETFD, FD_CLOEXEC) || fcntl(gate[1], F_SETFD, FD_CLOEXEC)) {
     /* Retain the original read descriptor; no fence is closed or unlocked. */
     state->control_write_close_attempted = true;
     state->control_write_closed = close(gate[1]) == 0;
@@ -117,7 +111,7 @@ bool lc_writer_setup_qualification_acquire(int fence, int root, int directory, u
     long maximum = sysconf(_SC_OPEN_MAX);
     if (maximum < 4 || maximum > INT_MAX) _exit(126);
     for (int fd = 0; fd < maximum; fd++) if (fd != root && fd != fence && fd != directory && fd != gate[1]) close(fd);
-    bool okay = lc_setup_drop_actor(actor, account.pw_gid) && lc_intent_acquire(fence, root, directory, original.st_size == 0);
+    bool okay = lc_host_drop_actor(actor, account.pw_gid) && lc_intent_acquire(fence, root, directory, original.st_size == 0);
     unsigned char result[8] = { 'L','C','Q','A',1,0,0,okay ? 1 : 0 };
     ssize_t written; do { written = write(gate[1], result, sizeof(result)); } while (written < 0 && errno == EINTR);
     bool closed = close(gate[1]) == 0;

@@ -33,15 +33,15 @@ static inline bool lc_host_setup_namespace(const lc_host_approval *approval, xpc
     !fcntl(fd, F_GETPATH, path) && !strcmp(path, approval->writer_namespace_path);
   if (close(fd)) okay = false; return okay;
 }
-/* Installed actor/code/bundle authentication has already run. Missing canonical
- * metadata transport is a hard prerequisite, before permit consumption, roots,
- * UID allocation or any child. This boundary cannot claim a qualification pass. */
+/* Installed actor/code/bundle authentication has already run. The reviewed
+ * transports are not a qualification runner: no permit consumption, roots, UID
+ * allocation or child is reachable until the owner joins the actual recipe. */
 static inline xpc_object_t lc_host_setup_request(const lc_host_approval *approval, xpc_object_t request, const char *operation) {
   if (!strcmp(operation, "setupQualificationDescribe")) {
     static const char *const fields[] = { "version", "operation" };
     if (!lc_host_fields(request, fields, 2)) return lc_host_reply("unavailable", "invalidRequest");
     xpc_object_t reply = lc_host_reply("setupBlocked", !approval->setup_authorized ? "setupAuthorizationRequired" :
-      !approval->platform_matches ? "setupPlatformMismatch" : "qualificationMetadataTransportUnavailable");
+      !approval->platform_matches ? "setupPlatformMismatch" : "qualificationRunnerUnavailable");
     lc_host_put(reply, "generation", approval->generation);
     char digest[65]; lc_host_hex(approval->manifest_sha256, 32, digest, sizeof(digest));
     lc_host_put(reply, "configurationSHA256", digest); return reply;
@@ -57,7 +57,7 @@ static inline xpc_object_t lc_host_setup_request(const lc_host_approval *approva
         strcmp(permit, approval->setup_permit_id) || !lc_host_setup_namespace(approval, request)) return lc_host_reply("unavailable", "setupAuthorizationRequired");
     /* Do not burn the one-shot permit before required transports exist. Actual
      * joining must durably consume it before its FIRST resource/child effect. */
-    return lc_host_reply("setupBlocked", "qualificationMetadataTransportUnavailable");
+    return lc_host_reply("setupBlocked", "qualificationRunnerUnavailable");
   }
   if (!strcmp(operation, "setupQualificationStatus") || !strcmp(operation, "setupQualificationCancel")) {
     static const char *const fields[] = { "version", "operation", "generation", "qualificationId" };

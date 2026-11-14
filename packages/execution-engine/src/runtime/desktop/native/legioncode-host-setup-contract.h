@@ -31,7 +31,7 @@ typedef struct {
   lc_host_writer_binding binding;
   int64_t child;
   int control_fd, control_write_fd;
-  bool control_write_close_attempted, control_write_closed;
+  bool control_write_close_attempted, control_write_closed, control_nonblocking;
   bool child_reaped, child_identity_lost, control_eof, control_closed, report_valid;
   int child_status;
   unsigned char report[9];

@@ -3,6 +3,7 @@
  * setid this binary. Missing setup, writer ABI or qualification fails closed. */
 #include "legioncode-host-recovery.h"
 #include "legioncode-host-setup-auth.h"
+#include "legioncode-host-setup-metadata.h"
 #include <stdatomic.h>
 
 static lc_host_approval approval;
