@@ -199,7 +199,7 @@ describe("AppServerClient", () => {
 
     const imageBytes = new Uint8Array(CHAT_IMAGE_CHUNK_MAX_BYTES + 3).fill(65);
     const imageReference = Object.freeze({ type: "image_attachment" as const, attachmentId: "img_fixture_123456",
-      name: "saved.png", mediaType: "image/png" as const, byteSize: imageBytes.byteLength });
+      name: "saved.png" as string, mediaType: "image/png" as const, byteSize: imageBytes.byteLength });
     const imageDigest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", imageBytes)))
       .map((byte) => byte.toString(16).padStart(2, "0")).join("");
     const imageSource = { sessionId: "550e8400-e29b-41d4-a716-446655440001", reference: { ...imageReference } };
