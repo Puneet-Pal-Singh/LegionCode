@@ -53,7 +53,6 @@ export type VerifiedMacGitOptions = {
   ): Promise<T>;
 };
 
-const MAX_INPUT_BYTES = 1_000_000;
 const unavailable = (message: string) =>
   new GitServiceError("git_process_containment_unavailable", message);
 
@@ -129,11 +128,8 @@ export async function createVerifiedMacGitExecution(
       request.timeoutMs > 30_000
     )
       throw unavailable("Git deadline is outside the canonical bound");
-    if (
-      request.stdin !== undefined &&
-      Buffer.byteLength(request.stdin) > MAX_INPUT_BYTES
-    )
-      throw unavailable("Private Git input exceeds its bound");
+    if (request.stdin !== undefined)
+      throw unavailable("Repository probes cannot accept stdin");
     if (request.indexFile !== undefined)
       throw unavailable("Repository probes cannot select a private Git index");
 
@@ -165,7 +161,7 @@ export async function createVerifiedMacGitExecution(
         processHelperPath: options.processHelperPath,
         environment,
         trustedGitContext,
-        stdin: request.stdin,
+        readOnlyProbe: true,
         // This reaches the C guardian, independently of the host timer.
         timeoutMs: request.timeoutMs,
         signal: AbortSignal.any([
