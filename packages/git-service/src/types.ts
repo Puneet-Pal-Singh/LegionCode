@@ -228,6 +228,17 @@ export type GitChangedFileStatus =
   | "unmerged"
   | "untracked";
 
+/** Resolution metadata only. A backend must verify held filesystem identities
+ * and protect the full metadata/alias graph before treating it as authority. */
+export interface GitRepositoryMetadataPaths {
+  readonly version: 1;
+  readonly workspaceRoot: string;
+  readonly gitEntry: string;
+  readonly gitDirectory: string;
+  readonly commonDirectory: string;
+  readonly backlinkPath: string | null;
+}
+
 export interface GitService {
   getStatus(input: GitReadStatusInput): Promise<GitStatusResult>;
   getDiff(input: GitDiffInput): Promise<GitDiffResult>;

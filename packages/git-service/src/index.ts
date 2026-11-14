@@ -68,6 +68,7 @@ export type {
   GitRepositoryProbeInput,
   GitRepositoryProbeResult,
   GitRepositoryHead,
+  GitRepositoryMetadataPaths,
   GitSnapshotDiffInput,
   GitSnapshotInput,
   GitSnapshotPatchInput,
