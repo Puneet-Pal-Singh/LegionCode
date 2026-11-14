@@ -189,12 +189,13 @@ export function ChatInterface({
   });
   const activeTurn = chatProps.activeTurnProjection ?? localActiveTurn;
   const lifecycleProjection = activeTurn.projection;
-  const { isMutationAllowed, unavailableReason: mutationUnavailableReason } =
+  const { isMutationAllowed, prepareMutationRequest, unavailableReason: mutationUnavailableReason } =
     useConversationMutationAvailability(sessionId, runId, conversationScope ?? null, activeTurn);
+  const mutationClient = useMemo(() => createWebPlatformClient({ prepareRequest: prepareMutationRequest }), [prepareMutationRequest]);
   const compactActiveTurn = useCallback(async () => {
     const scope = conversationScope;
     if (!scope || !isMutationAllowed(scope)) return;
-    await createWebPlatformClient().compactTurn({
+    await mutationClient.compactTurn({
       runId: RunIdSchema.parse(runId),
       sessionId: scope.sessionId,
       workspaceId: WorkspaceIdSchema.parse(scope.workspaceId),
@@ -202,7 +203,7 @@ export function ChatInterface({
       turnId: TurnIdSchema.parse(scope.turnId),
       runAttemptId: RunAttemptIdSchema.parse(scope.runAttemptId),
     });
-  }, [conversationScope, isMutationAllowed, runId]);
+  }, [conversationScope, isMutationAllowed, mutationClient, runId]);
   // The canonical lifecycle projection is the only workflow/activity source.
   // RunEvent and persisted activity backfills are deliberately not rendered.
   const awaitingCanonicalLifecycle =
@@ -228,6 +229,7 @@ export function ChatInterface({
     activeQueueTarget,
     `${activeTurn.projection?.turnId ?? ""}:${activeTurn.projection?.lastSequence ?? 0}:${activeTurn.continuationStatus}`,
     isMutationAllowed,
+    mutationClient,
   );
   const { applyStartedQueueReceipt } = chatProps;
   const refreshQueue = queue.refresh;
@@ -363,6 +365,7 @@ export function ChatInterface({
     error: approvalError,
     resolve: resolveApprovalDecision,
   } = useApprovalController({
+    lifecycleClient: mutationClient,
     lifecycleProjection,
     sessionId,
     isMutationAllowed,

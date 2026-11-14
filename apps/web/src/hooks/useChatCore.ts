@@ -4,6 +4,7 @@ import {
   dispatchHostedConversationSubmission,
   submitConversationMessage,
   interruptAndAwaitTerminal,
+  sameConversationScope,
   type SubmissionAttempt,
   type SubmissionOutcome,
 } from "@legioncode/sdk";
@@ -387,7 +388,6 @@ export function useChatCore(
   const selectedModelEfforts = selectedModel?.capabilities?.reasoningEfforts;
   const hasConnectedCredential = credentials.length > 0;
   const isModelConfigReady = status === "ready" && hasConnectedCredential;
-  const lifecycleClient = useMemo(() => createWebPlatformClient(), []);
   const { input, handleInputChange: updateInput } = useVercelChat({
     initialMessages: [],
     id: instanceKey,
@@ -418,7 +418,8 @@ export function useChatCore(
     }),
     transportLoading: isSubmitting,
   });
-  const { isMutationAllowed, requiresRecoveryReview } = useConversationMutationAvailability(sessionId, runId, activeConversationScope, activeTurnProjection);
+  const { isMutationAllowed, requiresRecoveryReview, prepareMutationRequest } = useConversationMutationAvailability(sessionId, runId, activeConversationScope, activeTurnProjection);
+  const lifecycleClient = useMemo(() => createWebPlatformClient({ prepareRequest: prepareMutationRequest }), [prepareMutationRequest]);
   const isAwaitingTurnAdmission =
     isSubmitting && pendingUserMessage?.scopeKey === runScopeKey;
   const canonicalRunLoading =
@@ -583,7 +584,8 @@ export function useChatCore(
         modelId: requestBody.modelId,
       });
       const acknowledgement = await dispatchHostedConversationSubmission({
-        client: guardHostedConversationSubmission(lifecycleClient, () => isMutationAllowed(attempt.scope)),
+        client: guardHostedConversationSubmission(lifecycleClient, () =>
+          sameConversationScope(activeConversationScopeRef.current, attempt.scope) && isMutationAllowed(attempt.scope)),
         attempt,
         request: { ...requestBody, messages: [message] },
         onAcknowledgement: (response) => {

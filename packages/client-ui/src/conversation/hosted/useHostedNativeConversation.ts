@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   buildConversationTurns,
   dispatchHostedConversationSubmission,
+  sameConversationScope,
   findSubmissionAttempt,
   interruptAndAwaitTerminal,
   mergeLifecycleProjections,
@@ -253,7 +254,11 @@ export function useHostedNativeConversation(options: HostedNativeConversationOpt
         assertMutationAllowed(identity, reserved);
         const request = ChatRequestBodySchema.parse(hostedNativeRequest(frozenDraft, reserved, context));
         await dispatchHostedConversationSubmission({
-          client: hostedSubmissionClient(client, () => assertMutationAllowed(identity, reserved)), attempt: acquired, request,
+          client: hostedSubmissionClient(client, () => {
+            assertMutationAllowed(identity, reserved);
+            if (!sameConversationScope(recoveryObserver.selectedScope, reserved))
+              throw new Error("The hosted task changed before command dispatch.");
+          }), attempt: acquired, request,
           onAcknowledgement: () => { if (active(captured)) live.retry(); },
         });
       },

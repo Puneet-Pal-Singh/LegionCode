@@ -3,8 +3,7 @@ import {
   useThreadInputQueue as useSharedThreadInputQueue,
   type ThreadInputQueueActiveTarget,
 } from "@legioncode/client-ui";
-import type { ConversationScope } from "@legioncode/sdk";
-import { createWebPlatformClient } from "../../services/api/platformClient";
+import type { ConversationScope, PlatformClient } from "@legioncode/sdk";
 
 /** Web authentication and hosted read scope only; shared UI owns queue delivery. */
 export function useThreadInputQueue(
@@ -12,8 +11,8 @@ export function useThreadInputQueue(
   activeTarget: ThreadInputQueueActiveTarget | null,
   invalidationKey: string,
   isMutationAllowed: () => boolean,
+  client: PlatformClient,
 ) {
-  const client = useMemo(() => createWebPlatformClient(), []);
   const readScope = useMemo(() => scope ? {
     key: `${scope.sessionId}:${scope.runId}:${scope.workspaceId}:${scope.threadId}`,
     workspaceId: scope.workspaceId,
