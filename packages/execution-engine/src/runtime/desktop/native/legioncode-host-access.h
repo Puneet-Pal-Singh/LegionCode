@@ -124,13 +124,13 @@ static inline bool lc_host_access_pin_node(lc_host_access *access, int fd, const
   record.path_bytes = (uint32_t)strlen(relative); record.mode = (uint32_t)(st.st_mode & 07777); record.identity = identity;
   if (!record.path_bytes || record.path_bytes >= PATH_MAX ||
       !lc_host_io(access->journal, &record, sizeof(record), true) ||
-      !lc_host_io(access->journal, (void *)relative, record.path_bytes, true) || !lc_host_sync(access->journal)) { close(held); return false; }
+      !lc_host_io(access->journal, (void *)relative, record.path_bytes, true) || !lc_host_sync(access->journal)) { if (close(held)) access->unknown = true; return false; }
   access->pins[access->count++] = (lc_host_access_pin){ held, identity, st.st_mode & 07777, ancestor };
   return lc_host_acl_add(fd, &access->principal, st.st_mode, S_ISDIR(st.st_mode), ancestor);
 }
 static inline bool lc_host_access_walk(lc_host_access *access, int directory, const char *prefix, unsigned depth) {
   if (depth > 64) return false;
-  DIR *entries = lc_host_directory_stream(directory); if (!entries) return false;
+  DIR *entries = lc_host_directory_stream(directory); if (!entries) { access->unknown = true; return false; }
   bool okay = true; struct dirent *entry;
   while (okay) {
     errno = 0; entry = readdir(entries);
@@ -151,9 +151,9 @@ static inline bool lc_host_access_walk(lc_host_access *access, int directory, co
     if (fd < 0) { okay = false; break; }
     okay = lc_host_access_pin_node(access, fd, path, false) &&
       (!S_ISDIR(st.st_mode) || lc_host_access_walk(access, fd, path, depth + 1));
-    close(fd);
+    if (close(fd)) { access->unknown = true; okay = false; }
   }
-  if (closedir(entries)) okay = false;
+  if (closedir(entries)) { access->unknown = true; okay = false; }
   return okay;
 }
 static inline bool lc_host_access_ancestors(lc_host_access *access, const char *root) {
@@ -161,12 +161,16 @@ static inline bool lc_host_access_ancestors(lc_host_access *access, const char *
   if (!slash) return false; *slash = 0;
   while (copy[0]) {
     int fd = open(copy, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC); struct stat st;
-    if (fd < 0 || fstat(fd, &st)) { if (fd >= 0) close(fd); return false; }
+    if (fd < 0 || fstat(fd, &st)) {
+      if (fd >= 0 && close(fd)) access->unknown = true;
+      return false;
+    }
     bool okay = true;
     /* World-searchable ancestors need no access mutation. An actor-private
      * ancestor receives search only, never listing or write authority. */
     if (!(st.st_mode & S_IXOTH)) okay = (st.st_mode & S_IXUSR) && lc_host_access_pin_node(access, fd, copy, true);
-    close(fd); if (!okay) return false;
+    if (close(fd)) { access->unknown = true; okay = false; }
+    if (!okay) return false;
     slash = strrchr(copy, '/'); if (!slash) return false; *slash = 0;
   }
   return true;
@@ -177,7 +181,7 @@ static inline bool lc_host_access_prepare(lc_host_access *access, int root, cons
 }
 static inline bool lc_host_restore_created(lc_host_access *access, int directory, unsigned depth, size_t *count) {
   if (depth > 64 || *count > LC_HOST_MAX_ENTRIES) return false;
-  DIR *entries = lc_host_directory_stream(directory); if (!entries) return false;
+  DIR *entries = lc_host_directory_stream(directory); if (!entries) { access->unknown = true; return false; }
   bool okay = true; struct dirent *entry;
   while (okay) {
     errno = 0; entry = readdir(entries);
@@ -198,11 +202,12 @@ static inline bool lc_host_restore_created(lc_host_access *access, int directory
     if (S_ISDIR(st.st_mode)) okay = lc_host_restore_created(access, fd, depth + 1, count);
     if (okay && st.st_uid == access->principal.uid)
       okay = lc_host_acl_remove(fd, &access->principal) && !fchown(fd, access->actor, access->actor_gid);
-    close(fd);
+    if (close(fd)) { access->unknown = true; okay = false; }
   }
-  if (closedir(entries)) okay = false; return okay;
+  if (closedir(entries)) { access->unknown = true; okay = false; } return okay;
 }
 static inline bool lc_host_access_restore(lc_host_access *access, int root) {
+  if (access->unknown) return false;
   bool okay = true; size_t count = 0;
   /* Call only with an irreversibly closed command creator gate and UID zero. */
   if (!lc_host_restore_created(access, root, 0, &count)) okay = false;

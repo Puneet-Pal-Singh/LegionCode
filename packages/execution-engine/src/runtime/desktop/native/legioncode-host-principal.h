@@ -212,6 +212,9 @@ static inline int lc_host_bootstrap_target(void) {
       !memchr(input.work, 0, sizeof(input.work)) || !memchr(input.path, 0, sizeof(input.path)) ||
       !lc_host_identity(5, true, &root) || !lc_host_identity(6, false, &fence) ||
       !lc_host_same(root, input.root) || !lc_host_same(fence, input.fence) || !lc_host_enter_cwd(5, input.cwd)) return 126;
+  unsigned char extra; ssize_t gate;
+  do { gate = read(8, &extra, 1); } while (gate < 0 && errno == EINTR);
+  if (gate != 0) return 126;
   long maximum = sysconf(_SC_OPEN_MAX);
   if (maximum < 9 || maximum > INT_MAX) return 126;
   struct rlimit processes = { 128, 128 }, files = { 1024, 1024 }, core = { 0, 0 };
@@ -224,7 +227,11 @@ static inline int lc_host_bootstrap_target(void) {
       credentials.pbi_svgid != input.gid || !lc_host_groups_private(input.gid)) return 126;
   /* Only after sandbox AND full credential drop may authority descriptors close.
    * The UID now witnesses this bootstrap across exec, fork, setsid and reparent. */
-  for (int fd = 3; fd < maximum; fd++) close(fd);
+  for (int fd = 3; fd < maximum; fd++) {
+    errno = 0; int flags = fcntl(fd, F_GETFD);
+    if (flags < 0) { if (errno != EBADF) return 126; }
+    else if (close(fd)) return 126;
+  }
   char path[sizeof(input.path) + 6], home[PATH_MAX + 6], temporary[PATH_MAX + 8];
   snprintf(path, sizeof(path), "PATH=%s", input.path); snprintf(home, sizeof(home), "HOME=%s", input.work);
   snprintf(temporary, sizeof(temporary), "TMPDIR=%s", input.work);
