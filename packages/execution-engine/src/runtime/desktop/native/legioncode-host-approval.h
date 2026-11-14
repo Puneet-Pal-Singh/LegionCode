@@ -38,6 +38,15 @@ static inline bool lc_host_requirement(CFDictionaryRef values, CFStringRef key, 
   return value && CFGetTypeID(value) == CFStringGetTypeID() &&
     SecRequirementCreateWithString(value, kSecCSDefaultFlags, out) == errSecSuccess;
 }
+static inline bool lc_host_installed_broker_valid(const lc_host_approval *approval) {
+  char expected[65];
+  if (!lc_host_text(CFDictionaryGetValue(approval->manifest, CFSTR("BrokerSHA256")), expected, sizeof(expected))) return false;
+  int fd = lc_host_open_protected(LC_HOST_INSTALLED_BROKER, false);
+  if (fd < 0) return false;
+  bool okay = lc_host_sha_file(LC_HOST_INSTALLED_BROKER, expected);
+  if (close(fd)) okay = false;
+  return okay;
+}
 static inline bool lc_host_code_hash(SecStaticCodeRef code, CFTypeRef expected) {
   char text[129], actual[129];
   if (!lc_host_text(expected, text, sizeof(text))) return false;
@@ -123,8 +132,9 @@ static inline bool lc_host_load_approval(lc_host_approval *out) {
         !lc_host_number(CFDictionaryGetValue(record, CFSTR("UID")), &uid) || uid <= 501 || uid == actor ||
         !lc_host_number(CFDictionaryGetValue(record, CFSTR("GID")), &gid) || gid <= 501 ||
         !lc_host_text(CFDictionaryGetValue(record, CFSTR("GUID")), uuid, sizeof(uuid)) ||
-        uuid_parse(uuid, out->principals[i].guid)) return false;
-    for (CFIndex j = 0; j < i; j++) if (out->principals[j].uid == uid || out->principals[j].gid == gid) return false;
+        uuid_parse(uuid, out->principals[i].guid) || uuid_is_null(out->principals[i].guid)) return false;
+    for (CFIndex j = 0; j < i; j++) if (out->principals[j].uid == uid || out->principals[j].gid == gid ||
+        !memcmp(out->principals[j].guid, out->principals[i].guid, sizeof(uuid_t))) return false;
     out->principals[i].uid = (uid_t)uid; out->principals[i].gid = (gid_t)gid; out->principal_count++;
   }
   char kernel[256]; size_t size = sizeof(kernel);

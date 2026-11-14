@@ -16,6 +16,20 @@ typedef struct {
   lc_host_access_pin pins[LC_HOST_MAX_ACCESS_PINS];
 } lc_host_access;
 
+/* dup/fcntl duplicates share the held directory's open-file-description offset.
+ * Each traversal needs a NEW description, anchored to the original FD, so an
+ * earlier scan cannot hide later-created entries or move another scan's cursor. */
+static inline DIR *lc_host_directory_stream(int directory) {
+  lc_host_file_identity held, independent;
+  if (!lc_host_identity(directory, true, &held)) return NULL;
+  int fd = openat(directory, ".", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  if (fd < 0) return NULL;
+  if (!lc_host_identity(fd, true, &independent) || !lc_host_same(held, independent)) { close(fd); return NULL; }
+  DIR *stream = fdopendir(fd);
+  if (!stream) close(fd);
+  return stream;
+}
+
 static inline bool lc_host_existing_symlink_safe(lc_host_access *access, int directory, const char *name) {
   char parent[PATH_MAX], path[PATH_MAX], target[PATH_MAX]; struct stat st;
   if (fcntl(directory, F_GETPATH, parent) || snprintf(path, sizeof(path), "%s/%s", parent, name) >= (int)sizeof(path) ||
@@ -113,10 +127,11 @@ static inline bool lc_host_access_pin_node(lc_host_access *access, int fd, const
 }
 static inline bool lc_host_access_walk(lc_host_access *access, int directory, const char *prefix, unsigned depth) {
   if (depth > 64) return false;
-  int duplicate = fcntl(directory, F_DUPFD_CLOEXEC, 11); if (duplicate < 0) return false;
-  DIR *entries = fdopendir(duplicate); if (!entries) { close(duplicate); return false; }
-  bool okay = true; struct dirent *entry; errno = 0;
-  while (okay && (entry = readdir(entries))) {
+  DIR *entries = lc_host_directory_stream(directory); if (!entries) return false;
+  bool okay = true; struct dirent *entry;
+  while (okay) {
+    errno = 0; entry = readdir(entries);
+    if (!entry) { if (errno) okay = false; break; }
     if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
     struct stat st; char path[PATH_MAX];
     if (fstatat(directory, entry->d_name, &st, AT_SYMLINK_NOFOLLOW) ||
@@ -130,9 +145,8 @@ static inline bool lc_host_access_walk(lc_host_access *access, int directory, co
     if (fd < 0) { okay = false; break; }
     okay = lc_host_access_pin_node(access, fd, path, false) &&
       (!S_ISDIR(st.st_mode) || lc_host_access_walk(access, fd, path, depth + 1));
-    close(fd); errno = 0;
+    close(fd);
   }
-  if (errno) okay = false;
   if (closedir(entries)) okay = false;
   return okay;
 }
@@ -157,10 +171,11 @@ static inline bool lc_host_access_prepare(lc_host_access *access, int root, cons
 }
 static inline bool lc_host_restore_created(lc_host_access *access, int directory, unsigned depth, size_t *count) {
   if (depth > 64 || *count > LC_HOST_MAX_ENTRIES) return false;
-  int duplicate = fcntl(directory, F_DUPFD_CLOEXEC, 11); if (duplicate < 0) return false;
-  DIR *entries = fdopendir(duplicate); if (!entries) { close(duplicate); return false; }
-  bool okay = true; struct dirent *entry; errno = 0;
-  while (okay && (entry = readdir(entries))) {
+  DIR *entries = lc_host_directory_stream(directory); if (!entries) return false;
+  bool okay = true; struct dirent *entry;
+  while (okay) {
+    errno = 0; entry = readdir(entries);
+    if (!entry) { if (errno) okay = false; break; }
     if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
     if (++*count > LC_HOST_MAX_ENTRIES) { okay = false; break; }
     struct stat st; if (fstatat(directory, entry->d_name, &st, AT_SYMLINK_NOFOLLOW)) { okay = false; break; }
@@ -174,9 +189,9 @@ static inline bool lc_host_restore_created(lc_host_access *access, int directory
     if (S_ISDIR(st.st_mode)) okay = lc_host_restore_created(access, fd, depth + 1, count);
     if (okay && st.st_uid == access->principal.uid)
       okay = lc_host_acl_remove(fd, &access->principal) && !fchown(fd, access->actor, access->actor_gid);
-    close(fd); errno = 0;
+    close(fd);
   }
-  if (errno) okay = false; if (closedir(entries)) okay = false; return okay;
+  if (closedir(entries)) okay = false; return okay;
 }
 static inline bool lc_host_access_restore(lc_host_access *access, int root) {
   bool okay = true; size_t count = 0;

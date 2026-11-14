@@ -26,12 +26,17 @@ static inline bool lc_host_uid_zero(uid_t uid) {
   return bytes == 0 && errno == 0;
 }
 static inline bool lc_host_principal_valid(const lc_host_principal *principal) {
-  uuid_t current; struct passwd value, *found = NULL; char buffer[16384];
+  uuid_t current, group_guid; struct passwd value, *found = NULL; char buffer[16384];
+  struct group group, *found_group = NULL; char group_buffer[16384]; id_t id; int type;
   if (principal->uid <= 501 || principal->gid <= 501 ||
       getpwuid_r(principal->uid, &value, buffer, sizeof(buffer), &found) || !found ||
       value.pw_uid != principal->uid || value.pw_gid != principal->gid ||
       (strcmp(value.pw_shell, "/usr/bin/false") && strcmp(value.pw_shell, "/usr/bin/nologin")) ||
-      mbr_uid_to_uuid(principal->uid, current) || memcmp(current, principal->guid, sizeof(current))) return false;
+      mbr_uid_to_uuid(principal->uid, current) || memcmp(current, principal->guid, sizeof(current)) ||
+      mbr_uuid_to_id(principal->guid, &id, &type) || type != ID_TYPE_UID || id != principal->uid ||
+      getgrgid_r(principal->gid, &group, group_buffer, sizeof(group_buffer), &found_group) || !found_group ||
+      group.gr_gid != principal->gid || mbr_gid_to_uuid(principal->gid, group_guid) ||
+      mbr_uuid_to_id(group_guid, &id, &type) || type != ID_TYPE_GID || id != principal->gid) return false;
   return lc_host_uid_zero(principal->uid);
 }
 static inline bool lc_host_reserve_principal(int state, const lc_host_approval *approval,

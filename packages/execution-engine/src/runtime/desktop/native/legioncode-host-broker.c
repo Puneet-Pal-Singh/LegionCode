@@ -109,9 +109,7 @@ static int serve(void) {
   int work = lc_host_open_protected(LC_HOST_WORK, true);
   if (state_directory < 0 || work < 0) return 78;
   close(work);
-  char expected[65];
-  if (!lc_host_text(CFDictionaryGetValue(approval.manifest, CFSTR("BrokerSHA256")), expected, sizeof(expected)) ||
-      !lc_host_sha_file(LC_HOST_INSTALLED_BROKER, expected)) return 78;
+  if (!lc_host_installed_broker_valid(&approval)) return 78;
   signal(SIGPIPE, SIG_IGN);
   dispatch_queue_t queue = dispatch_queue_create("dev.legioncode.native-host.resources", DISPATCH_QUEUE_SERIAL);
   xpc_connection_t listener = xpc_connection_create_mach_service(LC_HOST_SERVICE, queue, XPC_CONNECTION_MACH_SERVICE_LISTENER);

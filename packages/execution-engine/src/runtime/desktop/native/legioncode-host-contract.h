@@ -16,6 +16,7 @@
 #include <sys/sysctl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/acl.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <libproc.h>
@@ -112,21 +113,60 @@ static inline bool lc_host_monotonic(uint64_t *out) {
   if (clock_gettime(CLOCK_MONOTONIC, &now) || now.tv_sec < 0) return false;
   *out = (uint64_t)now.tv_sec * 1000 + (uint64_t)now.tv_nsec / 1000000; return true;
 }
-/* No path creation or setup: every component must have been installed by the
- * explicit privileged setup owner. Root-owned and non-writable by other users. */
+/* A POSIX 0700/0600 mode does not exclude macOS ACL grants. Conservatively
+ * reject every potential mutating allow ACE except one resolved to root UID.
+ * Deny-only and read/search-only ACEs do not grant mutation and need no rewrite;
+ * inherit-only mutation grants are also rejected for protected ancestors. */
+static inline bool lc_host_protected_acl(int fd) {
+  errno = 0; acl_t acl = acl_get_fd_np(fd, ACL_TYPE_EXTENDED);
+  if (!acl) return errno == ENOENT;
+  if (acl_valid(acl)) { acl_free(acl); return false; }
+  bool okay = true; int which = ACL_FIRST_ENTRY;
+  const acl_perm_t mutations[] = { ACL_WRITE_DATA, ACL_APPEND_DATA, ACL_DELETE, ACL_DELETE_CHILD,
+    ACL_WRITE_ATTRIBUTES, ACL_WRITE_EXTATTRIBUTES, ACL_WRITE_SECURITY, ACL_CHANGE_OWNER };
+  for (;;) {
+    acl_entry_t entry; errno = 0;
+    if (acl_get_entry(acl, which, &entry)) { if (errno != EINVAL) okay = false; break; }
+    which = ACL_NEXT_ENTRY; acl_tag_t tag;
+    if (acl_get_tag_type(entry, &tag)) { okay = false; break; }
+    if (tag == ACL_EXTENDED_DENY) continue;
+    if (tag != ACL_EXTENDED_ALLOW) { okay = false; break; }
+    acl_permset_t permissions; if (acl_get_permset(entry, &permissions)) { okay = false; break; }
+    bool mutating = false;
+    for (size_t i = 0; i < sizeof(mutations) / sizeof(mutations[0]); i++) {
+      int granted = acl_get_perm_np(permissions, mutations[i]);
+      if (granted < 0) { okay = false; break; }
+      if (granted) mutating = true;
+    }
+    if (!okay) break;
+    if (!mutating) continue;
+    void *qualifier = acl_get_qualifier(entry); id_t id = (id_t)-1; int type = -1;
+    bool root_only = qualifier && !mbr_uuid_to_id(qualifier, &id, &type) && type == ID_TYPE_UID && id == 0;
+    if (qualifier) acl_free(qualifier);
+    if (!root_only) { okay = false; break; }
+  }
+  acl_free(acl); return okay;
+}
+static inline bool lc_host_protected_fd(int fd, bool directory) {
+  struct stat st;
+  return !fstat(fd, &st) && st.st_uid == 0 && !(st.st_mode & 0022) &&
+    (directory ? S_ISDIR(st.st_mode) : S_ISREG(st.st_mode)) && lc_host_protected_acl(fd);
+}
+/* No path creation, chmod or ACL repair: every component must already have
+ * protected authority, including / and the final file/directory. */
 static inline int lc_host_open_protected(const char *path, bool directory) {
   char copy[PATH_MAX];
   if (!path || path[0] != '/' || strlen(path) >= sizeof(copy)) return -1;
   strcpy(copy, path); int current = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
   if (current < 0) return -1;
+  if (!lc_host_protected_fd(current, true)) { close(current); return -1; }
   char *save = NULL, *part = strtok_r(copy + 1, "/", &save);
   while (part) {
     char *next = strtok_r(NULL, "/", &save);
     if (!strcmp(part, ".") || !strcmp(part, "..")) { close(current); return -1; }
     int fd = openat(current, part, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | ((next || directory) ? O_DIRECTORY : 0));
-    close(current); current = fd; struct stat st;
-    if (fd < 0 || fstat(fd, &st) || st.st_uid != 0 || (st.st_mode & 0022) ||
-        (next || directory ? !S_ISDIR(st.st_mode) : !S_ISREG(st.st_mode))) {
+    close(current); current = fd;
+    if (fd < 0 || !lc_host_protected_fd(fd, next || directory)) {
       if (fd >= 0) close(fd); return -1;
     }
     part = next;

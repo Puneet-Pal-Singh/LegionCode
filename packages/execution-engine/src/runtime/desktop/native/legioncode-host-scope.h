@@ -196,7 +196,7 @@ static inline bool lc_host_release_command(int state, const lc_host_approval *ap
   if (scope->sealed || scope->record.phase != LC_HOST_PREPARED || !scope->access_ready || !lc_host_scope_current(scope) || !lc_host_scope_path_current(scope)) return false;
   lc_host_policy_buffer policy;
   CFArrayRef verified_executables;
-  if (!lc_host_paths(approval->executables, &verified_executables, true) ||
+  if (!lc_host_installed_broker_valid(approval) || !lc_host_paths(approval->executables, &verified_executables, true) ||
       !lc_host_build_policy(approval, scope->record.root_path, scope->record.work_path, &policy)) return false;
   int output[2] = {-1,-1}, error[2] = {-1,-1}, payload[2] = {-1,-1};
   if (!lc_host_pipe(output) || !lc_host_pipe(error) || !lc_host_pipe(payload)) goto failed;
@@ -238,17 +238,31 @@ failed:
 
 static inline bool lc_host_drain(int *fd, unsigned char *bytes, size_t *size, bool *closed, bool *truncated) {
   if (*fd < 0) return *closed;
+  uint64_t start, now;
+  if (!lc_host_monotonic(&start)) return false;
   unsigned char chunk[8192];
-  for (;;) {
+  /* All scopes share the broker's control queue. A continuously writable pipe
+   * must yield to Stop/deadline processing. Budget exhaustion is NOT EOF: retain
+   * the read FD and continue on the next timer tick, including after UID kill. */
+  for (unsigned int reads = 0; reads < 4; reads++) {
+    if (!lc_host_monotonic(&now)) return false;
+    if (now - start >= 2) return true;
     ssize_t n = read(*fd, chunk, sizeof(chunk));
     if (n < 0 && errno == EINTR) continue;
     if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return true;
     if (n < 0) return false;
-    if (!n) { if (close(*fd)) return false; *fd = -1; *closed = true; return true; }
+    if (!n) {
+      int original = *fd; *fd = -1;
+      /* A failed close is unknown, and its number may already be reusable.
+       * Never revisit that number as though it still identified this pipe. */
+      if (close(original)) return false;
+      *closed = true; return true;
+    }
     size_t keep = (size_t)n < LC_HOST_MAX_OUTPUT - *size ? (size_t)n : LC_HOST_MAX_OUTPUT - *size;
     if (keep) { memcpy(bytes + *size, chunk, keep); *size += keep; }
     if (keep != (size_t)n) *truncated = true;
   }
+  return true;
 }
 static inline void lc_host_scope_tick(int state, lc_host_scope *scope) {
   if (!scope->used || scope->record.phase == LC_HOST_CLOSED) return;
