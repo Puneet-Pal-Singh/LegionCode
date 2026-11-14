@@ -23,6 +23,9 @@ import type {
 interface ThreadInputQueuePanelProps {
   snapshot: ThreadInputQueueSnapshot | null;
   error: string | null;
+  onRetry?: () => void | Promise<unknown>;
+  mutationUnavailableReason?: string;
+  isMutationAllowed?: () => boolean;
   active: boolean;
   queuingEnabled: boolean;
   onDisableQueuing: () => void;
@@ -48,6 +51,11 @@ interface ThreadInputQueuePanelProps {
 }
 
 export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
+  const current = useRef(props);
+  current.current = props;
+  const canMutate = () => !current.current.mutationUnavailableReason &&
+    current.current.isMutationAllowed?.() !== false;
+  const mutationsDisabled = !canMutate();
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editingVersion, setEditingVersion] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
@@ -75,6 +83,7 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
 
   return (
     <section
+      title={props.mutationUnavailableReason}
       aria-label={`Queued follow-ups${queuedCount ? ` (${queuedCount})` : ""}`}
       className="relative rounded-t-2xl border border-zinc-800/80 border-b-0 bg-[#242425] px-2.5 py-1.5 sm:px-3"
     >
@@ -90,7 +99,8 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
             <button
               type="button"
               className="shrink-0 rounded-md px-2 py-1 text-zinc-300 hover:bg-white/[0.06] hover:text-white focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400"
-              onClick={props.onDisableQueuing}
+              disabled={mutationsDisabled}
+              onClick={() => { if (canMutate()) current.current.onDisableQueuing(); }}
             >
               Turn off queuing
             </button>
@@ -100,6 +110,8 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
       {props.error ? (
         <p role="alert" className="px-1 py-1 text-[11px] text-rose-300">
           {props.error}
+          {props.onRetry ? <button type="button" className="ml-2 underline"
+            onClick={() => { void current.current.onRetry?.(); }}>Refresh queue</button> : null}
         </p>
       ) : null}
       <ol className="max-h-[min(28vh,10rem)] space-y-0 overflow-y-auto overscroll-contain">
@@ -136,6 +148,7 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
                   />
                   <textarea
                     aria-label="Edit queued follow-up"
+                    disabled={mutationsDisabled}
                     className="min-h-9 min-w-0 flex-1 resize-y rounded-lg border border-zinc-700 bg-zinc-900/80 p-2 text-xs text-zinc-100 outline-none focus-visible:border-zinc-500 focus-visible:ring-1 focus-visible:ring-zinc-500"
                     value={draft}
                     onChange={(event) => setDraft(event.target.value)}
@@ -153,8 +166,9 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
                   <button
                     type="button"
                     className="shrink-0 rounded-lg bg-zinc-700 px-2.5 py-1.5 text-xs text-white hover:bg-zinc-600 focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-300"
+                    disabled={mutationsDisabled}
                     onClick={async () => {
-                      if (editingVersion === null) return;
+                      if (!canMutate() || editingVersion === null) return;
                       const result = await props.onUpdate(
                         item.itemId,
                         editingVersion,
@@ -213,10 +227,9 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
                         type="button"
                         className="inline-flex min-h-8 items-center gap-1.5 rounded-full px-2.5 text-xs text-zinc-300 transition-colors hover:bg-white/[0.07] hover:text-white focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400 sm:px-3"
                         aria-label="Steer queued message"
+                        disabled={mutationsDisabled}
                         title="Submit without interrupting the model"
-                        onClick={() =>
-                          void props.onSteer?.(item.itemId, item.version)
-                        }
+                        onClick={() => { if (canMutate()) void props.onSteer?.(item.itemId, item.version); }}
                       >
                         <CornerDownRight size={15} aria-hidden="true" />
                         <span>Steer</span>
@@ -225,14 +238,15 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
                       <button
                         type="button"
                         className="inline-flex min-h-8 items-center gap-1.5 rounded-full px-2.5 text-xs text-zinc-300 transition-colors hover:bg-white/[0.07] hover:text-white focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400 sm:px-3"
-                        disabled={!props.snapshot}
-                        onClick={() =>
+                        disabled={!props.snapshot || mutationsDisabled}
+                        onClick={() => {
+                          if (!canMutate()) return;
                           void props.onStart?.(
                             item.itemId,
                             item.version,
                             props.snapshot!.revision,
-                          )
-                        }
+                          );
+                        }}
                       >
                         <Play size={14} aria-hidden="true" />
                         <span>Start</span>
@@ -244,21 +258,22 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
                           type="button"
                           className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-white/[0.06] hover:text-zinc-200 focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400"
                           aria-label="Remove queued message"
+                          disabled={mutationsDisabled}
                           title="Remove queued message"
-                          onClick={() =>
-                            void props.onRemove(item.itemId, item.version)
-                          }
+                          onClick={() => { if (canMutate()) void props.onRemove(item.itemId, item.version); }}
                         >
                           <Trash2 size={16} aria-hidden="true" />
                         </button>
                         <QueueActionsMenu
+                          disabled={mutationsDisabled}
                           queuingEnabled={props.queuingEnabled}
                           onEdit={() => {
+                            if (!canMutate()) return;
                             setEditingItemId(item.itemId);
                             setEditingVersion(item.version);
                             setDraft(item.text);
                           }}
-                          onDisableQueuing={props.onDisableQueuing}
+                          onDisableQueuing={() => { if (canMutate()) current.current.onDisableQueuing(); }}
                         />
                       </>
                     ) : null}
@@ -274,10 +289,12 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
 }
 
 function QueueActionsMenu({
+  disabled = false,
   queuingEnabled,
   onEdit,
   onDisableQueuing,
 }: {
+  disabled?: boolean;
   queuingEnabled: boolean;
   onEdit: () => void;
   onDisableQueuing: () => void;
@@ -392,10 +409,12 @@ function QueueActionsMenu({
 
   const edit = () => {
     closeMenu();
+    if (disabled) return;
     onEdit();
   };
   const disableQueuing = () => {
     closeMenu();
+    if (disabled) return;
     onDisableQueuing();
   };
 
@@ -444,6 +463,7 @@ function QueueActionsMenu({
       <button
         ref={triggerRef}
         type="button"
+        disabled={disabled}
         aria-label="More queued message actions"
         aria-haspopup="menu"
         aria-expanded={isOpen}
@@ -461,7 +481,7 @@ function QueueActionsMenu({
       >
         <MoreHorizontal size={17} aria-hidden="true" />
       </button>
-      {isOpen
+      {isOpen && !disabled
         ? createPortal(
             <div
               ref={menuRef}

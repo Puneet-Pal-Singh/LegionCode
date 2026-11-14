@@ -1,13 +1,13 @@
 import { useChat as useVercelChat, type Message } from "@ai-sdk/react";
 import {
   TurnIdSchema,
-  APP_SERVER_PROTOCOL_VERSION,
-  freezeSubmissionWireBody,
-  observeSubmissionAcknowledgement,
+  dispatchHostedConversationSubmission,
   submitConversationMessage,
   interruptAndAwaitTerminal,
+  sameConversationScope,
   type SubmissionAttempt,
   type SubmissionOutcome,
+  type PlatformHttpTransportOptions,
 } from "@legioncode/sdk";
 import type { HostedSessionWorkspaceContext } from "@legioncode/sdk";
 import {
@@ -61,6 +61,11 @@ import { ConversationScopeHttpError, type ConversationScope } from "@legioncode/
 import { createWebPlatformClient } from "../services/api/platformClient";
 import { useConversationInputCommands } from "./chat/useConversationInputCommands";
 import {
+  CONVERSATION_RECOVERY_REASON,
+  guardHostedConversationSubmission,
+  useConversationMutationAvailability,
+} from "./chat/useConversationMutationAvailability";
+import {
   useActiveTurnProjection,
   deriveCanonicalRunLoading,
   resolveActiveProjectionTurnId,
@@ -91,6 +96,7 @@ interface ChatSubmitAttachments {
 }
 
 interface UseChatCoreResult {
+  prepareHostedMutation: NonNullable<PlatformHttpTransportOptions["prepareRequest"]>;
   optimisticUserMessageId: string | null;
   input: string;
   handleInputChange: (e: ChangeEvent<HTMLTextAreaElement>) => void;
@@ -399,7 +405,6 @@ export function useChatCore(
   const selectedModelEfforts = selectedModel?.capabilities?.reasoningEfforts;
   const hasConnectedCredential = credentials.length > 0;
   const isModelConfigReady = status === "ready" && hasConnectedCredential;
-  const lifecycleClient = useMemo(() => createWebPlatformClient(), []);
   const { input, handleInputChange: updateInput } = useVercelChat({
     initialMessages: [],
     id: instanceKey,
@@ -430,6 +435,10 @@ export function useChatCore(
     }),
     transportLoading: isSubmitting,
   });
+  const { isMutationAllowed, requiresRecoveryReview, prepareMutationRequest } = useConversationMutationAvailability(sessionId, runId, activeConversationScope, activeTurnProjection);
+  const prepareHostedMutation = useCallback<NonNullable<PlatformHttpTransportOptions["prepareRequest"]>>(
+    (envelope) => prepareMutationRequest(envelope, () => activeConversationScopeRef.current), [prepareMutationRequest]);
+  const lifecycleClient = useMemo(() => createWebPlatformClient({ prepareRequest: prepareHostedMutation }), [prepareHostedMutation]);
   const isAwaitingTurnAdmission =
     isSubmitting && pendingUserMessage?.scopeKey === runScopeKey;
   const canonicalRunLoading =
@@ -582,8 +591,7 @@ export function useChatCore(
       requestBody: ChatRequestBody,
       attempt: SubmissionAttempt,
     ): Promise<void> => {
-      const controller = new AbortController();
-      attempt.transportAbortController = controller;
+      if (!isMutationAllowed(attempt.scope)) throw new Error(CONVERSATION_RECOVERY_REASON);
       logClientEvent("chat/submit", "dispatching", {
         runId,
         sessionId,
@@ -594,81 +602,35 @@ export function useChatCore(
         providerId: requestBody.providerId,
         modelId: requestBody.modelId,
       });
-      try {
-        const submissionParams = {
-          ...requestBody,
-          messages: [message],
-        };
-        const acknowledgement = await lifecycleClient.submitHostedChat(submissionParams, {
-          signal: controller.signal,
-          beforeSendHostedChatEnvelope: (serializedEnvelope) => {
-            const frozenEnvelope = freezeSubmissionWireBody(attempt, serializedEnvelope);
-            let envelope: unknown;
-            try {
-              envelope = JSON.parse(frozenEnvelope) as unknown;
-            } catch {
-              throw new Error("Frozen chat submission envelope is invalid.");
-            }
-            if (!envelope || typeof envelope !== "object" || Array.isArray(envelope)) {
-              throw new Error("Frozen chat submission envelope is invalid.");
-            }
-            const record = envelope as Record<string, unknown>;
-            const params = record.params;
-            if (
-              record.protocolVersion !== APP_SERVER_PROTOCOL_VERSION ||
-              record.method !== "turn/submit" ||
-              !params || typeof params !== "object" || Array.isArray(params)
-            ) {
-              throw new Error("Frozen chat submission envelope is invalid.");
-            }
-            const body = params as Record<string, unknown>;
-            const identity = body.identity as Record<string, unknown> | undefined;
-            const scope = attempt.scope;
-            if (
-              !scope ||
-              body.sessionId !== attempt.sessionId ||
-              body.runId !== scope.runId ||
-              body.clientMessageId !== attempt.clientMessageId ||
-              identity?.workspaceId !== scope.workspaceId ||
-              identity.threadId !== scope.threadId ||
-              identity.turnId !== scope.turnId ||
-              identity.runAttemptId !== scope.runAttemptId
-            ) {
-              throw new Error("Frozen chat submission envelope does not match its retained reservation.");
-            }
-            attempt.dispatched = true;
-            return frozenEnvelope;
-          },
-          onChatSubmissionResponse: (response) => {
-            observeSubmissionAcknowledgement(attempt, response);
-            if (response.httpStatus >= 200 && response.httpStatus < 300 && attempt.responseTupleMatches) {
-              dispatchRunSummaryRefresh(runId);
-              onServerProjectionAvailable?.();
-            }
-            logClientEvent("chat/submit", "response", {
-              runId,
-              sessionId,
-              scopeKey,
-              clientMessageId: message.id,
-              status: attempt.responseStatus,
-              tupleMatches: attempt.responseTupleMatches,
-            });
-          },
-        });
-        logClientEvent("chat/submit", "returned", {
-          runId,
-          sessionId,
-          scopeKey,
-          clientMessageId: message.id,
-          runtimeStatus: acknowledgement.runtimeStatus,
-        });
-      } finally {
-        if (attempt.transportAbortController === controller) {
-          attempt.transportAbortController = null;
-        }
-      }
+      const acknowledgement = await dispatchHostedConversationSubmission({
+        client: guardHostedConversationSubmission(lifecycleClient, () =>
+          sameConversationScope(activeConversationScopeRef.current, attempt.scope) && isMutationAllowed(attempt.scope)),
+        attempt,
+        request: { ...requestBody, messages: [message] },
+        onAcknowledgement: (response) => {
+          if (response.httpStatus >= 200 && response.httpStatus < 300 && attempt.responseTupleMatches) {
+            dispatchRunSummaryRefresh(runId);
+            onServerProjectionAvailable?.();
+          }
+          logClientEvent("chat/submit", "response", {
+            runId,
+            sessionId,
+            scopeKey,
+            clientMessageId: message.id,
+            status: attempt.responseStatus,
+            tupleMatches: attempt.responseTupleMatches,
+          });
+        },
+      });
+      logClientEvent("chat/submit", "returned", {
+        runId,
+        sessionId,
+        scopeKey,
+        clientMessageId: message.id,
+        runtimeStatus: acknowledgement.runtimeStatus,
+      });
     },
-    [lifecycleClient, onServerProjectionAvailable, runId, scopeKey, sessionId],
+    [isMutationAllowed, lifecycleClient, onServerProjectionAvailable, runId, scopeKey, sessionId],
   );
 
   const appendWithResolution = useCallback(
@@ -676,6 +638,7 @@ export function useChatCore(
       message: ChatAppendMessage,
       revisionTarget?: string,
     ): Promise<SubmissionOutcome> => {
+      if (!isMutationAllowed()) return { status: "unconfirmed", message: CONVERSATION_RECOVERY_REASON };
       const bootstrapScopeKey = runScopeKey;
       const bootstrapScopeGeneration = runScopeGenerationRef.current;
       const bootstrapMountGeneration = mountGenerationRef.current;
@@ -756,6 +719,17 @@ export function useChatCore(
         attempt: null,
       };
       let submittedMessage: (ChatAppendMessage & { id: string }) | null = null;
+      const settlePresentedReservation = (reserved: ConversationScope | null) => {
+        // A blocked unchanged retry still owns this actual reserved reader.
+        // Keep it mounted so a failed dispatch cannot erase known recovery.
+        const retained = reserved && requiresRecoveryReview(reserved) ? reserved : null;
+        retainedSubmissionScopeRef.current = retained;
+        setConversationScope(retained);
+        activeConversationScopeRef.current = retained;
+        activeScopeKeyRef.current = retained ? conversationScopeKey(retained) : bootstrapScopeKey;
+        setPendingUserMessage(null);
+        setOptimisticUserMessageId(null);
+      };
 
       try {
         const outcome = await submitConversationMessage<ResolvedProviderConfig>({
@@ -790,11 +764,11 @@ export function useChatCore(
             setScopeRecoveryError(null);
             setIsSubmitting(true);
             setIsStopping(false);
-            // The previous scope may already be terminal. Clear it before admission
-            // so a lagging serverTurnId cannot make a fresh submission look settled.
-            setConversationScope(null);
-            activeConversationScopeRef.current = null;
-            activeScopeKeyRef.current = bootstrapScopeKey;
+            // A fresh intent clears an older terminal scope. An unchanged retry
+            // keeps its exact reserved reader, including known recovery, mounted.
+            setConversationScope(attempt.scope);
+            activeConversationScopeRef.current = attempt.scope;
+            activeScopeKeyRef.current = attempt.scope ? conversationScopeKey(attempt.scope) : bootstrapScopeKey;
             preAdmissionStopKeyRef.current = null;
             stopRequestedRef.current = false;
             setPendingUserMessage({
@@ -822,6 +796,7 @@ export function useChatCore(
           },
           reserveScope: async (attempt) => {
             try {
+              if (!isMutationAllowed(attempt.scope)) throw new Error(CONVERSATION_RECOVERY_REASON);
               return await bootstrapConversationScope(
                 sessionId,
                 attempt.originalRunId,
@@ -842,6 +817,7 @@ export function useChatCore(
             }
           },
           onReserved: (scope) => {
+            if (!isMutationAllowed(scope)) throw new Error(CONVERSATION_RECOVERY_REASON);
             if (!ownsInvocationScope() || !submittedMessage) return false;
             retainedSubmissionScopeRef.current = scope;
             const requestScopeKey = conversationScopeKey(scope);
@@ -871,6 +847,7 @@ export function useChatCore(
             });
           },
           dispatch: async ({ config, scope, clientMessageId, attempt }) => {
+            if (!isMutationAllowed(scope)) throw new Error(CONVERSATION_RECOVERY_REASON);
             const dispatchedMessage = ensureClientMessageId({
               ...message,
               id: clientMessageId,
@@ -899,6 +876,7 @@ export function useChatCore(
               activeSubmissionAttemptRef.current?.token === attempt.token &&
               ownsInvocationScope();
             try {
+              if (!isMutationAllowed(scope)) throw new Error(CONVERSATION_RECOVERY_REASON);
               await interruptAndAwaitTerminal(
                 lifecycleClient,
                 scope,
@@ -931,6 +909,7 @@ export function useChatCore(
           },
           interruptUnconfirmedTurn: async (attempt, scope) => {
             try {
+              if (!isMutationAllowed(scope)) return false;
               await interruptAndAwaitTerminal(
                 lifecycleClient,
                 scope,
@@ -958,19 +937,14 @@ export function useChatCore(
               return false;
             }
           },
-          onReservationCancelled: (attempt) => {
+          onReservationCancelled: (attempt, reserved) => {
             if (
               activeSubmissionAttemptRef.current?.token !== attempt.token ||
               !ownsInvocationScope()
             ) {
               return;
             }
-            retainedSubmissionScopeRef.current = null;
-            setConversationScope(null);
-            activeConversationScopeRef.current = null;
-            activeScopeKeyRef.current = bootstrapScopeKey;
-            setPendingUserMessage(null);
-            setOptimisticUserMessageId(null);
+            settlePresentedReservation(reserved);
           },
         });
 
@@ -987,13 +961,8 @@ export function useChatCore(
             outcome.admission === "unconfirmed")
         ) {
           if (ownsSettledAttempt) {
-            retainedSubmissionScopeRef.current = null;
-            setConversationScope(null);
-            activeConversationScopeRef.current = null;
-            activeScopeKeyRef.current = bootstrapScopeKey;
+            settlePresentedReservation(settledAttempt.scope);
             if (outcome.status === "unconfirmed") setError(outcome.message);
-            setPendingUserMessage(null);
-            setOptimisticUserMessageId(null);
           }
         }
         return outcome;
@@ -1019,6 +988,8 @@ export function useChatCore(
     [
       buildChatRequestBody,
       isWorkspaceExecutionAllowed,
+      isMutationAllowed,
+      requiresRecoveryReview,
       isActiveRunScope,
       lifecycleClient,
       mode,
@@ -1074,6 +1045,7 @@ export function useChatCore(
       inputVersionRef: composerInputVersionRef,
       setError,
       commitScope: commitConversationScope,
+      isMutationAllowed,
     });
   const submitFollowUp = useCallback((text: string, attachments: ChatSubmitAttachments | undefined, delivery: "queue" | "steer") => {
     if (!isWorkspaceExecutionAllowed) {
@@ -1216,6 +1188,10 @@ export function useChatCore(
       attachments?: ChatSubmitAttachments,
     ): Promise<boolean> => {
       e?.preventDefault();
+      if (!isMutationAllowed()) {
+        setError(CONVERSATION_RECOVERY_REASON);
+        return false;
+      }
       if (!isWorkspaceExecutionAllowed) {
         setError("This conversation's workspace is unavailable for new work.");
         return false;
@@ -1254,6 +1230,7 @@ export function useChatCore(
       input,
       canonicalRunLoading,
       isModelConfigReady,
+      isMutationAllowed,
       isWorkspaceExecutionAllowed,
       isStopping,
       isSubmitting,
@@ -1266,6 +1243,10 @@ export function useChatCore(
   );
 
   const stop = useCallback(() => {
+    if (!isMutationAllowed()) {
+      setError(CONVERSATION_RECOVERY_REASON);
+      return;
+    }
     if (stopRequestedRef.current) {
       return;
     }
@@ -1301,6 +1282,7 @@ export function useChatCore(
           // absent after transport cancellation.
           if (stopOwnsInvocation()) abortSubmissionTransport();
         } else if (requestScope) {
+          if (!isMutationAllowed(requestScope)) return;
           await interruptAndAwaitTerminal(lifecycleClient, requestScope, () => {
             if (stopOwnsInvocation()) abortSubmissionTransport();
           });
@@ -1330,6 +1312,7 @@ export function useChatCore(
 
     void cancelRun();
   }, [
+    isMutationAllowed,
     isActiveRunInvocation,
     lifecycleClient,
     runId,
@@ -1354,6 +1337,7 @@ export function useChatCore(
   );
 
   return {
+    prepareHostedMutation,
     optimisticUserMessage,
     optimisticUserMessageId,
     input,

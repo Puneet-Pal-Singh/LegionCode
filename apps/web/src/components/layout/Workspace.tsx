@@ -633,6 +633,7 @@ export function Workspace({
             ) : null}
             <ChatInterface
               chatProps={{
+                prepareHostedMutation: chat.prepareHostedMutation,
                 messages,
                 optimisticUserMessageId,
                 runId: activeRunId,

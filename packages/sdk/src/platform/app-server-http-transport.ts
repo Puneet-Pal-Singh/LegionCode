@@ -23,6 +23,8 @@ export type AppServerHttpTransportOptions = {
   requestHeaders?: (
     envelope: AppServerRequest,
   ) => Record<string, string> | Promise<Record<string, string>>;
+  /** Capture request ownership before preparation and validate it just before dispatch. */
+  prepareRequest?: (envelope: AppServerRequest) => (() => void) | undefined;
   /** Allows only schema-valid conflict receipts at HTTP 409 for thread input commands. */
   acceptThreadInputConflict?: boolean;
 };
@@ -70,6 +72,7 @@ export function createAppServerHttpTransport(
       }, options.timeoutMs ?? 5_000);
 
       try {
+        const assertPreparedRequest = options.prepareRequest?.(envelope);
         const suppliedHeaders = await options.requestHeaders?.(envelope);
         const headers = new Headers();
         for (const [name, value] of Object.entries(suppliedHeaders ?? {})) {
@@ -81,6 +84,7 @@ export function createAppServerHttpTransport(
         headers.set("Content-Type", "application/json");
         if (options.credential) headers.set("Authorization", `Bearer ${options.credential}`);
         const candidateBody = serializedEnvelope ?? JSON.stringify(envelope);
+        assertPreparedRequest?.();
         const body = beforeSend ? beforeSend(candidateBody) : candidateBody;
         // This private local opt-in is never added to hosted Web requests.
         if (options.credential && ["127.0.0.1", "localhost", "[::1]"].includes(new URL(baseUrl).hostname)) {

@@ -23,6 +23,19 @@ const { followTurnLifecycle, selectedModel } = vi.hoisted(() => ({
   selectedModel: { value: "gpt-fixture" },
 }));
 
+vi.mock("../contexts/AuthContext", () => ({
+  useAuth: () => ({
+    isAuthenticated: true,
+    isLoading: false,
+    hasVerifiedSession: true,
+    sessionCheckError: null,
+    user: { id: "github_chat_fixture", login: "chat-fixture", avatar: "", email: null, name: null },
+    login: vi.fn(),
+    logout: vi.fn(async () => {}),
+    refreshSession: vi.fn(async () => {}),
+  }),
+}));
+
 vi.mock("./useProviderStore.js", () => ({
   useProviderStore: () => ({
     status: "ready",
@@ -58,7 +71,7 @@ vi.mock("../services/api/platformClient", async (importOriginal) => {
 // Transport tests use the actual SDK and real projection/loading logic. Only
 // canonical projection fetching is held empty for these transport outcomes.
 vi.mock("./useTurnLifecycleProjection.js", () => ({
-  useTurnLifecycleProjection: () => ({ projection: null }),
+  useTurnLifecycleProjection: () => ({ projection: null, readCurrentProjection: () => null }),
 }));
 
 function terminalEvent() {

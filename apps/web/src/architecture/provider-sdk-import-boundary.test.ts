@@ -24,6 +24,8 @@ const ALLOWED_IMPORT_FILES = new Set([
   "components/layout/workspace/useFileLoader.ts",
   "hooks/useChatCore.ts",
   "hooks/chat/useConversationInputCommands.ts",
+  "hooks/chat/conversationRequestGuard.ts",
+  "hooks/chat/useConversationMutationAvailability.ts",
   "hooks/chat/useThreadInputQueue.ts",
   "hooks/useChat.ts",
   "App.tsx",

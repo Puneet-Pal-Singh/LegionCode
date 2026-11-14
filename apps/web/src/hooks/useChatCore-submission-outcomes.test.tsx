@@ -53,6 +53,19 @@ type LifecycleEventFixture = {
   payload: Record<string, unknown>;
 };
 
+vi.mock("../contexts/AuthContext", () => ({
+  useAuth: () => ({
+    isAuthenticated: true,
+    isLoading: false,
+    hasVerifiedSession: true,
+    sessionCheckError: null,
+    user: { id: "github_chat_fixture", login: "chat-fixture", avatar: "", email: null, name: null },
+    login: vi.fn(),
+    logout: vi.fn(async () => {}),
+    refreshSession: vi.fn(async () => {}),
+  }),
+}));
+
 vi.mock("./useProviderStore.js", () => ({
   useProviderStore: () => ({
     status: "ready",
@@ -98,7 +111,7 @@ vi.mock("../lib/client-logger.js", () => ({
 // projection hook is held at its server boundary so the test does not depend
 // on polling timing or share projection cache state across cases.
 vi.mock("./useTurnLifecycleProjection.js", () => ({
-  useTurnLifecycleProjection: () => ({ projection: null }),
+  useTurnLifecycleProjection: () => ({ projection: null, readCurrentProjection: () => null }),
 }));
 
 function fixture(name: string): Fixture {

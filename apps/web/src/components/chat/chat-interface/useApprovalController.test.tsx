@@ -10,6 +10,7 @@ describe("useApprovalController", () => {
     const submitLifecycleApproval = vi.fn().mockResolvedValue({});
     const { result } = renderHook(() =>
       useApprovalController({
+        isMutationAllowed: () => true,
         lifecycleProjection: pendingApprovalProjection(),
         lifecycleClient: { submitLifecycleApproval } as unknown as Pick<PlatformClient, "submitLifecycleApproval">,
         sessionId: "session-1",
@@ -30,6 +31,7 @@ describe("useApprovalController", () => {
     const submitLifecycleApproval = vi.fn().mockResolvedValue({});
     const { result } = renderHook(() =>
       useApprovalController({
+        isMutationAllowed: () => true,
         lifecycleProjection: pendingApprovalProjection([
           ...DEFAULT_APPROVAL_OPTIONS,
           {
@@ -61,6 +63,7 @@ describe("useApprovalController", () => {
   it("does not expose chat-scoped approval when the canonical option is absent", () => {
     const { result } = renderHook(() =>
       useApprovalController({
+        isMutationAllowed: () => true,
         lifecycleProjection: pendingApprovalProjection(),
         lifecycleClient: {
           submitLifecycleApproval: vi.fn().mockResolvedValue({}),
@@ -76,6 +79,7 @@ describe("useApprovalController", () => {
   it("shows only deny and abort when those are the canonical options", () => {
     const { result } = renderHook(() =>
       useApprovalController({
+        isMutationAllowed: () => true,
         lifecycleProjection: pendingApprovalProjection([
           { id: "deny", label: "Deny", description: null },
           { id: "abort", label: "Abort", description: null },
@@ -94,6 +98,7 @@ describe("useApprovalController", () => {
     const submitLifecycleApproval = vi.fn().mockRejectedValue(new Error("offline"));
     const { result } = renderHook(() =>
       useApprovalController({
+        isMutationAllowed: () => true,
         lifecycleProjection: pendingApprovalProjection(),
         sessionId: "session-1",
         lifecycleClient: { submitLifecycleApproval } as unknown as Pick<PlatformClient, "submitLifecycleApproval">,
@@ -114,6 +119,7 @@ describe("useApprovalController", () => {
     const { result, rerender } = renderHook(
       ({ sessionId }) =>
         useApprovalController({
+          isMutationAllowed: () => true,
           lifecycleProjection: pendingApprovalProjection(),
           lifecycleClient: {
             submitLifecycleApproval: vi.fn().mockResolvedValue({}),
