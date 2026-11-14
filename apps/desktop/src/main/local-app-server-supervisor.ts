@@ -61,6 +61,7 @@ export class LocalAppServerSupervisor {
   >();
 
   private child: UtilityProcess | null = null;
+  private handshakeChild: UtilityProcess | null = null;
   private closure: LocalAppServerClosure | null = null;
   private childPid: number | null = null;
   private credential: string | null = null;
@@ -99,6 +100,7 @@ export class LocalAppServerSupervisor {
     }
     const generation = ++this.generation;
     this.stopping = false;
+    this.handshakeChild = null;
     this.childPid = null;
     this.transport = null;
     this.update(createSnapshot("starting"));
@@ -343,8 +345,9 @@ export class LocalAppServerSupervisor {
     ) {
       return;
     }
+    if (this.handshakeChild === child) return;
+    this.handshakeChild = child;
     const baseUrl = message.baseUrl;
-    this.clearStartupTimer();
     const credential = this.credential;
     if (!isLoopbackBaseUrl(baseUrl) || !credential) {
       this.update(
@@ -368,7 +371,7 @@ export class LocalAppServerSupervisor {
       const handshake = await client.initialize([
         ...LOCAL_APP_SERVER_UNAVAILABLE_CAPABILITIES,
       ]);
-      if (child !== this.child || generation !== this.generation) return;
+      if (child !== this.child || generation !== this.generation || !this.startupTimer) return;
       const snapshot = AppServerEnvironmentSnapshotSchema.parse({
         kind: handshake.environment,
         status: "ready",
@@ -378,15 +381,17 @@ export class LocalAppServerSupervisor {
         unavailableCapabilities: handshake.unavailableCapabilities,
         reason: null,
       });
+      this.clearStartupTimer();
       this.transport = transport;
       this.update({ ...snapshot, connection: { baseUrl, credential } });
     } catch (error) {
-      if (child !== this.child || generation !== this.generation) return;
+      if (child !== this.child || generation !== this.generation || !this.startupTimer) return;
       const reason =
         error instanceof AppServerClientError &&
         error.serverCode === "protocol_incompatible"
           ? "Local App Server protocol is incompatible"
           : "Local App Server handshake failed";
+      this.clearStartupTimer();
       this.update(createSnapshot("degraded", reason));
       this.requestChildShutdown(child);
     }

@@ -90,13 +90,17 @@ describe("Local App Server supervisor generation safety", () => {
   });
 
   it("cannot restore ready state from a handshake after the child was stopped", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(process, "kill").mockReturnValue(true);
     const handshakeResult = deferred<unknown>();
     mocks.initialize.mockReturnValue(handshakeResult.promise);
     const supervisor = new LocalAppServerSupervisor();
     await supervisor.start("1.0.0", "/private/user-data");
     const child = childAt(0);
     child.emit("message", { type: "ready", baseUrl: "http://127.0.0.1:4312" });
+    child.emit("message", { type: "ready", baseUrl: "http://127.0.0.1:4312" });
     await settleMessages();
+    expect(mocks.initialize).toHaveBeenCalledTimes(1);
 
     const stopping = supervisor.stop();
     child.emit("message", { type: "closed" });
@@ -105,6 +109,27 @@ describe("Local App Server supervisor generation safety", () => {
     handshakeResult.resolve(handshake);
     await settleMessages();
 
+    expect(supervisor.getEnvironment().status).toBe("stopped");
+
+    const stalledHandshake = deferred<unknown>();
+    mocks.initialize.mockReturnValue(stalledHandshake.promise);
+    await supervisor.start("1.0.0", "/private/user-data");
+    const stalledChild = childAt(1);
+    stalledChild.emit("message", { type: "ready", baseUrl: "http://127.0.0.1:4313" });
+    await settleMessages();
+    expect(mocks.initialize).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(stalledChild.messages.at(-1)).toEqual({ type: "shutdown" });
+    expect(supervisor.getEnvironment().status).toBe("degraded");
+    stalledHandshake.resolve(handshake);
+    await settleMessages();
+    expect(supervisor.getEnvironment().status).toBe("degraded");
+    await expect(supervisor.start("1.0.0", "/private/user-data")).rejects.toThrow("closure is unconfirmed");
+    stalledChild.emit("exit");
+    expect(supervisor.getEnvironment().status).toBe("offline");
+    await expect(supervisor.start("1.0.0", "/private/user-data")).rejects.toThrow("closure is unconfirmed");
+    stalledChild.emit("message", { type: "closed" });
+    await settleMessages();
     expect(supervisor.getEnvironment().status).toBe("stopped");
   });
 
