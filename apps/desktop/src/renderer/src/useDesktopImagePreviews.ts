@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
+import { useChatImagePreviews, type ChatImageOriginalReader } from "@legioncode/client-ui";
 import { readChatImage, type AppServerClient, type ConversationHistoryMessage } from "@legioncode/sdk";
 import {
   ChatImageAttachmentRefSchema,
@@ -13,7 +14,6 @@ type Source = {
   reference: ChatImageAttachmentRef;
   token: string;
 };
-const PREVIEW_CONCURRENCY = 2;
 export const desktopImageSource = (
   turnId: TurnId,
   attachmentId: string,
@@ -63,128 +63,12 @@ export function useDesktopImagePreviews(
     }
     return { sources, byMessage, invalid };
   }, [messages]);
-  const [revision, setRevision] = useState(0);
-  const scope = useMemo(
-    () => ({ client, descriptor, revision }),
-    [client, descriptor, revision],
+  const readOriginal = useCallback<ChatImageOriginalReader<Source>>(
+    (source, options) => readChatImage(client, source, options),
+    [client],
   );
-  const [read, setRead] = useState<{
-    scope: typeof scope;
-    urls: ReadonlyMap<string, string>;
-    failed: boolean;
-  } | null>(null);
-
-  useEffect(() => {
-    if (scope.descriptor.sources.length === 0) return;
-    const controller = new AbortController();
-    const urls = new Map<string, string>();
-    const known = new Map(
-      scope.descriptor.sources.map((source) => [source.token, source]),
-    );
-    const queued = new Set<string>();
-    const failures = new Set<string>();
-    const queue: Source[] = [];
-    let active = true;
-    let loading = 0;
-    const publish = () => {
-      if (active)
-        setRead({ scope, urls: new Map(urls), failed: failures.size > 0 });
-    };
-    const pump = () => {
-      while (active && loading < PREVIEW_CONCURRENCY && queue.length) {
-        const source = queue.shift()!;
-        loading += 1;
-        void (async () => {
-          try {
-            const image = await readChatImage(scope.client, source, {
-              signal: controller.signal,
-            });
-            if (!active) return;
-            urls.set(
-              source.token,
-              URL.createObjectURL(
-                new Blob([image.bytes], { type: image.mediaType }),
-              ),
-            );
-            publish();
-          } catch {
-            if (active && !controller.signal.aborted) {
-              failures.add(source.token);
-              publish();
-            }
-          } finally {
-            loading -= 1;
-            if (active) pump();
-          }
-        })();
-      }
-    };
-    const enqueue = (token: string | null) => {
-      if (!token || queued.has(token) || urls.has(token) || failures.has(token))
-        return;
-      const source = known.get(token);
-      if (!source) return;
-      queued.add(token);
-      queue.push(source);
-      pump();
-    };
-    const observer =
-      typeof IntersectionObserver === "undefined"
-        ? null
-        : new IntersectionObserver(
-            (entries) => {
-              for (const entry of entries)
-                if (entry.isIntersecting)
-                  enqueue(entry.target.getAttribute("data-chat-image-source"));
-            },
-            { rootMargin: "160px" },
-          );
-    const observed = new WeakMap<Element, string>();
-    const discover = () => {
-      for (const element of document.querySelectorAll(
-        "[data-chat-image-source]",
-      )) {
-        const token = element.getAttribute("data-chat-image-source");
-        if (!token || !known.has(token) || observed.get(element) === token)
-          continue;
-        observed.set(element, token);
-        if (observer) {
-          observer.unobserve(element);
-          observer.observe(element);
-        } else enqueue(token);
-      }
-    };
-    const mutations = new MutationObserver(discover);
-    mutations.observe(document.body, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ["data-chat-image-source"],
-    });
-    discover();
-    return () => {
-      active = false;
-      controller.abort();
-      observer?.disconnect();
-      mutations.disconnect();
-      for (const url of urls.values()) URL.revokeObjectURL(url);
-    };
-  }, [scope]);
-
-  const resolveSource = useCallback(
-    (source: string) =>
-      read?.scope === scope ? read.urls.get(source) : undefined,
-    [read, scope],
-  );
-  const retry = useCallback(() => setRevision((value) => value + 1), []);
-  return {
-    referencesByMessage: descriptor.byMessage,
-    resolveSource,
-    retry,
-    error: descriptor.invalid
-      ? "Saved image metadata could not be read."
-      : read?.scope === scope && read.failed
-        ? "Some saved image previews could not be loaded."
-        : null,
-  };
+  const previews = useChatImagePreviews({
+    sources: descriptor.sources, readOriginal, invalidMetadata: descriptor.invalid,
+  });
+  return { referencesByMessage: descriptor.byMessage, ...previews };
 }

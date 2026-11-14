@@ -31,6 +31,7 @@ export { stripAssistantChangeCounts } from "./conversation/chat-message/markdown
 export { ChatImageGallery, type ChatImagePreview } from "./conversation/ChatImageGallery.js";
 export { ChatImageAttachmentStrip } from "./conversation/ChatImageAttachmentStrip.js";
 export { useChatImageAttachmentDraft, type ChatImageAttachmentDraftBinding } from "./conversation/useChatImageAttachmentDraft.js";
+export { useChatImagePreviews, type ChatImagePreviewSource, type ChatImageOriginalReader } from "./conversation/useChatImagePreviews.js";
 export {
   CHAT_IMAGE_MIME_TYPES, isChatImageMimeType, validateNextImageAttachment,
   createChatImageAttachment, toImageParts, toRedactedImageMetadata,
