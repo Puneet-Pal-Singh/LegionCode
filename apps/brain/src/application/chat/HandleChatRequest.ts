@@ -261,7 +261,8 @@ export class HandleChatRequest {
           persistedAdmission,
           providerRuntimeRoute: input.providerRuntimeRoute,
           modelCapabilities: input.modelCapabilities,
-          backgroundTaskOwner: input.backgroundTaskOwner,
+          // Paid title inference belongs to the actual claimed Native owner.
+          // Submission persists only its deterministic first-message preview.
         });
       }
 
@@ -305,6 +306,7 @@ export class HandleChatRequest {
           metadata: {
             ...(contextWindowTokens ? { contextWindowTokens } : {}),
             ...(input.pricing ? { pricing: input.pricing } : {}),
+            ...(input.modelCapabilities ? { modelCapabilities: input.modelCapabilities } : {}),
             ...(input.reasoningEffort
               ? { reasoningEffort: input.reasoningEffort }
               : {}),

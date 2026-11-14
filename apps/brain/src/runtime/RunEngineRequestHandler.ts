@@ -21,6 +21,7 @@ import {
   ThreadIdSchema,
   type LifecycleEvent,
   RunIdSchema,
+  WorkspaceIdSchema,
   TurnScopeBootstrapRequestSchema,
   TurnScopeBootstrapSchema,
   TurnDiffPayloadSchema,
@@ -48,7 +49,10 @@ import {
   SerializableToolDefinitionSchema,
   type ExecuteRunPayload,
 } from "./parsing/ExecuteRunPayloadSchema";
+import { scheduleClaimedInitialThreadTitle } from "../services/thread-titles/InitialThreadTitleScheduler";
 import { prepareRuntimeExecutionResources } from "./RuntimeExecutionResources";
+import { RunAdmissionService, settledAdmissionRejection } from "./RunAdmissionService";
+import type { NativeAttemptObserver, NativePreparationCleanupReceipt } from "./RetainedNativeAttempt";
 import { resolveNativeAdmissionExecutionInput } from "./NativeAdmissionExecutionInput";
 import type { NativeProviderCredentialContext } from "../services/providers/NativeProviderCredentialResolver";
 import {
@@ -96,6 +100,7 @@ import {
 } from "./RunApprovalResolutionRegistry";
 import {
   BrainWorkspaceIdSchema,
+  RunInterruptIdentitySchema,
   RunInterruptRequestSchema,
   type RunInterruptRequest,
   type RunInterruptIdentity,
@@ -178,11 +183,28 @@ export interface RunEngineRequestHandlerDependencies {
   taskCheckoutScopeResolver?: TaskCheckoutScopeResolutionPort;
 }
 
-type TurnRuntimeIdentity = RunInterruptIdentity & {
-  /** Owner is retained only inside the runtime scope map for revision checks. */
-  ownerUserId?: string;
-  revisionOfTurnId?: string;
-};
+// This is the existing DO scope entry, not an execution queue or lifecycle log.
+const TurnRuntimeIdentitySchema = RunInterruptIdentitySchema.extend({
+  // Existing saved entries may already use the canonical workspace alias.
+  workspaceId: z.union([BrainWorkspaceIdSchema, WorkspaceIdSchema]),
+  ownerUserId: z.string().min(1).optional(),
+  revisionOfTurnId: TurnIdSchema.optional(),
+  continuationOfTurnId: TurnIdSchema.optional(),
+  originalPromptId: z.string().min(1).optional(),
+  plannedExecutionClaimId: z.string().uuid().optional(),
+  pendingInterruptReason: z.string().min(1).max(2_000).optional(),
+}).strict();
+type TurnRuntimeIdentity = z.infer<typeof TurnRuntimeIdentitySchema>;
+
+function sameRuntimeAdmission(identity: TurnRuntimeIdentity, admission: TurnAdmissionRecord | null): admission is TurnAdmissionRecord {
+  return admission !== null && admission.state === "admitted" && admission.userId === identity.ownerUserId &&
+    admission.sessionId === identity.sessionId && admission.runId === identity.runId &&
+    admission.workspaceId !== null && workspaceIdFromExternalId(admission.workspaceId) === workspaceIdFromExternalId(identity.workspaceId) &&
+    admission.threadId === identity.threadId && admission.turnId === identity.turnId && admission.runAttemptId === identity.runAttemptId &&
+    admission.revisionOfTurnId === (identity.revisionOfTurnId ?? null) &&
+    admission.continuationOfTurnId === (identity.continuationOfTurnId ?? null) &&
+    admission.originalPromptId === (identity.originalPromptId ?? null);
+}
 
 export class RunEngineRequestHandler {
   private readonly turnToRunMap = new Map<string, string>();
@@ -216,6 +238,23 @@ export class RunEngineRequestHandler {
       new InMemoryRunContextCompactionRegistry();
     this.threadInputRegistry =
       dependencies.threadInputRegistry ?? new InMemoryRunThreadInputRegistry();
+  }
+
+  /** Same-DO wake reconciles only the recorded PG claim; it never resumes work. */
+  async reconcileRuntimeClaims(): Promise<void> {
+    await this.ensureTurnToRunMapLoaded();
+    for (const identity of this.turnRuntimeIdentities.values()) {
+      const claimId = identity.plannedExecutionClaimId;
+      if (!claimId || !identity.ownerUserId || this.interruptRegistry.hasActiveOwner(identity.turnId)) continue;
+      await this.withExecutionLock(identity.runId, async () => {
+        if (this.interruptRegistry.hasActiveOwner(identity.turnId)) return;
+        const admission = await withTurnAdmissionRepository(this.env, repository => repository.getByTurnId(identity.turnId));
+        if (!sameRuntimeAdmission(identity, admission) || admission.executionState !== "running") return;
+        // An exact claim CAS is the only authority to mark lost ownership.
+        // Provider/tool/lease obligations remain unknown and unreleased.
+        await withTurnAdmissionRepository(this.env, repository => repository.markRecoveryRequired({ turnId: identity.turnId, claimId }));
+      });
+    }
   }
 
   async handleLifecycleEventsRequest(request: Request): Promise<Response> {
@@ -410,6 +449,21 @@ export class RunEngineRequestHandler {
         terminalEvent,
       });
     }
+
+    await this.ensureTurnToRunMapLoaded();
+    const { reason: _reason, ...interruptIdentity } = payload;
+    const durableIdentity: TurnRuntimeIdentity = {
+      ...interruptIdentity, ownerUserId: admission.userId,
+      ...(admission.revisionOfTurnId ? { revisionOfTurnId: TurnIdSchema.parse(admission.revisionOfTurnId) } : {}),
+      ...(admission.continuationOfTurnId ? { continuationOfTurnId: TurnIdSchema.parse(admission.continuationOfTurnId) } : {}),
+      ...(admission.originalPromptId ? { originalPromptId: admission.originalPromptId } : {}),
+    };
+    const storedIdentity = this.turnRuntimeIdentities.get(payload.turnId);
+    if (storedIdentity && !sameRuntimeAdmission({ ...storedIdentity, ownerUserId: storedIdentity.ownerUserId ?? admission.userId }, admission))
+      return runEngineErrorResponse(request, this.env, "Interrupt scope does not match its runtime owner", 409);
+    await this.mapTurnToRun(payload.turnId, payload.runId, {
+      ...(storedIdentity ?? durableIdentity), ownerUserId: admission.userId, pendingInterruptReason: payload.reason,
+    });
 
     const hasActiveOwner =
       this.interruptRegistry.hasActiveOwner(payload.turnId) ||
@@ -1230,9 +1284,12 @@ export class RunEngineRequestHandler {
     );
   }
 
-  async handleExecuteRequest(request: Request): Promise<Response> {
+  async handleExecuteRequest(request: Request, observer?: NativeAttemptObserver): Promise<Response> {
     let executionClaim: { turnId: TurnId; claimId: string } | null = null;
     let startupInterruptReason: string | null = null;
+    let preparationCleanup: NativePreparationCleanupReceipt | undefined;
+    let startupOwner = false;
+    const attemptController = new AbortController();
     let payload: ExecuteRunPayload;
     try {
       payload = await parseExecuteRunRequest(request);
@@ -1253,6 +1310,7 @@ export class RunEngineRequestHandler {
       return runEngineErrorResponse(request, this.env, message, 400);
     }
 
+    const nativeObserver = observer; // This continuation is the actual Native execution owner.
     const workspaceId = BrainWorkspaceIdSchema.safeParse(payload.workspaceId);
     if (!workspaceId.success) {
       return runEngineErrorResponse(
@@ -1264,6 +1322,21 @@ export class RunEngineRequestHandler {
     }
 
     try {
+      // Establish the exact admitted startup owner before a queued execution
+      // lock can hide Stop. This request never unregisters another owner.
+      if (payload.identity && payload.userId) {
+        const startupIdentity = TurnScopeBootstrapSchema.parse(payload.identity);
+        const admission = await withTurnAdmissionRepository(this.env, repository => repository.getByTurnId(startupIdentity.turnId));
+        const candidate = { ...startupIdentity, runId: payload.runId, sessionId: payload.sessionId, ownerUserId: payload.userId };
+        if (sameRuntimeAdmission(candidate, admission)) {
+          if (this.interruptRegistry.hasActiveOwner(startupIdentity.turnId))
+            return runEngineErrorResponse(request, this.env, "This admitted turn already has an active startup or execution owner.", 409, "TURN_EXECUTION_ALREADY_CLAIMED");
+          if (admission.executionState === "pending") {
+            this.interruptRegistry.beginStartup(startupIdentity.turnId);
+            startupOwner = true;
+          }
+        }
+      }
       const trace = parseTraceparent(request.headers.get("traceparent"));
       console.log(
         formatDiagnosticLogLine("run/runtime", "execute-request-accepted", {
@@ -1324,6 +1397,7 @@ export class RunEngineRequestHandler {
           storedRunId !== payload.runId ||
           workspaceIdFromExternalId(storedIdentity.workspaceId) !== workspaceIdFromExternalId(workspaceId.data) ||
           storedIdentity.sessionId !== payload.sessionId ||
+          (storedIdentity.ownerUserId !== undefined && storedIdentity.ownerUserId !== payload.userId) ||
           storedIdentity.threadId !== identity.threadId ||
           storedIdentity.runAttemptId !== identity.runAttemptId ||
           storedIdentity.revisionOfTurnId !== identity.revisionOfTurnId
@@ -1346,8 +1420,19 @@ export class RunEngineRequestHandler {
             "RUN_SCOPE_MISMATCH",
           );
         }
-        const claimId = crypto.randomUUID();
-        const claimResult = await withTurnAdmissionRepository(
+        const pendingAdmission = await withTurnAdmissionRepository(this.env, repository => repository.getByTurnId(turnId));
+        const recordedIdentity = this.turnRuntimeIdentities.get(turnId)!;
+        const claimId = recordedIdentity.plannedExecutionClaimId ?? crypto.randomUUID();
+        if (sameRuntimeAdmission({ ...recordedIdentity, ownerUserId: payload.userId }, pendingAdmission) && pendingAdmission.executionState === "pending") {
+          // Persist intent BEFORE the PG claim. A crash on either side can only
+          // reconcile this ID; a replay cannot overwrite a live/recovery owner.
+          this.turnRuntimeIdentities.set(turnId, TurnRuntimeIdentitySchema.parse({
+            ...recordedIdentity, ownerUserId: payload.userId, plannedExecutionClaimId: claimId,
+          }));
+          await this.persistTurnToRunMap();
+        }
+        const claimable = sameRuntimeAdmission({ ...recordedIdentity, ownerUserId: payload.userId }, pendingAdmission) && pendingAdmission.executionState === "pending";
+        const claimResult = claimable ? await withTurnAdmissionRepository(
           this.env,
           (repository) =>
             repository.claimExecution({
@@ -1360,8 +1445,18 @@ export class RunEngineRequestHandler {
               threadId,
               claimId,
             }),
-        );
+        ) : {
+          status: !sameRuntimeAdmission({ ...recordedIdentity, ownerUserId: payload.userId }, pendingAdmission) ? "conflict" as const
+            : pendingAdmission.executionState === "settled" ? "settled" as const
+            : pendingAdmission.executionState === "recovery_required" ? "recovery_required" as const : "already_claimed" as const,
+          admission: pendingAdmission,
+        };
         if (claimResult.status !== "claimed") {
+          const rejected = claimResult.status === "settled" && claimResult.admission?.workspaceId
+            ? settledAdmissionRejection({ userId: claimResult.admission.userId, workspaceId: claimResult.admission.workspaceId,
+                sessionId: claimResult.admission.sessionId, runId: claimResult.admission.runId,
+                threadId: claimResult.admission.threadId, turnId: claimResult.admission.turnId,
+                runAttemptId: claimResult.admission.runAttemptId }) : undefined;
           const recovery =
             claimResult.status === "already_claimed" ||
             claimResult.status === "recovery_required";
@@ -1375,28 +1470,51 @@ export class RunEngineRequestHandler {
             recovery
               ? "TURN_EXECUTION_ALREADY_CLAIMED"
               : "TURN_EXECUTION_NOT_CLAIMABLE",
+            rejected ? { executionRejection: rejected } : undefined,
           );
         }
         executionClaim = { turnId, claimId };
-        this.interruptRegistry.beginStartup(turnId);
+        if (!startupOwner) {
+          this.interruptRegistry.beginStartup(turnId);
+          startupOwner = true;
+        }
         if (!claimResult.admission) throw new Error("Claimed execution has no durable admission receipt");
-        const admission = Object.freeze({ ...claimResult.admission });
+        const claimedAdmission = Object.freeze({ ...claimResult.admission });
         // This owner instantiates NativeRunner regardless of an input harness label.
         // A genuine delegated path must dispatch to its own owner before this boundary.
         const nativeCredentials: NativeProviderCredentialContext = Object.freeze({
-          binding: admission.nativeProviderBinding,
+          binding: claimedAdmission.nativeProviderBinding,
           scope: Object.freeze({
-            userId: admission.userId, workspaceId: admission.workspaceId!, sessionId: admission.sessionId,
-            threadId: admission.threadId, runId: admission.runId, turnId: admission.turnId,
-            runAttemptId: admission.runAttemptId,
+            userId: claimedAdmission.userId, workspaceId: claimedAdmission.workspaceId!, sessionId: claimedAdmission.sessionId,
+            threadId: claimedAdmission.threadId, runId: claimedAdmission.runId, turnId: claimedAdmission.turnId,
+            runAttemptId: claimedAdmission.runAttemptId,
           }),
         });
         const effectivePayload: ExecuteRunPayload = { ...payload,
           input: resolveNativeAdmissionExecutionInput(payload.input, nativeCredentials, payload.correlationId) };
+        await new RunAdmissionService(this.env).claimAttempt(runAttemptId, payload.admissionLease, claimId, payload.correlationId);
+        nativeObserver?.claimed(Object.freeze({
+          admission: claimedAdmission, correlationId: payload.correlationId, claimId,
+          admissionLease: payload.admissionLease ? Object.freeze({ ...payload.admissionLease }) : undefined,
+        }));
+        startupInterruptReason = this.turnRuntimeIdentities.get(turnId)?.pendingInterruptReason ??
+          this.interruptRegistry.takePendingRequest(turnId);
+        if (startupInterruptReason) {
+          attemptController.abort(new DOMException("Run cancelled", "AbortError"));
+          // This creator has not called the resource preparation owner at all.
+          // This is factual no-exposure, never an inference from an Error.
+          preparationCleanup = { kind: "no_exposure" };
+          throw new DOMException("Run cancelled before Native preparation", "AbortError");
+        }
         const runtimeState = this.createRuntimeState();
-        const resources = await prepareRuntimeExecutionResources(this.ctx, this.env, effectivePayload, nativeCredentials);
+        const resources = await prepareRuntimeExecutionResources(this.ctx, this.env, effectivePayload, nativeCredentials, receipt => { preparationCleanup = receipt; });
         const taskCheckoutLifecycle = resources.checkoutLifecycle;
         const editArtifactCoordinator = resources.artifacts;
+        let titleOperation: Promise<unknown> | undefined;
+        let providerDrained = false;
+        let bodyDrained = false;
+        let artifactsSettled = false;
+        let checkoutSettled = taskCheckoutLifecycle === undefined;
         try {
           const userMessageId = readLatestUserMessageId(effectivePayload.messages);
           editArtifactCoordinator?.setMessageContext({ userMessageId: userMessageId ?? undefined });
@@ -1413,11 +1531,13 @@ export class RunEngineRequestHandler {
             turnId,
             async (reason) => {
               startupInterruptReason = reason;
+              attemptController.abort(new DOMException("Run cancelled", "AbortError"));
               await runtimeRunner.interrupt(turnId, reason);
             },
           );
           if (pendingInterruptReason) {
             startupInterruptReason = pendingInterruptReason;
+            attemptController.abort(new DOMException("Run cancelled", "AbortError"));
             await runtimeRunner.interrupt(turnId, pendingInterruptReason);
           }
           this.approvalResolutionRegistry.register(
@@ -1433,6 +1553,25 @@ export class RunEngineRequestHandler {
           this.contextCompactionRegistry.register(turnId, async () => {
             await runtimeRunner.compact(turnId);
           });
+          if (nativeObserver && resources.runEngineDeps.aiService && !attemptController.signal.aborted) {
+            await scheduleClaimedInitialThreadTitle(this.env, {
+              admission: claimedAdmission, identity, prompt: effectivePayload.input.prompt,
+              ...(effectivePayload.input.providerTransport && effectivePayload.input.providerEndpoint ? {
+                providerRuntimeRoute: {
+                  providerId: effectivePayload.input.providerId!, modelId: effectivePayload.input.modelId!,
+                  transport: effectivePayload.input.providerTransport, endpoint: effectivePayload.input.providerEndpoint,
+                },
+              } : {}),
+              modelCapabilities: effectivePayload.input.metadata?.modelCapabilities,
+              execution: Object.freeze({ service: resources.runEngineDeps.aiService,
+                scope: nativeCredentials.scope, signal: attemptController.signal }),
+              owner: { waitUntil: operation => {
+                if (titleOperation) throw new Error("Native title operation was registered twice");
+                titleOperation = operation;
+                void operation.catch(() => undefined);
+              } },
+            });
+          }
           // Kernel observers can settle before the original provider body. Keep
           // this attempt's checkout and execution ownership until that body drains.
           const executionResponse = await runtimeRunner.execute({
@@ -1449,7 +1588,21 @@ export class RunEngineRequestHandler {
             continuationOfTurnId: identity.continuationOfTurnId,
             originalPromptId: identity.originalPromptId,
             workspace: resources.workspace,
-          }).finally(() => resources.drainProviderRequests());
+          }).finally(async () => {
+            await titleOperation;
+            await resources.drainProviderRequests();
+            providerDrained = true;
+          }).then(async response => {
+            if (!nativeObserver) return response;
+            // This original response producer stays inside the DO attempt; an
+            // admission ACK is never mistaken for its body having completed.
+            const bytes = await response.arrayBuffer();
+            bodyDrained = true;
+            return new Response(bytes, { status: response.status, statusText: response.statusText, headers: response.headers });
+          }, error => {
+            bodyDrained = true; // Rejected execution produced no response body.
+            throw error;
+          });
           console.log(
             formatDiagnosticLogLine("run/runtime", "engine-executed", {
               correlationId: effectivePayload.correlationId,
@@ -1483,6 +1636,7 @@ export class RunEngineRequestHandler {
             });
           }
           await editArtifactCoordinator?.waitForPendingCapture();
+          artifactsSettled = true;
           const lifecycleEvents = await readAllLifecycleEvents(
             this.createLifecycleEventStore(),
             turnId,
@@ -1510,6 +1664,7 @@ export class RunEngineRequestHandler {
                       : "RUNTIME_TERMINAL_FAILURE",
                 },
           );
+          checkoutSettled = true;
           console.log(
             formatDiagnosticLogLine("run/runtime", "artifacts-settled", {
               correlationId: effectivePayload.correlationId,
@@ -1530,6 +1685,7 @@ export class RunEngineRequestHandler {
                 status: "failed",
                 failureCode: "RUN_PIPELINE_FAILED",
               });
+              checkoutSettled = true;
             } catch {
               throw new DomainError(
                 "TASK_CHECKOUT_SETTLEMENT_FAILED",
@@ -1546,14 +1702,31 @@ export class RunEngineRequestHandler {
           }
           throw error;
         } finally {
-          startupInterruptReason =
-            this.interruptRegistry.takePendingRequest(turnId) ??
-            startupInterruptReason;
-          this.interruptRegistry.unregister(turnId);
-          this.approvalResolutionRegistry.unregister(turnId);
-          this.contextCompactionRegistry.unregister(turnId);
-          this.threadInputRegistry.unregister(turnId);
-          await taskCheckoutLifecycle?.release();
+          try {
+            await titleOperation;
+            await resources.drainProviderRequests();
+            providerDrained = true;
+            if (!artifactsSettled) {
+              await editArtifactCoordinator?.waitForPendingCapture();
+              artifactsSettled = true;
+            }
+            await taskCheckoutLifecycle?.release();
+            // A void checkout/session release (including HTTP 404) proves no
+            // physical closure. Repository Plan also acquired that owner, so
+            // retain its grant until an exact cleanup/retention receipt exists.
+            const physicalResourcesClosed = !resources.workspace && taskCheckoutLifecycle === undefined;
+            if (providerDrained && bodyDrained && artifactsSettled && checkoutSettled && physicalResourcesClosed) {
+              nativeObserver?.cleanupSettled();
+            }
+          } finally {
+            startupInterruptReason =
+              this.interruptRegistry.takePendingRequest(turnId) ??
+              startupInterruptReason;
+            this.interruptRegistry.unregister(turnId);
+            this.approvalResolutionRegistry.unregister(turnId);
+            this.contextCompactionRegistry.unregister(turnId);
+            this.threadInputRegistry.unregister(turnId);
+          }
         }
       });
     } catch (error: unknown) {
@@ -1652,6 +1825,11 @@ export class RunEngineRequestHandler {
         500,
         "RUNTIME_EXECUTION_FAILED",
       );
+    } finally {
+      // This receipt comes from the preparation owner, after known no-exposure
+      // or successful compensation. An arbitrary preparation Error grants nothing.
+      if (preparationCleanup && executionClaim) nativeObserver?.cleanupSettled();
+      if (startupOwner && payload.identity) this.interruptRegistry.unregister(payload.identity.turnId);
     }
   }
 
@@ -1701,7 +1879,10 @@ export class RunEngineRequestHandler {
       Record<string, TurnRuntimeIdentity>
     >(RunEngineRequestHandler.TURN_IDENTITY_STORAGE_KEY);
     if (identities && typeof identities === "object") {
-      for (const [turnId, identity] of Object.entries(identities)) {
+      for (const [turnId, value] of Object.entries(identities)) {
+        const identity = TurnRuntimeIdentitySchema.parse(value);
+        if (identity.turnId !== turnId || this.turnToRunMap.get(turnId) !== identity.runId)
+          throw new Error("Stored runtime scope identity is inconsistent");
         this.turnRuntimeIdentities.set(turnId, identity);
       }
     }
@@ -1730,7 +1911,7 @@ export class RunEngineRequestHandler {
     identity: TurnRuntimeIdentity,
   ): Promise<void> {
     this.turnToRunMap.set(turnId, runId);
-    this.turnRuntimeIdentities.set(turnId, identity);
+    this.turnRuntimeIdentities.set(turnId, TurnRuntimeIdentitySchema.parse(identity));
     this.pruneStaleTurnMappings();
     await this.persistTurnToRunMap();
   }
@@ -1740,7 +1921,12 @@ export class RunEngineRequestHandler {
     if (this.turnToRunMap.size <= maxCount) {
       return;
     }
-    const keys = [...this.turnToRunMap.keys()];
+    // An unresolved claim/Stop marker is ownership evidence, not disposable
+    // scope history. Liveness or a history-size limit cannot retire it.
+    const keys = [...this.turnToRunMap.keys()].filter(turnId => {
+      const identity = this.turnRuntimeIdentities.get(turnId);
+      return !identity?.plannedExecutionClaimId && !identity?.pendingInterruptReason;
+    });
     const toDelete = keys.slice(0, this.turnToRunMap.size - maxCount);
     for (const key of toDelete) {
       this.turnToRunMap.delete(key);

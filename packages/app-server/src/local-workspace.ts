@@ -21,6 +21,7 @@ import {
   WorkspaceIdSchema,
   workspaceIdFromExternalId,
   type LocalWorkspaceGrant,
+  type LocalWorkspaceProject,
   type WorkspaceId,
 } from "@repo/platform-protocol";
 import type { DefaultGitService } from "@repo/git-service";
@@ -67,10 +68,17 @@ export interface LocalWorkspaceExecutionBinding {
   assertSettlementCurrent(): void;
 }
 
+type WorkspaceGeneration = {
+  readonly value: number;
+  readonly controller: AbortController;
+  current: boolean;
+};
+
 export class LocalWorkspaceService {
-  private generation = 0;
-  private transitioning = false;
-  private executionController = new AbortController();
+  private readonly generations = new Map<WorkspaceId, WorkspaceGeneration>();
+  private mutationSequence = 0;
+  private readonly revokedAt = new Map<WorkspaceId, number>();
+  private acquisition: WorkspaceGeneration = { value: 0, controller: new AbortController(), current: true };
   private readonly metadataResolver: LocalWorkspaceMetadataResolver;
   private readonly workspaceGrants: LocalWorkspaceServiceOptions["workspaceGrants"];
   private readonly gitService: LocalWorkspaceServiceOptions["gitService"];
@@ -105,26 +113,66 @@ export class LocalWorkspaceService {
     return this.getCurrentGrant("physical");
   }
 
+  async getAuthorized(workspaceId: WorkspaceId): Promise<LocalWorkspaceGrant | null> {
+    return this.getGrant(WorkspaceIdSchema.parse(workspaceId), "physical");
+  }
+
+  async list(): Promise<readonly LocalWorkspaceGrant[]> {
+    return (await this.workspaceGrants.list()).map((stored) => stored.version === 2
+      ? stored.grant
+      : invalidGrant(stored.grant, "Explicit workspace regrant is required"));
+  }
+
+  async select(workspaceId: WorkspaceId): Promise<LocalWorkspaceGrant> {
+    const id = WorkspaceIdSchema.parse(workspaceId);
+    const generation = this.generationFor(id);
+    const grant = await this.getGrant(id, "git");
+    this.assertGeneration(generation);
+    if (!grant || grant.readiness !== "ready") throw new Error("Workspace requires explicit regrant");
+    await this.workspaceGrants.select(id);
+    this.assertGeneration(generation);
+    generation.controller.signal.throwIfAborted();
+    return grant;
+  }
+
   private async getCurrentGrant(projection: "physical" | "git"): Promise<LocalWorkspaceGrant | null> {
-    if (this.transitioning) return null;
-    const generation = this.generation;
-    const signal = this.executionController.signal;
     const stored = await this.workspaceGrants.read();
-    if (!stored || generation !== this.generation) return null;
+    return stored ? this.getGrant(stored.grant.workspaceId, projection) : null;
+  }
+
+  private async getGrant(workspaceId: WorkspaceId, projection: "physical" | "git"): Promise<LocalWorkspaceGrant | null> {
+    const generation = this.generationFor(workspaceId);
+    const signal = generation.controller.signal;
+    const stored = await this.workspaceGrants.read(workspaceId);
+    if (!stored || !generation.current) return null;
     if (stored.version !== 2 || stored.grant.readiness !== "ready") {
-      this.executionController.abort("Explicit workspace regrant is required");
-      return invalidGrant(
-        stored.grant,
-        "Explicit workspace regrant is required",
-      );
+      generation.controller.abort("Explicit workspace regrant is required");
+      return invalidGrant(stored.grant, "Explicit workspace regrant is required");
     }
     this.assertProbingAvailable();
     const grant = await this.verifyStoredGrant(stored, generation, signal, undefined, projection);
-    if (generation !== this.generation || this.transitioning) return null;
+    if (!generation.current) return null;
     this.assertProbingAvailable();
     if (grant.readiness !== "ready") return grant;
     signal.throwIfAborted();
+    await this.workspaceGrants.rememberValidatedCurrent({ ...stored, grant });
+    this.assertGeneration(generation);
+    signal.throwIfAborted();
     return grant;
+  }
+
+  /** Path-free navigation records never authorize execution. */
+  async listProjects(legacyWorkspaceIds: readonly WorkspaceId[]): Promise<{
+    projects: LocalWorkspaceProject[]; selectedWorkspaceId: WorkspaceId | null;
+  }> {
+    const current = await this.workspaceGrants.read();
+    const retained = await this.workspaceGrants.list();
+    await this.workspaceGrants.rememberUnlinked([...legacyWorkspaceIds, ...retained.map((value) => value.grant.workspaceId)]);
+    return { projects: await this.workspaceGrants.listProjects(), selectedWorkspaceId: current?.grant.workspaceId ?? null };
+  }
+
+  async forgetProject(workspaceId: WorkspaceId): Promise<void> {
+    await this.workspaceGrants.hideProject(WorkspaceIdSchema.parse(workspaceId));
   }
 
   async grant(input: unknown): Promise<LocalWorkspaceGrant> {
@@ -132,9 +180,9 @@ export class LocalWorkspaceService {
     try {
       this.assertProbingAvailable();
       const { path } = GrantLocalWorkspaceRequestSchema.parse(input);
-      const generation = this.invalidateExecutionBindings();
-      const signal = this.executionController.signal;
-      this.transitioning = true;
+      const startedAt = this.mutationSequence;
+      const generation = this.invalidateAcquisition();
+      const signal = generation.controller.signal;
       let pin: LocalWorkspaceRootPin | undefined;
       try {
         const canonicalPath = await validateSelectedDirectory(path);
@@ -157,15 +205,14 @@ export class LocalWorkspaceService {
         stage = "identity";
         await this.assertIdentity(pin, gitMetadataIdentity);
         stage = "persistence";
-        const previous = await this.workspaceGrants.read();
+        const previous = (await this.workspaceGrants.list()).find((value) =>
+          value.version === 2 && value.gitMetadataIdentity === gitMetadataIdentity);
         this.assertGeneration(generation);
-        const workspaceId =
-          previous?.version === 2 &&
-          previous.gitMetadataIdentity === gitMetadataIdentity
-            ? previous.grant.workspaceId
-            : WorkspaceIdSchema.parse(
-                workspaceIdFromExternalId(`local-${randomUUID()}`),
-              );
+        const knownWorkspaceId = await this.workspaceGrants.findKnownWorkspaceId(gitMetadataIdentity);
+        this.assertGeneration(generation);
+        const workspaceId = previous?.grant.workspaceId ?? knownWorkspaceId ?? WorkspaceIdSchema.parse(
+          workspaceIdFromExternalId(`local-${randomUUID()}`),
+        );
         const grant = buildGrant(repoRoot, probe, workspaceId);
         const stored: Extract<StoredLocalWorkspaceGrant, { version: 2 }> = {
           version: 2,
@@ -176,22 +223,24 @@ export class LocalWorkspaceService {
         this.assertGeneration(generation);
         this.assertProbingAvailable();
         signal.throwIfAborted();
+        if ((this.revokedAt.get(workspaceId) ?? 0) > startedAt)
+          throw new Error("Workspace was revoked during grant acquisition");
+        this.invalidateExecutionBindings(workspaceId);
+        const publishedGeneration = this.generationFor(workspaceId);
         await this.workspaceGrants.write(stored);
         stage = "final_validation";
         await pin.assertPathCurrent();
+        this.assertGeneration(publishedGeneration);
+        publishedGeneration.controller.signal.throwIfAborted();
         this.assertGeneration(generation);
         this.assertProbingAvailable();
         signal.throwIfAborted();
         return grant;
       } finally {
         try {
-          try {
-            if (pin && !pin.quarantined) await pin.close();
-          } catch (error) {
-            throw workspaceGrantFailure(error, "cleanup");
-          }
-        } finally {
-          if (generation === this.generation) this.transitioning = false;
+          if (pin && !pin.quarantined) await pin.close();
+        } catch (error) {
+          throw workspaceGrantFailure(error, "cleanup");
         }
       }
     } catch (error) {
@@ -199,29 +248,34 @@ export class LocalWorkspaceService {
     }
   }
 
-  async revoke(): Promise<void> {
-    const generation = this.invalidateExecutionBindings();
-    this.transitioning = true;
-    try { await this.workspaceGrants.clear(); } finally {
-      if (generation === this.generation) this.transitioning = false;
+  async revoke(workspaceId?: WorkspaceId): Promise<void> {
+    if (workspaceId !== undefined) {
+      const id = WorkspaceIdSchema.parse(workspaceId);
+      this.revokedAt.set(id, ++this.mutationSequence);
+      this.invalidateExecutionBindings(id);
+      await this.workspaceGrants.clear(id);
+      return;
     }
+    const stored = await this.workspaceGrants.read();
+    if (!stored) return;
+    this.revokedAt.set(stored.grant.workspaceId, ++this.mutationSequence);
+    this.invalidateExecutionBindings(stored.grant.workspaceId);
+    await this.workspaceGrants.clear(stored.grant.workspaceId);
   }
 
   async bindForExecution(
     workspaceId: WorkspaceId,
   ): Promise<LocalWorkspaceExecutionBinding> {
     this.assertProbingAvailable();
-    if (this.transitioning)
-      throw new Error("Local workspace grant is changing");
-    const generation = this.generation;
-    const signal = this.executionController.signal;
-    const stored = await this.workspaceGrants.read();
+    const generation = this.generationFor(workspaceId);
+    const signal = generation.controller.signal;
+    const stored = await this.workspaceGrants.read(workspaceId);
     this.assertGeneration(generation);
     if (!stored || stored.grant.workspaceId !== workspaceId) {
       throw new Error("Workspace is not granted for local execution");
     }
     if (stored.version !== 2 || stored.grant.readiness !== "ready") {
-      this.executionController.abort("Explicit workspace regrant is required");
+      generation.controller.abort("Explicit workspace regrant is required");
       throw new Error("Explicit workspace regrant is required");
     }
     const pin = await (async () => {
@@ -274,14 +328,13 @@ export class LocalWorkspaceService {
           return layout;
         },
         withRootAuthority: pin.withRootAuthority,
-        generation,
+        generation: generation.value,
         signal,
         close: () => pin.close(),
         assertSettlementCurrent: () => pin.assertSettlementCurrent(),
         assertCurrent: () => {
           pin.assertCurrent();
-          if (this.transitioning)
-            throw new Error("Local workspace grant is changing");
+          this.assertGeneration(generation);
         },
       });
     } catch (error) {
@@ -294,9 +347,9 @@ export class LocalWorkspaceService {
   async requireExecutionGrant(
     workspaceId: WorkspaceId,
   ): Promise<Extract<StoredLocalWorkspaceGrant, { version: 2 }>> {
-    const generation = this.generation;
-    const signal = this.executionController.signal;
-    const stored = await this.workspaceGrants.read();
+    const generation = this.generationFor(workspaceId);
+    const signal = generation.controller.signal;
+    const stored = await this.workspaceGrants.read(workspaceId);
     this.assertGeneration(generation);
     if (
       !stored ||
@@ -304,7 +357,7 @@ export class LocalWorkspaceService {
       stored.grant.workspaceId !== workspaceId
     ) {
       if (stored?.version === 1)
-        this.executionController.abort(
+        generation.controller.abort(
           "Explicit workspace regrant is required",
         );
       throw new Error("The local workspace requires explicit regrant");
@@ -321,10 +374,10 @@ export class LocalWorkspaceService {
 
   private async assertStoredGrantCurrent(
     stored: Extract<StoredLocalWorkspaceGrant, { version: 2 }>,
-    generation: number,
+    generation: WorkspaceGeneration,
     signal: AbortSignal,
   ): Promise<void> {
-    const current = await this.workspaceGrants.read();
+    const current = await this.workspaceGrants.read(stored.grant.workspaceId);
     this.assertGeneration(generation);
     this.assertProbingAvailable();
     signal.throwIfAborted();
@@ -341,27 +394,47 @@ export class LocalWorkspaceService {
     }
   }
 
-  private invalidateExecutionBindings(): number {
-    this.generation += 1;
-    this.executionController.abort("Local workspace grant changed");
-    this.executionController = new AbortController();
-    return this.generation;
+  private generationFor(workspaceId: WorkspaceId): WorkspaceGeneration {
+    let generation = this.generations.get(workspaceId);
+    if (!generation) {
+      generation = { value: 0, controller: new AbortController(), current: true };
+      this.generations.set(workspaceId, generation);
+    }
+    return generation;
   }
 
-  private assertGeneration(generation: number): void {
-    if (generation !== this.generation) throw new Error("Local workspace grant changed during the operation");
+  private invalidateExecutionBindings(workspaceId: WorkspaceId): void {
+    const previous = this.generationFor(workspaceId);
+    previous.current = false;
+    previous.controller.abort("Local workspace grant changed");
+    this.generations.set(workspaceId, { value: previous.value + 1, controller: new AbortController(), current: true });
+  }
+
+  private invalidateAcquisition(): WorkspaceGeneration {
+    this.acquisition.current = false;
+    this.acquisition.controller.abort("Local workspace acquisition changed");
+    return this.acquisition = { value: this.acquisition.value + 1, controller: new AbortController(), current: true };
+  }
+
+  private abortAllBindings(reason: string): void {
+    this.acquisition.controller.abort(reason);
+    for (const generation of this.generations.values()) generation.controller.abort(reason);
+  }
+
+  private assertGeneration(generation: WorkspaceGeneration): void {
+    if (!generation.current) throw new Error("Local workspace grant changed during the operation");
   }
 
   private async verifyStoredGrant(
     stored: StoredLocalWorkspaceGrant,
-    generation: number,
+    generation: WorkspaceGeneration,
     signal: AbortSignal,
     pin?: LocalWorkspaceRootPin,
     projection: "physical" | "git" = "git",
   ): Promise<LocalWorkspaceGrant> {
     if (stored.version !== 2 || stored.grant.readiness !== "ready") {
-      if (generation === this.generation)
-        this.executionController.abort(
+      if (generation.current)
+        generation.controller.abort(
           "Explicit workspace regrant is required",
         );
       return invalidGrant(
@@ -460,14 +533,14 @@ export class LocalWorkspaceService {
 
   private async requireRegrant(
     stored: Extract<StoredLocalWorkspaceGrant, { version: 2 }>,
-    generation: number,
+    generation: WorkspaceGeneration,
     reason: string,
   ): Promise<LocalWorkspaceGrant> {
     const invalid = invalidGrant(stored.grant, reason);
-    if (generation === this.generation) {
+    if (generation.current) {
       // Do not close old pins: authorized settlement retains its original directory object.
-      this.executionController.abort(reason);
-      await this.workspaceGrants.write({ ...stored, grant: invalid });
+      generation.controller.abort(reason);
+      await this.workspaceGrants.write({ ...stored, grant: invalid }, false);
     }
     return invalid;
   }
@@ -480,7 +553,7 @@ export class LocalWorkspaceService {
     if (this.hasUnsettledResources) throw new Error("Repository probing is quarantined until host restart");
   }
 
-  private async openRootPin(path: string, generation: number, signal: AbortSignal): Promise<LocalWorkspaceRootPin> {
+  private async openRootPin(path: string, generation: WorkspaceGeneration, signal: AbortSignal): Promise<LocalWorkspaceRootPin> {
     this.assertProbingAvailable();
     this.assertGeneration(generation);
     signal.throwIfAborted();
@@ -497,7 +570,7 @@ export class LocalWorkspaceService {
         () => { this.assertProbingAvailable(); this.assertGeneration(generation); },
         (unknownPin) => {
           this.quarantinedPins.add(unknownPin);
-          this.executionController.abort("Repository probe closure was not proved");
+          this.abortAllBindings("Repository probe closure was not proved");
         });
       await pin.assertPathCurrent();
       return pin;
@@ -508,7 +581,7 @@ export class LocalWorkspaceService {
         try { await rootDirectory.close(); }
         catch (closeError) {
           this.quarantinedHandles.add(rootDirectory);
-          this.executionController.abort("Workspace descriptor closure was not proved");
+          this.abortAllBindings("Workspace descriptor closure was not proved");
           throw closeError;
         }
       }
@@ -516,7 +589,7 @@ export class LocalWorkspaceService {
     }
   }
 
-  private async readRepository(path: string, generation: number, signal: AbortSignal, suppliedPin?: LocalWorkspaceRootPin) {
+  private async readRepository(path: string, generation: WorkspaceGeneration, signal: AbortSignal, suppliedPin?: LocalWorkspaceRootPin) {
     const pin = suppliedPin ?? await this.openRootPin(path, generation, signal);
     try {
       pin.assertCurrent();

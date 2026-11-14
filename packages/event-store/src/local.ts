@@ -3,6 +3,8 @@ import { platformFingerprint } from "./local-platform-fingerprint.js";
 import { LocalThreadInputRepository, type LocalQueuedInputStart } from "./thread-inputs/LocalThreadInputRepository.js";
 import { ThreadInputConflictError } from "./thread-inputs/errors.js";
 import type { ThreadInputRepository } from "./thread-inputs/types.js";
+import { LocalWorkspaceProjectRecords } from "./local-workspace-projects.js";
+import { LocalWorkspaceGrantRecords } from "./local-workspace-grants.js";
 import { parseStoredGrant, type StoredLocalWorkspaceGrant } from "./local-workspace-grant.js";
 export type { StoredLocalWorkspaceGrant } from "./local-workspace-grant.js";
 import type { LocalThreadRuntimeScope, LocalThreadRuntimeSummary } from "./local-thread-runtime-summary.js";
@@ -28,6 +30,7 @@ import {
   type ProviderId,
   type UserId,
   type WorkspaceId,
+  type LocalWorkspaceProject,
 } from "@repo/platform-protocol";
 import {
   LifecycleEventSchema,
@@ -53,7 +56,10 @@ import type {
 } from "./lifecycle-types.js";
 
 const DATABASE_NAME = "local-events.sqlite";
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
+function supportedSchemaVersion(value: string | undefined): boolean {
+  return value === "1" || value === String(SCHEMA_VERSION);
+}
 const MAX_REPLAY_LIMIT = 1_000;
 const PROVIDER_SELECTION_METADATA_KEY = "provider_selection_v1";
 const ProviderSelectionSchema = z.object({
@@ -112,7 +118,9 @@ export class LocalPersistence {
   readonly readThreadUserHistory: (input: LocalThreadUserHistoryInput) => Promise<LocalThreadUserHistoryPage>;
   readonly turnArtifacts: ReturnType<typeof createLocalTurnArtifactStore>;
   readonly turnAdmissions: {
-    admit(candidate: TurnAdmission): Promise<{ admission: TurnAdmission; newlyAdmitted: boolean }>;
+    admit(candidate: TurnAdmission, credentialAcquisition?: Parameters<LocalTurnAdmissions["admit"]>[1]): Promise<{ admission: TurnAdmission; newlyAdmitted: boolean }>;
+    readCredentialAcquisition: (...args: Parameters<LocalTurnAdmissions["readCredentialAcquisition"]>) => Promise<Awaited<ReturnType<LocalTurnAdmissions["readCredentialAcquisition"]>>>;
+    matchesCredentialAcquisition: (...args: Parameters<LocalTurnAdmissions["matchesCredentialAcquisition"]>) => Promise<Awaited<ReturnType<LocalTurnAdmissions["matchesCredentialAcquisition"]>>>;
     findByRequest(threadId: string, clientRequestId: string): Promise<TurnAdmission | null>;
     getByTurn(turnId: string): Promise<TurnAdmission | null>;
     readThreadSummary(scope: LocalThreadRuntimeScope): Promise<LocalThreadRuntimeSummary | null>;
@@ -124,9 +132,16 @@ export class LocalPersistence {
     }>;
   };
   readonly workspaceGrants: {
-    read(): Promise<StoredLocalWorkspaceGrant | null>;
-    write(value: StoredLocalWorkspaceGrant): Promise<void>;
-    clear(): Promise<void>;
+    read(workspaceId?: WorkspaceId): Promise<StoredLocalWorkspaceGrant | null>;
+    list(): Promise<readonly StoredLocalWorkspaceGrant[]>;
+    write(value: StoredLocalWorkspaceGrant, select?: boolean): Promise<void>;
+    select(workspaceId: WorkspaceId): Promise<void>;
+    clear(workspaceId?: WorkspaceId): Promise<void>;
+    listProjects(): Promise<LocalWorkspaceProject[]>;
+    findKnownWorkspaceId(gitMetadataIdentity: string): Promise<WorkspaceId | null>;
+    rememberValidatedCurrent(value: Extract<StoredLocalWorkspaceGrant, { version: 2 }>): Promise<void>;
+    rememberUnlinked(workspaceIds: readonly WorkspaceId[]): Promise<void>;
+    hideProject(workspaceId: WorkspaceId): Promise<void>;
   };
   readonly providerSelection: {
     read(): Promise<{ readonly providerId: ProviderId; readonly modelId: string } | null>;
@@ -218,7 +233,9 @@ export class LocalPersistence {
         listAcceptedForTurn: (input) => this.guardThreadInputStorage(() => inputs.listAcceptedForTurn(input)),
       };
       this.turnAdmissions = {
-        admit: async (candidate) => this.guardStorage(() => admissions.admit(candidate)),
+        admit: async (candidate, credentialAcquisition) => this.guardStorage(() => admissions.admit(candidate, credentialAcquisition)),
+        readCredentialAcquisition: async (scope) => this.guardStorage(() => admissions.readCredentialAcquisition(scope)),
+        matchesCredentialAcquisition: async (scope, expected) => this.guardStorage(() => admissions.matchesCredentialAcquisition(scope, expected)),
         findByRequest: async (threadId, requestId) => this.guardStorage(() => admissions.findByRequest(threadId, requestId)),
         getByTurn: async (turnId) => this.guardStorage(() => admissions.getByTurn(turnId)),
         readThreadSummary: async (scope) => this.guardStorage(() => admissions.readThreadSummary(scope)),
@@ -260,9 +277,28 @@ export class LocalPersistence {
       replay: async (input) => this.replayLifecycle(input),
     };
     this.workspaceGrants = {
-      read: async () => this.readWorkspaceGrant(),
-      write: async (value) => this.writeWorkspaceGrant(value),
-      clear: async () => this.clearWorkspaceGrant(),
+      read: async (workspaceId) => this.guardStorage(() => new LocalWorkspaceGrantRecords(this.database).read(workspaceId)),
+      list: async () => this.guardStorage(() => new LocalWorkspaceGrantRecords(this.database).list()),
+      write: async (value, select) => this.guardStorage(() => new LocalWorkspaceGrantRecords(this.database).write(value, select)),
+      select: async (workspaceId) => this.guardStorage(() => new LocalWorkspaceGrantRecords(this.database).select(workspaceId)),
+      clear: async (workspaceId) => this.guardStorage(() => new LocalWorkspaceGrantRecords(this.database).clear(workspaceId)),
+      listProjects: async () => this.guardStorage(() => new LocalWorkspaceProjectRecords(this.database).list()),
+      findKnownWorkspaceId: async (identity) => this.guardStorage(() => new LocalWorkspaceProjectRecords(this.database).findWorkspaceId(identity)),
+      rememberValidatedCurrent: async (value) => this.guardStorage(() => this.database.transaction(() => {
+        const current = new LocalWorkspaceGrantRecords(this.database).read(value.grant.workspaceId);
+        if (current?.version !== 2 || current.grant.readiness !== "ready" || current.path !== value.path ||
+            current.gitMetadataIdentity !== value.gitMetadataIdentity || current.grant.grantedAt !== value.grant.grantedAt)
+          throw new Error("Workspace grant changed before project association was retained");
+        new LocalWorkspaceProjectRecords(this.database).rememberValidated(value.grant, value.gitMetadataIdentity);
+      }).immediate()),
+      rememberUnlinked: async (workspaceIds) => this.guardStorage(() => this.database.transaction(() => {
+        new LocalWorkspaceProjectRecords(this.database).rememberUnlinked(workspaceIds);
+      }).immediate()),
+      hideProject: async (workspaceId) => this.guardStorage(() => this.database.transaction(() => {
+        if (new LocalWorkspaceGrantRecords(this.database).read(workspaceId))
+          throw new Error("Revoke workspace access before hiding its project");
+        new LocalWorkspaceProjectRecords(this.database).hide(workspaceId);
+      }).immediate()),
     };
     this.providerSelection = {
       read: async () => this.readProviderSelection(),
@@ -318,7 +354,7 @@ export class LocalPersistence {
         throw new LocalPersistenceError("corrupt", "Local database schema is incomplete");
       }
       const schemaVersion = this.database.prepare("SELECT value FROM metadata WHERE key = 'schema_version'").get() as { value: string } | undefined;
-      if (schemaVersion && schemaVersion.value !== String(SCHEMA_VERSION)) {
+      if (schemaVersion && !supportedSchemaVersion(schemaVersion.value)) {
         throw new LocalPersistenceError("corrupt", "Local database schema version is unsupported");
       }
       const marker = this.database.prepare("SELECT value FROM metadata WHERE key = 'legacy_migration_complete'").get() as { value: string } | undefined;
@@ -360,12 +396,13 @@ export class LocalPersistence {
 
   private migrateOrValidate(): void {
     const version = this.database.prepare("SELECT value FROM metadata WHERE key = 'schema_version'").get() as { value: string } | undefined;
-    if (version && version.value !== String(SCHEMA_VERSION)) {
+    if (version && !supportedSchemaVersion(version.value)) {
       throw corruptStore("Local database schema version is unsupported");
     }
     const marker = this.database.prepare("SELECT value FROM metadata WHERE key = 'legacy_migration_complete'").get() as { value: string } | undefined;
     if (marker) {
       if (marker.value !== "1") throw corruptStore("Local migration marker is invalid");
+      this.migrateRetainedWorkspaceGrants();
       return;
     }
     if (this.hasArchivedMigrationEvidence()) {
@@ -385,8 +422,9 @@ export class LocalPersistence {
           .run(JSON.stringify(storedGrant));
       }
       this.database.prepare("INSERT INTO metadata(key, value) VALUES ('schema_version', ?)")
-        .run(String(SCHEMA_VERSION));
+        .run("1");
       this.database.prepare("INSERT INTO metadata(key, value) VALUES ('legacy_migration_complete', '1')").run();
+      this.migrateRetainedWorkspaceGrants();
     }).exclusive();
   }
 
@@ -618,27 +656,39 @@ export class LocalPersistence {
     });
   }
 
-  private readWorkspaceGrant(): StoredLocalWorkspaceGrant | null {
-    return this.guardStorage(() => {
+  private migrateRetainedWorkspaceGrants(): void {
+    const version = this.database.prepare("SELECT value FROM metadata WHERE key = 'schema_version'").get() as { value: string };
+    if (version.value === String(SCHEMA_VERSION)) return;
+    if (version.value !== "1") throw corruptStore("Local database schema version is unsupported");
+    this.database.transaction(() => {
       const row = this.database.prepare("SELECT value_json FROM workspace_grant WHERE id = 1").get() as { value_json: string } | undefined;
-      if (!row) return null;
-      try { return parseStoredGrant(JSON.parse(row.value_json)); }
-      catch { throw corruptStore("Stored workspace grant is invalid"); }
-    });
+      const grant = row ? parseStoredGrant(JSON.parse(row.value_json)) : null;
+      this.database.exec(`ALTER TABLE workspace_grant RENAME TO workspace_grant_v1;
+        CREATE TABLE workspace_grant (workspace_id TEXT PRIMARY KEY NOT NULL, value_json TEXT NOT NULL);`);
+      if (grant && row) {
+        this.database.prepare("INSERT INTO workspace_grant(workspace_id, value_json) VALUES (?, ?)").run(grant.grant.workspaceId, row.value_json);
+        this.database.prepare("INSERT INTO metadata(key, value) VALUES ('selected_workspace_id_v1', ?)").run(grant.grant.workspaceId);
+      }
+      this.ensureAdmissionCredentialColumn();
+      this.database.exec("DROP TABLE workspace_grant_v1");
+      this.database.prepare("UPDATE metadata SET value = ? WHERE key = 'schema_version'").run(String(SCHEMA_VERSION));
+    }).immediate();
   }
 
-  private writeWorkspaceGrant(value: StoredLocalWorkspaceGrant): void {
-    let parsed: StoredLocalWorkspaceGrant;
-    try { parsed = parseStoredGrant(value); }
-    catch { throw corruptStore("Workspace grant is invalid"); }
-    this.guardStorage(() => this.database.transaction(() => {
-      this.database.prepare(`INSERT INTO workspace_grant(id, value_json) VALUES (1, ?)
-        ON CONFLICT(id) DO UPDATE SET value_json = excluded.value_json`).run(JSON.stringify(parsed));
-    }).immediate());
+  private ensureAdmissionCredentialColumn(): void {
+    if (this.validateAdmissionCredentialColumn(false) === false)
+      this.database.exec("ALTER TABLE turn_admissions ADD COLUMN credential_acquisition_json TEXT");
   }
 
-  private clearWorkspaceGrant(): void {
-    this.guardStorage(() => this.database.transaction(() => this.database.prepare("DELETE FROM workspace_grant WHERE id = 1").run()).immediate());
+  /** Undefined means the admission owner has not initialized its table yet. */
+  private validateAdmissionCredentialColumn(required: boolean): boolean | undefined {
+    const table = this.database.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'turn_admissions'").get();
+    if (!table) return undefined;
+    const columns = this.database.pragma("table_info(turn_admissions)") as { name: string; type: string; notnull: number; pk: number; dflt_value: unknown }[];
+    const column = columns.find(({ name }) => name === "credential_acquisition_json");
+    if ((!column && required) || (column && (column.type.toUpperCase() !== "TEXT" || column.notnull !== 0 || column.pk !== 0 || column.dflt_value !== null)))
+      throw corruptStore("Private admission credential column is incompatible");
+    return column !== undefined;
   }
 
   private readProviderSelection(): { readonly providerId: ProviderId; readonly modelId: string } | null {
@@ -715,9 +765,11 @@ export class LocalPersistence {
     if (result.length !== 1 || result[0]?.quick_check !== "ok") throw corruptStore("Local database integrity check failed");
     const marker = this.database.prepare("SELECT value FROM metadata WHERE key = 'legacy_migration_complete'").get() as { value: string } | undefined;
     const version = this.database.prepare("SELECT value FROM metadata WHERE key = 'schema_version'").get() as { value: string } | undefined;
-    if (marker?.value !== "1" || version?.value !== String(SCHEMA_VERSION)) throw corruptStore("Local database metadata is invalid");
+    if (marker?.value !== "1" || !supportedSchemaVersion(version?.value)) throw corruptStore("Local database metadata is invalid");
     this.assertRequiredIndexes();
     this.validateProviderSelectionMetadata();
+    new LocalWorkspaceProjectRecords(this.database).list();
+    this.validateAdmissionCredentialColumn(version?.value === String(SCHEMA_VERSION));
     validateLocalTurnArtifacts(this.database);
 
     const rows = this.database.prepare(`
@@ -725,7 +777,7 @@ export class LocalPersistence {
         stream_type, stream_id, sequence, cursor, idempotency_key
       FROM events ORDER BY insertion_order
     `).all() as EventRow[];
-    if (this.database.prepare("SELECT 1 FROM workspace_grant WHERE id != 1 LIMIT 1").get()) {
+    if (version?.value === "1" && this.database.prepare("SELECT 1 FROM workspace_grant WHERE id != 1 LIMIT 1").get()) {
       throw corruptStore("Stored workspace grant identity is invalid");
     }
     const platformSequence = new Map<string, number>();
@@ -761,7 +813,17 @@ export class LocalPersistence {
         throw corruptStore("Local event family is invalid");
       }
     }
-    this.readWorkspaceGrant();
+    if (version?.value === "1") {
+      const row = this.database.prepare("SELECT value_json FROM workspace_grant WHERE id = 1").get() as { value_json: string } | undefined;
+      if (row) {
+        try { parseStoredGrant(JSON.parse(row.value_json)); }
+        catch { throw corruptStore("Stored workspace grant is invalid"); }
+      }
+      if (this.database.prepare("SELECT 1 FROM metadata WHERE key = 'selected_workspace_id_v1'").get())
+        throw corruptStore("Legacy workspace selection is incompatible");
+    } else {
+      new LocalWorkspaceGrantRecords(this.database).validate();
+    }
   }
 
   private validateProviderSelectionMetadata(): void {
@@ -807,20 +869,26 @@ export class LocalPersistence {
   private assertRequiredTableKeys(): void {
     const metadata = this.database.pragma("table_info(metadata)") as { name: string; type: string; pk: number }[];
     const events = this.database.pragma("table_info(events)") as { name: string; type: string; pk: number }[];
-    const grants = this.database.pragma("table_info(workspace_grant)") as { name: string; type: string; pk: number }[];
+    const grants = this.database.pragma("table_info(workspace_grant)") as { name: string; type: string; pk: number; notnull: number }[];
     const metadataKey = metadata.find(({ name }) => name === "key");
     const eventOrder = events.find(({ name }) => name === "insertion_order");
-    const grantId = grants.find(({ name }) => name === "id");
+    const version = this.database.prepare("SELECT value FROM metadata WHERE key = 'schema_version'").get() as { value: string } | undefined;
+    const legacy = version?.value !== String(SCHEMA_VERSION);
+    const grantId = grants.find(({ name }) => name === (legacy ? "id" : "workspace_id"));
     const eventIndexes = this.database.pragma("index_list(events)") as { origin: string }[];
     const grantIndexes = this.database.pragma("index_list(workspace_grant)") as { origin: string }[];
     if (metadataKey?.type.toUpperCase() !== "TEXT" || metadataKey.pk !== 1
       || metadata.filter(({ pk }) => pk > 0).length !== 1
       || eventOrder?.type.toUpperCase() !== "INTEGER" || eventOrder.pk !== 1
       || events.filter(({ pk }) => pk > 0).length !== 1
-      || grantId?.type.toUpperCase() !== "INTEGER" || grantId.pk !== 1
+      || grantId?.type.toUpperCase() !== (legacy ? "INTEGER" : "TEXT") || grantId.pk !== 1
       || grants.filter(({ pk }) => pk > 0).length !== 1
       || eventIndexes.some(({ origin }) => origin === "pk")
-      || grantIndexes.some(({ origin }) => origin === "pk")) {
+      || (legacy && grantIndexes.some(({ origin }) => origin === "pk"))
+      || grants.length !== 2
+      || grants.find(({ name }) => name === "value_json")?.type.toUpperCase() !== "TEXT"
+      || grants.find(({ name }) => name === "value_json")?.notnull !== 1
+      || (!legacy && grantId.notnull !== 1)) {
       throw corruptStore("Local database primary keys are incompatible");
     }
   }
@@ -842,7 +910,7 @@ export class LocalPersistence {
     try {
       const version = this.database.prepare("SELECT value FROM metadata WHERE key = 'schema_version'").get() as { value: string } | undefined;
       const marker = this.database.prepare("SELECT value FROM metadata WHERE key = 'legacy_migration_complete'").get() as { value: string } | undefined;
-      if (version?.value !== String(SCHEMA_VERSION) || marker?.value !== "1") {
+      if (!supportedSchemaVersion(version?.value) || marker?.value !== "1") {
         throw new Error("missing migration marker");
       }
     } catch {
@@ -864,14 +932,14 @@ export class LocalPersistence {
       throw corruptStore("Local database schema is incomplete");
     }
     const version = this.database.prepare("SELECT value FROM metadata WHERE key = 'schema_version'").get() as { value: string } | undefined;
-    if (version && version.value !== String(SCHEMA_VERSION)) {
+    if (version && !supportedSchemaVersion(version.value)) {
       throw corruptStore("Local database schema version is unsupported");
     }
     this.assertRequiredIndexes();
     this.validateProviderSelectionMetadata();
     const marker = this.database.prepare("SELECT value FROM metadata WHERE key = 'legacy_migration_complete'").get() as { value: string } | undefined;
     if (marker) {
-      if (marker.value !== "1" || version?.value !== String(SCHEMA_VERSION)) {
+      if (marker.value !== "1" || !supportedSchemaVersion(version?.value)) {
         throw corruptStore("Local database metadata is invalid");
       }
       this.validateDatabase();

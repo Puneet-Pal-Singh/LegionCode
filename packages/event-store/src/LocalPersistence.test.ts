@@ -251,7 +251,7 @@ describe("LocalPersistence", () => {
     const columns = db.pragma("table_info(turn_admissions)") as { name: string }[];
     expect(columns.map(({ name }) => name).sort()).toEqual([
       "thread_id", "request_id", "workspace_id", "run_id", "turn_id", "run_attempt_id", "item_id", "fingerprint",
-      "run_event_id", "turn_event_id", "prompt_event_id",
+      "run_event_id", "turn_event_id", "prompt_event_id", "credential_acquisition_json",
     ].sort());
     db.prepare("UPDATE turn_admissions SET run_event_id = 'evt_missingreference' WHERE turn_id = ?").run(candidate.turn.id);
     db.close();
@@ -389,7 +389,7 @@ describe("LocalPersistence", () => {
     const databasePath = join(persistenceDirectory(persistence), "local-events.sqlite");
     persistence.close();
     const database = new Database(databasePath);
-    database.prepare("UPDATE metadata SET value = '2' WHERE key = 'schema_version'").run();
+    database.prepare("UPDATE metadata SET value = '3' WHERE key = 'schema_version'").run();
     database.close();
     const bytes = readFileSync(databasePath);
     expect(() => openPersistence(persistenceDirectory(persistence))).toThrow(LocalPersistenceError);
@@ -426,7 +426,7 @@ describe("LocalPersistence", () => {
     persistence.close();
     const database = new Database(databasePath);
     database.pragma("ignore_check_constraints = ON");
-    database.prepare("INSERT INTO workspace_grant(id, value_json) VALUES (2, ?)")
+    database.prepare("INSERT INTO workspace_grant(workspace_id, value_json) VALUES ('wrk_unexpected', ?)")
       .run(JSON.stringify({ version: 1, path: "/tmp/other", grant: {} }));
     database.close();
     expect(() => openPersistence(persistenceDirectory(persistence))).toThrow(LocalPersistenceError);

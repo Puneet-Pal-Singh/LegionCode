@@ -93,7 +93,9 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
     });
     const threadService = new LocalThreadService({
       events: persistence.events,
-      getWorkspace: () => workspaceService.getAuthorizedCurrent(),
+      getWorkspace: (workspaceId) => workspaceId === undefined
+        ? workspaceService.getAuthorizedCurrent()
+        : workspaceService.getAuthorized(workspaceId),
       readRuntimeSummary: persistence.turnAdmissions.readThreadSummary,
     });
     const providerService = new LocalProviderService({
@@ -101,7 +103,9 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
       modelCatalog: options?.providerModelCatalog,
     });
     const providerPreferences = new LocalProviderPreferences({
-      getWorkspace: () => workspaceService.getAuthorizedCurrent(),
+      getWorkspace: (workspaceId) => workspaceId === undefined
+        ? workspaceService.getAuthorizedCurrent()
+        : workspaceService.getAuthorized(workspaceId),
       store: persistence.providerPreferences,
       providers: providerService,
     });
@@ -143,10 +147,17 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
     const server = createServer((request, response) => {
       void requests.track(() => handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, workspaceGitReads, turnService, providerPreferences, artifactReads, imageReads, artifactCommits, threadInputs, () => requests.stopping));
     });
-    return attachLocalServerShutdown(
+    const owner = attachLocalServerShutdown(
       server, persistence, combineLocalShutdownOwners(turnService, artifactCommits, workspaceGitReads, requests),
       () => workspaceService.hasUnsettledResources,
     );
+    // Attach the actual shutdown owner before invoking metadata recovery. Its
+    // original promise must not enter the construction catch's direct close.
+    const localTitleInitialization = Promise.resolve().then(() => turnService?.initializeTitles());
+    void localTitleInitialization.catch(() => undefined);
+    return Object.defineProperty(owner, "localTitleInitialization", {
+      value: localTitleInitialization, enumerable: false,
+    }) as typeof owner & { readonly localTitleInitialization: Promise<void> };
   } catch (error) {
     persistence.close();
     throw error;
@@ -170,11 +181,15 @@ export async function runLocalAppServerProcess(
   let finalExitCode = 0;
   let stopRequested = false;
   let exitAfterClosed: Promise<void> | undefined;
+  // Metadata recovery can wait without a listener. Retain process liveness
+  // until actual listening or the existing owner's positive closed receipt.
+  const startupKeepAlive = setInterval(() => undefined, 1_000);
   const exitAfterSettlement = (exitCode: number): Promise<void> => {
     stopRequested = true;
     if (exitCode !== 0) finalExitCode = 1;
     const closed = server.requestShutdown();
     exitAfterClosed ??= closed.then(() => {
+      clearInterval(startupKeepAlive);
       // Physical closure receipt is separate from observing child process exit.
       try { parentPort.postMessage({ type: "closed" }); }
       finally { process.exit(finalExitCode); }
@@ -186,22 +201,35 @@ export async function runLocalAppServerProcess(
     exitAfterSettlement(1);
   });
   process.on("SIGTERM", () => exitAfterSettlement(0));
-  server.listen(0, "127.0.0.1", () => {
+  // Install and return private shutdown control while title initialization is
+  // pending; command readiness alone waits for the original recovery promise.
+  void startListening().catch(() => {
     if (stopRequested) return;
-    const address = server.address();
-    if (!address || typeof address === "string") {
-      postFatal();
-      exitAfterSettlement(1);
-      return;
-    }
-    try {
-      parentPort.postMessage({
-        type: "ready",
-        baseUrl: `http://127.0.0.1:${address.port}`,
-      });
-    } catch { void exitAfterSettlement(1); }
+    postFatal();
+    void exitAfterSettlement(1);
   });
   return { requestShutdown: () => exitAfterSettlement(0) };
+
+  async function startListening(): Promise<void> {
+    await server.localTitleInitialization;
+    if (stopRequested) return;
+    server.listen(0, "127.0.0.1", () => {
+      if (stopRequested) return;
+      clearInterval(startupKeepAlive);
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        postFatal();
+        exitAfterSettlement(1);
+        return;
+      }
+      try {
+        parentPort.postMessage({
+          type: "ready",
+          baseUrl: `http://127.0.0.1:${address.port}`,
+        });
+      } catch { void exitAfterSettlement(1); }
+    });
+  }
 
   function postFatal(reason?: "runtime-shutdown-failed"): void {
     try { parentPort.postMessage({ type: "fatal", ...(reason ? { reason } : {}) }); }

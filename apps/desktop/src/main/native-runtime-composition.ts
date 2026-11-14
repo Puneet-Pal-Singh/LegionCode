@@ -55,7 +55,7 @@ export async function createDesktopNativeComposition(
     createWorkspaceGitReadsService: (workspaces) => new LocalWorkspaceGitReads(async (workspaceId) => {
       const binding = await workspaces.bindForExecution(workspaceId);
       const authorizeResult = async () => {
-        const current = await workspaces.getAuthorizedCurrent();
+        const current = await workspaces.getAuthorized(binding.workspace.workspaceId);
         if (!current || current.readiness !== "ready" ||
             current.workspaceId !== binding.workspace.workspaceId ||
             current.grantedAt !== binding.workspace.grantedAt) {
@@ -121,7 +121,8 @@ export async function createDesktopNativeComposition(
         permissionProfileId: PermissionProfileIdSchema.parse("perm_localdesktop"),
         resolvePermissionPolicy: (productMode) => new NativePermissionPolicyResolver(productMode).resolve(),
         nativeFilesystemHelperPath: filesystemHelperPath,
-        resolveRuntimeCredential: credentials.resolveRuntimeCredential.bind(credentials),
+        captureRuntimeCredentialReference: credentials.captureRuntimeCredentialReference.bind(credentials),
+        acquireRuntimeCredential: credentials.acquireRuntimeCredential.bind(credentials),
         createGitService: (binding, turnSignal) => createLocalReadOnlyGitService({
           purpose: "repo_probe",
           probeRoot: binding.filesystemRoot,

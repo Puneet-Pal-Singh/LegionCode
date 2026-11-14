@@ -18,6 +18,9 @@ import {
   LifecycleEventSchema,
   ProtocolErrorSchema,
   ReplayLifecycleEventsResponseSchema,
+  NativeExecutionRecoveryProjectionSchema,
+  userIdFromExternalId,
+  workspaceIdFromExternalId,
   runIdFromTurnId,
 } from "@repo/platform-protocol";
 import { fetchRunRuntimeRoute } from "../../controllers/chat-runtime-helpers";
@@ -68,7 +71,24 @@ async function replay(
       path: `/lifecycle-events?${query.toString()}`,
       signal: request.signal,
     });
-    return await readRuntimeResponse(response, ReplayLifecycleEventsResponseSchema);
+    const replay = await readRuntimeResponse(response, ReplayLifecycleEventsResponseSchema);
+    if (params.backend !== undefined && params.backend !== "execution-engine-v1") return replay;
+    // The cookie principal and actual PG run/admission tuple own this projection.
+    // No private claim identity or physical-closure assertion crosses this DTO.
+    const admission = await withTurnAdmissionRepository(env, repository => repository.getByTurnId(params.turnId));
+    if (admission?.state !== "admitted" || admission.executionState !== "recovery_required" ||
+        admission.userId !== userId || admission.turnId !== params.turnId || admission.runId !== runId || !admission.workspaceId) return replay;
+    const run = await withRunRepository(env, repository => repository.getRun(runId, userId));
+    if (!run || run.sessionId !== admission.sessionId || !run.workspaceId ||
+        workspaceIdFromExternalId(run.workspaceId) !== workspaceIdFromExternalId(admission.workspaceId) ||
+        replay.events.some(event => event.threadId !== admission.threadId || event.turnId !== admission.turnId || event.runAttemptId !== admission.runAttemptId) ||
+        replay.events.some(event => event.type === "turn.completed" || event.type === "turn.failed" || event.type === "turn.interrupted")) return replay;
+    return { ...replay, recovery: NativeExecutionRecoveryProjectionSchema.parse({
+      state: "recovery_required", reason: "execution_owner_lost",
+      userId: userIdFromExternalId(admission.userId), workspaceId: workspaceIdFromExternalId(admission.workspaceId),
+      sessionId: admission.sessionId, runId: admission.runId, threadId: admission.threadId,
+      turnId: admission.turnId, runAttemptId: admission.runAttemptId,
+    }) };
   } catch (error) {
     throw mapLifecycleFailure(error);
   }

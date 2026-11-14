@@ -47,7 +47,7 @@ export function acceptLifecycleReplayPage(
   const events = page.events.filter((event) => state.accept(event));
   const lastSequence = state.lastSequence;
   if (page.events.length === 0 && page.nextSequence === null) {
-    return { events, nextSequence: null };
+    return { events, nextSequence: null, ...(page.recovery ? { recovery: page.recovery } : {}) };
   }
   if (
     page.events.length === 0 ||
@@ -64,7 +64,7 @@ export function acceptLifecycleReplayPage(
       page.nextSequence,
     );
   }
-  return { events, nextSequence: page.nextSequence };
+  return { events, nextSequence: page.nextSequence, ...(page.recovery ? { recovery: page.recovery } : {}) };
 }
 
 class DefaultLifecycleOrderingState implements LifecycleOrderingState {

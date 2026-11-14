@@ -134,6 +134,7 @@ describe("local App Server HTTP integration", () => {
     });
     const otherWorkspace = await fixture();
     await send(restartedUrl, "workspace/grant", { path: otherWorkspace.workspacePath });
+    await send(restartedUrl, "workspace/revoke", { workspaceId: completedAdmission.run.workspaceId });
     await expect(send(restartedUrl, "turn/lifecycleEvents", { turnId })).resolves.toMatchObject({
       ok: false, error: { code: "not_found" },
     });

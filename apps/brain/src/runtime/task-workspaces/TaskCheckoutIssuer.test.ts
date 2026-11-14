@@ -264,6 +264,7 @@ describe("TaskCheckoutIssuer", () => {
 
   it("releases only the acquired secure session when atomic issuance fails", async () => {
     const repository = createRepository();
+    repository.getByRunAttemptId.mockResolvedValue(null);
     repository.issueSnapshotCheckout.mockRejectedValueOnce(
       new Error("database unavailable"),
     );
@@ -290,10 +291,29 @@ describe("TaskCheckoutIssuer", () => {
       }),
     );
 
-    await expect(issuer.issue(payload())).rejects.toThrow(
+    const failureCleanup = vi.fn();
+    await expect(issuer.issue(payload(), { failureCleanup })).rejects.toThrow(
       "database unavailable",
     );
     expect(release).toHaveBeenCalledOnce();
+    // Neither a void release (including its HTTP404 path) nor checkout
+    // absence is the exact physical receipt needed to release admission.
+    expect(failureCleanup).not.toHaveBeenCalled();
+    failureCleanup.mockClear();
+    await expect(issuer.issue({ ...payload(), input: { ...payload().input, repositoryContext: undefined } }, { failureCleanup })).rejects.toMatchObject({ code: "TASK_CHECKOUT_INPUT_REQUIRED" });
+    expect(failureCleanup).toHaveBeenCalledTimes(1);
+    expect(failureCleanup).toHaveBeenCalledWith({ kind: "no_exposure" });
+
+    // A rejected acquire can have reached the remote owner. A successful no-op
+    // release after that rejection is not a positive cleanup receipt.
+    failureCleanup.mockClear();
+    const ambiguous = new TaskCheckoutIssuer({} as Env, { capture: async () => snapshot }, createRepository(), () => ({
+      acquire: async () => { throw new Error("acquire response lost"); },
+      recoverAfterSandboxLoss: async () => { throw new Error("not expected"); },
+      release: async () => undefined,
+    }));
+    await expect(ambiguous.issue(payload(), { failureCleanup })).rejects.toThrow("acquire response lost");
+    expect(failureCleanup).not.toHaveBeenCalled();
   });
 
   it("surfaces a typed capacity recovery failure when issuance compensation fails", async () => {
@@ -325,11 +345,13 @@ describe("TaskCheckoutIssuer", () => {
       }),
     );
 
-    await expect(issuer.issue(payload())).rejects.toMatchObject({
+    const failureCleanup = vi.fn();
+    await expect(issuer.issue(payload(), { failureCleanup })).rejects.toMatchObject({
       code: "TASK_CHECKOUT_COMPENSATION_FAILED",
       status: 503,
       retryable: true,
     });
+    expect(failureCleanup).not.toHaveBeenCalled();
   });
 });
 

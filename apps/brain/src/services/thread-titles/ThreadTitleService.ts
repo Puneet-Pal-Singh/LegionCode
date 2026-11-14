@@ -9,6 +9,7 @@ import type {
   PersistThreadTitleInput as PersistThreadTitleRepositoryInput,
   SessionRecord,
 } from "@repo/persistence";
+import type { PersistThreadTitleInput } from "@legioncode/app-server/thread-titles";
 import type { Env } from "../../types/ai";
 import { buildThreadTitlePreview } from "./ThreadTitlePreview";
 import { withThreadTitleRepository } from "./ThreadTitlePersistenceFactory";
@@ -19,19 +20,7 @@ type ThreadTitleEventInput = Extract<
   { type: "thread.title.updated" }
 >;
 
-export interface PersistThreadTitleInput {
-  sessionId: string;
-  threadId: string;
-  runId: string;
-  workspaceId: string;
-  userId: string;
-  firstMessageId: string;
-  title: string;
-  source: AutomatedThreadTitleSource;
-  titleStatus?: "pending" | "ready" | "failed";
-  expectedTitleVersion?: number;
-  initialOnly?: boolean;
-}
+export type { PersistThreadTitleInput } from "@legioncode/app-server/thread-titles";
 
 /**
  * Owns the server-side session projection and its matching canonical thread
