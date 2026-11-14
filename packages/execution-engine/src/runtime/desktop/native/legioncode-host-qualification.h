@@ -778,14 +778,17 @@ static inline xpc_object_t lc_host_reauthorization_request(int state, lc_host_ap
       strcmp(generation, approval->generation) || !lc_host_get(request, "configurationSHA256", configuration, sizeof(configuration)) ||
       !lc_host_unhex(configuration, decoded, 32) || memcmp(decoded, approval->manifest_sha256, 32))
     return lc_host_reply("unavailable", "reauthorizationIdentityChanged");
-  (void)lc_host_reauthorization_begin(state, approval, query, lc_host_reauthorization_qualification_entry);
-  if (job->used && job->phase != LC_QUAL_PASSED && job->phase != LC_QUAL_CANCELLED) {
-    job->cancel_requested = true;
-    if (job->phase == LC_QUAL_UNKNOWN) query->blocked = true;
-  }
-  for (size_t i = 0; i < LC_HOST_MAX_SCOPES; i++) {
-    if (!scopes[i].used || scopes[i].record.purpose != LC_HOST_RESOURCE_NATIVE || scopes[i].released) continue;
-    if (scopes[i].record.phase == LC_HOST_UNKNOWN || (!scopes[i].sealed && !lc_host_scope_seal(state, &scopes[i]))) query->blocked = true;
+  /* A failed durable deny transition keeps only its sticky in-memory deny.
+   * It cannot authorize cancellation, cleanup writes or a history scan. */
+  if (lc_host_reauthorization_begin(state, approval, query, lc_host_reauthorization_qualification_entry)) {
+    if (job->used && job->phase != LC_QUAL_PASSED && job->phase != LC_QUAL_CANCELLED) {
+      job->cancel_requested = true;
+      if (job->phase == LC_QUAL_UNKNOWN) query->blocked = true;
+    }
+    for (size_t i = 0; i < LC_HOST_MAX_SCOPES; i++) {
+      if (!scopes[i].used || scopes[i].record.purpose != LC_HOST_RESOURCE_NATIVE || scopes[i].released) continue;
+      if (scopes[i].record.phase == LC_HOST_UNKNOWN || (!scopes[i].sealed && !lc_host_scope_seal(state, &scopes[i]))) query->blocked = true;
+    }
   }
   const char *phase = query->blocked ? "reauthorizationBlocked" : query->ready ? "reauthorizationReady" : "reauthorizationPending";
   xpc_object_t reply = lc_host_reply(phase, query->blocked ? "reauthorizationRecoveryRequired" : "okay");
