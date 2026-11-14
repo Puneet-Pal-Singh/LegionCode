@@ -14,6 +14,7 @@ import type { Env } from "../../types/ai";
 import type {
   BYOKConnectRequest,
   BYOKConnectResponse,
+  BYOKDiscoveredProviderModel,
   BYOKDiscoveredProviderModelsQuery,
   BYOKDiscoveredProviderModelsRefreshResponse,
   BYOKDiscoveredProviderModelsResponse,
@@ -103,6 +104,17 @@ export class ProviderConfigService {
   async getCatalog(): Promise<ProviderCatalogResponse> {
     await this.ensureStorageReady();
     return this.getCatalogService().getCatalog();
+  }
+
+  /** Submission metadata lookup: no provider API, credentials or catalog enrichment. */
+  async getCachedModel(providerId: string, modelId: string): Promise<BYOKDiscoveredProviderModel | null> {
+    await this.ensureStorageReady();
+    const selected = ProviderIdSchema.parse(providerId);
+    if (selected === AXIS_PROVIDER_ID)
+      return getAxisDiscoveredModels().find(model => model.id === modelId) ?? null;
+    const cached = await this.options.modelCacheStore.getModelCache(selected);
+    if (!cached || cached.providerId !== selected || Date.parse(cached.expiresAt) <= Date.now() || !Number.isFinite(Date.parse(cached.expiresAt))) return null;
+    return cached.models.find(model => model.id === modelId) ?? null;
   }
 
   async getConnections(): Promise<ProviderConnectionsResponse> {

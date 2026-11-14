@@ -162,6 +162,7 @@ async function* replayPaged(
       limit,
     });
     const page = acceptLifecycleReplayPage(response, state);
+    if (page.recovery) input.options?.onLifecycleRecovery?.(page.recovery);
     for (const event of page.events) {
       yield event;
       if (isTerminalLifecycleEventType(event.type)) terminal = true;
@@ -190,6 +191,7 @@ async function* pollLiveEvents(
       input.options?.onLifecycleContinuationStatus?.("following");
 
       const page = acceptLifecycleReplayPage(response, state);
+      if (page.recovery) input.options?.onLifecycleRecovery?.(page.recovery);
       const hasNew = page.events.length > 0;
       for (const event of page.events) {
         yield event;

@@ -157,6 +157,7 @@ export interface PlatformClientOperationOptions {
   onChatSubmissionResponse?: (acknowledgement: HostedChatSubmissionResult & {
     httpStatus: number;
   }) => void;
+  onLifecycleRecovery?: (recovery: import("@repo/platform-protocol").NativeExecutionRecoveryProjection) => void;
   onLifecycleContinuationStatus?: (
     status: "replaying" | "following" | "reconnecting",
   ) => void;

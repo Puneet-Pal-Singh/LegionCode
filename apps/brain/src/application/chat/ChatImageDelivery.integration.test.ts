@@ -130,9 +130,12 @@ describe("authenticated image submission through native provider delivery", () =
     expect(resources.runEngineDeps.workspaceBootstrapper).toBeUndefined();
     expect(resources.artifacts).toBeUndefined();
     expect(await resolveSessionRepositoryContext({ env, sessionId, userId, workspaceId: identity.workspaceId })).toBeNull();
+    const preparationCleanup = vi.fn();
     await expect(prepareRuntimeExecutionResources({}, env, {
       ...first.executionPayload, input: { ...first.executionPayload.input, repositoryContext: { owner: "other", repo: "repo" } },
-    }, nativeCredentials)).rejects.toMatchObject({ code: "RUN_SCOPE_MISMATCH" });
+    }, nativeCredentials, preparationCleanup)).rejects.toMatchObject({ code: "RUN_SCOPE_MISMATCH" });
+    expect(preparationCleanup).toHaveBeenCalledTimes(1);
+    expect(preparationCleanup).toHaveBeenCalledWith({ kind: "no_exposure" });
     // Give this negative request its own consistent admission so the existing
     // transcript ownership check, rather than binding validation, rejects it.
     const otherOwnerBinding = NativeProviderBindingSchema.parse({

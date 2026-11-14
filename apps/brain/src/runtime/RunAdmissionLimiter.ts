@@ -30,6 +30,13 @@ const AcquireConcurrencyRequestSchema = z.object({
 
 const ReleaseConcurrencyRequestSchema = z.object({
   leaseId: z.string().min(1).max(256),
+  expectedGeneration: z.string().min(1).max(256).optional(),
+  expectedClaimId: z.union([z.string().min(1).max(256), z.null()]).optional(),
+});
+const ClaimConcurrencyRequestSchema = z.object({
+  leaseId: z.string().min(1).max(256),
+  expectedGeneration: z.string().min(1).max(256),
+  claimId: z.string().min(1).max(256),
 });
 
 type AcquireConcurrencyRequest = z.infer<typeof AcquireConcurrencyRequestSchema>;
@@ -45,6 +52,8 @@ interface AcquireConcurrencyResponse {
   allowed: boolean;
   retryAfterSeconds: number;
   leaseId?: string;
+  generation?: string;
+  created?: boolean;
   blockedBucket?: ConcurrencyBucket;
 }
 
@@ -62,6 +71,9 @@ interface ConcurrencyBucketState {
 }
 
 interface ConcurrencyLeaseState {
+  generation?: string;
+  /** null is submission ownership; missing is a legacy/unknown owner. */
+  ownerClaimId?: string | null;
   expiresAt: number;
   bucketKeys: string[];
 }
@@ -104,6 +116,17 @@ export class RunAdmissionLimiter extends DurableObject {
           );
           const result = await this.acquireConcurrencyLease(payload);
           return jsonResponse(result, 200);
+        }
+
+        if (url.pathname === "/claim-concurrency") {
+          const payload = ClaimConcurrencyRequestSchema.parse(await request.json());
+          const lease = await this.readLease(payload.leaseId);
+          if (!lease || lease.generation !== payload.expectedGeneration || lease.expiresAt <= Date.now() ||
+              (lease.ownerClaimId !== null && lease.ownerClaimId !== payload.claimId)) {
+            return jsonResponse({ claimed: false }, 200);
+          }
+          await this.writeLease(payload.leaseId, { ...lease, ownerClaimId: payload.claimId });
+          return jsonResponse({ claimed: true }, 200);
         }
 
         if (url.pathname === "/release-concurrency") {
@@ -180,8 +203,9 @@ export class RunAdmissionLimiter extends DurableObject {
       return blockedResult;
     }
 
-    await this.persistConcurrencyLease(payload, bucketKeys, now);
-    return this.createAllowedConcurrencyResponse(payload.leaseId);
+    const generation = crypto.randomUUID();
+    await this.persistConcurrencyLease(payload, bucketKeys, now, generation);
+    return this.createAllowedConcurrencyResponse(payload.leaseId, generation, true);
   }
 
   private async checkExistingLease(
@@ -194,7 +218,7 @@ export class RunAdmissionLimiter extends DurableObject {
     }
 
     if (existingLease.expiresAt > now) {
-      return this.createAllowedConcurrencyResponse(payload.leaseId);
+      return this.createAllowedConcurrencyResponse(payload.leaseId, existingLease.generation, false);
     }
 
     await this.releaseLease(payload.leaseId);
@@ -242,9 +266,12 @@ export class RunAdmissionLimiter extends DurableObject {
     payload: AcquireConcurrencyRequest,
     bucketKeys: string[],
     now: number,
+    generation: string,
   ): Promise<void> {
     const leaseTtlMs = payload.leaseTtlSeconds * 1000;
     await this.writeLease(payload.leaseId, {
+      generation,
+      ownerClaimId: null,
       expiresAt: now + leaseTtlMs,
       bucketKeys,
     });
@@ -262,19 +289,29 @@ export class RunAdmissionLimiter extends DurableObject {
 
   private createAllowedConcurrencyResponse(
     leaseId: string,
+    generation: string | undefined,
+    created: boolean,
   ): AcquireConcurrencyResponse {
     return {
       allowed: true,
       retryAfterSeconds: 0,
       leaseId,
+      ...(generation ? { generation } : {}),
+      created,
     };
   }
 
   private async releaseConcurrencyLease(
     payload: ReleaseConcurrencyRequest,
   ): Promise<ReleaseConcurrencyResponse> {
-    const released = await this.releaseLease(payload.leaseId);
-    return { released };
+    // This check and removal run under the same admission lock. Unknown legacy
+    // generations and stale owners cannot delete a later acquisition.
+    const lease = await this.readLease(payload.leaseId);
+    if (!payload.expectedGeneration || !lease?.generation || lease.generation !== payload.expectedGeneration ||
+        payload.expectedClaimId === undefined || payload.expectedClaimId !== lease.ownerClaimId) {
+      return { released: false };
+    }
+    return { released: await this.releaseLease(payload.leaseId) };
   }
 
   private async readCounter(key: string): Promise<WindowCounterState | null> {
@@ -360,6 +397,10 @@ export class RunAdmissionLimiter extends DurableObject {
       return {
         expiresAt: parsed.expiresAt,
         bucketKeys,
+        ...(parsed.ownerClaimId === null || (typeof parsed.ownerClaimId === "string" && parsed.ownerClaimId.length > 0 && parsed.ownerClaimId.length <= 256)
+          ? { ownerClaimId: parsed.ownerClaimId } : {}),
+        ...(typeof parsed.generation === "string" && parsed.generation.length > 0 && parsed.generation.length <= 256
+          ? { generation: parsed.generation } : {}),
       };
     } catch {
       return null;

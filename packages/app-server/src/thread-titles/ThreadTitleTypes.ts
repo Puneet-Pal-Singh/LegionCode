@@ -25,6 +25,7 @@ export type PersistThreadTitleInput<TScope extends ThreadTitleScope = HostedThre
 export type GenerateThreadTitleInput<TScope extends ThreadTitleScope = HostedThreadTitleScope> =
   TScope & Omit<AutomatedTitleMetadata, "title" | "source"> & {
     prompt: string;
+    signal?: AbortSignal;
     previewVersion: number;
     providerId?: string;
     modelId?: string;

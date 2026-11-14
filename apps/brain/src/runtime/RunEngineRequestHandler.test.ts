@@ -43,6 +43,7 @@ import { RunInterruptIdentitySchema } from "./RunInterruptContract";
 import { InMemoryRunInterruptRegistry } from "./RunInterruptRegistry";
 import { AIService } from "../services/AIService";
 import * as executionResources from "./RuntimeExecutionResources";
+import { retainNativeAttempt } from "./RetainedNativeAttempt";
 import { InMemoryRunApprovalResolutionRegistry } from "./RunApprovalResolutionRegistry";
 import type { RunApprovalResolutionRegistry } from "./RunApprovalResolutionRegistry";
 
@@ -525,7 +526,13 @@ describe("RunEngineRequestHandler", () => {
       } as unknown as Env,
       runImmediately,
     );
-    const response = await handler.handleExecuteRequest(
+    const retained: Promise<unknown>[] = [];
+    const accepted = vi.fn(() => new Response("unexpected ACK", { status: 202 }));
+    const settled = vi.fn();
+    const response = await retainNativeAttempt({
+      owner: { waitUntil: operation => { retained.push(operation); } },
+      accepted, settled, reportError: error => { throw error; },
+      execute: observer => handler.handleExecuteRequest(
       new Request("https://run-engine/execute", {
         method: "POST",
         body: JSON.stringify({
@@ -551,8 +558,11 @@ describe("RunEngineRequestHandler", () => {
           },
           messages: [{ role: "user", content: "read README" }],
         }),
-      }),
-    );
+      }), observer),
+    });
+    await retained[0];
+    expect(accepted).not.toHaveBeenCalled();
+    expect(settled).not.toHaveBeenCalled();
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toMatchObject({
@@ -1279,14 +1289,22 @@ describe("RunEngineRequestHandler", () => {
     // is still pending. Both runner outcomes must retain the physical lease.
     await assertOriginalProviderDrain("fulfilled");
     await assertOriginalProviderDrain("rejected");
-    await assertOriginalProviderDrain("fulfilled", "delegated");
-    await assertOriginalProviderDrain("fulfilled", "delegated", "missing");
-    await assertOriginalProviderDrain("fulfilled", "delegated", "foreign");
-    await assertOriginalProviderDrain("fulfilled", "delegated", "defaults");
-    await assertOriginalProviderDrain("fulfilled", "delegated", "workspace_alias");
-    await assertOriginalProviderDrain("fulfilled", "delegated", "canonical_alias");
-    await assertOriginalProviderDrain("fulfilled", "delegated", "selection_conflict");
-    await assertOriginalProviderDrain("fulfilled", "delegated", "runtime_override");
+    await assertOriginalProviderDrain("fulfilled", "release");
+    await assertOriginalProviderDrain("fulfilled", "ack");
+    await assertOriginalProviderDrain("fulfilled", "prepare");
+    await assertOriginalProviderDrain("fulfilled", "prepare_closed");
+    await assertOriginalProviderDrain("fulfilled", "unretained");
+    await assertOriginalProviderDrain("fulfilled", "handoff");
+    await assertOriginalProviderDrain("fulfilled", "handoff_lost");
+    await assertOriginalProviderDrain("fulfilled", "legacy");
+    await assertOriginalProviderDrain("fulfilled", undefined, "delegated");
+    await assertOriginalProviderDrain("fulfilled", undefined, "delegated", "missing");
+    await assertOriginalProviderDrain("fulfilled", undefined, "delegated", "foreign");
+    await assertOriginalProviderDrain("fulfilled", undefined, "delegated", "defaults");
+    await assertOriginalProviderDrain("fulfilled", undefined, "delegated", "workspace_alias");
+    await assertOriginalProviderDrain("fulfilled", undefined, "delegated", "canonical_alias");
+    await assertOriginalProviderDrain("fulfilled", undefined, "delegated", "selection_conflict");
+    await assertOriginalProviderDrain("fulfilled", undefined, "delegated", "runtime_override");
   });
 
   it("projects a typed activity feed snapshot", async () => {
@@ -1823,7 +1841,7 @@ describe("RunEngineRequestHandler", () => {
   });
 });
 
-async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected",
+async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", failure?: "release" | "ack" | "prepare" | "prepare_closed" | "unretained" | "handoff" | "handoff_lost" | "legacy",
   harnessMode: "platform_owned" | "delegated" = "platform_owned", bindingKind: "valid" | "missing" | "foreign" | "defaults" | "workspace_alias" | "canonical_alias" | "selection_conflict" | "runtime_override" = "valid") {
   const ctx = new MockDurableObjectState();
   const scope = RunInterruptIdentitySchema.parse({
@@ -1850,19 +1868,27 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected",
   const structuredProvider = vi.spyOn(AIService.prototype, "generateStructured").mockImplementation(() => original);
   const provider = outcome === "fulfilled" ? structuredProvider : textProvider;
   const settle = vi.fn(async () => undefined);
-  const release = vi.fn(async () => undefined);
+  const release = vi.fn(async () => {
+    if (failure === "release") throw new Error("Physical release is unresolved");
+  });
   const prepare = executionResources.prepareRuntimeExecutionResources;
   let resourceIdentityWorkspace: string | undefined;
   const resources = vi.spyOn(executionResources, "prepareRuntimeExecutionResources").mockImplementation(async (...args) => {
+    if (failure === "prepare_closed") {
+      args[4]?.({ kind: "no_exposure" });
+      throw new Error("Preparation failed before exposure");
+    }
+    if (failure === "prepare") throw new Error("Preparation closure has no receipt");
     // The public bootstrap DTO remains UUID-only. Exercise the private resource
     // boundary's canonical alias separately from that HTTP serialization contract.
     const resourcePayload = ["canonical_alias", "workspace_alias"].includes(bindingKind)
       ? { ...args[2], identity: { ...args[2].identity!, workspaceId: workspaceIdFromExternalId(args[2].identity!.workspaceId) } }
       : args[2];
     resourceIdentityWorkspace = resourcePayload.identity?.workspaceId;
-    return { ...await prepare(args[0], args[1], resourcePayload, args[3]),
+    return { ...await prepare(args[0], args[1], resourcePayload, args[3], args[4]),
       checkoutLifecycle: { isSettled: false, settle, release } as unknown as NonNullable<Awaited<ReturnType<typeof prepare>>["checkoutLifecycle"]> };
   });
+  const quotaClaims: Record<string, unknown>[] = [];
   let lockHeld = false;
   const lock: RunEngineRequestLock = Object.assign(async <T>(_run: string, operation: () => Promise<T>) => {
     lockHeld = true;
@@ -1870,6 +1896,8 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected",
   }, { hasQueuedOrActiveRun: () => lockHeld });
   const registry = new InMemoryRunInterruptRegistry();
   const interrupt = vi.spyOn(RuntimeKernelNativeRunner.prototype, "interrupt").mockResolvedValue(undefined);
+  let responseBody: ReadableStreamDefaultController<Uint8Array> | undefined;
+  let responseBodyReading = false;
   let observerReady!: () => void;
   const observer = new Promise<void>(resolve => { observerReady = resolve; });
   const runner = vi.spyOn(RuntimeKernelNativeRunner.prototype, "execute").mockImplementation(async runtimeInput => {
@@ -1894,23 +1922,34 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected",
       : gateway.generateText(request)).rejects.toMatchObject({ name: "LLMTimeoutError" });
     observerReady();
     if (outcome === "rejected") throw new Error("observer stopped after timeout");
-    return new Response("done");
+    return new Response(new ReadableStream<Uint8Array>({
+      start(controller) { responseBody = controller; },
+      pull() { responseBodyReading = true; },
+    }, { highWaterMark: 0 }));
   });
   const listSessions = vi.fn(async () => ({ sessions: [{ id: scope.sessionId, workspaceId: scope.workspaceId, repository: null }] }));
+  let executionState: "pending" | "running" = "pending";
+  const admission = () => ({
+    ...bindingScope, nativeProviderBinding: binding, clientMessageId: "client-1", state: "admitted", executionState,
+    revisionOfTurnId: null, continuationOfTurnId: null, originalPromptId: null, continuationTerminalSequence: null,
+    requestFingerprint: null, admissionOrder: 1, createdAt: "2026-11-14T00:00:00Z", admittedAt: "2026-11-14T00:00:00Z",
+  });
   try {
     const handler = new RunEngineRequestHandler(ctx as unknown as DurableObjectState, {
       HYPERDRIVE: { connectionString: "postgres://fixture:fixture@127.0.0.1:1/fixture" },
       BYOK_CREDENTIAL_ENCRYPTION_KEY: "test-only-credential-encryption-key",
+      RUN_ADMISSION_LIMITER: { idFromName: () => ({}), get: () => ({ fetch: async (_url: unknown, init?: RequestInit) => {
+        quotaClaims.push(JSON.parse(String(init?.body)));
+        if (failure === "handoff_lost") throw new Error("Runtime ownership response was lost");
+        return Response.json({ claimed: failure !== "handoff" });
+      } }) },
       AUTH_TRANSCRIPT_REPOSITORY: {
         listSessions,
         getCanonicalAssistantMessageId: async () => null,
       },
       AUTH_TURN_ADMISSION_REPOSITORY: {
-        claimExecution: async () => ({ status: "claimed", admission: {
-          ...bindingScope, nativeProviderBinding: binding, clientMessageId: "client-1", state: "admitted", executionState: "running",
-          revisionOfTurnId: null, continuationOfTurnId: null, originalPromptId: null, continuationTerminalSequence: null,
-          requestFingerprint: null, admissionOrder: 1, createdAt: "2026-11-14T00:00:00Z", admittedAt: "2026-11-14T00:00:00Z",
-        } }),
+        getByTurnId: async () => admission(),
+        claimExecution: async () => { executionState = "running"; return { status: "claimed", admission: admission() }; },
         markRecoveryRequired: async () => false,
       },
     } as unknown as Env, lock, undefined, {
@@ -1918,24 +1957,91 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected",
       lifecycleEventStore: { replay: async () => ({ events: [{ type: "turn.completed" }], nextSequence: null }) } as unknown as LifecycleEventStore,
     });
     let handlerSettled = false;
-    const execution = handler.handleExecuteRequest(new Request("https://brain.local/execute", {
+    const retained: Promise<unknown>[] = [];
+    const physicallySettled = vi.fn(async () => {
+      expect(lockHeld).toBe(false);
+      expect(release).toHaveBeenCalledTimes(failure === "prepare_closed" || bindingKind === "workspace_alias" ? 0 : 1);
+    });
+    let executionResponse: Response | undefined;
+    const request = new Request("https://brain.local/execute", {
       method: "POST", body: JSON.stringify({
         ...scope, identity: bindingKind === "workspace_alias" ? { ...scope, workspaceId: "123e4567-e89b-42d3-a456-426614174999" } : scope, userId: "user-1", correlationId: "drain-fixture",
+        admissionLease: { leaseId: `run-attempt:${scope.runAttemptId}`, ...(failure === "legacy" ? {} : { generation: "generation-fixture", created: true }) },
         input: { mode: "build", agentType: "coding", prompt: "inspect", sessionId: scope.sessionId,
           ...(bindingKind === "defaults" ? {} : { providerId: "openai", modelId: bindingKind === "selection_conflict" ? "gpt-4o" : "gpt-4o-mini" }), orchestratorBackend: "execution-engine-v1",
           executionBackend: "cloudflare_sandbox", harnessMode, authMode: "api_key",
           ...(bindingKind === "runtime_override" ? { runtimeModelId: "gpt-4o" } : {}) },
         messages: [{ role: "user", content: "inspect" }],
       }),
-    })).then(response => { handlerSettled = true; return response; });
+    });
+    const acknowledgement = failure === "unretained" ? handler.handleExecuteRequest(request) : retainNativeAttempt({
+      owner: { waitUntil: operation => { retained.push(operation); } },
+      execute: async observer => {
+        expect(retained).toHaveLength(1);
+        const response = await handler.handleExecuteRequest(request, observer);
+        executionResponse = response;
+        handlerSettled = true;
+        return response;
+      },
+      accepted: attempt => {
+        expect(registry.hasActiveOwner(scope.turnId)).toBe(true);
+        expect(Object.isFrozen(attempt.admission)).toBe(true);
+        expect(attempt.admission).toMatchObject(scope);
+        expect(quotaClaims).toHaveLength(1);
+        expect(quotaClaims[0]).toMatchObject({ expectedGeneration: "generation-fixture", claimId: attempt.claimId });
+        if (failure === "ack") throw new Error("ACK construction failed");
+        return Response.json({ accepted: true }, { status: 202 });
+      },
+      settled: physicallySettled,
+      reportError: error => { throw error; },
+    });
     if (["missing", "foreign", "workspace_alias", "selection_conflict", "runtime_override"].includes(bindingKind)) {
-      expect((await execution).status).toBe(bindingKind === "workspace_alias" ? 409 : ["selection_conflict", "runtime_override"].includes(bindingKind) ? 400 : 500);
+      const rejected = await acknowledgement;
+      await retained[0];
+      expect((executionResponse ?? rejected).status).toBe(bindingKind === "workspace_alias" ? 409 : ["selection_conflict", "runtime_override"].includes(bindingKind) ? 400 : 500);
       expect(listSessions).not.toHaveBeenCalled();
       expect(provider).not.toHaveBeenCalled();
       expect(runner).not.toHaveBeenCalled();
       expect(settle).not.toHaveBeenCalled();
       expect(release).not.toHaveBeenCalled();
       expect(lockHeld).toBe(false);
+      return;
+    }
+    if (["handoff", "handoff_lost", "legacy"].includes(failure ?? "")) {
+      expect((await acknowledgement).status).toBe(failure === "handoff_lost" ? 500 : 409);
+      await retained[0];
+      expect(provider).not.toHaveBeenCalled();
+      expect(runner).not.toHaveBeenCalled();
+      expect(physicallySettled).not.toHaveBeenCalled();
+      expect(quotaClaims).toHaveLength(failure === "legacy" ? 0 : 1);
+      return;
+    }
+    if (failure === "unretained") {
+      await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(1));
+      await observer;
+      settleOriginal({ ok: true } as never);
+      const response = await acknowledgement;
+      expect(response.bodyUsed).toBe(false);
+      expect(responseBodyReading).toBe(false);
+      expect(physicallySettled).not.toHaveBeenCalled();
+      responseBody!.enqueue(new TextEncoder().encode("untouched stream"));
+      responseBody!.close();
+      expect(await response.text()).toBe("untouched stream");
+      return;
+    }
+    if (failure === "ack") {
+      await expect(acknowledgement).rejects.toThrow("ACK construction failed");
+      await retained[0];
+      expect(provider).not.toHaveBeenCalled();
+      expect(physicallySettled).not.toHaveBeenCalled();
+      return;
+    }
+    const ack = await acknowledgement;
+    expect(ack.status).toBe(202);
+    if (failure === "prepare" || failure === "prepare_closed") {
+      await retained[0];
+      expect(provider).not.toHaveBeenCalled();
+      expect(physicallySettled).toHaveBeenCalledTimes(failure === "prepare_closed" ? 1 : 0);
       return;
     }
     await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(1));
@@ -1953,8 +2059,19 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected",
     expect(provider).toHaveBeenCalledTimes(1);
     if (outcome === "fulfilled") settleOriginal({ ok: true } as never);
     else rejectOriginal(new Error("original SDK body failed later"));
-    const response = await execution;
-    expect(response.status).toBe(outcome === "fulfilled" ? 200 : 500);
+    if (outcome === "fulfilled") {
+      // Even after the SDK settles, the original response body is still owned.
+      await vi.waitFor(() => expect(responseBodyReading).toBe(true));
+      expect(handlerSettled).toBe(false);
+      expect(lockHeld).toBe(true);
+      expect(settle).not.toHaveBeenCalled();
+      expect(release).not.toHaveBeenCalled();
+      responseBody!.enqueue(new TextEncoder().encode("done"));
+      responseBody!.close();
+    }
+    await retained[0];
+    expect(executionResponse?.status).toBe(outcome === "fulfilled" && failure !== "release" ? 200 : 500);
+    expect(physicallySettled).toHaveBeenCalledTimes(0);
     expect(settle).toHaveBeenCalledTimes(1);
     expect(release).toHaveBeenCalledTimes(1);
     expect(lockHeld).toBe(false);
