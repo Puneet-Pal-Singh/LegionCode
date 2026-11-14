@@ -248,6 +248,8 @@ export async function settleUnclaimedStartupFailure(input: {
   let result;
   try {
     result = await settleOwnedStartupFailure({
+      // This caller is reached only before the original runtime dispatch.
+      disposition: { kind: "no_exposure" },
       store: new BrainLifecycleEventStore(input.env),
       claim: { turnId: input.identity.turnId, claimId },
       identity: {
