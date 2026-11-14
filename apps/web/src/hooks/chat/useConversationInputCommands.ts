@@ -1,7 +1,7 @@
 import { useCallback, useMemo, type MutableRefObject } from "react";
 import {
   createConversationInputCommands,
-  ThreadInputConfigurationSchema,
+  createChatThreadInputConfiguration,
 } from "@legioncode/sdk";
 import type { ProductMode, RunMode, ReasoningEffort } from "@repo/shared-types";
 import type { ThreadInputReceipt } from "@legioncode/sdk";
@@ -55,7 +55,7 @@ export function useConversationInputCommands(input: {
         return false;
       }
 
-      let configuration: ReturnType<typeof ThreadInputConfigurationSchema.parse>;
+      let configuration: ReturnType<typeof createChatThreadInputConfiguration>;
       try {
         configuration = buildInputConfiguration(input);
       } catch {
@@ -155,7 +155,7 @@ export function useConversationInputCommands(input: {
       const capturedRunScope = input.runScopeRef.current;
       const capturedGeneration = input.generationRef.current;
       if (!capturedScope) return false;
-      let configuration: ReturnType<typeof ThreadInputConfigurationSchema.parse>;
+      let configuration: ReturnType<typeof createChatThreadInputConfiguration>;
       try {
         configuration = buildInputConfiguration(input);
       } catch {
@@ -263,8 +263,8 @@ function buildInputConfiguration(input: {
   selectedModelId?: string | null;
   selectedModelEfforts?: readonly ReasoningEffort[];
 }) {
-  return ThreadInputConfigurationSchema.parse({
-    mode: input.mode === "build" ? "auto_edit" : input.mode,
+  return createChatThreadInputConfiguration({
+    mode: input.mode,
     ...(input.productMode ? { productMode: input.productMode } : {}),
     harnessId: resolveRuntimeHarnessId(input.sessionId),
     ...(input.selectedProviderId && input.selectedModelId
