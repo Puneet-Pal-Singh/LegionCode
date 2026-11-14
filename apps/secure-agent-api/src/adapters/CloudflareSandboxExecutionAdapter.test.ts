@@ -494,7 +494,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
       expect(typeof cancelled).toBe("boolean");
 
       const result = await taskPromise;
-      expect(result.status).toBe("success");
+      expect(result.status).toBe("cancelled");
     });
 
     it("should return false for non-existent task", async () => {
