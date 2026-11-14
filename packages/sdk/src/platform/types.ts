@@ -153,6 +153,8 @@ export type SubmitApprovalRequest = z.infer<typeof SubmitApprovalRequestSchema>;
 
 export interface PlatformClientOperationOptions {
   signal?: AbortSignal;
+  /** SDK-local replay/follow identity pin; never serialized into a request. */
+  expectedLifecycleAttempt?: Readonly<Pick<LifecycleEvent, "threadId" | "runAttemptId">>;
   beforeSendHostedChatEnvelope?: (serializedEnvelope: string) => string;
   onChatSubmissionResponse?: (acknowledgement: HostedChatSubmissionResult & {
     httpStatus: number;

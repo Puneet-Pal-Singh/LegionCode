@@ -14,6 +14,14 @@ import {
 } from "@legioncode/sdk";
 import { useTurnLifecycleProjection } from "./useTurnLifecycleProjection";
 
+vi.mock("../contexts/AuthContext", () => ({
+  useAuth: () => ({
+    isAuthenticated: true,
+    user: { id: "github_lifecycle_fixture" },
+  }),
+}));
+
+
 const THREAD_ID = "thr_hook01" as ThreadId;
 const TURN_ID = "trn_hook01" as TurnId;
 const RUN_ATTEMPT_ID = "attempt_hook01" as RunAttemptId;

@@ -2,6 +2,7 @@ import type { HookInvocationAuditEvent } from "@repo/hook-protocol";
 import type { ItemKind, LifecycleEvent, NativeExecutionRecoveryProjection, TurnDiffPayload, TurnId } from "@repo/platform-protocol";
 import { applyHookAuditLifecycleEvent, createHookAuditProjection } from "../platform/hook-audit-projection.js";
 import { applyLifecycleEvent as applySdkLifecycleEvent, createTurnWorkflowProjection, workflowPhaseLabel, type TurnWorkflowProjection } from "./turn-workflow-projection.js";
+import { sameLifecycleAttempt } from "./lifecycle-attempt.js";
 
 export type LifecycleProjectionTerminalState = NonNullable<
   TurnWorkflowProjection["terminal"]
@@ -40,7 +41,9 @@ export function applyConversationLifecycleEvent(
   event: LifecycleEvent,
 ): LifecycleProjection {
   if (event.turnId !== projection.turnId) return projection;
-  if (projection.recovery && (event.threadId !== projection.recovery.threadId || event.runAttemptId !== projection.recovery.runAttemptId)) return projection;
+  const attempt = projection.runtimeAttempt;
+  if (attempt && !sameLifecycleAttempt(event, attempt)) return projection;
+  if (projection.recovery && !sameLifecycleAttempt(event, projection.recovery)) return projection;
   const terminal = event.type === "turn.completed" || event.type === "turn.failed" || event.type === "turn.interrupted";
   const next = applySdkLifecycleEvent(projection, event);
   return {
@@ -65,7 +68,7 @@ export function applyConversationLifecycleRecovery(
 ): LifecycleProjection {
   if (!recovery || recovery.turnId !== projection.turnId) return projection;
   const attempt = projection.runtimeAttempt;
-  if (attempt && (attempt.threadId !== recovery.threadId || attempt.runAttemptId !== recovery.runAttemptId)) return projection;
+  if (attempt && !sameLifecycleAttempt(recovery, attempt)) return projection;
   // A summary/legacy terminal with no captured attempt tuple cannot retire a
   // known recovery obligation. Only that attempt's canonical terminal wins.
   if (projection.terminal && attempt) return projection;
