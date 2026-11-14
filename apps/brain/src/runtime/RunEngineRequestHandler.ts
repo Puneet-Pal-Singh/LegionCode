@@ -1417,6 +1417,8 @@ export class RunEngineRequestHandler {
           this.contextCompactionRegistry.register(turnId, async () => {
             await runtimeRunner.compact(turnId);
           });
+          // Kernel observers can settle before the original provider body. Keep
+          // this attempt's checkout and execution ownership until that body drains.
           const executionResponse = await runtimeRunner.execute({
             input: payload.input,
             messages: payload.messages as CoreMessage[],
@@ -1431,7 +1433,7 @@ export class RunEngineRequestHandler {
             continuationOfTurnId: identity.continuationOfTurnId,
             originalPromptId: identity.originalPromptId,
             workspace: resources.workspace,
-          });
+          }).finally(() => resources.drainProviderRequests());
           console.log(
             formatDiagnosticLogLine("run/runtime", "engine-executed", {
               correlationId: payload.correlationId,

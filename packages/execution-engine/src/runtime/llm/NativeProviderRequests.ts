@@ -1,6 +1,6 @@
 /** Original provider operations owned by one Native attempt. Cancellation can
  * settle the Kernel's observer before the underlying request actually returns. */
-export class LocalNativeProviderRequests {
+export class NativeProviderRequests {
   private readonly originals = new Set<Promise<unknown>>();
   private fenced = false;
 
