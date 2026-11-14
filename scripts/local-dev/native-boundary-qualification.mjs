@@ -369,6 +369,27 @@ async function authenticatedOperator(identity, config, configPath) {
   if (!/You are logged in with an? /.test(whoami.value) || !whoami.value.includes(config.account_id)) throw unavailable("AUTHENTICATED_SELECTED_ACCOUNT_UNAVAILABLE");
   return { accountId: config.account_id, receiptSha256: hash(JSON.stringify(canonical(whoami.original))), original: whoami.original };
 }
+
+/** Read authenticated account identifiers through the same credential owner.
+ * Never print the raw whoami reply, which contains operator names and email. */
+async function inspectOperator() {
+  const platform = readJsonc(resolve(app, "wrangler.dev.jsonc"));
+  const identity = cliIdentity();
+  const snapshot = configSnapshot({ name: "legioncode-native-boundary-source",
+    compatibility_date: platform.compatibility_date,
+    compatibility_flags: platform.compatibility_flags,
+    workers_dev: false, preview_urls: false, observability: { enabled: false } });
+  try {
+    const reply = await originalCli(identity, snapshot.path, ["whoami"], { format: "text" });
+    if (!/You are logged in with an? /.test(reply.value)) throw unavailable("AUTHENTICATED_OPERATOR_UNAVAILABLE");
+    const accounts = [...reply.value.matchAll(/^\s*│[^│\r\n]*│\s*([a-f0-9]{32})\s*│\s*$/gmu)].map(match => match[1]);
+    if (accounts.length === 0 || accounts.length > 16 || new Set(accounts).size !== accounts.length) throw unavailable("AUTHENTICATED_ACCOUNT_METADATA_UNAVAILABLE");
+    console.log(JSON.stringify({ accounts,
+      cloudchamberWrite: /^\s*-\s+cloudchamber\s+\(write\)\s*$/mu.test(reply.value) ? true : null,
+      cliEntrySha256: identity.entrySha256, originalReceiptSha256: hash(JSON.stringify(canonical(reply.original))),
+      runtimeQualified: false }));
+  } finally { snapshot.close(); }
+}
 function closeState(state) {
   const held = fstatSync(state.lock);
   const current = lstatSync(state.lockPath);
@@ -760,6 +781,10 @@ async function publishImage(config, configPath, operationId, packageDirectory, e
 
 async function main() {
   const [action, configArgument, operationId, ...extra] = process.argv.slice(2);
+  if (action === "inspect-operator") {
+    if (configArgument !== undefined || operationId !== undefined || extra.length) throw unavailable("ARGUMENTS_INVALID");
+    return await inspectOperator();
+  }
   if (action === "build-source") {
     if (configArgument !== undefined || operationId !== undefined || extra.length) throw unavailable("ARGUMENTS_INVALID");
     return await buildSource();
