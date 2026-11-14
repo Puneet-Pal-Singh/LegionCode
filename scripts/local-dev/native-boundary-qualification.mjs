@@ -147,7 +147,7 @@ async function originalCli(identity, configPath, command, { format = "json", abs
         if (raw[end - 1] !== 10) rejectCredential("framing", "REGISTRY_CREDENTIAL_LINE_FRAMING_INVALID");
         end--;
         if (raw[end - 1] === 13) end--;
-        if (end < 1 || end > 16384 || raw.subarray(0, end).some(byte => byte < 33 || byte > 126)) rejectCredential("framing", "REGISTRY_CREDENTIAL_LINE_FRAMING_INVALID");
+        if (end < 1 || end > 16384 || raw.subarray(0, end).some(byte => byte < 32 || byte > 126)) rejectCredential("framing", "REGISTRY_CREDENTIAL_LINE_FRAMING_INVALID");
         return { value: Buffer.from(raw.subarray(0, end)) };
       } finally { raw.fill(0); }
     } finally { for (const chunk of stdout) chunk.fill(0); }
