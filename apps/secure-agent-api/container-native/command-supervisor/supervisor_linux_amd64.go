@@ -58,18 +58,26 @@ func serveCommand(input request) error {
 	if err := verifyHeldCwd(root, input.Cwd); err != nil {
 		return err
 	}
-	if input.Metadata.Paths.WorkspaceRoot != input.Root {
-		return errors.New("metadata_scope_changed")
-	}
-	metadata, err := pinMetadata(input.Metadata, root)
-	if err != nil {
-		return err
+	var metadata []*os.File
+	if input.Binding.Qualification != nil {
+		if validateQualificationFixture(input) != nil {
+			return errors.New("qualification_fixture_changed")
+		}
+	} else {
+		if input.Metadata.Paths.WorkspaceRoot != input.Root {
+			return errors.New("metadata_scope_changed")
+		}
+		metadata, err = pinMetadata(input.Metadata, root)
+		if err != nil {
+			return err
+		}
 	}
 	defer func() {
 		for _, file := range metadata {
 			_ = file.Close()
 		}
 	}()
+
 	domain, err := prepareCommandDomain(input)
 	if err != nil {
 		return err
@@ -161,7 +169,7 @@ func (owner *supervisor) ServeHTTP(writer http.ResponseWriter, incoming *http.Re
 		return
 	}
 	var command controlRequest
-	if decodeBounded(incoming.Body, 4096, &command) != nil || command.Binding != owner.input.Binding {
+	if decodeBounded(incoming.Body, 4096, &command) != nil || !sameBinding(command.Binding, owner.input.Binding) {
 		writer.WriteHeader(http.StatusConflict)
 		_, _ = io.WriteString(writer, `{"code":"scope_changed"}`)
 		return
@@ -202,6 +210,9 @@ func (owner *supervisor) start() bool {
 	defer owner.mu.Unlock()
 	if owner.current.State == "running" && owner.current.Admission {
 		return true // Idempotent observation of the same creator gate.
+	}
+	if owner.input.Binding.Qualification != nil && owner.input.Binding.Qualification.ExpiresAt <= time.Now().UnixMilli() {
+		return false
 	}
 	if owner.current.State != "prepared" || owner.current.GateClosed || owner.pidfd < 0 || owner.gate == nil {
 		return false
@@ -312,6 +323,9 @@ func (owner *supervisor) execute(workspace *os.File, rootfs string, metadata []*
 		// returns an error on unsupported/denied clone3; no clone fallback or
 		// post-birth cgroup.procs migration is permitted.
 		UseCgroupFD: true, CgroupFD: int(owner.domain.file.Fd()),
+	}
+	if owner.input.Binding.Qualification != nil && owner.input.Binding.Qualification.ExpiresAt <= time.Now().UnixMilli() {
+		return errors.New("qualification_grant_expired")
 	}
 	if err := child.Start(); err != nil {
 		owner.mu.Lock()

@@ -206,7 +206,13 @@ func validateResourceSetup(input resourceProvisionRequest) error {
 	return validateResourceSetupBinding(input.Binding)
 }
 func validateResourceSetupBinding(value resourceSetupBinding) error {
-	if value.Purpose != "native_boundary_qualification" || value.Generation != 0 || value.ExpiresAt <= time.Now().UnixMilli() || len(value.OperatorAccountID) != 32 ||
+	if value.ExpiresAt <= time.Now().UnixMilli() {
+		return errors.New("resource_grant_expired")
+	}
+	return validateResourceSetupIdentity(value)
+}
+func validateResourceSetupIdentity(value resourceSetupBinding) error {
+	if value.Purpose != "native_boundary_qualification" || value.Generation != 0 || value.ExpiresAt <= 0 || len(value.OperatorAccountID) != 32 ||
 		!hexadecimal.MatchString(value.AuthorityDigest) || !hexadecimal.MatchString(value.ParentAuthorityDigest) ||
 		!hexadecimal.MatchString(value.PhysicalOwnerAuditHash) || !opaqueID.MatchString(value.OperationID) {
 		return errors.New("invalid_resource_setup")

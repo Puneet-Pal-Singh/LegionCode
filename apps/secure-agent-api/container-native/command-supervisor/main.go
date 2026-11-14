@@ -26,18 +26,42 @@ const (
 )
 
 type binding struct {
-	ExecutionDomainDigest string `json:"executionDomainDigest"`
-	SessionID             string `json:"sessionId"`
-	LeaseID               string `json:"leaseId"`
-	SandboxID             string `json:"sandboxId"`
-	Generation            int64  `json:"generation"`
-	WorkspaceID           string `json:"workspaceId"`
-	RunID                 string `json:"runId"`
-	ThreadID              string `json:"threadId"`
-	TurnID                string `json:"turnId"`
-	RunAttemptID          string `json:"runAttemptId"`
-	TaskID                string `json:"taskId"`
-	Nonce                 string `json:"nonce"`
+	Qualification         *resourceSetupBinding `json:"qualification,omitempty"`
+	ExecutionDomainDigest string                `json:"executionDomainDigest"`
+	SessionID             string                `json:"sessionId"`
+	LeaseID               string                `json:"leaseId"`
+	SandboxID             string                `json:"sandboxId"`
+	Generation            int64                 `json:"generation"`
+	WorkspaceID           string                `json:"workspaceId"`
+	RunID                 string                `json:"runId"`
+	ThreadID              string                `json:"threadId"`
+	TurnID                string                `json:"turnId"`
+	RunAttemptID          string                `json:"runAttemptId"`
+	TaskID                string                `json:"taskId"`
+	Nonce                 string                `json:"nonce"`
+}
+
+// The operator variant carries its actual nonproduct authority, without any
+// invented conversation identifiers. Ordinary product wire fields are unchanged.
+func (value binding) MarshalJSON() ([]byte, error) {
+	if value.Qualification != nil {
+		return json.Marshal(struct {
+			Qualification *resourceSetupBinding `json:"qualification"`
+			Nonce         string                `json:"nonce"`
+		}{value.Qualification, value.Nonce})
+	}
+	type plain binding
+	return json.Marshal(plain(value))
+}
+func sameBinding(left, right binding) bool {
+	if (left.Qualification == nil) != (right.Qualification == nil) {
+		return false
+	}
+	if left.Qualification != nil && *left.Qualification != *right.Qualification {
+		return false
+	}
+	left.Qualification, right.Qualification = nil, nil
+	return left == right
 }
 
 type rootIdentity struct {
@@ -130,17 +154,26 @@ func decodeBounded(reader io.Reader, limit int, value any) error {
 }
 
 func validateRequest(value request) error {
-	if !hexadecimal.MatchString(value.Binding.ExecutionDomainDigest) {
+	if value.Binding.Qualification != nil {
+		plain := value.Binding
+		plain.Qualification = nil
+		plain.Nonce = ""
+		if plain != (binding{}) || validateResourceSetupBinding(*value.Binding.Qualification) != nil {
+			return errors.New("qualification_scope_required")
+		}
+	} else if !hexadecimal.MatchString(value.Binding.ExecutionDomainDigest) {
 		return errors.New("execution_domain_required")
 	}
 	if value.Version != protocolVersion || !hexadecimal.MatchString(value.ControlToken) ||
 		!hexadecimal.MatchString(value.Binding.Nonce) || value.Binding.Generation < 0 {
 		return errors.New("invalid_request")
 	}
-	for _, id := range []string{value.Binding.SessionID, value.Binding.LeaseID, value.Binding.SandboxID, value.Binding.WorkspaceID,
-		value.Binding.RunID, value.Binding.ThreadID, value.Binding.TurnID, value.Binding.RunAttemptID, value.Binding.TaskID} {
-		if !opaqueID.MatchString(id) {
-			return errors.New("invalid_request")
+	if value.Binding.Qualification == nil {
+		for _, id := range []string{value.Binding.SessionID, value.Binding.LeaseID, value.Binding.SandboxID, value.Binding.WorkspaceID,
+			value.Binding.RunID, value.Binding.ThreadID, value.Binding.TurnID, value.Binding.RunAttemptID, value.Binding.TaskID} {
+			if !opaqueID.MatchString(id) {
+				return errors.New("invalid_request")
+			}
 		}
 	}
 	if !strings.HasPrefix(value.Root, "/home/sandbox/checkouts/") ||
@@ -177,6 +210,13 @@ func validateRequest(value request) error {
 }
 
 func main() {
+	if len(os.Args) == 2 && (os.Args[1] == "--prepare-qualification-fixture" || os.Args[1] == "--observe-qualification-fixture" || os.Args[1] == "--qualify-namespace") {
+		if qualificationOperation(os.Args[1]) != nil {
+			_, _ = io.WriteString(os.Stderr, "native_namespace_qualification_unavailable\n")
+			os.Exit(70)
+		}
+		return
+	}
 	if len(os.Args) == 2 && os.Args[1] == "--observe-resources" {
 		if observeResourceRoot() != nil {
 			_, _ = io.WriteString(os.Stderr, "native_resource_observation_unavailable\n")
@@ -226,6 +266,9 @@ func main() {
 		// effect. It still requires the same persisted intent and creator gate.
 		input.Argv = []string{"/usr/local/libexec/legioncode-command-supervisor", "--qualification-payload", input.Binding.Nonce}
 		input.Cwd, input.Environment = ".", nil
+	}
+	if input.Binding.Qualification != nil {
+		os.Exit(64)
 	}
 	if err := validateRequest(input); err != nil {
 		_, _ = io.WriteString(os.Stderr, err.Error()+"\n")
