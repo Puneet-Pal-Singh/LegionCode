@@ -1082,6 +1082,7 @@ describe("RunEngineRequestHandler", () => {
       {
         AUTH_TURN_ADMISSION_REPOSITORY: {
           getByTurnId: async () => recoveryAdmission,
+          markRecoveryRequiredForUnownedStop: async () => true,
         },
       } as unknown as Env,
       runImmediately,
@@ -1095,11 +1096,10 @@ describe("RunEngineRequestHandler", () => {
     expect(orphanStop.status).toBe(200);
     await expect(orphanStop.json()).resolves.toMatchObject({
       accepted: true,
-      status: "settled",
-      terminalEvent: { type: "turn.interrupted" },
+      status: "interrupt_requested",
     });
-    expect(orphanLifecycleStore.appendBatch).toHaveBeenCalledTimes(1);
-    expect(orphanEvents).toHaveLength(5);
+    expect(orphanLifecycleStore.appendBatch).toHaveBeenCalledTimes(0);
+    expect(orphanEvents).toHaveLength(0);
 
     const approvalHistory: unknown[] = [];
     const historySink = {
@@ -1194,6 +1194,7 @@ describe("RunEngineRequestHandler", () => {
       {
         AUTH_TURN_ADMISSION_REPOSITORY: {
           getByTurnId: async () => approvalAdmission,
+          markRecoveryRequiredForUnownedStop: async () => true,
         },
       } as unknown as Env,
       runImmediately,
@@ -1207,23 +1208,14 @@ describe("RunEngineRequestHandler", () => {
     expect(approvalStop.status).toBe(200);
     await expect(approvalStop.json()).resolves.toMatchObject({
       accepted: true,
-      status: "settled",
-      terminalEvent: { type: "turn.interrupted" },
+      status: "interrupt_requested",
     });
-    expect(approvalLifecycleStore.appendBatch).toHaveBeenCalledTimes(1);
+    expect(approvalLifecycleStore.appendBatch).toHaveBeenCalledTimes(0);
     expect(
       (
         approvalLifecycleStore.appendBatch as ReturnType<typeof vi.fn>
       ).mock.calls[0]?.[0].map((event: { type: string }) => event.type),
-    ).toEqual([
-      "approval.decided",
-      "turn.blocking_changed",
-      "item.declined",
-      "tool_call.interrupted",
-      "item.interrupted",
-      "run_attempt.interrupted",
-      "turn.interrupted",
-    ]);
+    ).toEqual(undefined);
     expect(
       approvalHistory.some(
         (event) => (event as { type: string }).type === "tool_call.completed",
@@ -1235,7 +1227,7 @@ describe("RunEngineRequestHandler", () => {
       ).mock.calls[0]?.[0].some(
         (event: { type: string }) => event.type === "tool_call.completed",
       ),
-    ).toBe(false);
+    ).toBe(undefined);
   });
 
   it("does not queue interrupt behind the execution lock", async () => {
@@ -2033,7 +2025,7 @@ async function assertOriginalProviderDrain(outcome: "fulfilled" | "rejected", fa
       await expect(acknowledgement).rejects.toThrow("ACK construction failed");
       await retained[0];
       expect(provider).not.toHaveBeenCalled();
-      expect(physicallySettled).not.toHaveBeenCalled();
+      expect(physicallySettled).toHaveBeenCalledTimes(1);
       return;
     }
     const ack = await acknowledgement;

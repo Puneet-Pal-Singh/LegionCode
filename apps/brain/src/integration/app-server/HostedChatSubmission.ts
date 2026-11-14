@@ -9,8 +9,7 @@ import {
   resolveRuntimeTarget,
 } from "../../controllers/chat-runtime-helpers";
 import { RunAdmissionService } from "../../runtime/RunAdmissionService";
-import { resolveCachedChatModelMetadata } from "../../services/chat/ChatModelMetadataResolution";
-import { createPostgresProviderConfigService } from "../../services/providers/stores/PostgresStoreFactory";
+import { resolveAdmissionChatModelMetadata } from "../../services/chat/ChatModelMetadataResolution";
 import type { ChatModelMetadata } from "../../services/chat/ChatModelMetadataResolver";
 import { validateChatReasoningEffort } from "../../services/chat/ChatReasoningEffortPolicy";
 import {
@@ -110,11 +109,9 @@ export async function submitHostedChat(
     const executionStartedAt = Date.now();
     const useCase = new HandleChatRequest(env);
     const trustedModelMetadata: ChatModelMetadata =
-      await resolveCachedChatModelMetadata({
+      await resolveAdmissionChatModelMetadata(env, { userId, workspaceId, runId }, {
         providerId: body.providerId,
         modelId: body.modelId,
-        readCachedModel: (providerId, modelId) =>
-          createPostgresProviderConfigService(env, userId, workspaceId, runId).getCachedModel(providerId, modelId),
       });
 
     const reasoningEffortError = validateChatReasoningEffort(

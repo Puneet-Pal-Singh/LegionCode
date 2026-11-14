@@ -721,6 +721,19 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
     const result = await this.client.query<AdmissionRow>(MARK_RECOVERY_REQUIRED_SQL, [input.turnId, input.claimId]);
     return result.rows.length > 0;
   }
+
+  async markRecoveryRequiredForUnownedStop(input: {
+    userId: string; sessionId: string; workspaceId: string; runId: string;
+    threadId: string; turnId: string; runAttemptId: string;
+  }): Promise<boolean> {
+    // One guarded UPDATE takes the existing admission row lock. This records
+    // uncertainty, never new execution authority or positive resource closure.
+    const result = await this.client.query(MARK_UNOWNED_STOP_RECOVERY_SQL, [
+      input.userId, input.sessionId, input.workspaceId, input.runId,
+      input.threadId, input.turnId, input.runAttemptId,
+    ]);
+    return result.rows.length > 0;
+  }
 }
 
 function mapAdmission(row: AdmissionRow): TurnAdmissionRecord {
@@ -869,6 +882,7 @@ const READ_PROMPT_BY_DEDUPE_SQL = `SELECT id AS prompt_message_id FROM messages 
 const LOCK_ADMISSION_BY_TURN_SQL = `SELECT a.*, s.user_id AS owner_user_id FROM canonical_turn_admissions a JOIN sessions s ON s.id = a.session_id WHERE a.turn_id = $1 FOR UPDATE OF a`;
 const CLAIM_EXECUTION_SQL = `UPDATE canonical_turn_admissions SET execution_state = 'running', execution_claim_id = $2, execution_claimed_at = now() WHERE turn_id = $1 AND admission_state = 'admitted' AND execution_state = 'pending' RETURNING *, (SELECT user_id FROM sessions WHERE id = canonical_turn_admissions.session_id) AS owner_user_id`;
 const MARK_RECOVERY_REQUIRED_SQL = `UPDATE canonical_turn_admissions SET execution_state = 'recovery_required' WHERE turn_id = $1 AND execution_claim_id = $2 AND execution_state = 'running' RETURNING turn_id`;
+const MARK_UNOWNED_STOP_RECOVERY_SQL = `UPDATE canonical_turn_admissions a SET execution_state = 'recovery_required' WHERE a.session_id = $2 AND a.workspace_id = $3 AND a.run_id = $4 AND a.thread_id = $5 AND a.turn_id = $6 AND a.run_attempt_id = $7 AND a.admission_state = 'admitted' AND a.execution_state IN ('pending', 'running', 'recovery_required') AND EXISTS (SELECT 1 FROM sessions s WHERE s.id = a.session_id AND s.user_id = $1) RETURNING a.turn_id`;
 const SET_CURRENT_SESSION_TURN_SQL = `UPDATE sessions SET current_turn_id = $3, updated_at = now() WHERE id = $1 AND active_run_id = $2`;
 const BIND_PROMPT_TURN_IDENTITY_SQL = `UPDATE messages SET canonical_turn_id = $3, canonical_run_attempt_id = $4 WHERE session_id = $1 AND id = $2 AND role = 'user'`;
 const ACTIVATE_CONTINUATION_SESSION_SQL = `UPDATE sessions SET active_run_id = $2, current_turn_id = $3, status = 'running', updated_at = now() WHERE id = $1 AND current_turn_id = $4 AND (active_run_id IS NULL OR active_run_id = $2) RETURNING id`;
