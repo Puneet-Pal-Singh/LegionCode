@@ -1,3 +1,4 @@
+import type { JsonValue } from "@repo/shared-types";
 import {
   type LeaseId,
   type RunAttemptId,
@@ -67,7 +68,8 @@ export class TaskWorkspacePersistenceError extends Error {
       | "task_checkout_not_found"
       | "task_checkout_scope_mismatch"
       | "task_checkout_transition_conflict"
-      | "task_checkout_transition_invalid",
+      | "task_checkout_transition_invalid"
+      | "task_checkout_recovery_required",
     message: string,
     readonly context: Readonly<Record<string, string>> = {},
   ) {
@@ -82,4 +84,53 @@ export interface TaskCheckoutBinding {
   readonly workspaceId: WorkspaceId;
   readonly runAttemptId: RunAttemptId;
   readonly leaseId: LeaseId;
+}
+
+/** Private issuance custody on the existing checkout row, never a ready DTO. */
+export type TaskCheckoutIssuanceReservation = Pick<
+  TaskCheckout,
+  | "checkoutId"
+  | "snapshotId"
+  | "workspaceId"
+  | "threadId"
+  | "turnId"
+  | "runAttemptId"
+  | "filesystemRoot"
+  | "gitDir"
+  | "indexFile"
+  | "workingBranch"
+  | "startTreeId"
+  | "createdAt"
+> & { readonly issuanceToken: string };
+
+export interface PersistedTaskCheckoutExecutionDomain {
+  readonly value: JsonValue;
+  readonly digest: string;
+}
+
+export interface TaskCheckoutIssuanceRepository {
+  reserveIssuance(
+    snapshot: WorkspaceSnapshot,
+    reservation: TaskCheckoutIssuanceReservation,
+  ): Promise<void>;
+  beginIssuanceCallback(
+    checkoutId: TaskCheckoutId,
+    issuanceToken: string,
+  ): Promise<void>;
+  freezeIssuanceDomain(
+    checkoutId: TaskCheckoutId,
+    issuanceToken: string,
+    domain: PersistedTaskCheckoutExecutionDomain,
+  ): Promise<void>;
+  completeIssuance(
+    checkout: TaskCheckout,
+    issuanceToken: string,
+  ): Promise<TaskCheckout>;
+  markIssuanceUnknown(
+    checkoutId: TaskCheckoutId,
+    issuanceToken: string,
+  ): Promise<void>;
+  getCheckoutExecutionDomain(
+    checkoutId: TaskCheckoutId,
+  ): Promise<PersistedTaskCheckoutExecutionDomain>;
 }
