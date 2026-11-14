@@ -23,6 +23,8 @@ export type SingleExecutableProcessInput = {
   /** Canonical Git owner only; not run_executable/model/renderer inputs. */
   environment?: Readonly<Record<string, string>>;
   stdin?: string;
+  /** Private canonical read-only Git invocation only; never model/tool input. */
+  readOnlyProbe?: true;
   /** Private canonical Git context; required for environment/stdin invocation.
    * Trusted host composition supplies this, never run_executable/model input. */
   trustedGitContext?: {
