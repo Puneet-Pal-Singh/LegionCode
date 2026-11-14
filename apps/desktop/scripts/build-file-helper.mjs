@@ -38,6 +38,9 @@ export const nativeHelperSources = [
     name: "legioncode-host-broker",
     sourcePath: nativeSourcePath("legioncode-host-broker"),
     additionalSourcePaths: [nativeSourcePath("legioncode-host-writer")],
+  }, {
+    name: "legioncode-native-installer",
+    sourcePath: nativeSourcePath("legioncode-native-installer"),
   }] : []),
 ];
 const compilerEnvironment = {
@@ -277,7 +280,7 @@ export async function buildNativeFileHelper(
   const target = nativeHelperSources.find(({ name }) => name === helperName);
   if (!target) throw new Error("Unsupported native helper build target");
   const source = await realpath(sourcePath);
-  if (helperName === "legioncode-host-broker" && (
+  if (["legioncode-host-broker", "legioncode-native-installer"].includes(helperName) && (
     platform !== "darwin" || source !== await realpath(target.sourcePath)
   )) throw new Error("Host broker requires its canonical macOS source target");
   const sources = [source];
@@ -296,7 +299,7 @@ export async function buildNativeFileHelper(
     const compiler = platform === "darwin" ? "/usr/bin/clang" : "/usr/bin/cc";
     const args = compilerArguments(platform, architecture, helperName);
     args.push(...sources);
-    if (helperName === "legioncode-host-broker")
+    if (["legioncode-host-broker", "legioncode-native-installer"].includes(helperName))
       args.push("-framework", "CoreFoundation", "-framework", "Security");
     args.push("-o", temporaryExecutable);
     try {

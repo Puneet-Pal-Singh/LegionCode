@@ -4,6 +4,7 @@ import {
   buildNativeFileHelper,
   minimumMacOSVersion,
   nativeHelperSources,
+  inspectNativeFileHelper,
   verifyPackagedMacOSMinimum,
   verifyBundledFileHelper,
   verifyBundledHostBroker,
@@ -100,6 +101,11 @@ const config: Configuration = {
           stage: "bundled-link-inspected-before-signing",
           ...brokerDiagnostics,
         }));
+        await inspectNativeFileHelper(join(
+          context.appOutDir,
+          `${context.packager.appInfo.productFilename}.app`,
+          "Contents", "Resources", "native", "legioncode-native-installer",
+        ), context.electronPlatformName, Arch[context.arch]);
       }
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Unknown verifier failure";
