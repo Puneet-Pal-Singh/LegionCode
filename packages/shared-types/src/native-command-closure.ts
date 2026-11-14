@@ -11,6 +11,7 @@ export const NativePhysicalIdentitySchema = z.object({
 }).strict();
 
 export const NativeCommandScopeSchema = z.object({
+  executionDomainDigest: hex,
   sessionId: id, leaseId: id, sandboxId: id, generation: z.number().int().nonnegative().safe(),
   workspaceId: id, workspaceRoot: z.string().regex(/^\/home\/sandbox\/checkouts\/[A-Za-z0-9_.-]+$/),
   runId: id, threadId: id, turnId: id, runAttemptId: id, taskId: id,
@@ -25,6 +26,7 @@ export const NativeCommandClosureSchema = z.discriminatedUnion("state", [
   }).strict(),
   z.object({
     state: z.literal("settled"), scope: NativeCommandScopeSchema,
+    profile: z.literal("linux-pid-namespace-cgroup-v2"),
     operationId: hex, nonce: hex, originalTransportSettled: z.literal(true),
     root: NativePhysicalIdentitySchema, sandboxBootId: z.string().uuid(),
     namespace: z.object({
@@ -32,7 +34,7 @@ export const NativeCommandClosureSchema = z.discriminatedUnion("state", [
       inode: NativePhysicalIntegerSchema.refine(value => value !== "0"),
       initHostPid: z.number().int().positive().safe(),
     }).strict(),
-    cgroup: NativePhysicalIdentitySchema, metadataIdentity: z.string().min(1).max(512),
+    cgroup: NativePhysicalIdentitySchema, metadataIdentity: z.string().regex(/^linux-git-metadata-v1:[a-f0-9]{64}$/),
     receiptSha256: hex,
   }).strict(),
 ]).refine(value => value.state !== "settled" || value.operationId === value.nonce);
