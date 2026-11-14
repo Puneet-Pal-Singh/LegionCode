@@ -119,19 +119,20 @@ test("the packaged Desktop app renders without Node.js privileges", async () => 
     // View switching retains the existing Local environment and never signs in
     // or uploads its provider credentials to the independent hosted account.
     const localView = page.locator("#root > div").filter({ has: page.getByRole("button", { name: "Work in This computer", includeHidden: true }) }).first();
-    await page.getByRole("textbox").fill("Keep this unsent local draft while viewing Cloud");
+    const composer = page.getByRole("textbox").and(page.locator("textarea"));
+    await composer.fill("Keep this unsent local draft while viewing Cloud");
     await page.getByRole("button", { name: "Work in This computer", exact: true }).click();
     await page.getByRole("menuitemradio", { name: "Cloud", exact: true }).click();
     await expect(page.getByText("LegionCode account", { exact: true })).toBeVisible();
-    await expect(page.getByRole("textbox")).toHaveValue("");
+    await expect(composer).toHaveValue("");
     await expect(localView).toBeHidden();
     await expectEnvironmentReady(page);
     await page.getByRole("button", { name: "Work in Cloud", exact: true }).click();
     await page.getByRole("menuitemradio", { name: "This computer", exact: true }).click();
     await expect(page.getByRole("button", { name: "Work in This computer", exact: true })).toBeVisible();
     await expect(page.getByText("LegionCode account", { exact: true })).toBeHidden();
-    await expect(page.getByRole("textbox")).toHaveValue("Keep this unsent local draft while viewing Cloud");
-    await page.getByRole("textbox").fill("");
+    await expect(composer).toHaveValue("Keep this unsent local draft while viewing Cloud");
+    await composer.fill("");
     await openSidebar.click();
     await expect(workspaceSidebar).toBeVisible();
     await expect(closeSidebar).toBeVisible();
