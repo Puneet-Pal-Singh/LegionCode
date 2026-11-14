@@ -33,6 +33,7 @@ vi.mock("@legioncode/sdk/platform/app-server-http-transport", () => ({
 }));
 
 import { LocalAppServerSupervisor } from "./local-app-server-supervisor";
+import type { RuntimeCredentialLease, RuntimeCredentialReference } from "./runtime-credentials";
 
 class TestChild extends EventEmitter implements FakeChild {
   constructor(readonly pid: number) {
@@ -103,12 +104,27 @@ describe("Local App Server supervisor generation safety", () => {
     mocks.initialize.mockResolvedValue(handshake);
     const requestResult = deferred<unknown>();
     mocks.request.mockReturnValue(requestResult.promise);
-    const supervisor = new LocalAppServerSupervisor();
+    const reference: RuntimeCredentialReference = { providerId: "openai",
+      connectionId: "00000000-0000-4000-8000-000000000001", ownerGeneration: 1, tokenMaterialVersion: 1 };
+    const metadataResult = deferred<RuntimeCredentialReference | null>();
+    const credentialResult = deferred<RuntimeCredentialLease | null>();
+    const capture = vi.fn(() => metadataResult.promise);
+    const acquire = vi.fn(() => credentialResult.promise);
+    const supervisor = new LocalAppServerSupervisor(undefined, undefined, {
+      captureRuntimeCredentialReference: capture, acquireRuntimeCredential: acquire,
+    });
     await supervisor.start("1.0.0", "/private/user-data");
     const child = childAt(0);
     child.emit("message", { type: "ready", baseUrl: "http://127.0.0.1:4312" });
     await settleMessages();
     expect(supervisor.getEnvironment().status).toBe("ready");
+    const messages = vi.spyOn(child, "postMessage");
+    child.emit("message", { type: "runtime-credential-request", purpose: "capture",
+      requestId: "00000000-0000-4000-8000-000000000002", providerId: "openai" });
+    child.emit("message", { type: "runtime-credential-request", purpose: "acquire",
+      requestId: "00000000-0000-4000-8000-000000000003", providerId: "openai", reference });
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(acquire).toHaveBeenCalledWith(reference, expect.any(AbortSignal));
 
     const request = supervisor.request({
       protocolVersion: "1.0.0",
@@ -118,7 +134,16 @@ describe("Local App Server supervisor generation safety", () => {
     const stopping = supervisor.stop();
     child.emit("message", { type: "closed" });
     child.emit("exit");
+    await settleMessages();
+    expect(supervisor.getEnvironment().status).toBe("degraded");
+    await expect(supervisor.start("1.0.0", "/private/user-data")).rejects.toThrow("closure is unconfirmed");
+    // Aborting delivery and observing child closure do not settle either original vault promise.
+    metadataResult.resolve(reference);
+    credentialResult.resolve({ reference, credential: { apiKey: "synthetic-test-material" }, canDeliver: () => true });
     await stopping;
+    expect(supervisor.getEnvironment().status).toBe("stopped");
+    expect(messages.mock.calls.some(([message]) => message !== null && typeof message === "object" &&
+      "type" in message && message.type === "runtime-credential-response")).toBe(false);
     requestResult.resolve({ ok: true });
     await expect(request).rejects.toThrow("Local App Server changed during the request");
   });
