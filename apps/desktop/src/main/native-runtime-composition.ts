@@ -104,13 +104,13 @@ export async function createDesktopNativeComposition(
         storageDirectory: config.storageDirectory,
         filesystemHelperPath,
         processHelperPath,
-        createCaptureGitService: (lease, binding) => createCaptureGitService(lease, {
+        createCaptureGitService: (lease, binding, readSignal) => createCaptureGitService(lease, {
           gitExecutable,
           processHelperPath,
           filesystemHelperPath,
           metadataIdentity: binding.metadataIdentity,
           inspectMetadataLayout: binding.inspectMetadataLayout,
-        }),
+        }, readSignal),
       }) : undefined;
       return createLocalNativeRuntime({
         persistence,

@@ -31,6 +31,7 @@ import type {
   LocalWorkspaceWriterLeaseOwner,
 } from "./local-workspace-writer-lease.js";
 import { LocalWorkspaceWriterLeaseError } from "./local-workspace-writer-lease.js";
+import { LocalCapturedGitReadWorker } from "./local-captured-git-read-worker.js";
 
 const AVAILABLE_TOOL_IDS = [
   "read_file",
@@ -38,12 +39,15 @@ const AVAILABLE_TOOL_IDS = [
   "write_file",
   "edit_file",
   "run_executable",
+  "git_status",
+  "git_diff",
 ] as const;
 const BACKEND_CAPABILITIES = [
   "filesystem_read",
   "filesystem_write",
   "approval",
   "single_executable_nofork",
+  "git",
 ] as const;
 
 export interface LocalCapturedReservedLease {
@@ -71,6 +75,7 @@ export interface LocalCapturedExecutionOptions {
   readonly createCaptureGitService: (
     lease: LocalWorkspaceWriterLease,
     binding: LocalWorkspaceExecutionBinding,
+    readSignal: AbortSignal,
   ) => ReturnType<typeof createCaptureGitService>;
 }
 
@@ -266,6 +271,9 @@ export function createLocalCapturedExecutionCapability(
           lifecycleEvents: options.persistence.lifecycleEvents,
           assertMutationReady,
         }) : undefined;
+        const git = await options.createCaptureGitService(lease, binding, activeSignal);
+        await assertActive();
+        const gitReads = new LocalCapturedGitReadWorker({ admission, binding: workerBinding, git });
         const worker: LocalQuiescentWorker = {
           // The existing executor's tracked wrapper forwards provider results;
           // these adapters never add a second tracker or lifecycle producer.
@@ -276,6 +284,9 @@ export function createLocalCapturedExecutionCapability(
               case "read_file":
               case "list_files":
                 return reader.executeTool(tool);
+              case "git_status":
+              case "git_diff":
+                return gitReads.executeTool(tool);
               case "write_file":
               case "edit_file":
                 return files.executeTool(tool);
@@ -298,13 +309,12 @@ export function createLocalCapturedExecutionCapability(
               reader.awaitQuiescence(request),
               files.awaitQuiescence(request),
               executable.awaitQuiescence(request),
+              gitReads.awaitQuiescence(request),
               hostCommands?.awaitQuiescence(request) ?? Promise.resolve(true),
             ]);
             return results.every(Boolean);
           },
         };
-        const git = await options.createCaptureGitService(lease, binding);
-        await assertActive();
         const gitSnapshots = createLocalArtifactCapture({
           binding,
           lease,
