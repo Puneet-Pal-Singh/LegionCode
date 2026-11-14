@@ -7,6 +7,7 @@ import {
   sameConversationScope,
   type SubmissionAttempt,
   type SubmissionOutcome,
+  type PlatformHttpTransportOptions,
 } from "@legioncode/sdk";
 import type { HostedSessionWorkspaceContext } from "@legioncode/sdk";
 import {
@@ -80,6 +81,7 @@ interface ChatSubmitAttachments {
 }
 
 interface UseChatCoreResult {
+  prepareHostedMutation: NonNullable<PlatformHttpTransportOptions["prepareRequest"]>;
   optimisticUserMessageId: string | null;
   input: string;
   handleInputChange: (e: ChangeEvent<HTMLTextAreaElement>) => void;
@@ -419,7 +421,9 @@ export function useChatCore(
     transportLoading: isSubmitting,
   });
   const { isMutationAllowed, requiresRecoveryReview, prepareMutationRequest } = useConversationMutationAvailability(sessionId, runId, activeConversationScope, activeTurnProjection);
-  const lifecycleClient = useMemo(() => createWebPlatformClient({ prepareRequest: prepareMutationRequest }), [prepareMutationRequest]);
+  const prepareHostedMutation = useCallback<NonNullable<PlatformHttpTransportOptions["prepareRequest"]>>(
+    (envelope) => prepareMutationRequest(envelope, () => activeConversationScopeRef.current), [prepareMutationRequest]);
+  const lifecycleClient = useMemo(() => createWebPlatformClient({ prepareRequest: prepareHostedMutation }), [prepareHostedMutation]);
   const isAwaitingTurnAdmission =
     isSubmitting && pendingUserMessage?.scopeKey === runScopeKey;
   const canonicalRunLoading =
@@ -1318,6 +1322,7 @@ export function useChatCore(
   );
 
   return {
+    prepareHostedMutation,
     optimisticUserMessage,
     optimisticUserMessageId,
     input,

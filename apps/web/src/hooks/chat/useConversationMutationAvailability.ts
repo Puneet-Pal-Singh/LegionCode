@@ -59,8 +59,9 @@ export function useConversationMutationAvailability(sessionId: string, runId: st
     const projection = selected.activeTurn.readCurrentProjection();
     return Boolean(projection?.recovery && mutationUnavailableReason(selected.accountId, target, projection));
   }, [ownerKey]);
-  const prepareMutationRequest = useCallback((envelope: AppServerRequest) =>
-    prepareConversationRequestGuard(envelope, current.current, () => current.current, isMutationAllowed),
+  const prepareMutationRequest = useCallback((envelope: AppServerRequest, readSelectedScope: () => ConversationScope | null) =>
+    prepareConversationRequestGuard(envelope, { ...current.current, scope: readSelectedScope() },
+      () => ({ ...current.current, scope: readSelectedScope() }), isMutationAllowed),
   [isMutationAllowed]);
   return {
     isMutationAllowed,

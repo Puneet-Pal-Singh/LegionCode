@@ -21,6 +21,7 @@ import type { ChatDebugEvent } from "../../types/chat-debug.js";
 import type { ConversationScope } from "@legioncode/sdk";
 import type { ConversationScopeHttpError } from "@legioncode/sdk";
 import type { SubmissionOutcome } from "@legioncode/sdk";
+import type { PlatformHttpTransportOptions } from "@legioncode/sdk";
 import type { HydrationStatus } from "../../services/ChatHydrationService";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery";
 import { useAuth } from "../../contexts/AuthContext";
@@ -65,6 +66,7 @@ import { useChatAutoScroll } from "@legioncode/client-ui";
 
 interface ChatInterfaceProps {
   chatProps: {
+    prepareHostedMutation: NonNullable<PlatformHttpTransportOptions["prepareRequest"]>;
     messages: Message[];
     optimisticUserMessageId?: string | null;
     runId: string;
@@ -189,9 +191,9 @@ export function ChatInterface({
   });
   const activeTurn = chatProps.activeTurnProjection ?? localActiveTurn;
   const lifecycleProjection = activeTurn.projection;
-  const { isMutationAllowed, prepareMutationRequest, unavailableReason: mutationUnavailableReason } =
+  const { isMutationAllowed, unavailableReason: mutationUnavailableReason } =
     useConversationMutationAvailability(sessionId, runId, conversationScope ?? null, activeTurn);
-  const mutationClient = useMemo(() => createWebPlatformClient({ prepareRequest: prepareMutationRequest }), [prepareMutationRequest]);
+  const mutationClient = useMemo(() => createWebPlatformClient({ prepareRequest: chatProps.prepareHostedMutation }), [chatProps.prepareHostedMutation]);
   const compactActiveTurn = useCallback(async () => {
     const scope = conversationScope;
     if (!scope || !isMutationAllowed(scope)) return;
