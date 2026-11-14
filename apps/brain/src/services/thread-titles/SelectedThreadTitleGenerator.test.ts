@@ -26,7 +26,18 @@ const input = {
   previewVersion: 2,
   providerId: "openai",
   modelId: "chosen-model",
-  providerTransport: "openai-chat-completions" as const,
+  providerTransport: "openai-responses" as const,
+  nativeProviderCredentials: {
+    scope: { userId: "user", workspaceId: "workspace", sessionId: "session", threadId: "thread",
+      runId: "run", turnId: "trn_title", runAttemptId: "attempt_title" },
+    binding: {
+      v: 1, kind: "byok", providerId: "openai", modelId: "chosen-model",
+      scope: { userId: "user", workspaceId: "workspace", sessionId: "session", threadId: "thread",
+        runId: "run", turnId: "trn_title", runAttemptId: "attempt_title" },
+      credential: { connectionId: "123e4567-e89b-42d3-a456-426614174005", userId: "user",
+        providerId: "openai", ownerGeneration: 1, tokenMaterialVersion: 1 },
+    },
+  },
 };
 beforeEach(() => {
   vi.clearAllMocks();
@@ -80,6 +91,11 @@ describe("selected title route", () => {
     const generator = createSelectedThreadTitleGenerator({} as Env, {
       ...input,
       providerId: "anthropic",
+      nativeProviderCredentials: {
+        ...input.nativeProviderCredentials,
+        binding: { ...input.nativeProviderCredentials.binding, providerId: "anthropic",
+          credential: { ...input.nativeProviderCredentials.binding.credential, providerId: "anthropic" } },
+      },
       providerTransport: "anthropic-messages",
       modelCapabilities: { supportsStructuredOutputs: true },
     });

@@ -7,6 +7,7 @@
 
 import type { Env } from "../../types/ai";
 import { AIService } from "../../services/AIService";
+import type { NativeProviderCredentialContext } from "../../services/providers/NativeProviderCredentialResolver";
 import {
   ProviderConfigService,
   ProviderRegistryService,
@@ -53,11 +54,14 @@ export function buildLLMGateway(
     budgetManager: BudgetManager;
     pricingResolver: PricingResolver;
   },
+  nativeCredentials: NativeProviderCredentialContext,
+  activeModelId?: string,
 ): {
   llmRuntimeService: LLMRuntimeAIService;
   llmGateway: LLMGateway;
   drainProviderRequests: () => Promise<void>;
 } {
+  if (!nativeCredentials) throw new Error("Native LLM runtime requires its claimed provider binding");
   const userId = providerScope.userId;
   const workspaceId = providerScope.workspaceId;
 
@@ -72,6 +76,12 @@ export function buildLLMGateway(
     userId,
     workspaceId,
     providerScope.runId,
+    nativeCredentials,
+  );
+  const selection = providerConfigService.getNativeProviderSelection();
+  if (!selection) throw new Error("Native provider selection is unavailable");
+  providerConfigService.assertNativeProviderSelection(
+    activeProviderId ?? selection.providerId, activeModelId ?? selection.modelId,
   );
   const providerRegistryService = new ProviderRegistryService();
   const aiService = new AIService(env, providerConfigService);
@@ -112,6 +122,7 @@ function createProviderConfigService(
   userId: string,
   workspaceId: string,
   scopeKey: string,
+  nativeCredentials: NativeProviderCredentialContext,
 ): ProviderConfigService {
-  return createPostgresProviderConfigService(env, userId, workspaceId, scopeKey);
+  return createPostgresProviderConfigService(env, userId, workspaceId, scopeKey, nativeCredentials);
 }

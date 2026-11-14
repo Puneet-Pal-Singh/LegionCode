@@ -178,6 +178,24 @@ export class PostgresCredentialStore
   ): Promise<ProviderCredentialRecord | null> {
     return this.read("id = $2", [connectionId]);
   }
+  /** Admission-only metadata read on the caller's existing transaction. The
+   * canonical preference guard decides whether an absent explicit ID may select
+   * the provider default. This method never reads preferences or decrypts. */
+  async getConnectionForAdmission(
+    providerId: ProviderId,
+    connectionId?: string,
+  ): Promise<ProviderCredentialRecord | null> {
+    providerId = ProviderIdSchema.parse(providerId);
+    connectionId = connectionId === undefined ? undefined
+      : CredentialAcquisitionSchema.shape.connectionId.parse(connectionId);
+    return this.read(
+      `provider_id = $2 AND ${connectionId === undefined ? "is_default = TRUE" : "id = $3"}
+       AND credential_kind = 'api_key' AND status = 'connected'
+       AND deleted_at IS NULL AND refresh_claim_id IS NULL`,
+      connectionId === undefined ? [providerId] : [providerId, connectionId],
+      true,
+    );
+  }
   async getCredentialWithKey(
     providerId: ProviderId,
   ): Promise<{ record: ProviderCredentialRecord; apiKey: string } | null> {
@@ -536,9 +554,10 @@ export class PostgresCredentialStore
   private async read(
     predicate: string,
     values: SqlValue[],
+    lockForAdmission = false,
   ): Promise<ProviderCredentialRecord | null> {
     const result = await this.client.query<SqlRow>(
-      `SELECT * FROM provider_credentials WHERE user_id = $1 AND ${predicate} LIMIT 1`,
+      `SELECT * FROM provider_credentials WHERE user_id = $1 AND ${predicate} LIMIT 1${lockForAdmission ? " FOR SHARE" : ""}`,
       [this.userId, ...values],
     );
     return result.rows[0] ? this.rowToRecord(result.rows[0]) : null;

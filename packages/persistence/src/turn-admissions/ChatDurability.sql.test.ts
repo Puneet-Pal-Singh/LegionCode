@@ -8,6 +8,7 @@ import type { SqlClient, SqlQueryResult, SqlRow, SqlValue } from "../sql.js";
 import { PostgresTranscriptRepository } from "../sessions/PostgresTranscriptRepository.js";
 import { PostgresLifecycleEventStore } from "../lifecycle-events/PostgresLifecycleEventStore.js";
 import { PostgresTurnAdmissionRepository } from "./PostgresTurnAdmissionRepository.js";
+import { NativeProviderBindingSchema, type NativeProviderAdmissionCapture } from "./native-provider-binding.js";
 import { PostgresSessionReadReceiptRepository } from "../session-read-receipts/PostgresSessionReadReceiptRepository.js";
 
 // Run the production migrations and repository SQL against an isolated PostgreSQL
@@ -43,7 +44,7 @@ afterAll(() => db.close());
 describe("durable admission and canonical append SQL", () => {
   it("derives the newest terminal and keeps viewer receipts isolated, stale-safe, and idempotent", async () => {
     const fixture = await createFixture(client);
-    const admissions = new PostgresTurnAdmissionRepository(client);
+    const admissions = new PostgresTurnAdmissionRepository(client, nativeCapture());
     const lifecycle = new PostgresLifecycleEventStore(client);
     const receipts = new PostgresSessionReadReceiptRepository(client);
     const first = fixture.admission;
@@ -91,26 +92,38 @@ describe("durable admission and canonical append SQL", () => {
 
   it("rolls back prompt admission and permits the same request to retry", async () => {
     const fixture = await createFixture(client);
-    const admissions = new PostgresTurnAdmissionRepository(client);
+    let captures = 0;
+    const admissions = new PostgresTurnAdmissionRepository(client, nativeCapture(() => { captures += 1; }));
     await admissions.reserve(fixture.admission);
     const input = admissionInput(fixture, fixture.admission, "rollback");
     await db.exec(`CREATE FUNCTION fail_prompt() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'prompt failure'; END; $$;
       CREATE TRIGGER fail_prompt BEFORE INSERT ON message_parts FOR EACH ROW EXECUTE FUNCTION fail_prompt();`);
     await expect(admissions.admitWithPrompt(input)).rejects.toThrow("prompt failure");
-    expect(await admissions.getByTurnId(input.turnId)).toMatchObject({ state: "reserved", executionState: "pending" });
+    expect(await admissions.getByTurnId(input.turnId)).toMatchObject({ state: "reserved", executionState: "pending", nativeProviderBinding: null });
     expect((await client.query("SELECT status, active_run_id, admission_sequence, last_sequence FROM sessions WHERE id = $1", [fixture.sessionId])).rows[0]).toMatchObject({ status: "idle", active_run_id: null, admission_sequence: 0, last_sequence: 0 });
     expect((await client.query("SELECT id FROM runs WHERE id = $1", [input.runId])).rows).toEqual([]);
     await db.exec("DROP TRIGGER fail_prompt ON message_parts; DROP FUNCTION fail_prompt();");
     const accepted = await admissions.admitWithPrompt(input);
+    const capturesBeforeRetry = captures;
     const repeated = await admissions.admitWithPrompt(input);
     expect(repeated.promptMessageId).toBe(accepted.promptMessageId);
     expect(repeated.admission).toMatchObject({ state: "admitted", admissionOrder: 1 });
+    expect(accepted.admission.nativeProviderBinding).toMatchObject({
+      kind: "byok", providerId: "openai", modelId: "gpt-4o",
+      scope: { userId: fixture.userId, workspaceId: fixture.workspaceId, sessionId: fixture.sessionId,
+        turnId: input.turnId, runId: input.runId, runAttemptId: input.runAttemptId },
+      credential: { connectionId: "11111111-1111-4111-8111-111111111111", ownerGeneration: 1, tokenMaterialVersion: 1 },
+    });
+    expect(repeated.admission.nativeProviderBinding).toEqual(accepted.admission.nativeProviderBinding);
+    expect((await admissions.getByTurnId(input.turnId))?.nativeProviderBinding).toEqual(accepted.admission.nativeProviderBinding);
+    expect(capturesBeforeRetry).toBe(2); // Failed publication and successful retry each capture once.
+    expect(captures).toBe(capturesBeforeRetry); // A saved receipt never recaptures current selection.
     await expect(admissions.admitWithPrompt({ ...input, requestFingerprint: "changed" })).rejects.toMatchObject({ code: "fingerprint_conflict" });
   });
 
   it("persists assistant deltas using the server-issued turn identity exactly once", async () => {
     const fixture = await createFixture(client);
-    const admissions = new PostgresTurnAdmissionRepository(client);
+    const admissions = new PostgresTurnAdmissionRepository(client, nativeCapture());
     await admissions.reserve(fixture.admission);
     await admissions.admitWithPrompt(admissionInput(fixture, fixture.admission, "canonical"));
     const lifecycle = new PostgresLifecycleEventStore(client);
@@ -129,7 +142,7 @@ describe("durable admission and canonical append SQL", () => {
 
   it("appends assistant turns for distinct user turns on the same run", async () => {
     const fixture = await createFixture(client);
-    const admissions = new PostgresTurnAdmissionRepository(client);
+    const admissions = new PostgresTurnAdmissionRepository(client, nativeCapture());
     const store = new PostgresLifecycleEventStore(client);
     await admissions.reserve(fixture.admission);
     await admissions.admitWithPrompt(admissionInput(fixture, fixture.admission, "first"));
@@ -149,7 +162,7 @@ describe("durable admission and canonical append SQL", () => {
 
   it("isolates owners and allows only one execution claim for an admitted turn", async () => {
     const fixture = await createFixture(client);
-    const admissions = new PostgresTurnAdmissionRepository(client);
+    const admissions = new PostgresTurnAdmissionRepository(client, nativeCapture());
     await expect(admissions.reserve({ ...fixture.admission, userId: randomUUID() })).rejects.toMatchObject({ code: "session_not_found" });
     await admissions.reserve(fixture.admission);
     await admissions.admitWithPrompt(admissionInput(fixture, fixture.admission, "claim"));
@@ -164,7 +177,7 @@ describe("durable admission and canonical append SQL", () => {
 
   it("authorizes revisions against the latest owned terminal turn at reservation and admission", async () => {
     const fixture = await createFixture(client);
-    const admissions = new PostgresTurnAdmissionRepository(client);
+    const admissions = new PostgresTurnAdmissionRepository(client, nativeCapture());
     const store = new PostgresLifecycleEventStore(client);
     await admissions.reserve(fixture.admission);
     await admissions.admitWithPrompt(admissionInput(fixture, fixture.admission, "original"));
@@ -192,7 +205,7 @@ describe("durable admission and canonical append SQL", () => {
     { type: "turn.failed", payload: { outcome: { status: "failed", failure: { code: "internal_error", message: "fixture failure", retryable: false, correlationId: null, details: null } } }, run: "failed", session: "failed" },
   ])("settles $type from the canonical append", async ({ type, payload, run, session }) => {
     const fixture = await createFixture(client);
-    const admissions = new PostgresTurnAdmissionRepository(client);
+    const admissions = new PostgresTurnAdmissionRepository(client, nativeCapture());
     await admissions.reserve(fixture.admission);
     await admissions.admitWithPrompt(admissionInput(fixture, fixture.admission, type));
     const terminal = { ...lifecycleEnvelope(fixture, 2), type, payload } as LifecycleEvent;
@@ -204,7 +217,7 @@ describe("durable admission and canonical append SQL", () => {
 
   it("rolls back lifecycle events when canonical transcript projection fails", async () => {
     const fixture = await createFixture(client);
-    const admissions = new PostgresTurnAdmissionRepository(client);
+    const admissions = new PostgresTurnAdmissionRepository(client, nativeCapture());
     await admissions.reserve(fixture.admission);
     await admissions.admitWithPrompt(admissionInput(fixture, fixture.admission, "projection"));
     await db.exec(`CREATE FUNCTION fail_projection() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.canonical_turn_id IS NOT NULL THEN RAISE EXCEPTION 'projection failure'; END IF; RETURN NEW; END; $$;
@@ -220,12 +233,30 @@ describe("durable admission and canonical append SQL", () => {
   });
 });
 
+/** These SQL cases exercise Native admission durability, not credential custody.
+ * Supply one strict private fixture binding through the real capture port. */
+function nativeCapture(onCapture?: () => void): NativeProviderAdmissionCapture {
+  return {
+    async withBinding(boundClient, input, commit) {
+      if (input.executionRoute !== "native") throw new Error("Expected the Native admission fixture route");
+      const binding = NativeProviderBindingSchema.parse({
+        v: 1, kind: "byok", scope: input.scope, providerId: input.providerId, modelId: input.modelId,
+        credential: { connectionId: "11111111-1111-4111-8111-111111111111", userId: input.scope.userId,
+          providerId: input.providerId, ownerGeneration: 1, tokenMaterialVersion: 1 },
+      });
+      onCapture?.();
+      return commit(boundClient, binding);
+    },
+  };
+}
+
 function admissionInput(
   fixture: Awaited<ReturnType<typeof createFixture>>,
   admission: typeof fixture.admission,
   label: string,
 ) {
   return {
+    executionRoute: "native" as const,
     sessionId: fixture.sessionId,
     clientMessageId: admission.clientMessageId,
     turnId: admission.turnId,
@@ -236,6 +267,8 @@ function admissionInput(
     workspaceId: fixture.workspaceId,
     taskId: fixture.taskId,
     mode: "build",
+    providerId: "openai",
+    modelId: "gpt-4o",
     promptMessage: {
       role: "user" as const,
       clientMessageId: admission.clientMessageId,
