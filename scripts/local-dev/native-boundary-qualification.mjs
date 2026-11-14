@@ -7,6 +7,7 @@ import { basename, dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { qualificationConfigPath, qualificationControlProps, validateNativeQualificationIsolation } from "../gates/check-native-qualification-isolation.mjs";
 import { readJsonc } from "./local-wrangler-config.mjs";
+import { verifyNativeOciPackage, publishNativeOciImage } from "./native-oci-publisher.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const app = resolve(root, "apps/secure-agent-api");
@@ -98,18 +99,33 @@ async function originalCli(identity, configPath, command, { format = "json", abs
   let overflow = false;
   let spawnFailed = false;
   let inputFailed = false;
-  const stdoutHash = createHash("sha256");
-  const stderrHash = createHash("sha256");
+  const secretOutput = format === "secret";
+  const stdoutHash = secretOutput ? null : createHash("sha256");
+  const stderrHash = secretOutput ? null : createHash("sha256");
   for (const [stream, chunks] of [[child.stdout, stdout], [child.stderr, stderr]]) stream.on("data", chunk => {
-    (stream === child.stdout ? stdoutHash : stderrHash).update(chunk);
+    (stream === child.stdout ? stdoutHash : stderrHash)?.update(chunk);
     total += chunk.length;
-    if (total > 8 * 1024 * 1024) overflow = true;
-    if (!overflow) chunks.push(chunk);
+    if (total > (secretOutput ? 32 * 1024 : 8 * 1024 * 1024)) overflow = true;
+    if (!overflow && (!secretOutput || stream === child.stdout)) chunks.push(chunk);
+    else if (secretOutput) chunk.fill(0);
   });
   if (input !== undefined) { child.stdin.on("error", () => { inputFailed = true; }); child.stdin.end(input); }
   child.on("error", () => { spawnFailed = true; });
   const exit = await new Promise(resolveExit => child.on("close", (code, signal) => resolveExit({ code, signal })));
   log.close();
+  if (secretOutput) {
+    // Credential stdout and even stderr-derived hashes must never enter a
+    // receipt/error. Drain the original child completely before accepting it.
+    try {
+      if (overflow || spawnFailed || inputFailed || exit.code !== 0 || exit.signal !== null || hash(readFileSync(identity.executable)) !== identity.executableSha256 || hash(readFileSync(identity.entry)) !== identity.entrySha256) throw unavailable("REGISTRY_CREDENTIAL_ORIGINAL_UNKNOWN");
+      const raw = Buffer.concat(stdout);
+      try {
+        const value = raw.toString("ascii").trim();
+        if (raw.some(byte => byte > 127) || value.length < 20 || value.length > 16384 || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value)) throw unavailable("REGISTRY_CREDENTIAL_OUTPUT_INVALID");
+        return { value: Buffer.from(value, "ascii") };
+      } finally { raw.fill(0); }
+    } finally { for (const chunk of stdout) chunk.fill(0); }
+  }
   const original = { command, stdoutSha256: stdoutHash.digest("hex"), stderrSha256: stderrHash.digest("hex"), exitCode: exit.code, signal: exit.signal, complete: !overflow && !spawnFailed && !inputFailed && exit.signal === null };
   const fail = code => { const error = unavailable(code); error.original = original; throw error; };
   if (!original.complete || hash(readFileSync(identity.executable)) !== identity.executableSha256 || hash(readFileSync(identity.entry)) !== identity.entrySha256) fail("PROVIDER_CLI_ORIGINAL_UNKNOWN");
@@ -698,11 +714,64 @@ async function buildSource() {
   } finally { snapshot.close(); }
 }
 
+/** A registry publication borrows the existing authenticated operator and the
+ * same protected append-only journal. It neither creates a runtime nor grants
+ * Sandbox qualification. A failed original permanently retains this target. */
+async function publishImage(config, configPath, operationId, packageDirectory, expectedSourceCommit) {
+  const candidate = await verifyNativeOciPackage({ packageDirectory, repositoryRoot: root, expectedSourceCommit });
+  let stateFile;
+  try {
+    const identity = cliIdentity();
+    const repository = config.name;
+    const tag = `source-${candidate.sourceCommit}-${operationId.replaceAll("-", "")}`;
+    const image = `registry.cloudflare.com/${config.account_id}/${repository}@${candidate.imageDigest}`;
+    if (config.containers[0].image !== image) throw unavailable("OCI_CONFIG_TARGET_MISMATCH");
+    // Lock by environment, not invocation UUID: a new operation ID cannot
+    // bypass an ambiguous original for the same isolated repository.
+    stateFile = openPrivateState(config.vars.NATIVE_QUALIFICATION_ENVIRONMENT_ID, true, "image");
+    let intent = { version: 1, purpose: "native_boundary_qualification_image", operationId,
+      environmentId: config.vars.NATIVE_QUALIFICATION_ENVIRONMENT_ID, accountId: config.account_id,
+      repository, tag, image, cli: identity, sourceCommit: candidate.sourceCommit,
+      sourceReceiptSha256: candidate.sourceReceiptSha256, archiveSha256: candidate.archiveSha256,
+      helperSha256: candidate.helperSha256, policySourceSha256: candidate.policySourceSha256,
+      configSha256: hash(JSON.stringify(canonical(config))), phase: "prepared" };
+    const recordIntent = update => { intent = { ...intent, ...update }; saveState(stateFile.fd, intent); };
+    recordIntent({});
+    try {
+      const operator = await authenticatedOperator(identity, config, configPath);
+      recordIntent({ operatorReceiptSha256: operator.receiptSha256 });
+      const receipt = await publishNativeOciImage({ verifiedPackage: candidate, accountId: config.account_id, repository, tag,
+        readIntent: () => intent, recordIntent,
+        acquireCredential: async () => {
+          recordIntent({ phase: "credential-pending", pendingAction: { method: "credential", expirationMinutes: 15 } });
+          const reply = await originalCli(identity, configPath, ["cloudchamber", "registries", "credentials", "registry.cloudflare.com", "--push", "--pull", "--expiration-minutes", "15"], { format: "secret" });
+          try { recordIntent({ phase: "prepared", pendingAction: undefined }); }
+          catch (error) { reply.value.fill(0); throw error; }
+          return reply.value;
+        },
+      });
+      console.log(JSON.stringify(receipt));
+    } catch {
+      recordIntent({ phase: "unknown" });
+      throw unavailable("OCI_PUBLICATION_ORIGINAL_UNCONFIRMED");
+    }
+  } finally { candidate.close(); if (stateFile) closeState(stateFile); }
+}
+
 async function main() {
   const [action, configArgument, operationId, ...extra] = process.argv.slice(2);
   if (action === "build-source") {
     if (configArgument !== undefined || operationId !== undefined || extra.length) throw unavailable("ARGUMENTS_INVALID");
     return await buildSource();
+  }
+  if (action === "publish-image") {
+    if (!configArgument || !uuid.test(operationId) || extra.length !== 2 || !/^[a-f0-9]{40}$/.test(extra[1])) throw unavailable("ARGUMENTS_INVALID");
+    const configPath = resolve(configArgument);
+    const { errors, config } = validateNativeQualificationIsolation({ configPath, mode: "sealed" });
+    if (errors.length) throw unavailable("STATIC_QUALIFICATION_ISOLATION_BLOCKED");
+    const snapshot = configSnapshot(config);
+    try { return await publishImage(config, snapshot.path, operationId, resolve(extra[0]), extra[1]); }
+    finally { snapshot.close(); }
   }
   const inspection = action === "inspect" || action === "inspect-sealed";
   if (extra.length || !["inspect", "inspect-sealed", "deploy-sealed", "activate", "reserve", "provision", "qualify", "stop", "status", "retire"].includes(action) || (!inspection && !uuid.test(operationId)) || (inspection && operationId !== undefined)) throw unavailable("ARGUMENTS_INVALID");
