@@ -1,5 +1,7 @@
 import { SecureHarnessExecutionPort } from "./SecureHarnessExecutionPort";
 import { readRunHarnessAdmission } from "./RunHarnessAdmission";
+import { harnessSelectionFingerprint } from "@repo/event-store";
+import { snapshotExecutionDomain } from "@repo/worker-protocol/private/execution-domain";
 import {
   HarnessSelectionSchema,
   ProductModeSchema,
@@ -8,6 +10,7 @@ import {
   WorkerIdSchema,
   userIdFromExternalId,
   workspaceIdFromExternalId,
+  type HarnessSelection,
 } from "@repo/platform-protocol";
 import type { DelegatedRunPreparationPort } from "./DelegatedRunExecution";
 import type { Env } from "../types/ai";
@@ -122,7 +125,8 @@ export class CloudDelegatedRunPreparation implements DelegatedRunPreparationPort
         "Canonical prompt admission does not match harness execution",
         payload.correlationId,
       );
-    if (!admission.requestFingerprint)
+    const admissionFingerprint = admission.requestFingerprint;
+    if (!admissionFingerprint)
       throw failure(
         "HARNESS_ADMISSION_CONFLICT",
         "Canonical admission has no immutable request fingerprint",
@@ -138,7 +142,7 @@ export class CloudDelegatedRunPreparation implements DelegatedRunPreparationPort
     const existing = await bindings.lookupImmutable(
       principal,
       requested,
-      admission.requestFingerprint,
+      admissionFingerprint,
     );
     if (existing)
       throw failure(
@@ -164,9 +168,102 @@ export class CloudDelegatedRunPreparation implements DelegatedRunPreparationPort
         "Immutable artifact storage is unavailable",
         payload.correlationId,
       );
+    const { providerId: accountProviderId, capabilities, ...bindingFacts } = facts;
+    const preparation: {
+      callbackStarted: boolean;
+      selection: HarnessSelection | null;
+    } = { callbackStarted: false, selection: null };
     const issued = await new TaskCheckoutIssuer(this.env).issue(payload, {
       resumeSnapshot: payload.resumeSnapshotRef,
+      beforeSessionAcquire: async ({ snapshot, workspaceScope }) => {
+        // A committed claim or ambiguous acquisition belongs to recovery. Never
+        // run this callback again to manufacture another binding or session.
+        if (preparation.callbackStarted)
+          throw failure(
+            "TURN_EXECUTION_RECOVERY_REQUIRED",
+            "The delegated binding callback cannot be replayed",
+            payload.correlationId,
+          );
+        preparation.callbackStarted = true;
+        if (
+          snapshot.workspaceId !==
+            workspaceIdFromExternalId(principal.workspaceId) ||
+          workspaceScope.workspaceId !== snapshot.workspaceId ||
+          workspaceScope.runId !== principal.runId ||
+          workspaceScope.threadId !== principal.threadId ||
+          workspaceScope.turnId !== principal.turnId ||
+          workspaceScope.runAttemptId !== principal.runAttemptId
+        )
+          throw failure(
+            "HARNESS_SCOPE_CONFLICT",
+            "The resolved checkout differs from the admitted execution scope",
+            payload.correlationId,
+          );
+        const selection = HarnessSelectionSchema.parse({
+          ...bindingFacts,
+          userId: userIdFromExternalId(principal.userId),
+          workspaceId: snapshot.workspaceId,
+          environmentId: principal.environmentId,
+          selectionRevision: requested.selectionRevision,
+          workspaceGrantId: snapshot.snapshotId,
+          threadId: principal.threadId,
+          runId: principal.runId,
+          turnId: principal.turnId,
+          runAttemptId: principal.runAttemptId,
+          policyId: policy.policyId,
+          policyRevision: policy.policyRevision,
+        });
+        // Hash the same canonical storage envelope used by the binding writer,
+        // including every resolved account, policy, version and snapshot pin.
+        const delegatedRouteDigest = await digest(
+          harnessSelectionFingerprint({
+            userId: principal.userId,
+            sessionId: principal.sessionId,
+            runId: principal.runId,
+            workspaceId: principal.workspaceId,
+            threadId: principal.threadId,
+            turnId: principal.turnId,
+            runAttemptId: principal.runAttemptId,
+            selectionJson: JSON.stringify(selection),
+          }),
+        );
+        const claimed = await bindings.freezeAndClaim({
+          principal,
+          selection,
+          claimId,
+          expectedSelection: requested,
+          admissionFingerprint,
+        });
+        if (claimed !== "claimed")
+          throw failure(
+            "TURN_EXECUTION_RECOVERY_REQUIRED",
+            "The admitted attempt already has an execution claim; no prompt will be resent",
+            payload.correlationId,
+          );
+        preparation.selection = selection;
+        return snapshotExecutionDomain({
+          version: 1,
+          domain: "delegated_harness",
+          scope: {
+            userId: principal.userId,
+            brainSessionId: principal.sessionId,
+            workspaceId: workspaceScope.workspaceId,
+            threadId: principal.threadId,
+            turnId: principal.turnId,
+            runId: principal.runId,
+            runAttemptId: principal.runAttemptId,
+          },
+          delegatedRouteDigest,
+        });
+      },
     });
+    const selection = preparation.selection;
+    if (!selection)
+      throw failure(
+        "TURN_EXECUTION_RECOVERY_REQUIRED",
+        "Checkout issuance did not establish the original delegated binding",
+        payload.correlationId,
+      );
     runtime.bindExecutionSession(issued.executionSession);
     const checkouts = new TaskCheckoutExecutionOrchestrator(this.env);
     const checkout = issued.checkout;
@@ -175,46 +272,12 @@ export class CloudDelegatedRunPreparation implements DelegatedRunPreparationPort
       checkouts,
       issued.executionSession,
     );
-    let claimOwned = false;
     try {
       assertHostCapability(
         await runtime.capability(productMode, requested),
         productMode,
         payload.correlationId,
       );
-      const {
-        providerId: accountProviderId,
-        capabilities,
-        ...bindingFacts
-      } = facts;
-      const selection = HarnessSelectionSchema.parse({
-        ...bindingFacts,
-        userId: userIdFromExternalId(principal.userId),
-        workspaceId: workspaceIdFromExternalId(principal.workspaceId),
-        environmentId: principal.environmentId,
-        selectionRevision: requested.selectionRevision,
-        workspaceGrantId: checkout.snapshotId,
-        threadId: principal.threadId,
-        runId: principal.runId,
-        turnId: principal.turnId,
-        runAttemptId: principal.runAttemptId,
-        policyId: policy.policyId,
-        policyRevision: policy.policyRevision,
-      });
-      const claimed = await bindings.freezeAndClaim({
-        principal,
-        selection,
-        claimId,
-        expectedSelection: requested,
-        admissionFingerprint: admission.requestFingerprint,
-      });
-      if (claimed !== "claimed")
-        throw failure(
-          "TURN_EXECUTION_RECOVERY_REQUIRED",
-          "The admitted attempt already has an execution claim; no prompt will be resent",
-          payload.correlationId,
-        );
-      claimOwned = true;
       const active = await checkouts.claimForExecution(
         {
           workspaceId: principal.workspaceId,
@@ -438,7 +501,6 @@ export class CloudDelegatedRunPreparation implements DelegatedRunPreparationPort
         checkoutLifecycle: lifecycle,
       };
     } catch (error) {
-      if (!claimOwned) throw error;
       try {
         await lifecycle.settle({
           status: "failed",
