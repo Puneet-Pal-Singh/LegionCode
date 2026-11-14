@@ -4,11 +4,15 @@ import { ChatImageAttachmentRefSchema, TurnAdmissionSchema, type TurnAdmission }
 import { LocalChatMediaFiles } from "./local-chat-media-files.js";
 import { LocalChatMediaJournal, type LocalChatMediaPendingRecord } from "./local-chat-media-journal.js";
 import {
-  LocalChatMediaScopeSchema, LOCAL_CHAT_MEDIA_LIMITS, LocalChatMediaError,
+  LocalChatMediaScopeSchema, LocalChatMediaStoredScopeSchema, LOCAL_CHAT_MEDIA_LIMITS, LocalChatMediaError,
   mediaScopeKey,
-  type LocalChatMediaRecord, type LocalDecodedChatImage,
+  type LocalChatMediaRecord, type LocalDecodedChatImage, type LocalChatMediaStoredScope,
 } from "./local-chat-media-records.js";
 import type { LocalTurnMediaScope } from "./local-turn-media.js";
+import {
+  LocalQueuedInputMediaOwnershipSchema,
+  type LocalQueuedInputMediaLookup, type LocalQueuedInputMediaOwnership,
+} from "./local-queued-input-media.js";
 
 export type LocalChatMediaAdmissionLookup = (scope: LocalTurnMediaScope) => Promise<TurnAdmission | null>;
 
@@ -23,6 +27,7 @@ export class LocalChatMediaResources {
     private readonly files: LocalChatMediaFiles,
     storageDirectory: string,
     private readonly lookupAdmission?: LocalChatMediaAdmissionLookup,
+    private readonly lookupThreadInput?: LocalQueuedInputMediaLookup,
   ) { this.journal = new LocalChatMediaJournal(storageDirectory); }
 
   ready(): Promise<void> {
@@ -73,7 +78,7 @@ export class LocalChatMediaResources {
 
   async discardUnadmitted(
     record: LocalChatMediaRecord,
-    confirmScopeAbsence: (scope: LocalTurnMediaScope) => Promise<boolean>,
+    confirmScopeAbsence: (scope: LocalChatMediaStoredScope) => Promise<boolean>,
   ): Promise<boolean> {
     await this.ready();
     return this.serialize(async () => {
@@ -90,15 +95,21 @@ export class LocalChatMediaResources {
         }
         const state = await this.acceptance(record);
         if (state === "accepted") return await this.clearAccepted(pending);
-        if (state === "unknown" && this.lookupAdmission) return false;
+        if (state === "unknown" && (record.version === 2 ? this.lookupThreadInput : this.lookupAdmission)) return false;
         let absent = false;
-        try { absent = await confirmScopeAbsence(LocalChatMediaScopeSchema.parse(record.scope)); }
+        try { absent = await confirmScopeAbsence(LocalChatMediaStoredScopeSchema.parse(record.scope)); }
         catch { return false; }
         if (!absent) return false;
         await this.discard(pending);
         return true;
       } catch { return false; }
     });
+  }
+  async assertQueuedAccepted(input: LocalQueuedInputMediaOwnership): Promise<void> {
+    await this.ready();
+    if (await this.queuedAcceptance(input) !== "accepted") {
+      throw new LocalChatMediaError("unavailable", "Queued image ownership could not be verified");
+    }
   }
   private async discard(pending: LocalChatMediaPendingRecord): Promise<void> {
     await this.files.discardPending(pending.record,
@@ -115,6 +126,10 @@ export class LocalChatMediaResources {
     return true;
   }
   private async acceptance(record: LocalChatMediaRecord): Promise<"accepted" | "absent" | "unknown"> {
+    if (record.version === 2) return this.queuedAcceptance({
+      scope: record.scope, fingerprint: record.fingerprint,
+      references: record.images.map(({ reference }) => reference),
+    });
     if (!this.lookupAdmission) return "unknown";
     try {
       const raw = await this.lookupAdmission(record.scope);
@@ -130,6 +145,15 @@ export class LocalChatMediaResources {
         prompt.content.imageFingerprint !== record.fingerprint) return "unknown";
       const references = z.array(ChatImageAttachmentRefSchema).max(LOCAL_CHAT_MEDIA_LIMITS.maxImages).parse(prompt.content.images);
       return isDeepStrictEqual(references, record.images.map(({ reference }) => reference)) ? "accepted" : "unknown";
+    } catch { return "unknown"; }
+  }
+  private async queuedAcceptance(input: LocalQueuedInputMediaOwnership): Promise<"accepted" | "absent" | "unknown"> {
+    if (!this.lookupThreadInput) return "unknown";
+    try {
+      const expected = LocalQueuedInputMediaOwnershipSchema.parse(input);
+      const raw = await this.lookupThreadInput(expected.scope);
+      if (raw === null) return "absent";
+      return isDeepStrictEqual(LocalQueuedInputMediaOwnershipSchema.parse(raw), expected) ? "accepted" : "unknown";
     } catch { return "unknown"; }
   }
   private serialize<T>(operation: () => Promise<T>): Promise<T> {

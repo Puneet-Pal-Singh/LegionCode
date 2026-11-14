@@ -48,3 +48,8 @@ export class LocalPersistenceError extends Error {
     super(message);
   }
 }
+
+/** Private query frame descriptor; importing it does not load SQLite readers. */
+export class LocalThreadUserHistoryFrameTooLargeError extends EventStoreError {
+  constructor(readonly excessBytes: number) { super("history_row_too_large", "History admission frame requires a smaller page"); }
+}
