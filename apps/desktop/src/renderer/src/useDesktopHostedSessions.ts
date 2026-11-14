@@ -216,14 +216,19 @@ export function useDesktopHostedSessions({ client, account, enabled }: Options) 
 
   const selectWorkspace = useCallback((request: HostedWorkspaceSelectRequest) => perform(async (owner, lifetime) => {
     if (creation.current?.owner === owner) throw new Error("Confirm the pending cloud task before changing repositories.");
+    const selectedNavigation = navigation.current;
     const captured = { repository: { ...request.repository }, selectedBranch: request.selectedBranch };
     const selection = await owner.client.selectHostedWorkspace(captured);
     if (!current(owner, lifetime)) throw new Error("The hosted account changed during repository selection.");
     if (selection.repository.owner !== captured.repository.owner || selection.repository.name !== captured.repository.name ||
         selection.selectedBranch !== captured.selectedBranch) throw new Error("The hosted repository selection did not match the request.");
-    navigation.current += 1;
-    writeNavigationPreference(owner, "welcome");
-    publish(owner, { workspaceSelection: selection, selectedSessionId: null, initialized: true, navigationError: null });
+    const stillSelected = selectedNavigation === navigation.current;
+    if (stillSelected) {
+      navigation.current += 1;
+      writeNavigationPreference(owner, "welcome");
+    }
+    publish(owner, { workspaceSelection: selection, initialized: true,
+      ...(stillSelected ? { selectedSessionId: null, navigationError: null } : {}) });
     return selection;
   }), [current, perform, publish]);
 
