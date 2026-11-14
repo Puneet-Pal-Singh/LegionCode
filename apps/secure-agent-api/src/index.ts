@@ -125,6 +125,7 @@
 // apps/secure-agent-api/src/index.ts
 import { AgentRuntime } from "./core/AgentRuntime";
 import { Sandbox } from "./core/OwnedNativeSandbox";
+import { NativeSandbox } from "./core/NativeSandbox";
 import { LaunchRateLimiter } from "./runtime/LaunchRateLimiter";
 import {
   handleCreateSession,
@@ -161,7 +162,7 @@ import {
 import { InternalRuntimeEventClient } from "./services/runtime-events/InternalRuntimeEventClient";
 import { StorageService } from "./services/StorageService";
 
-export { Sandbox, AgentRuntime, LaunchRateLimiter, composeRuntime };
+export { Sandbox, NativeSandbox, AgentRuntime, LaunchRateLimiter, composeRuntime };
 
 /**
  * SRP: Separate Environment definition
@@ -169,6 +170,8 @@ export { Sandbox, AgentRuntime, LaunchRateLimiter, composeRuntime };
 export interface Env {
   AGENT_RUNTIME: DurableObjectNamespace<AgentRuntime>;
   Sandbox: DurableObjectNamespace<Sandbox>;
+  NativeSandbox?: DurableObjectNamespace<NativeSandbox>;
+  CF_VERSION_METADATA?: WorkerVersionMetadata;
   ARTIFACTS: R2Bucket;
   CORS_ALLOWED_ORIGINS?: string;
   CORS_ALLOW_DEV_ORIGINS?: "true" | "false";
