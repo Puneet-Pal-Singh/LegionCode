@@ -85,6 +85,7 @@ export { useCompletedTurnReview, type CompletedTurnReview } from "./conversation
 export { useChatAutoScroll, isChatNearBottom } from "./conversation/chat-interface/useChatAutoScroll.js";
 export { useStableChatLoadingIndicator } from "./conversation/chat-interface/useStableChatLoadingIndicator.js";
 export { ChatInterfaceView, type ChatInterfaceViewProps } from "./conversation/chat-interface/ChatInterfaceView.js";
+export { useConversationTurnLifecycle, type ConversationLifecycleClient } from "./conversation/chat-interface/useConversationTurnLifecycle.js";
 
 export { ChatErrorNotice, type ChatErrorNoticeProps } from "./conversation/ChatErrorNotice.js";
 export { ThreadInputQueuePanel } from "./conversation/conversation/ThreadInputQueuePanel.js";
@@ -165,7 +166,6 @@ export { ReviewDialogFrame, ReviewDialogCloseButton } from "./workspace/ReviewDi
 export { GitCommitDialogView, GitCommitSelectionControl } from "./workspace/GitCommitDialogView.js";
 export type { GitCommitDialogViewProps, CommitNextStep, GitFlowSuccessState, GitCommitStepOption } from "./workspace/GitCommitDialogView.js";
 
-export { useConversationTurnLifecycle, type ConversationLifecycleClient } from "./conversation/chat-interface/useConversationTurnLifecycle.js";
 export { ConversationContinuationNotice, type ConversationContinuationNoticeProps } from "./conversation/chat-interface/ConversationContinuationNotice.js";
 
 export { usePendingTitleProjectionRefresh, type PendingTitleProjection, type PendingTitleProjectionRefreshInput } from "./titles/usePendingTitleProjectionRefresh.js";

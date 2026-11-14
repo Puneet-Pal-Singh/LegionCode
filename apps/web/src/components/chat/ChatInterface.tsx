@@ -547,6 +547,7 @@ export function ChatInterface({
       queuePanel={
         <ThreadInputQueuePanel
           mutationUnavailableReason={mutationUnavailableReason}
+          isMutationAllowed={isMutationAllowed}
           queuingEnabled={composerPreferences.followUpBehavior === "queue"}
           onQueuingChange={(enabled) =>
             updateComposerPreferences({ followUpBehavior: enabled ? "queue" : "steer" })

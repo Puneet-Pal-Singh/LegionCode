@@ -18,6 +18,7 @@ interface ThreadInputQueuePanelProps {
   error: string | null;
   onRetry?: () => void | Promise<unknown>;
   mutationUnavailableReason?: string;
+  isMutationAllowed?: () => boolean;
   active: boolean;
   queuingEnabled: boolean;
   onQueuingChange: (enabled: boolean) => void;
@@ -84,7 +85,7 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
   useLayoutEffect(() => { if (editingItemId) editInputRef.current?.focus(); }, [scope, editingItemId]);
   async function runAction<T>(kind: QueueActionKind, itemId: string | null, action: () => Promise<T>, settle?: (result: T) => void) {
     if (!mounted.current || scopeRef.current !== scope || pendingRef.current ||
-        (kind !== "retry" && mutationReason.current)) return;
+        (kind !== "retry" && (mutationReason.current || props.isMutationAllowed?.() === false))) return;
     const request = { scope, itemId, kind };
     pendingRef.current = request;
     setPending(request);
