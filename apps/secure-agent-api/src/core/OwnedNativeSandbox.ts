@@ -5,7 +5,7 @@ import { Sandbox as CloudflareSandbox } from "@cloudflare/sandbox";
 import {
   NativeCommandBindingSchema, NativeCommandReceiptSchema, NativeCommandRequestSchema,
   NativeWorkspacePreparationSchema, NativeWorkspaceWriteReceiptSchema, sameNativeBinding,
-  type NativeCommandOriginal, type NativeCommandRequest, type OwnedNativeSandboxPort,
+  type NativeCommandOriginal, type NativeCommandRequest, type NativeCommandBinding, type OwnedNativeSandboxPort,
 } from "../toolbox/contracts/OwnedSandboxCommand";
 
 import { authorizeQualification, type QualificationAuthorization } from "../qualification/NativeBoundaryQualificationAuth";
@@ -24,6 +24,7 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
   private readonly nativeState: DurableObjectState;
   private readonly nativeEnvironment: Env;
   private nativeOriginal: Promise<unknown> | undefined;
+  private nativeBootstrap?: { binding: NativeCommandBinding; sealed: boolean; creators: Set<Promise<unknown>> };
 
   constructor(state: DurableObjectState<Record<string, never>>, env: unknown) {
     super(state, env);
@@ -177,27 +178,48 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
     return receipt;
   }
 
+  async sealNativeBootstrap(value: NativeCommandBinding): Promise<void> {
+    const binding = NativeCommandBindingSchema.parse(value);
+    const current = this.nativeBootstrap;
+    if (current && !sameNativeBinding(current.binding, binding)) throw unavailable();
+    const gate = current ?? { binding, sealed: true, creators: new Set<Promise<unknown>>() };
+    this.nativeBootstrap = gate;
+    // Synchronous physical admission fence, before waiting for any creator.
+    gate.sealed = true;
+    await Promise.allSettled([...gate.creators]);
+    if (this.nativeOriginal) await Promise.allSettled([this.nativeOriginal]);
+  }
+
   async materializeNativeCheckout(input: Parameters<NonNullable<OwnedNativeSandboxPort["materializeNativeCheckout"]>>[0]) {
     const binding = NativeCommandBindingSchema.parse(input.binding);
     const intent = NativeCheckoutBootstrapIntentSchema.parse(input.intent);
-    if (this.nativeOriginal) throw unavailable();
+    if (this.nativeOriginal || this.nativeBootstrap) throw unavailable();
+    const gate = { binding, sealed: false, creators: new Set<Promise<unknown>>() };
+    this.nativeBootstrap = gate;
     const gitReceipts: NativeCheckoutBootstrapReceipt["git"] = [];
     const owner = this.nativeEnvironment.AGENT_RUNTIME.get(this.nativeEnvironment.AGENT_RUNTIME.idFromString(input.physicalOwnerId));
-    const continueOriginal = async () => {
-      if (!await owner.continueNativeBootstrap(binding, this.nativeState.id.toString(), intent)) throw unavailable();
+    const createOriginal = async <T>(effect: (deadline: number) => Promise<T>): Promise<T> => {
+      // Register the entire pending authorization/creator before any effect.
+      const creator = Promise.resolve().then(async () => {
+        const admission = await owner.continueNativeBootstrap(binding, this.nativeState.id.toString(), intent);
+        if (!admission) throw unavailable();
+        // No await between physical Stop/deadline admission and effect dispatch.
+        if (gate.sealed || admission.expiresAt <= Date.now()) throw unavailable();
+        return effect(admission.expiresAt);
+      });
+      gate.creators.add(creator);
+      try { return await creator; } finally { gate.creators.delete(creator); }
     };
     const operation = Promise.resolve().then(async () => {
       if (!await owner.authorizeNativeBootstrap(binding, this.nativeState.id.toString(), intent)) throw unavailable();
-      await this.startAndWaitForPorts({ ports: this.defaultPort });
-      await continueOriginal();
+      await createOriginal(() => this.startAndWaitForPorts({ ports: this.defaultPort }));
       return materializeNativeCheckout({
       binding, intent, authEnvironment: input.authEnvironment, gitReceipts,
-      original: async (argv, body) => { await continueOriginal(); return this.runOriginal(argv, body); },
+      original: (argv, body) => createOriginal(deadline => this.runOriginal(argv, body, 64 * 1024, deadline)),
       git: { execute: async (command: GitCommandExecutionInput) => {
         if (command.cwd !== intent.root || gitReceipts.length >= 64) throw unavailable();
         const args = gitCommandRunnerArgs(command), env = gitCommandRunnerEnvironment(command);
-        await continueOriginal();
-        const original = await this.runOriginal(["/usr/local/bin/node", ...args], {}, 64 * 1024, undefined, { cwd: intent.root, env });
+        const original = await createOriginal(deadline => this.runOriginal(["/usr/local/bin/node", ...args], {}, 64 * 1024, deadline, { cwd: intent.root, env }));
         if (original.exitCode !== 0 || original.stderr !== "") throw unavailable();
         const result = parseGitIndexTransactionResult(original.stdout);
         if (result.exitCode !== 0 || result.indexPublication || result.artifactConflict) throw unavailable();

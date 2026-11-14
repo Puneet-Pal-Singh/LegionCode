@@ -295,20 +295,25 @@ export class AgentRuntime extends DurableObject<Env> {
       return true;
     });
   }
-  async continueNativeBootstrap(value: unknown, sandboxObjectId: string, intentValue: unknown): Promise<boolean> {
-    const binding = NativeCommandBindingSchema.parse(value);
-    const row = await this.ctx.storage.get<PhysicalExecutionSessionRecord>(this.getExecutionSessionKey(binding.sessionId));
-    return !!row && !isQualificationRecord(row) && !isRetiredExecutionSession(row) && row.nativeCheckout?.rawStarted === true &&
-      await this.nativeBootstrapMatches(row, binding, sandboxObjectId, intentValue);
+  async continueNativeBootstrap(value: unknown, sandboxObjectId: string, intentValue: unknown): Promise<{ expiresAt: number } | null> {
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const binding = NativeCommandBindingSchema.parse(value);
+      const row = await this.ctx.storage.get<PhysicalExecutionSessionRecord>(this.getExecutionSessionKey(binding.sessionId));
+      if (!row || isQualificationRecord(row) || isRetiredExecutionSession(row) || row.nativeCheckout?.rawStarted !== true ||
+        !await this.nativeBootstrapMatches(row, binding, sandboxObjectId, intentValue)) return null;
+      return { expiresAt: Math.min(row.expiresAt, row.lease.expiresAt) };
+    });
   }
   private async nativeBootstrapMatches(row: RuntimeSessionRecord, binding: Parameters<typeof sameNativeBinding>[0], sandboxObjectId: string, intentValue: unknown) {
     const intent = NativeCheckoutBootstrapIntentSchema.parse(intentValue);
+    if ((await validExecutionDomain(row))?.domain !== "legioncode_native") return false;
+    const fresh = await this.ctx.storage.get<PhysicalExecutionSessionRecord>(this.getExecutionSessionKey(binding.sessionId));
+    if (!fresh || JSON.stringify(fresh) !== JSON.stringify(row)) return false;
     return JSON.stringify(row.nativeCheckout?.intent) === JSON.stringify(intent) && !row.cleanupInProgress && row.expiresAt > Date.now() && row.lease.expiresAt > Date.now() &&
       row.nativeCheckout?.phase === "dispatching" && !!row.nativeCommand && !row.nativeCommand.stopRequested && sameNativeBinding(row.nativeCommand.binding, binding) &&
       row.lease.owner === binding.sessionId && row.lease.leaseId === binding.leaseId && row.lease.sandboxId === binding.sandboxId &&
       row.lease.generation === binding.generation && row.lease.executionDomainDigest === binding.executionDomainDigest &&
-      this.env.Sandbox.idFromName(binding.sandboxId).toString() === sandboxObjectId &&
-      (await validExecutionDomain(row))?.domain === "legioncode_native";
+      this.env.Sandbox.idFromName(binding.sandboxId).toString() === sandboxObjectId;
   }
 
   async getNativeCheckoutReadyEvidence(sessionId: string, lease: SandboxExecutionLease) {

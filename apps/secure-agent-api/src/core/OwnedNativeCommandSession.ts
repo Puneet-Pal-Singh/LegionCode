@@ -302,6 +302,10 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
     if (!intent || intent.phase === "settled") return true;
     if (intent.binding.taskId !== this.input.taskId) return false;
     await this.patch(intent.binding.nonce, { stopRequested: true });
+    if (session.nativeCheckout?.phase === "dispatching" || session.nativeCheckout?.phase === "unknown") {
+      if (!this.input.sandbox.sealNativeBootstrap) return false;
+      try { await this.input.sandbox.sealNativeBootstrap(intent.binding); } catch { return false; }
+    }
     if (intent.kind === "command") {
       try { await this.control(intent, "stop"); } catch { return false; }
     }

@@ -96,6 +96,7 @@ export interface NativeCommandOriginal {
   exitCode: number;
 }
 export interface OwnedNativeSandboxPort {
+  sealNativeBootstrap?(binding: NativeCommandBinding): Promise<void>;
   materializeNativeCheckout?(input: { physicalOwnerId: string; binding: NativeCommandBinding; intent: NativeCheckoutBootstrapIntent;
     authEnvironment?: Readonly<Record<string, string>> }): Promise<{ receipt: NativeCheckoutBootstrapReceipt; workspace: NativeWorkspaceState }>;
   executeNativeCommand(request: NativeCommandRequest): Promise<NativeCommandOriginal>;
