@@ -44,11 +44,11 @@ export function requireLocalNativeCredentialReference(
   return Object.freeze(reference.data);
 }
 
-export function readLocalNativeCredentialReference(
+export async function readLocalNativeCredentialReference(
   admissions: Pick<LocalPersistence["turnAdmissions"], "readCredentialAcquisition">,
   admission: TurnAdmission,
-): Readonly<RuntimeCredentialReference> {
-  return requireLocalNativeCredentialReference(admissions.readCredentialAcquisition({
+): Promise<Readonly<RuntimeCredentialReference>> {
+  return requireLocalNativeCredentialReference(await admissions.readCredentialAcquisition({
     userId: admission.run.userId, workspaceId: admission.run.workspaceId,
     threadId: admission.run.threadId, runId: admission.run.id,
     turnId: admission.turn.id, runAttemptId: admission.runAttemptId,

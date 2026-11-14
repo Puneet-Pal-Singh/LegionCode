@@ -227,7 +227,8 @@ export function createLocalNativeRuntime(
         },
         async createKernelPorts(admission, bound, signal, execution) {
           signal.throwIfAborted();
-          const credentialReference = readLocalNativeCredentialReference(options.persistence.turnAdmissions, admission);
+          const credentialReference = await readLocalNativeCredentialReference(options.persistence.turnAdmissions, admission);
+          signal.throwIfAborted();
           await resolvePolicy();
           signal.throwIfAborted();
           const manifests = new MemoryWorkspaceManifestRepository();
