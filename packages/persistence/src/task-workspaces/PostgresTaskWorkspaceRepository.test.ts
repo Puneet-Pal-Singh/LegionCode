@@ -1,3 +1,6 @@
+import { taskWorkspacesMigration } from "../migrations/0025-task-workspaces.js";
+import { taskCheckoutSecureSessionMigration } from "../migrations/0028-task-checkout-secure-session.js";
+import { taskCheckoutIssuanceMigration } from "../migrations/0043-task-checkout-issuance.js";
 import { describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import type { SqlClient, SqlQueryResult, SqlRow, SqlValue } from "../sql.js";
@@ -147,23 +150,14 @@ describe("PostgresTaskWorkspaceRepository", () => {
   it("idempotently persists an immutable snapshot and rejects replacement", async () => {
     const database = new PGlite();
     try {
-      await database.exec(`
-        CREATE TABLE workspace_snapshots (
-          snapshot_id TEXT PRIMARY KEY,
-          workspace_id TEXT NOT NULL,
-          repository_provider TEXT NOT NULL,
-          repository_owner TEXT,
-          repository_name TEXT NOT NULL,
-          repository_url TEXT NOT NULL,
-          authorized_commit_id TEXT NOT NULL,
-          authorized_tree_id TEXT NOT NULL,
-          manifest_digest TEXT NOT NULL,
-          config_digest TEXT NOT NULL,
-          captured_at TIMESTAMPTZ NOT NULL,
-          provenance_json JSONB NOT NULL,
-          UNIQUE (snapshot_id, workspace_id)
-        )
-      `);
+      for (const migration of [
+        taskWorkspacesMigration,
+        taskCheckoutSecureSessionMigration,
+        taskCheckoutIssuanceMigration,
+      ]) {
+        for (const statement of migration.statements)
+          await database.exec(statement);
+      }
       const repository = new PostgresTaskWorkspaceRepository(
         new PGliteSqlClient(database),
       );

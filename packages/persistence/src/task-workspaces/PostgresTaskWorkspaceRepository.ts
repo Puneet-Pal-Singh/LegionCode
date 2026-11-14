@@ -17,6 +17,9 @@ import { parseJsonColumn, stringifyJsonColumn } from "../providers/json.js";
 import type { SqlClient, SqlRow, SqlValue } from "../sql.js";
 import {
   TaskWorkspacePersistenceError,
+  type TaskCheckoutIssuanceRepository,
+  type TaskCheckoutIssuanceReservation,
+  type PersistedTaskCheckoutExecutionDomain,
   type ReplaceTaskCheckoutLeaseInput,
   type SettleTaskCheckoutInput,
   type TaskWorkspaceRepository,
@@ -59,6 +62,10 @@ interface TaskCheckoutRow extends SqlRow {
   settled_at?: string | Date | null;
   failure_code?: string | null;
   created_at?: string | Date;
+  issuance_token?: string | null;
+  issuance_state?: string | null;
+  execution_domain_json?: unknown;
+  execution_domain_digest?: string | null;
 }
 
 /**
@@ -66,8 +73,227 @@ interface TaskCheckoutRow extends SqlRow {
  * run attempt/lease. The runtime will compose this port later; no browser or
  * adapter writes these rows directly.
  */
-export class PostgresTaskWorkspaceRepository implements TaskWorkspaceRepository {
+export class PostgresTaskWorkspaceRepository
+  implements TaskWorkspaceRepository, TaskCheckoutIssuanceRepository
+{
   constructor(private readonly client: SqlClient) {}
+
+  async reserveIssuance(
+    snapshot: WorkspaceSnapshot,
+    reservation: TaskCheckoutIssuanceReservation,
+  ): Promise<void> {
+    const parsed = WorkspaceSnapshotSchema.parse(snapshot);
+    const { issuanceToken, ...binding } = { ...reservation };
+    // Project the canonical nonphysical binding without inventing ready-only
+    // session or lease values. Capture all caller data before any await.
+    const captured = Object.freeze({
+      ...TaskCheckoutSchema.unwrap()
+        .innerType()
+        .options[0].pick({
+          checkoutId: true,
+          snapshotId: true,
+          workspaceId: true,
+          threadId: true,
+          turnId: true,
+          runAttemptId: true,
+          filesystemRoot: true,
+          gitDir: true,
+          indexFile: true,
+          workingBranch: true,
+          startTreeId: true,
+          createdAt: true,
+        })
+        .parse(binding),
+      issuanceToken,
+    });
+    if (
+      captured.snapshotId !== parsed.snapshotId ||
+      captured.workspaceId !== parsed.workspaceId ||
+      captured.startTreeId !== parsed.authorizedTreeId ||
+      typeof captured.issuanceToken !== "string" ||
+      captured.issuanceToken.length === 0 ||
+      new Set([captured.filesystemRoot, captured.gitDir, captured.indexFile])
+        .size !== 3
+    ) {
+      throw new TaskWorkspacePersistenceError(
+        "task_checkout_scope_mismatch",
+        "Issuance must pin its actual immutable snapshot",
+      );
+    }
+    await this.client.transaction(async (transaction) => {
+      await new PostgresTaskWorkspaceRepository(transaction).createSnapshot(
+        parsed,
+      );
+      const result = await transaction.query<TaskCheckoutRow>(
+        `INSERT INTO task_checkouts
+        (checkout_id,snapshot_id,workspace_id,thread_id,turn_id,run_attempt_id,
+         filesystem_root,git_dir,index_file,working_branch,start_tree_id,created_at,status,issuance_token,issuance_state)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'issuing',$13,'reserved')
+        ON CONFLICT DO NOTHING RETURNING checkout_id`,
+        [
+          captured.checkoutId,
+          captured.snapshotId,
+          captured.workspaceId,
+          captured.threadId,
+          captured.turnId,
+          captured.runAttemptId,
+          captured.filesystemRoot,
+          captured.gitDir,
+          captured.indexFile,
+          captured.workingBranch,
+          captured.startTreeId,
+          captured.createdAt,
+          captured.issuanceToken,
+        ],
+      );
+      if (result.rowCount !== 1) throw issuanceRecovery(captured.checkoutId);
+    });
+  }
+
+  async beginIssuanceCallback(
+    checkoutId: TaskCheckoutId,
+    issuanceToken: string,
+  ): Promise<void> {
+    await this.advanceIssuance(
+      checkoutId,
+      issuanceToken,
+      "reserved",
+      "callback_started",
+    );
+  }
+
+  async freezeIssuanceDomain(
+    checkoutId: TaskCheckoutId,
+    issuanceToken: string,
+    domain: PersistedTaskCheckoutExecutionDomain,
+  ): Promise<void> {
+    if (
+      !/^[a-f0-9]{64}$/.test(domain.digest) ||
+      !domain.value ||
+      typeof domain.value !== "object" ||
+      Array.isArray(domain.value)
+    ) {
+      throw new TaskWorkspacePersistenceError(
+        "task_checkout_scope_mismatch",
+        "Execution domain custody requires an opaque object and canonical digest",
+      );
+    }
+    const result = await this.client.query<TaskCheckoutRow>(
+      `UPDATE task_checkouts
+      SET issuance_state='domain_frozen',execution_domain_json=$3::jsonb,execution_domain_digest=$4
+      WHERE checkout_id=$1 AND issuance_token=$2 AND status='issuing' AND issuance_state='callback_started'
+      RETURNING checkout_id`,
+      [
+        checkoutId,
+        issuanceToken,
+        stringifyJsonColumn(domain.value),
+        domain.digest,
+      ],
+    );
+    if (result.rowCount !== 1) throw issuanceRecovery(checkoutId);
+  }
+
+  async completeIssuance(
+    checkout: TaskCheckout,
+    issuanceToken: string,
+  ): Promise<TaskCheckout> {
+    const parsed = TaskCheckoutSchema.parse(checkout);
+    if (parsed.status !== "ready") throw issuanceRecovery(parsed.checkoutId);
+    return await this.client.transaction(async (transaction) => {
+      const result = await transaction.query<TaskCheckoutRow>(
+        SELECT_CHECKOUT_BY_ID_FOR_UPDATE_SQL,
+        [parsed.checkoutId],
+      );
+      const row = result.rows[0];
+      if (
+        !row ||
+        row.status !== "issuing" ||
+        row.issuance_state !== "domain_frozen" ||
+        row.issuance_token !== issuanceToken ||
+        row.snapshot_id !== parsed.snapshotId ||
+        row.workspace_id !== parsed.workspaceId ||
+        row.thread_id !== parsed.threadId ||
+        row.turn_id !== parsed.turnId ||
+        row.run_attempt_id !== parsed.runAttemptId ||
+        row.filesystem_root !== parsed.filesystemRoot ||
+        row.git_dir !== parsed.gitDir ||
+        row.index_file !== parsed.indexFile ||
+        row.working_branch !== parsed.workingBranch ||
+        row.start_tree_id !== parsed.startTreeId ||
+        toIsoString(row.created_at, "created_at") !== parsed.createdAt
+      )
+        throw issuanceRecovery(parsed.checkoutId);
+      const completed = await transaction.query<TaskCheckoutRow>(
+        `UPDATE task_checkouts
+        SET secure_session_id=$3,lease_id=$4,sandbox_id=$5,generation=$6,status='ready',issuance_state='ready'
+        WHERE checkout_id=$1 AND issuance_token=$2 AND status='issuing' AND issuance_state='domain_frozen'
+        RETURNING ${CHECKOUT_COLUMNS}`,
+        [
+          parsed.checkoutId,
+          issuanceToken,
+          parsed.secureSessionId,
+          parsed.leaseId,
+          parsed.sandboxId,
+          parsed.generation,
+        ],
+      );
+      const persisted = mapOptionalCheckout(completed.rows[0]);
+      if (!persisted) throw issuanceRecovery(parsed.checkoutId);
+      return persisted;
+    });
+  }
+
+  async markIssuanceUnknown(
+    checkoutId: TaskCheckoutId,
+    issuanceToken: string,
+  ): Promise<void> {
+    // Never turn an ambiguously successful ready commit back into an issuance.
+    await this.client.query(
+      `UPDATE task_checkouts SET issuance_state='unknown'
+      WHERE checkout_id=$1 AND issuance_token=$2 AND status='issuing'
+        AND issuance_state IN ('reserved','callback_started','domain_frozen')`,
+      [checkoutId, issuanceToken],
+    );
+  }
+
+  async getCheckoutExecutionDomain(
+    checkoutId: TaskCheckoutId,
+  ): Promise<PersistedTaskCheckoutExecutionDomain> {
+    const result = await this.client.query<TaskCheckoutRow>(
+      SELECT_CHECKOUT_BY_ID_SQL,
+      [TaskCheckoutIdSchema.parse(checkoutId)],
+    );
+    const row = result.rows[0];
+    if (
+      !row ||
+      !["ready", "active", "settled"].includes(row.status ?? "") ||
+      row.issuance_state !== "ready" ||
+      !row.execution_domain_digest ||
+      !row.execution_domain_json
+    )
+      throw issuanceRecovery(checkoutId);
+    return {
+      value: parseJsonColumn(
+        row.execution_domain_json,
+        "execution domain",
+      ) as PersistedTaskCheckoutExecutionDomain["value"],
+      digest: row.execution_domain_digest,
+    };
+  }
+
+  private async advanceIssuance(
+    checkoutId: TaskCheckoutId,
+    issuanceToken: string,
+    expected: string,
+    next: string,
+  ): Promise<void> {
+    const result = await this.client.query<TaskCheckoutRow>(
+      `UPDATE task_checkouts SET issuance_state=$4
+      WHERE checkout_id=$1 AND issuance_token=$2 AND status='issuing' AND issuance_state=$3 RETURNING checkout_id`,
+      [checkoutId, issuanceToken, expected, next],
+    );
+    if (result.rowCount !== 1) throw issuanceRecovery(checkoutId);
+  }
 
   async issueSnapshotCheckout(
     snapshot: WorkspaceSnapshot,
@@ -464,6 +690,8 @@ function mapOptionalCheckout(
   row: TaskCheckoutRow | undefined,
 ): TaskCheckout | null {
   if (!row) return null;
+  if (row.status === "issuing")
+    throw issuanceRecovery(requireString(row.checkout_id, "checkout_id"));
   return TaskCheckoutSchema.parse({
     kind: "task_checkout",
     checkoutId: requireString(row.checkout_id, "checkout_id"),
@@ -472,10 +700,7 @@ function mapOptionalCheckout(
     threadId: requireString(row.thread_id, "thread_id"),
     turnId: requireString(row.turn_id, "turn_id"),
     runAttemptId: requireString(row.run_attempt_id, "run_attempt_id"),
-    secureSessionId: requireString(
-      row.secure_session_id,
-      "secure_session_id",
-    ),
+    secureSessionId: requireString(row.secure_session_id, "secure_session_id"),
     leaseId: requireString(row.lease_id, "lease_id"),
     sandboxId: requireString(row.sandbox_id, "sandbox_id"),
     filesystemRoot: requireString(row.filesystem_root, "filesystem_root"),
@@ -534,7 +759,8 @@ const SNAPSHOT_COLUMNS = `snapshot_id, workspace_id, repository_provider,
 const CHECKOUT_COLUMNS = `checkout_id, snapshot_id, workspace_id, thread_id,
   turn_id, run_attempt_id, secure_session_id, lease_id, sandbox_id,
   filesystem_root, git_dir, index_file, working_branch, start_tree_id,
-  generation, status, settled_at, failure_code, created_at`;
+  generation, status, settled_at, failure_code, created_at,
+  issuance_token, issuance_state, execution_domain_json, execution_domain_digest`;
 
 const INSERT_SNAPSHOT_IF_ABSENT_SQL = `INSERT INTO workspace_snapshots (${SNAPSHOT_COLUMNS})
   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)
@@ -543,7 +769,7 @@ const INSERT_SNAPSHOT_IF_ABSENT_SQL = `INSERT INTO workspace_snapshots (${SNAPSH
 const SELECT_SNAPSHOT_BY_ID_SQL = `SELECT ${SNAPSHOT_COLUMNS}
   FROM workspace_snapshots WHERE snapshot_id=$1`;
 
-const INSERT_CHECKOUT_SQL = `INSERT INTO task_checkouts (${CHECKOUT_COLUMNS})
+const INSERT_CHECKOUT_SQL = `INSERT INTO task_checkouts (checkout_id,snapshot_id,workspace_id,thread_id,turn_id,run_attempt_id,secure_session_id,lease_id,sandbox_id,filesystem_root,git_dir,index_file,working_branch,start_tree_id,generation,status,settled_at,failure_code,created_at)
   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
   RETURNING ${CHECKOUT_COLUMNS}`;
 const SELECT_CHECKOUT_BY_ID_SQL = `SELECT ${CHECKOUT_COLUMNS}
@@ -562,3 +788,11 @@ const REPLACE_CHECKOUT_LEASE_SQL = `UPDATE task_checkouts
   WHERE checkout_id=$1 AND lease_id=$2 AND generation=$3
     AND status IN ('ready', 'active')
   RETURNING ${CHECKOUT_COLUMNS}`;
+
+function issuanceRecovery(checkoutId: string): TaskWorkspacePersistenceError {
+  return new TaskWorkspacePersistenceError(
+    "task_checkout_recovery_required",
+    "Checkout issuance requires explicit recovery; its callback or physical acquire must not be replayed",
+    { checkoutId },
+  );
+}
