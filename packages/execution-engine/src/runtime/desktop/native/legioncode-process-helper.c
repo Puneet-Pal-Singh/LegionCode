@@ -153,7 +153,7 @@ static int lease_only(bool initialize_empty) {
   if (outcome == 0 && !lc_intent_acquire(LEASE_FD, ROOT_FD, NAMESPACE_FD, initialize_empty)) outcome = 70;
   state = outcome == 0 ? "acquired" : (outcome == 75 ? "busy" : "error");
   size = snprintf(data, sizeof(data),
-    "{\"v\":2,\"event\":\"lease\",\"state\":\"%s\",\"intentVersion\":1}\n", state);
+    "{\"v\":2,\"event\":\"lease\",\"state\":\"%s\",\"intentVersion\":2}\n", state);
   if (size <= 0 || (size_t)size >= sizeof(data) || !receipt(data, (size_t)size)) outcome = 74;
   (void)close(LEASE_FD);
   (void)close(STATUS_FD);
@@ -162,7 +162,7 @@ static int lease_only(bool initialize_empty) {
 
 static int intent_probe(void) {
   if (!configure_pipe(STATUS_FD, true) || !set_handler(SIGPIPE, SIG_IGN) || !lc_intent_probe()) return 70;
-  const char frame[] = "{\"v\":2,\"event\":\"intent_probe\",\"state\":\"supported\",\"intentVersion\":1}\n";
+  const char frame[] = "{\"v\":2,\"event\":\"intent_probe\",\"state\":\"supported\",\"intentVersion\":2}\n";
   return receipt(frame, sizeof(frame) - 1) ? 0 : 74;
 }
 

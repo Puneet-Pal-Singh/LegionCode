@@ -9,6 +9,6 @@ export function verifyBundledProcessHelper(
     v: 2;
     event: "intent_probe";
     state: "supported";
-    intentVersion: 1;
+    intentVersion: 2;
   };
 }>;

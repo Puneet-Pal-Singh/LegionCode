@@ -39,8 +39,8 @@ export async function acquireNativeWriterFence(input: {
       { slot: 7, handle: input.fenceDirectory, directory: true },
     ],
   });
-  const acquired = Buffer.from('{"v":2,"event":"lease","state":"acquired","intentVersion":1}\n');
-  const busy = Buffer.from('{"v":2,"event":"lease","state":"busy","intentVersion":1}\n');
+  const acquired = Buffer.from('{"v":2,"event":"lease","state":"acquired","intentVersion":2}\n');
+  const busy = Buffer.from('{"v":2,"event":"lease","state":"busy","intentVersion":2}\n');
   if (code === 0 && receipt.equals(acquired)) return "acquired";
   if (code === 75 && receipt.equals(busy)) return "busy";
   throw new NativeWriterFenceUnavailableError();
@@ -54,7 +54,7 @@ export async function probeNativeWriterIntentABI(input: {
 }): Promise<boolean> {
   const { code, receipt } = await runFenceHelper({ ...input, args: ["--probe-writer-intent"], pins: [] });
   return code === 0 && receipt.equals(Buffer.from(
-    '{"v":2,"event":"intent_probe","state":"supported","intentVersion":1}\n',
+    '{"v":2,"event":"intent_probe","state":"supported","intentVersion":2}\n',
   ));
 }
 

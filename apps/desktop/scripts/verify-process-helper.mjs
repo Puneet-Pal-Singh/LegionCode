@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import { inspectNativeFileHelper } from "./build-file-helper.mjs";
 
-const supportedIntentFrame = '{"v":2,"event":"intent_probe","state":"supported","intentVersion":1}\n';
-const acquiredFrame = '{"v":2,"event":"lease","state":"acquired","intentVersion":1}\n';
+const supportedIntentFrame = '{"v":2,"event":"intent_probe","state":"supported","intentVersion":2}\n';
+const acquiredFrame = '{"v":2,"event":"lease","state":"acquired","intentVersion":2}\n';
 const probeFailureReasons = new Set([
   "SIGNAL_API", "BOOT", "IDENTITY", "SIGNAL", "SCRATCH_CREATE", "SCRATCH_IDENTITY",
   "SCRATCH_UNLINK", "WRITER_OFD", "LEGACY_CONFLICT", "APPEND_LOCK", "SCRATCH_CLOSE",
