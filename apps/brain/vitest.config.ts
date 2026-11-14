@@ -7,6 +7,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   resolve: {
     alias: {
+      "@legioncode/execution-engine/runtime/llm/NativeProviderRequests": path.resolve(
+        __dirname,
+        "../../packages/execution-engine/src/runtime/llm/NativeProviderRequests.ts",
+      ),
       "@legioncode/execution-engine/runtime/provider": path.resolve(
         __dirname,
         "../../packages/execution-engine/src/runtime/provider",

@@ -7,6 +7,8 @@ import { AppServerOperationError } from "./server.js";
 export interface LocalTurnPreparation {
   readonly operation: Promise<unknown>;
   binding?: LocalWorkspaceExecutionBinding;
+  /** Original opaque acquisition, registered before its first await. */
+  releaseUnadmitted?: () => Promise<boolean>;
 }
 
 /** Constructed by this original binding owner only after successful close. */
@@ -41,6 +43,7 @@ export class LocalTurnResources {
     private readonly options: {
       interrupt(admission: TurnAdmission): Promise<void>;
       hasUnsettledWorkspaceResources(): boolean;
+      onResourcesReleased?(admission: TurnAdmission): Promise<void>;
     },
   ) {}
 
@@ -89,6 +92,10 @@ export class LocalTurnResources {
   async closePreparation(preparation: LocalTurnPreparation): Promise<void> {
     const binding = preparation.binding;
     if (!binding) return;
+    if (preparation.releaseUnadmitted) {
+      if (await preparation.releaseUnadmitted() !== true) throw retained();
+      preparation.releaseUnadmitted = undefined;
+    }
     await binding.close();
     preparation.binding = undefined;
   }
@@ -137,6 +144,15 @@ export class LocalTurnResources {
         }));
         if (this.executors.get(admission.turn.id) === owned)
           this.executors.delete(admission.turn.id);
+        // This callback is part of the original tracked cleanup operation. The
+        // shutdown fence is synchronous and prevents a late callback admitting.
+        if (recordSettlement && root && !this.stopping && this.options.onResourcesReleased) {
+          // Register before the first callback await. The released executor was
+          // removed above, so its map entry alone cannot drain this operation.
+          await this.prepare(() => this.options.onResourcesReleased!(admission)).catch(() => {
+            console.error("Local queued input remains pending after resource cleanup");
+          });
+        }
       });
     const owned: OwnedTurnExecution = {
       admission,
@@ -148,6 +164,7 @@ export class LocalTurnResources {
     };
     this.executors.set(admission.turn.id, owned);
     preparation.binding = undefined;
+    preparation.releaseUnadmitted = undefined;
     void cleanup.catch(() => {
       console.error(
         "Local runtime resource release was not confirmed; binding retained",
