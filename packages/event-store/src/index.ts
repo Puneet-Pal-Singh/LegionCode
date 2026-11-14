@@ -3,6 +3,7 @@ export {
   EventStoreError,
   LifecycleReplayEventTooLargeError,
   LocalPersistenceError,
+  LocalThreadUserHistoryFrameTooLargeError,
   type EventStoreErrorCode,
 } from "./errors.js";
 export { MemoryEventStore } from "./MemoryEventStore.js";
@@ -28,6 +29,16 @@ export type {
   ReplayLifecycleEventsResult,
 } from "./lifecycle-types.js";
 
+export { ThreadInputConflictError } from "./thread-inputs/errors.js";
+export type {
+  ThreadInputScope,
+  StoredThreadInput,
+  CreateThreadInput,
+  UpdateThreadInput,
+  ClaimQueuedInputForSteering,
+  ThreadInputMutation,
+  ThreadInputRepository,
+} from "./thread-inputs/types.js";
 export {
   HarnessPersistenceError,
   StoredHarnessOpeningSchema,
@@ -71,13 +82,5 @@ export {
   LocalHarnessControlPlaneError,
 } from "./local/harness-control-plane.js";
 export type { LocalHarnessControlPlanePort } from "./local/harness-control-plane.js";
-export { ThreadInputConflictError } from "./thread-inputs/errors.js";
-export type {
-  ThreadInputScope,
-  StoredThreadInput,
-  CreateThreadInput,
-  UpdateThreadInput,
-  ClaimQueuedInputForSteering,
-  ThreadInputMutation,
-  ThreadInputRepository,
-} from "./thread-inputs/types.js";
+
+export type { LocalThreadUserHistoryInput, LocalThreadUserHistoryPage, LocalThreadUserHistoryWindow, LocalThreadUserHistoryContinuation } from "./local-thread-user-history.js";

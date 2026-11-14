@@ -1,3 +1,5 @@
+import { createLocalThreadInputOperations, readQueuedInputMediaOwnership } from "./local-thread-inputs.js";
+import type { LocalQueuedInputMediaPort } from "./local-queued-input-media.js";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 import { LocalPersistence } from "@repo/event-store/local";
@@ -57,7 +59,7 @@ export type LocalAppServerCompositionOptions = {
   createProbeExecution?: (authority: Pick<VerifiedMacGitOptions, "probeRoot" | "withRootAuthority">) => Promise<VerifiedMacGitExecution>;
   createWorkspaceFilesService?(workspaces: LocalWorkspaceService): NonNullable<AppServerComposition["localWorkspaceFilesService"]>;
   createWorkspaceGitReadsService?(workspaces: LocalWorkspaceService): NonNullable<AppServerComposition["localWorkspaceGitReadsService"]> & LocalShutdownOwner;
-  createTurnRuntime?(persistence: Pick<LocalPersistence, "turnAdmissions" | "lifecycleEvents" | "turnArtifacts">, media?: LocalTurnMediaPort): LocalTurnRuntime;
+  createTurnRuntime?(persistence: Pick<LocalPersistence, "turnAdmissions" | "lifecycleEvents" | "turnArtifacts" | "threadInputs">, media?: LocalTurnMediaPort & Partial<LocalQueuedInputMediaPort>): LocalTurnRuntime;
   createArtifactCommitService?(input: {
     persistence: Pick<LocalPersistence, "turnAdmissions" | "lifecycleEvents" | "turnArtifacts" | "workspaceGrants">;
     workspaces: LocalWorkspaceService;
@@ -108,9 +110,11 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
     const media = new LocalChatMediaStore({
       storageDirectory: config.storageDirectory,
       lookupAdmission: (scope) => persistence.turnAdmissions.getByTurn(scope.turnId),
+      lookupThreadInput: (scope) => readQueuedInputMediaOwnership(persistence, scope),
     });
     const runtime = options?.createTurnRuntime?.(persistence, media);
     if (runtime) await reconcileLostLocalTurns(persistence, runtime);
+    let threadInputs: ReturnType<typeof createLocalThreadInputOperations> | undefined;
     const turnService = runtime ? new LocalTurnService({
       persistence,
       workspaces: workspaceService,
@@ -118,18 +122,26 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
       providers: providerService,
       runtime,
       media,
+      queuedInputs: persistence.threadInputs,
+      onResourcesReleased: (admission) => threadInputs?.onResourcesReleased(admission) ?? Promise.resolve(),
     }) : undefined;
+    if (turnService && runtime?.prepareQueuedExecution) {
+      threadInputs = createLocalThreadInputOperations({
+        persistence, threads: threadService, turns: turnService, media,
+        startQueuedTurn: turnService.startQueuedTurn.bind(turnService),
+      });
+    }
     const artifactReads = turnService ? new LocalTurnArtifactReads({
       turns: turnService,
       persistence,
     }) : undefined;
-    const imageReads = turnService ? new LocalChatMediaReads({ turns: turnService, store: media }) : undefined;
+    const imageReads = turnService ? new LocalChatMediaReads({ turns: turnService, store: media, queuedInputs: persistence.threadInputs }) : undefined;
     const artifactCommits = artifactReads ? options?.createArtifactCommitService?.({
       persistence, workspaces: workspaceService, reads: artifactReads,
     }) : undefined;
     const requests = createLocalHttpRequestDrain();
     const server = createServer((request, response) => {
-      void requests.track(() => handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, workspaceGitReads, turnService, providerPreferences, artifactReads, imageReads, artifactCommits, () => requests.stopping));
+      void requests.track(() => handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, workspaceGitReads, turnService, providerPreferences, artifactReads, imageReads, artifactCommits, threadInputs, () => requests.stopping));
     });
     return attachLocalServerShutdown(
       server, persistence, combineLocalShutdownOwners(turnService, artifactCommits, workspaceGitReads, requests),
@@ -212,6 +224,7 @@ async function handleRequest(
   artifactReads?: LocalTurnArtifactReads,
   imageReads?: LocalChatMediaReads,
   artifactCommits?: AppServerComposition["localTurnArtifactCommitService"],
+  threadInputs?: AppServerComposition["hostedThreadInputOperationsService"],
   isShuttingDown: () => boolean = () => false,
 ): Promise<void> {
   const baseInput = {
@@ -235,6 +248,7 @@ async function handleRequest(
     localTurnArtifactReadsService: artifactReads,
     localChatMediaService: imageReads,
     localTurnArtifactCommitService: artifactCommits,
+    hostedThreadInputOperationsService: threadInputs,
     threadService,
     localLifecycleReplayService: new LocalLifecycleReplay(persistence, threadService),
   };
