@@ -21,6 +21,7 @@ import type {
 import { DesktopSidebar } from "./DesktopSidebar";
 import { useDesktopWorkspacePicker } from "./useDesktopWorkspacePicker";
 import { DesktopSettingsDialog } from "./DesktopSettingsDialog";
+import type { DesktopHostedAccountControls } from "./useDesktopHostedAccount";
 import { DesktopRightPanel } from "./DesktopRightPanel";
 import { DesktopWorkspaceFilesMount } from "./DesktopWorkspaceFilesMount";
 import { DesktopConversation } from "./DesktopConversation";
@@ -37,7 +38,13 @@ import { DesktopWorkspaceBootstrapHero, useDesktopWorkspaceBootstrap } from "./D
 
 type ThreadLoadState = "loading" | "ready" | "error";
 
-export function DesktopLocalWorkspace(): React.JSX.Element {
+export function DesktopLocalWorkspace({ active = true, onPlacementChange, hostedAccount, nativeOpenRequestId = 0 }: {
+  active?: boolean;
+  onPlacementChange?: (placement: "local" | "cloud") => void;
+  hostedAccount?: DesktopHostedAccountControls;
+  nativeOpenRequestId?: number;
+}): React.JSX.Element {
+  const lastNativeOpenRequest = useRef(0);
   const selectionRequest = useRef(0);
   const threadScope = useRef(0);
   const threadListRequest = useRef(0);
@@ -211,7 +218,7 @@ export function DesktopLocalWorkspace(): React.JSX.Element {
 
   useEffect(() => {
     if (
-      !sdkReady ||
+      !active || !sdkReady ||
       workspace?.readiness !== "ready" ||
       threadLoadState !== "ready" ||
       selectedThread ||
@@ -233,6 +240,7 @@ export function DesktopLocalWorkspace(): React.JSX.Element {
     emptyDraftRequest.current = intent;
     void createThread(undefined, true);
   }, [
+    active,
     sdkReady,
     workspace?.workspaceId,
     workspace?.grantedAt,
@@ -530,7 +538,7 @@ export function DesktopLocalWorkspace(): React.JSX.Element {
   }
 
   const chooseWorkspace = useDesktopWorkspacePicker({
-    enabled: sdkReady,
+    enabled: active && sdkReady,
     commandActive: workspaceCommand,
     pickerActive: workspacePickerActive,
     onOpenChange: setWorkspacePickerOpen,
@@ -655,6 +663,12 @@ export function DesktopLocalWorkspace(): React.JSX.Element {
     }
   }
 
+  useEffect(() => {
+    if (!active || !sdkReady || workspaceBusy || workspacePickerOpen || nativeOpenRequestId <= lastNativeOpenRequest.current) return;
+    lastNativeOpenRequest.current = nativeOpenRequestId;
+    void chooseWorkspace();
+  }, [active, sdkReady, workspaceBusy, workspacePickerOpen, nativeOpenRequestId, chooseWorkspace]);
+
   if (!build || !environment) {
     return <ClientShellLoading label="Loading Desktop" />;
   }
@@ -666,7 +680,7 @@ export function DesktopLocalWorkspace(): React.JSX.Element {
       ? "Wait for project access to finish before changing projects."
       : undefined;
 
-  const environmentSummary = (onOpenChanges: () => void) => selectedThread ? (
+  const environmentSummary = (onOpenChanges: () => void) => active && selectedThread ? (
     <EnvironmentSummaryMenu
       commandExecution={sdkReady && environment.kind === "local" && environment.status === "ready"
         ? turnConfigurationOptions?.commandExecution : undefined}
@@ -701,7 +715,7 @@ export function DesktopLocalWorkspace(): React.JSX.Element {
       >
         <WorkspaceFrame
           className="desktop-workspace-frame"
-          sidebarOpen={sidebarOpen}
+          sidebarOpen={active && sidebarOpen}
           onSidebarOpenChange={setSidebarOpen}
           sidebar={
             <DesktopSidebar
@@ -718,7 +732,7 @@ export function DesktopLocalWorkspace(): React.JSX.Element {
                 closeCompactSidebar();
                 setSettingsTarget("general");
               }}
-              visible={sidebarOpen}
+              visible={active && sidebarOpen}
               onSelect={(threadId) => {
                 closeCompactSidebar();
                 if (workspaceCommand.current || workspacePickerActive.current) return;
@@ -756,7 +770,7 @@ export function DesktopLocalWorkspace(): React.JSX.Element {
             />
           }
           rightPanel={
-            rightPanelOpen ? (
+            active && rightPanelOpen ? (
               <DesktopRightPanel
                 headerWidth={rightPanelWidth}
                 changesRequestId={changesRequestId}
@@ -866,6 +880,8 @@ export function DesktopLocalWorkspace(): React.JSX.Element {
           appServerClient &&
           sdkReady ? (
             <DesktopConversation
+              active={active}
+              onPlacementChange={onPlacementChange}
               key={`${workspace.workspaceId}:${workspace.grantedAt}:${workspace.readiness}`}
               client={appServerClient}
               thread={selectedThread}
@@ -921,6 +937,8 @@ export function DesktopLocalWorkspace(): React.JSX.Element {
               <DesktopComposer
                 workspaceBar={
                   <DesktopComposerWorkspaceBar
+                    active={active}
+                    onPlacementChange={onPlacementChange}
                     scopeKey={`unbound:${workspace?.workspaceId ?? "none"}:${workspace?.grantedAt ?? "none"}:${projects.intent?.workspaceId ?? "none"}`}
                     projectName={!projects.intent ? workspace?.displayName : undefined}
                     onChooseProject={() => void chooseWorkspace(Boolean(projects.currentIntent.current))}
@@ -928,6 +946,8 @@ export function DesktopLocalWorkspace(): React.JSX.Element {
                   />
                 }
                 client={appServerClient}
+                isHidden={!active}
+                viewActive={active}
                 workspaceId={!projects.intent && workspace?.readiness === "ready" ? workspace.workspaceId : null}
                 grantedAt={!projects.intent && workspace?.readiness === "ready" ? workspace.grantedAt : null}
                 threadId={null}
@@ -958,7 +978,7 @@ export function DesktopLocalWorkspace(): React.JSX.Element {
             workspace?.workspaceId, workspace?.grantedAt,
             selectedThread?.id, savedReview.selection?.turnId,
           ])}
-          isOpen={commitOpen && activeReviewSource === "turn-diff"}
+          isOpen={active && commitOpen && activeReviewSource === "turn-diff"}
           onClose={() => setCommitOpen(false)}
           client={appServerClient}
           selection={savedReview.selection}
@@ -973,7 +993,8 @@ export function DesktopLocalWorkspace(): React.JSX.Element {
         />
       ) : null}
       <DesktopSettingsDialog
-        open={settingsTarget !== null}
+        open={active && settingsTarget !== null}
+        hostedAccount={hostedAccount}
         providerDialogVariant={settingsTarget === "general" ? null : settingsTarget}
         onUnarchiveThread={unarchiveThread}
         onClose={() => {

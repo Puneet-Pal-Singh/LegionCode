@@ -7,6 +7,8 @@ export function DesktopComposerWorkspaceBar({
   onChooseProject,
   projectUnavailableReason,
   disabledReason,
+  active = true,
+  onPlacementChange,
 }: {
   scopeKey: string;
   projectName?: string;
@@ -14,6 +16,8 @@ export function DesktopComposerWorkspaceBar({
   onChooseProject?: () => void;
   projectUnavailableReason?: string;
   disabledReason?: string;
+  active?: boolean;
+  onPlacementChange?: (placement: "local" | "cloud") => void;
 }) {
   return (
     <ComposerWorkspaceBar
@@ -21,14 +25,15 @@ export function DesktopComposerWorkspaceBar({
       project={{
         label: projectName ?? "Choose project",
         onOpen: onChooseProject,
-        unavailableReason: projectUnavailableReason,
+        unavailableReason: projectUnavailableReason ?? disabledReason,
       }}
       placement="local"
+      onPlacementChange={onPlacementChange}
       placementOptions={[
-        { value: "local" },
-        { value: "cloud", unavailableReason: "Cloud execution is unavailable in this Desktop session." },
+        { value: "local", unavailableReason: disabledReason },
+        { value: "cloud", ...(!onPlacementChange ? { unavailableReason: "Cloud execution is unavailable in this Desktop session." } : {}) },
       ]}
-      disabledReason={disabledReason}
+      disabledReason={!active ? "This view is inactive." : undefined}
     />
   );
 }

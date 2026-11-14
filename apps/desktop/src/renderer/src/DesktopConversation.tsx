@@ -33,6 +33,8 @@ export type DesktopExecutionAvailability =
   | { available: false; reason: string };
 
 interface Props {
+  active?: boolean;
+  onPlacementChange?: (placement: "local" | "cloud") => void;
   client: AppServerClient;
   thread: Thread;
   execution: DesktopExecutionAvailability;
@@ -61,6 +63,8 @@ export function DesktopConversation(props: Props) {
 }
 
 function SelectedConversation({
+  active = true,
+  onPlacementChange,
   client,
   thread,
   execution,
@@ -99,7 +103,7 @@ function SelectedConversation({
     !conversation.hasNewerPages &&
     projection?.pendingApproval;
   const isApprovalVisible = Boolean(
-    execution.available && admission && projection && pendingApproval,
+    active && execution.available && admission && projection && pendingApproval,
   );
   const unavailableReason =
     projectChangeUnavailableReason ?? (thread.status === "archived"
@@ -271,6 +275,8 @@ function SelectedConversation({
             <DesktopComposer
               workspaceBar={layout === "hero" ? (
                 <DesktopComposerWorkspaceBar
+                  active={active}
+                  onPlacementChange={onPlacementChange}
                   scopeKey={`${thread.workspaceId}:${workspaceGrantAt}:${thread.id}`}
                   projectName={projectName}
                   onChooseProject={onProjectClick ? chooseProject : undefined}
@@ -279,7 +285,8 @@ function SelectedConversation({
                 />
               ) : undefined}
               layout={layout}
-              isHidden={isApprovalVisible}
+              isHidden={!active || isApprovalVisible}
+              viewActive={active}
               client={client}
               workspaceId={thread.workspaceId}
               grantedAt={workspaceGrantAt}

@@ -45,6 +45,7 @@ export interface DesktopComposerProps {
   busy: boolean;
   layout?: "hero" | "docked";
   isHidden?: boolean;
+  viewActive?: boolean;
   submissionUnavailableReason?: string;
   onSubmit?: (
     prompt: string,
@@ -95,6 +96,7 @@ function ThreadComposer({
   busy,
   layout,
   isHidden = false,
+  viewActive = true,
   submissionUnavailableReason,
   onSubmit,
   onStop,
@@ -203,6 +205,7 @@ function ThreadComposer({
         workspaceBar={workspaceBar}
         imageDraft={imageDraft}
         isHidden={isHidden}
+        viewActive={viewActive}
         {...mentions}
         onFileMentionQueryChange={setMentionQuery}
         layout={layout}
