@@ -67,6 +67,7 @@ export interface LocalWorkspaceWriterReleaseReceipt {
 type Resource = {
   readonly execution: SingleProcessMacExecution | NativeFilesystemExecution | MacHostCommandResource;
   readonly closed: Promise<boolean>;
+  readonly onPhysicalWriterReleased?: (receipt: LocalWorkspaceWriterReleaseReceipt) => Promise<void>;
 };
 type Entry = {
   readonly key: string;
@@ -263,6 +264,7 @@ export class LocalWorkspaceWriterLeaseOwner {
     const track = (
       execution: Resource["execution"],
       proof: Promise<unknown>,
+      onPhysicalWriterReleased?: Resource["onPhysicalWriterReleased"],
     ) => {
       entry.physicalExposure = true;
       const closed = proof
@@ -274,7 +276,7 @@ export class LocalWorkspaceWriterLeaseOwner {
           if (!known) markUnknown();
           return known;
         });
-      entry.resources.add({ execution, closed });
+      entry.resources.add({ execution, closed, onPhysicalWriterReleased });
       if (entry.releasing || entry.released) {
         markUnknown();
         throw new LocalWorkspaceWriterLeaseError(
@@ -327,7 +329,7 @@ export class LocalWorkspaceWriterLeaseOwner {
       trackHostResource: (resource: MacHostCommandResource) => {
         // Observe the original promise and keep exposure sticky even when a
         // caller registers late. No broker preparation may follow a seal.
-        track(resource, resource.closed);
+        track(resource, resource.closed, (receipt) => resource.onPhysicalWriterReleased(receipt));
         if (entry.unknown || entry.executionSealed) {
           markUnknown();
           throw new LocalWorkspaceWriterLeaseError("workspace_writer_unavailable");
@@ -476,7 +478,21 @@ export class LocalWorkspaceWriterLeaseOwner {
         return false;
       }
       await this.assertEntry(entry, true);
+      const receipt = physicalIdentity(entry);
       await entry.file!.close();
+      // The broker cannot retire its UID slot until this ORIGINAL physical
+      // writer closed. Keep the same release promise/entry through all original
+      // metadata confirmations, including their bridge and stdio closure.
+      const confirmations = [...entry.resources].flatMap((resource) =>
+        resource.onPhysicalWriterReleased
+          ? [Promise.resolve().then(() => resource.onPhysicalWriterReleased!(receipt))]
+          : [],
+      );
+      const confirmed = await Promise.allSettled(confirmations);
+      if (entry.unknown || confirmed.some((result) => result.status === "rejected")) {
+        this.markUnknown(entry);
+        return false;
+      }
       entry.released = true;
       entry.retained.abort("Writer settlement released");
       this.entries.delete(entry.key);
