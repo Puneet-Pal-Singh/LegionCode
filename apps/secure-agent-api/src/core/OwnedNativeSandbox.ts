@@ -52,9 +52,10 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
       if (!this.nativeState.container || this.nativeState.container.running) throw unavailable();
       // The exclusive persisted operator grant precedes the SAME SDK startup,
       // image entrypoint and default policy. No customer env or alternate engine.
+      if (input.binding.expiresAt <= Date.now()) throw unavailable();
       await this.startAndWaitForPorts({ ports: this.defaultPort });
       await this.continueQualificationRaw(auth, input.binding, "observe");
-      return this.runOriginal([helper, "--observe-resources"], input);
+      return this.runOriginal([helper, "--observe-resources"], input, 64 * 1024, input.binding.expiresAt);
     });
     this.nativeOriginal = original;
     try {
@@ -70,7 +71,7 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
     const original = Promise.resolve().then(async () => {
       await this.authorizeQualificationRaw(auth, input.binding, "provision");
       await this.continueQualificationRaw(auth, input.binding, "provision");
-      return this.runOriginal([helper, "--provision-resources"], input);
+      return this.runOriginal([helper, "--provision-resources"], input, 64 * 1024, input.binding.expiresAt);
     });
     this.nativeOriginal = original;
     try {
@@ -144,11 +145,14 @@ export class Sandbox extends CloudflareSandbox implements OwnedNativeSandboxPort
     return receipt;
   }
 
-  private async runOriginal(argv: string[], input: unknown, limit = 64 * 1024): Promise<NativeCommandOriginal> {
+  private async runOriginal(argv: string[], input: unknown, limit = 64 * 1024, expiresAt?: number): Promise<NativeCommandOriginal> {
     const container = this.nativeState.container;
     if (!container?.running || typeof container.exec !== "function") throw unavailable();
     const body = encoder.encode(JSON.stringify(input));
     if (body.byteLength > limit) throw unavailable();
+    // Check in the synchronous creator section, not before an awaited
+    // authorization helper whose continuation may resume past the deadline.
+    if (expiresAt !== undefined && expiresAt <= Date.now()) throw unavailable();
     const process = await container.exec(argv, {
       user: "0:0", cwd: "/", env: { PATH: "/usr/local/bin:/usr/bin:/bin", LANG: "C.UTF-8", LC_ALL: "C.UTF-8" },
       stdin: "pipe", stdout: "pipe", stderr: "pipe",
