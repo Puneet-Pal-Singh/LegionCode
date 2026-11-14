@@ -58,6 +58,7 @@ import {
   resumeUnavailableMessage,
 } from "@legioncode/client-ui";
 import { useThreadInputQueue } from "../../hooks/chat/useThreadInputQueue";
+import { useConversationMutationAvailability } from "../../hooks/chat/useConversationMutationAvailability";
 import type { ArtifactOpenHandler } from "@legioncode/client-ui";
 import { useStableChatLoadingIndicator } from "@legioncode/client-ui";
 import { useChatAutoScroll } from "@legioncode/client-ui";
@@ -188,9 +189,11 @@ export function ChatInterface({
   });
   const activeTurn = chatProps.activeTurnProjection ?? localActiveTurn;
   const lifecycleProjection = activeTurn.projection;
+  const { isMutationAllowed, unavailableReason: mutationUnavailableReason } =
+    useConversationMutationAvailability(sessionId, runId, conversationScope ?? null, activeTurn);
   const compactActiveTurn = useCallback(async () => {
     const scope = conversationScope;
-    if (!scope) return;
+    if (!scope || !isMutationAllowed(scope)) return;
     await createWebPlatformClient().compactTurn({
       runId: RunIdSchema.parse(runId),
       sessionId: scope.sessionId,
@@ -199,7 +202,7 @@ export function ChatInterface({
       turnId: TurnIdSchema.parse(scope.turnId),
       runAttemptId: RunAttemptIdSchema.parse(scope.runAttemptId),
     });
-  }, [conversationScope, runId]);
+  }, [conversationScope, isMutationAllowed, runId]);
   // The canonical lifecycle projection is the only workflow/activity source.
   // RunEvent and persisted activity backfills are deliberately not rendered.
   const awaitingCanonicalLifecycle =
@@ -224,6 +227,7 @@ export function ChatInterface({
     conversationScope ?? null,
     activeQueueTarget,
     `${activeTurn.projection?.turnId ?? ""}:${activeTurn.projection?.lastSequence ?? 0}:${activeTurn.continuationStatus}`,
+    isMutationAllowed,
   );
   const { applyStartedQueueReceipt } = chatProps;
   const refreshQueue = queue.refresh;
@@ -246,6 +250,7 @@ export function ChatInterface({
       attachments: ChatSubmitAttachments | undefined,
       delivery: ComposerDelivery,
     ) => {
+      if (!isMutationAllowed()) return false;
       const accepted = await chatProps.submitFollowUp(
         input,
         attachments,
@@ -254,7 +259,7 @@ export function ChatInterface({
       if (accepted) void refreshQueue();
       return accepted;
     },
-    [chatProps, input, refreshQueue],
+    [chatProps, input, isMutationAllowed, refreshQueue],
   );
   const resolveQueueImageSource = useCallback(
     (attachmentId: string) =>
@@ -315,6 +320,7 @@ export function ChatInterface({
       attachments?: ChatSubmitAttachments,
       delivery?: ComposerDelivery,
     ): Promise<boolean> => {
+      if (!isMutationAllowed()) return false;
       if (input.trim() !== "/compact") {
         return handleSubmit(undefined, attachments, delivery);
       }
@@ -336,6 +342,7 @@ export function ChatInterface({
       handleInputChangeWrapper,
       handleSubmit,
       input,
+      isMutationAllowed,
       lifecycleProjection,
     ],
   );
@@ -358,6 +365,7 @@ export function ChatInterface({
   } = useApprovalController({
     lifecycleProjection,
     sessionId,
+    isMutationAllowed,
   });
   const completedTurnReview = useCompletedTurnReview(
     lifecycleProjection,
@@ -426,7 +434,10 @@ export function ChatInterface({
     }
     dispatchOpenSettingsDialog(recoveryAdvice.recoveryTarget);
   }, [login, recoveryAdvice.recoveryTarget]);
-  const chatErrorNotice: ChatErrorNoticeProps | null = error
+  const chatErrorNotice: ChatErrorNoticeProps | null = mutationUnavailableReason
+    ? { message: mutationUnavailableReason, remediation: "Read the saved task status. Its original execution has not been restarted.",
+        actionLabel: "Refresh saved status", onOpen: retryScopeRead }
+    : error
     ? {
         ...recoveryAdvice,
         message: error.startsWith("Stop not confirmed yet.")
@@ -476,7 +487,7 @@ export function ChatInterface({
   useEffect(() => {
     onPresentationReadyChange?.(!showStableSessionPlaceholder);
   }, [onPresentationReadyChange, showStableSessionPlaceholder]);
-  const workspaceControlsDisabledReason = pendingApproval
+  const workspaceControlsDisabledReason = mutationUnavailableReason ?? (pendingApproval
     ? "Resolve the pending approval before changing workspace controls."
     : activeRunLoading
       ? "Stop the current run before changing workspace controls."
@@ -485,7 +496,7 @@ export function ChatInterface({
           scopeRecoveryError ||
           continuationRecovery
         ? "Restore this chat before changing workspace controls."
-        : undefined;
+        : undefined);
   // This conversation's draft/image owner has no cross-project handoff. Keep
   // its persisted project fixed; AgentSetup owns the draft-preserving picker.
   const projectUnavailableReason = "Start a new task to change projects.";
@@ -519,17 +530,18 @@ export function ChatInterface({
       input={input}
       onInputChange={handleInputChangeWrapper}
       onSubmit={(attachments, delivery) =>
-        selectedReviewComments.length > 0
+        !isMutationAllowed() ? Promise.resolve(false) : selectedReviewComments.length > 0
           ? handleSubmitWithReviewComments(delivery)
           : submitComposer(attachments, delivery)
       }
       onFollowUpSubmit={
-        conversationScope
+        conversationScope && !mutationUnavailableReason
           ? (attachments, delivery) => submitFollowUp(attachments, delivery)
           : undefined
       }
       queuePanel={
         <ThreadInputQueuePanel
+          mutationUnavailableReason={mutationUnavailableReason}
           queuingEnabled={composerPreferences.followUpBehavior === "queue"}
           onQueuingChange={(enabled) =>
             updateComposerPreferences({ followUpBehavior: enabled ? "queue" : "steer" })
@@ -544,7 +556,7 @@ export function ChatInterface({
           onSteer={queue.steer}
           onStart={async (itemId, version, revision) => {
             const expectedScope = conversationScope;
-            if (!expectedScope) return null;
+            if (!expectedScope || !isMutationAllowed(expectedScope)) return null;
             const receipt = await queue.start(itemId, version, revision);
             if (receipt?.status === "started") {
               chatProps.applyStartedQueueReceipt(receipt, expectedScope);
@@ -554,7 +566,7 @@ export function ChatInterface({
         />
       }
       canResume={Boolean(
-        !activeRunLoading &&
+        !mutationUnavailableReason && !activeRunLoading &&
         conversationScope &&
         activeTurn.projection?.terminal?.state === "interrupted" &&
         (activeTurn.projection.executionCapability === "conversation" ||
@@ -566,6 +578,7 @@ export function ChatInterface({
         Boolean(conversationScope),
       )}
       onResume={async () => {
+        if (!isMutationAllowed()) return false;
         const projection = activeTurn.projection;
         if (
           projection?.terminal?.state === "interrupted" &&
@@ -580,8 +593,8 @@ export function ChatInterface({
       reviewComments={selectedReviewComments}
       onRemoveReviewComment={handleRemoveReviewComment}
       reviewCommentError={reviewCommentError}
-      onStop={stop}
-      canStop={activeRunLoading}
+      onStop={() => { if (isMutationAllowed()) stop(); }}
+      canStop={!mutationUnavailableReason && activeRunLoading}
       isLoading={activeRunLoading || isTranscriptHydrating}
       sessionId={sessionId}
       runId={runId}
@@ -598,7 +611,7 @@ export function ChatInterface({
       contextBudget={latestLifecycleProjection?.contextBudget ?? null}
       usage={latestLifecycleProjection?.usage ?? null}
       onCompact={
-        lifecycleProjection && !lifecycleProjection.terminal
+        !mutationUnavailableReason && lifecycleProjection && !lifecycleProjection.terminal
           ? () => void compactActiveTurn()
           : undefined
       }
@@ -639,9 +652,9 @@ export function ChatInterface({
       placeholderError={chatErrorNotice}
       continuation={continuationRecovery}
       canStopPendingTurn={
-        Boolean(conversationScope) && activeRunLoading && !activeTurn.isTerminal
+        !mutationUnavailableReason && Boolean(conversationScope) && activeRunLoading && !activeTurn.isTerminal
       }
-      onStopPendingTurn={stop}
+      onStopPendingTurn={() => { if (isMutationAllowed()) stop(); }}
       renderComposer={renderComposerControls}
       debugPanel={
         showDebugPanel ? <ChatDebugPanel events={debugEvents} /> : null

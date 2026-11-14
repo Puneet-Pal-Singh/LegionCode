@@ -61,6 +61,11 @@ import { ConversationScopeHttpError, type ConversationScope } from "@legioncode/
 import { createWebPlatformClient } from "../services/api/platformClient";
 import { useConversationInputCommands } from "./chat/useConversationInputCommands";
 import {
+  CONVERSATION_RECOVERY_REASON,
+  guardHostedConversationSubmission,
+  useConversationMutationAvailability,
+} from "./chat/useConversationMutationAvailability";
+import {
   useActiveTurnProjection,
   deriveCanonicalRunLoading,
   resolveActiveProjectionTurnId,
@@ -413,6 +418,7 @@ export function useChatCore(
     }),
     transportLoading: isSubmitting,
   });
+  const { isMutationAllowed } = useConversationMutationAvailability(sessionId, runId, activeConversationScope, activeTurnProjection);
   const isAwaitingTurnAdmission =
     isSubmitting && pendingUserMessage?.scopeKey === runScopeKey;
   const canonicalRunLoading =
@@ -565,6 +571,7 @@ export function useChatCore(
       requestBody: ChatRequestBody,
       attempt: SubmissionAttempt,
     ): Promise<void> => {
+      if (!isMutationAllowed(attempt.scope)) throw new Error(CONVERSATION_RECOVERY_REASON);
       logClientEvent("chat/submit", "dispatching", {
         runId,
         sessionId,
@@ -576,7 +583,7 @@ export function useChatCore(
         modelId: requestBody.modelId,
       });
       const acknowledgement = await dispatchHostedConversationSubmission({
-        client: lifecycleClient,
+        client: guardHostedConversationSubmission(lifecycleClient, () => isMutationAllowed(attempt.scope)),
         attempt,
         request: { ...requestBody, messages: [message] },
         onAcknowledgement: (response) => {
@@ -602,7 +609,7 @@ export function useChatCore(
         runtimeStatus: acknowledgement.runtimeStatus,
       });
     },
-    [lifecycleClient, onServerProjectionAvailable, runId, scopeKey, sessionId],
+    [isMutationAllowed, lifecycleClient, onServerProjectionAvailable, runId, scopeKey, sessionId],
   );
 
   const appendWithResolution = useCallback(
@@ -610,6 +617,7 @@ export function useChatCore(
       message: ChatAppendMessage,
       revisionTarget?: string,
     ): Promise<SubmissionOutcome> => {
+      if (!isMutationAllowed()) return { status: "unconfirmed", message: CONVERSATION_RECOVERY_REASON };
       const bootstrapScopeKey = runScopeKey;
       const bootstrapScopeGeneration = runScopeGenerationRef.current;
       const bootstrapMountGeneration = mountGenerationRef.current;
@@ -724,11 +732,11 @@ export function useChatCore(
             setScopeRecoveryError(null);
             setIsSubmitting(true);
             setIsStopping(false);
-            // The previous scope may already be terminal. Clear it before admission
-            // so a lagging serverTurnId cannot make a fresh submission look settled.
-            setConversationScope(null);
-            activeConversationScopeRef.current = null;
-            activeScopeKeyRef.current = bootstrapScopeKey;
+            // A fresh intent clears an older terminal scope. An unchanged retry
+            // keeps its exact reserved reader, including known recovery, mounted.
+            setConversationScope(attempt.scope);
+            activeConversationScopeRef.current = attempt.scope;
+            activeScopeKeyRef.current = attempt.scope ? conversationScopeKey(attempt.scope) : bootstrapScopeKey;
             preAdmissionStopKeyRef.current = null;
             stopRequestedRef.current = false;
             setPendingUserMessage({
@@ -756,6 +764,7 @@ export function useChatCore(
           },
           reserveScope: async (attempt) => {
             try {
+              if (!isMutationAllowed(attempt.scope)) throw new Error(CONVERSATION_RECOVERY_REASON);
               return await bootstrapConversationScope(
                 sessionId,
                 attempt.originalRunId,
@@ -776,6 +785,7 @@ export function useChatCore(
             }
           },
           onReserved: (scope) => {
+            if (!isMutationAllowed(scope)) throw new Error(CONVERSATION_RECOVERY_REASON);
             if (!ownsInvocationScope() || !submittedMessage) return false;
             retainedSubmissionScopeRef.current = scope;
             const requestScopeKey = conversationScopeKey(scope);
@@ -805,6 +815,7 @@ export function useChatCore(
             });
           },
           dispatch: async ({ config, scope, clientMessageId, attempt }) => {
+            if (!isMutationAllowed(scope)) throw new Error(CONVERSATION_RECOVERY_REASON);
             const dispatchedMessage = ensureClientMessageId({
               ...message,
               id: clientMessageId,
@@ -833,6 +844,7 @@ export function useChatCore(
               activeSubmissionAttemptRef.current?.token === attempt.token &&
               ownsInvocationScope();
             try {
+              if (!isMutationAllowed(scope)) throw new Error(CONVERSATION_RECOVERY_REASON);
               await interruptAndAwaitTerminal(
                 lifecycleClient,
                 scope,
@@ -865,6 +877,7 @@ export function useChatCore(
           },
           interruptUnconfirmedTurn: async (attempt, scope) => {
             try {
+              if (!isMutationAllowed(scope)) return false;
               await interruptAndAwaitTerminal(
                 lifecycleClient,
                 scope,
@@ -953,6 +966,7 @@ export function useChatCore(
     [
       buildChatRequestBody,
       isWorkspaceExecutionAllowed,
+      isMutationAllowed,
       isActiveRunScope,
       lifecycleClient,
       mode,
@@ -1008,6 +1022,7 @@ export function useChatCore(
       inputVersionRef: composerInputVersionRef,
       setError,
       commitScope: commitConversationScope,
+      isMutationAllowed,
     });
   const submitFollowUp = useCallback((text: string, attachments: ChatSubmitAttachments | undefined, delivery: "queue" | "steer") => {
     if (!isWorkspaceExecutionAllowed) {
@@ -1150,6 +1165,10 @@ export function useChatCore(
       attachments?: ChatSubmitAttachments,
     ): Promise<boolean> => {
       e?.preventDefault();
+      if (!isMutationAllowed()) {
+        setError(CONVERSATION_RECOVERY_REASON);
+        return false;
+      }
       if (!isWorkspaceExecutionAllowed) {
         setError("This conversation's workspace is unavailable for new work.");
         return false;
@@ -1188,6 +1207,7 @@ export function useChatCore(
       input,
       canonicalRunLoading,
       isModelConfigReady,
+      isMutationAllowed,
       isWorkspaceExecutionAllowed,
       isStopping,
       isSubmitting,
@@ -1200,6 +1220,10 @@ export function useChatCore(
   );
 
   const stop = useCallback(() => {
+    if (!isMutationAllowed()) {
+      setError(CONVERSATION_RECOVERY_REASON);
+      return;
+    }
     if (stopRequestedRef.current) {
       return;
     }
@@ -1235,6 +1259,7 @@ export function useChatCore(
           // absent after transport cancellation.
           if (stopOwnsInvocation()) abortSubmissionTransport();
         } else if (requestScope) {
+          if (!isMutationAllowed(requestScope)) return;
           await interruptAndAwaitTerminal(lifecycleClient, requestScope, () => {
             if (stopOwnsInvocation()) abortSubmissionTransport();
           });
@@ -1264,6 +1289,7 @@ export function useChatCore(
 
     void cancelRun();
   }, [
+    isMutationAllowed,
     isActiveRunInvocation,
     lifecycleClient,
     runId,

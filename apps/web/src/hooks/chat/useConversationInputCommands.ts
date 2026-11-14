@@ -1,4 +1,4 @@
-import { useCallback, useMemo, type MutableRefObject } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, type MutableRefObject } from "react";
 import {
   createConversationInputCommands,
   createChatThreadInputConfiguration,
@@ -33,8 +33,11 @@ export function useConversationInputCommands(input: {
   clearInput: () => void;
   setError: (error: string | null) => void;
   commitScope: (scope: ConversationScope) => void;
+  isMutationAllowed: (scope?: ConversationScope | null) => boolean;
 }) {
   const commands = useMemo(() => createConversationInputCommands(), []);
+  const current = useRef(input);
+  useLayoutEffect(() => { current.current = input; }, [input]);
   const submitFollowUp = useCallback(
     async (
       text: string,
@@ -51,7 +54,8 @@ export function useConversationInputCommands(input: {
         name: image.name,
         mediaType: image.mediaType,
       }));
-      if (!capturedScope || (!capturedText.trim() && images.length === 0)) {
+      if (!input.isMutationAllowed(capturedScope) || !current.current.isMutationAllowed(capturedScope) ||
+          !capturedScope || (!capturedText.trim() && images.length === 0)) {
         return false;
       }
 
@@ -80,6 +84,7 @@ export function useConversationInputCommands(input: {
         })),
       });
       try {
+        if (!input.isMutationAllowed(capturedScope) || !current.current.isMutationAllowed(capturedScope)) return false;
         const receipt = await commands.submitFollowUp(input.lifecycleClient, {
           fingerprint,
           scope: capturedScope,
@@ -154,7 +159,7 @@ export function useConversationInputCommands(input: {
       const capturedScope = input.scopeRef.current;
       const capturedRunScope = input.runScopeRef.current;
       const capturedGeneration = input.generationRef.current;
-      if (!capturedScope) return false;
+      if (!capturedScope || !input.isMutationAllowed(capturedScope) || !current.current.isMutationAllowed(capturedScope)) return false;
       let configuration: ReturnType<typeof createChatThreadInputConfiguration>;
       try {
         configuration = buildInputConfiguration(input);
@@ -173,6 +178,7 @@ export function useConversationInputCommands(input: {
         configuration,
       });
       try {
+        if (!input.isMutationAllowed(capturedScope) || !current.current.isMutationAllowed(capturedScope)) return false;
         const receipt = await commands.resumeInterruptedTurn(input.lifecycleClient, {
           fingerprint,
           scope: capturedScope,

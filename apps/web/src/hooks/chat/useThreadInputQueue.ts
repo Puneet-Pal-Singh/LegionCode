@@ -11,6 +11,7 @@ export function useThreadInputQueue(
   scope: ConversationScope | null,
   activeTarget: ThreadInputQueueActiveTarget | null,
   invalidationKey: string,
+  isMutationAllowed: () => boolean,
 ) {
   const client = useMemo(() => createWebPlatformClient(), []);
   const readScope = useMemo(() => scope ? {
@@ -18,5 +19,5 @@ export function useThreadInputQueue(
     workspaceId: scope.workspaceId,
     threadId: scope.threadId,
   } : null, [scope]);
-  return useSharedThreadInputQueue(readScope, activeTarget, invalidationKey, client);
+  return useSharedThreadInputQueue(readScope, activeTarget, invalidationKey, client, isMutationAllowed);
 }
