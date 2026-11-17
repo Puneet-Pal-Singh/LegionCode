@@ -124,7 +124,7 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
     props.snapshot &&
     items.length === 0 &&
     !props.snapshot.paused &&
-    !error && !pending
+    !error && !pending && !editing
   ) {
     return null;
   }
@@ -175,6 +175,8 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
             : undefined;
           const canEditOrRemove =
             item.state === "pending" && item.delivery === "queue";
+          const editVersionChanged =
+            editing?.itemId === item.itemId && editing.version !== item.version;
           const status =
             item.receipt?.status === "conflict" ? item.receipt.message : item.receipt?.status === "unconfirmed"
               ? "Input delivery could not be confirmed."
@@ -194,53 +196,77 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
               className="relative flex min-w-0 items-center gap-2 border-b border-zinc-700/50 px-1.5 py-1.5 last:border-b-0 sm:gap-2.5 sm:px-2"
             >
               {editing?.itemId === item.itemId ? (
-                <div className="flex min-w-0 flex-1 items-center gap-2 py-1">
-                  <List
-                    size={17}
-                    aria-hidden="true"
-                    className="shrink-0 text-zinc-500"
-                  />
-                  <textarea
-                    ref={editInputRef}
-                    aria-label="Edit queued follow-up"
-                    disabled={mutationsDisabled}
-                    className="min-h-9 min-w-0 flex-1 resize-y rounded-lg border border-zinc-700 bg-zinc-900/80 p-2 text-xs text-zinc-100 outline-none focus-visible:border-zinc-500 focus-visible:ring-1 focus-visible:ring-zinc-500"
-                    value={editing.draft}
-                    onChange={(event) => {
-                      if (pendingRef.current || editRef.current !== editing) return;
-                      const next = { ...editing, draft: event.target.value };
-                      editRef.current = next;
-                      setEdit(next);
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="shrink-0 rounded-lg px-2.5 py-1.5 text-xs text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-200 focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400"
-                    onClick={() => {
-                      editRef.current = null;
-                      setEdit(null);
-                    }}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    disabled={mutationsDisabled}
-                    className="shrink-0 rounded-lg bg-zinc-700 px-2.5 py-1.5 text-xs text-white hover:bg-zinc-600 focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-300 disabled:cursor-wait disabled:opacity-50"
-                    onClick={() => {
-                      const captured = editRef.current;
-                      if (!captured || captured !== editing) return;
-                      void mutate("save", item.itemId, () => props.onUpdate(item.itemId, captured.version, captured.draft), (receipt) => {
-                        if (receipt.status === "pending" && receipt.itemId === captured.itemId &&
-                            receipt.version > captured.version && editRef.current === captured) {
-                          editRef.current = null;
-                          setEdit(null);
-                        }
-                      });
-                    }}
-                  >
-                    Save
-                  </button>
+                <div className="flex min-w-0 flex-1 flex-col gap-2 py-1">
+                  {editVersionChanged && canEditOrRemove ? (
+                    <div role="status" className="w-full rounded-lg border border-amber-400/20 bg-amber-400/5 p-2 text-xs text-amber-100">
+                      <p>This queued message changed. Review the latest text before saving your draft.</p>
+                      <p className="my-2 max-h-24 overflow-y-auto whitespace-pre-wrap break-words text-zinc-300">{item.text || "Image follow-up"}</p>
+                      <button
+                        type="button"
+                        disabled={mutationsDisabled}
+                        className="rounded-md px-2 py-1 text-amber-100 hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-1 focus-visible:outline-amber-200 disabled:opacity-50"
+                        onClick={() => {
+                          if (pendingRef.current || editRef.current !== editing) return;
+                          const next = { ...editing, version: item.version };
+                          editRef.current = next;
+                          setEdit(next);
+                          editInputRef.current?.focus();
+                        }}
+                      >
+                        Keep my draft
+                      </button>
+                    </div>
+                  ) : !canEditOrRemove ? (
+                    <p role="status" className="text-xs text-zinc-400">This message is no longer editable. You can copy your draft below.</p>
+                  ) : null}
+                  <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
+                    <List
+                      size={17}
+                      aria-hidden="true"
+                      className="shrink-0 text-zinc-500"
+                    />
+                    <textarea
+                      ref={editInputRef}
+                      aria-label="Edit queued follow-up"
+                      disabled={mutationsDisabled}
+                      className="min-h-9 min-w-0 flex-1 resize-y rounded-lg border border-zinc-700 bg-zinc-900/80 p-2 text-xs text-zinc-100 outline-none focus-visible:border-zinc-500 focus-visible:ring-1 focus-visible:ring-zinc-500"
+                      value={editing.draft}
+                      onChange={(event) => {
+                        if (pendingRef.current || editRef.current !== editing) return;
+                        const next = { ...editing, draft: event.target.value };
+                        editRef.current = next;
+                        setEdit(next);
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-lg px-2.5 py-1.5 text-xs text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-200 focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400"
+                      onClick={() => {
+                        editRef.current = null;
+                        setEdit(null);
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={mutationsDisabled || editVersionChanged || !canEditOrRemove}
+                      className="shrink-0 rounded-lg bg-zinc-700 px-2.5 py-1.5 text-xs text-white hover:bg-zinc-600 focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-300 disabled:cursor-wait disabled:opacity-50"
+                      onClick={() => {
+                        const captured = editRef.current;
+                        if (!captured || captured !== editing || !canEditOrRemove || captured.version !== item.version) return;
+                        void mutate("save", item.itemId, () => props.onUpdate(item.itemId, captured.version, captured.draft), (receipt) => {
+                          if (receipt.status === "pending" && receipt.itemId === captured.itemId &&
+                              receipt.version > captured.version && editRef.current === captured) {
+                            editRef.current = null;
+                            setEdit(null);
+                          }
+                        });
+                      }}
+                    >
+                      Save
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <>
@@ -348,6 +374,23 @@ export function ThreadInputQueuePanel(props: ThreadInputQueuePanelProps) {
           );
         })}
       </ol>
+      {editing && !items.some((item) => item.itemId === editing.itemId) ? (
+        <div className="space-y-2 px-1 py-2">
+          <p role="status" className="text-xs text-zinc-400">This message is no longer in the queue. Copy your draft before closing.</p>
+          <textarea
+            aria-label="Draft from a message no longer in the queue"
+            readOnly
+            value={editing.draft}
+            className="min-h-16 w-full resize-y rounded-lg border border-zinc-700 bg-zinc-900/80 p-2 text-xs text-zinc-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400"
+          />
+          <button type="button" className="rounded-md px-2 py-1 text-xs text-zinc-300 hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400" onClick={() => {
+            editRef.current = null;
+            setEdit(null);
+          }}>
+            Close draft
+          </button>
+        </div>
+      ) : null}
     </section>
   );
 }
