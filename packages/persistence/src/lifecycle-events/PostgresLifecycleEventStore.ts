@@ -1,5 +1,6 @@
 import {
   EventStoreError,
+  LifecycleReplayPage,
   createStableEventFingerprint,
   type LifecycleEventStore,
   type ReplayLifecycleEventsInput,
@@ -100,14 +101,15 @@ export class PostgresLifecycleEventStore implements LifecycleEventStore {
     input: ReplayLifecycleEventsInput,
   ): Promise<ReplayLifecycleEventsResult> {
     validateReplay(input);
-    const result = await this.client.query<LifecycleEventRow>(REPLAY_SQL, [
-      input.turnId,
-      input.afterSequence ?? 0,
-      input.limit,
-    ]);
-    const events = result.rows.map(readEvent);
-    assertContinuous(events, input.afterSequence ?? 0);
-    return { events, nextSequence: events.at(-1)?.sequence ?? null };
+    const page = new LifecycleReplayPage(input);
+    const bounds = [input.turnId, input.afterSequence ?? 0, input.limit] as const;
+    const result = input.maxBytes === undefined
+      ? await this.client.query<LifecycleEventRow>(REPLAY_SQL, bounds)
+      : await this.client.query<LifecycleEventRow>(REPLAY_BOUNDED_SQL, [...bounds, input.maxBytes]);
+    for (const row of result.rows) {
+      if (!page.append(readEvent(row))) break;
+    }
+    return page.result();
   }
 }
 
@@ -517,20 +519,6 @@ function readEvent(row: LifecycleEventRow): LifecycleEvent {
   return LifecycleEventSchema.parse(value);
 }
 
-function assertContinuous(
-  events: readonly LifecycleEvent[],
-  after: number,
-): void {
-  events.forEach((event, index) => {
-    if (event.sequence !== after + index + 1) {
-      throw new EventStoreError(
-        "corrupt_event_stream",
-        "Lifecycle replay contains a sequence gap",
-      );
-    }
-  });
-}
-
 function validateReplay(input: ReplayLifecycleEventsInput): void {
   if (
     !Number.isSafeInteger(input.limit) ||
@@ -563,6 +551,20 @@ function isTerminalLifecycleEventType(type: LifecycleEvent["type"]): boolean {
   return type === "turn.completed" || type === "turn.failed" || type === "turn.interrupted";
 }
 const REPLAY_SQL = `SELECT event_json, sequence FROM canonical_lifecycle_events WHERE turn_id = $1 AND sequence > $2 ORDER BY sequence ASC LIMIT $3`;
+// JSONB text is a transport bound, not the canonical page size. Always return
+// the first row so LifecycleReplayPage can measure it exactly and report an
+// oversized event without advancing the cursor. Later rows may form a shorter
+// prefix if PostgreSQL's representation occupies more bytes.
+const REPLAY_BOUNDED_SQL = `
+  SELECT event_json, sequence
+  FROM (
+    SELECT event_json, sequence,
+      row_number() OVER (ORDER BY sequence) AS position,
+      sum(octet_length(convert_to(event_json::text, 'UTF8'))) OVER (ORDER BY sequence) AS total_bytes
+    FROM (${REPLAY_SQL}) AS candidates
+  ) AS measured
+  WHERE position = 1 OR total_bytes <= $4::bigint
+  ORDER BY sequence ASC`;
 
 const READ_ADMISSION_FOR_EVENT_SQL = `SELECT session_id, thread_id, turn_id, run_attempt_id, run_id, revision_of_turn_id, admission_state FROM canonical_turn_admissions WHERE turn_id = $1`;
 const READ_ACCEPTED_THREAD_INPUT_SQL = `SELECT input.id, input.session_id, input.user_id, input.workspace_id, input.content_json FROM thread_inputs input JOIN sessions session ON session.id = input.session_id JOIN canonical_turn_admissions admission ON admission.session_id = input.session_id WHERE input.id = $1 AND input.session_id = $2 AND input.thread_id = $3 AND input.client_input_id = $6 AND session.thread_id = $3 AND session.workspace_id = input.workspace_id AND session.user_id = input.user_id AND admission.turn_id = $4 AND admission.run_attempt_id = $5 AND admission.admission_state = 'admitted' AND (input.delivery = 'queue' OR (input.delivery = 'steer' AND input.target_turn_id = $4 AND input.target_run_attempt_id = $5)) AND input.state IN ('pending','consuming','consumed') AND (input.accepted_sequence IS NULL OR input.accepted_sequence = $7) FOR UPDATE OF input`;

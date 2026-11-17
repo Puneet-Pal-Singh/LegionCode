@@ -8,6 +8,7 @@ export {
 } from "./errors.js";
 export { MemoryEventStore } from "./MemoryEventStore.js";
 export { MemoryLifecycleEventStore } from "./MemoryLifecycleEventStore.js";
+export { LifecycleReplayPage } from "./lifecycle-replay-page.js";
 export { createStableEventFingerprint } from "./fingerprint.js";
 export {
   LocalNativeResourceSettlementSchema,
