@@ -8,7 +8,7 @@ import { LocalWorkspaceGrantRecords } from "./local-workspace-grants.js";
 import { parseStoredGrant, type StoredLocalWorkspaceGrant } from "./local-workspace-grant.js";
 export type { StoredLocalWorkspaceGrant } from "./local-workspace-grant.js";
 import type { LocalThreadRuntimeScope, LocalThreadRuntimeSummary } from "./local-thread-runtime-summary.js";
-import { LocalHarnessControlPlane, type LocalHarnessControlPlanePort } from "./local/harness-control-plane.js";
+import { LocalHarnessControlPlane, LocalHarnessControlPlaneError, type LocalHarnessControlPlanePort } from "./local/harness-control-plane.js";
 import { LocalHarnessObservationCommitPort } from "./local/harness-observation-port.js";
 import type { StoredHarnessSelection } from "./local/harness-bindings.js";
 import { initializeLocalHarnessBindings, validateLocalHarnessBindings, HarnessPersistenceError, LocalHarnessBindingRepository, type HarnessBindingRepository } from "./local/harness-bindings.js";
@@ -204,7 +204,10 @@ export class LocalPersistence {
       this.validateDatabase();
       this.turnArtifacts = createLocalTurnArtifactStore(this.database, (operation) => this.guardStorage(operation));
       const admissions = new LocalTurnAdmissions(this.database, (input) => this.appendPlatformWithin(input),
-        (admission) => this.inputQueue?.onAdmissionWithin(admission));
+        (admission) => this.inputQueue?.onAdmissionWithin(admission),
+        (admission) => new LocalHarnessControlPlane(this.database, { environmentId: this.environmentId, userId: admission.run.userId })
+          .assertNativeAdmissionWithin({ workspaceId: admission.run.workspaceId, environmentId: this.environmentId,
+            threadId: admission.run.threadId, sessionId: admission.run.threadId }));
       this.environmentId = this.database.transaction(() => {
         admissions.initialize();
         initializeLocalHarnessBindings(this.database);
@@ -729,7 +732,7 @@ export class LocalPersistence {
     if (this.closed) throw new LocalPersistenceError("unavailable", "Local input persistence is closed");
     try { return await operation(); }
     catch (error) {
-      if (error instanceof ThreadInputConflictError || error instanceof EventStoreError || error instanceof LocalPersistenceError) throw error;
+      if (error instanceof ThreadInputConflictError || error instanceof LocalHarnessControlPlaneError || error instanceof EventStoreError || error instanceof LocalPersistenceError) throw error;
       throw new LocalPersistenceError("unavailable", "Local input persistence could not complete safely");
     }
   }
@@ -755,7 +758,7 @@ export class LocalPersistence {
     try {
       return operation();
     } catch (error) {
-      if (error instanceof EventStoreError || error instanceof LocalPersistenceError) throw error;
+      if (error instanceof LocalHarnessControlPlaneError || error instanceof EventStoreError || error instanceof LocalPersistenceError) throw error;
       throw new LocalPersistenceError("unavailable", "Local persistence operation failed safely");
     }
   }
