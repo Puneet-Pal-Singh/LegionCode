@@ -95,6 +95,10 @@ export function createLocalThreadInputOperations(options: {
           throw new AppServerOperationError(503, "server_unavailable", "Queued admission requires reconciliation", "THREAD_INPUT_OUTCOME_UNKNOWN", false);
         return saved.receipt;
       } catch (error) {
+        // A known selection refusal reaches this boundary only after the original
+        // preparation cleanup settled. Unknown cleanup replaces that refusal.
+        if (error instanceof AppServerOperationError && error.operationCode === "local_harness_execution_unavailable")
+          throw error;
         if (error instanceof ThreadInputConflictError && ["queue_item_changed", "queue_revision_conflict", "queue_paused", "thread_not_idle"].includes(error.code))
           return ThreadInputReceiptSchema.parse({ status: "conflict", code: error.code, message: error.message });
         // Preserve actual intent and require explicit reconciliation. This also
