@@ -17,6 +17,9 @@ export interface ReplayLifecycleEventsResult {
 
 export interface LifecycleEventStore {
   append(event: LifecycleEvent): Promise<LifecycleEvent>;
+  /** Atomically append the entire batch at its declared stream sequences.
+   * Exact retries return the committed events. Conflicting sequence claims must
+   * reject without appending any part of the batch. */
   appendBatch(events: readonly LifecycleEvent[]): Promise<readonly LifecycleEvent[]>;
   replay(input: ReplayLifecycleEventsInput): Promise<ReplayLifecycleEventsResult>;
 }

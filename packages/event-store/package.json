@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./errors": "./src/errors.ts",
+    "./fingerprint": "./src/fingerprint.ts",
     "./memory": "./src/MemoryEventStore.ts",
     "./lifecycle": "./src/MemoryLifecycleEventStore.ts",
     "./local": "./src/local.ts",

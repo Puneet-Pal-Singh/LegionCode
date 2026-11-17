@@ -39,6 +39,7 @@ import type {
   WorkerProtocolPort,
 } from "./ports.js";
 import { RuntimeLifecycleCoordinator } from "./RuntimeLifecycleCoordinator.js";
+import { readCompletedTurnReplay } from "./RuntimeTerminalReplay.js";
 import type { AcceptedThreadInput, StartTurnInput, StartTurnResult, ToolResult } from "./types.js";
 import { ToolExecutionCoordinator } from "./ToolExecutionCoordinator.js";
 import { reconcileProviderContextBudget } from "./ProviderContextBudget.js";
@@ -167,7 +168,8 @@ export class RuntimeKernel {
 
   async startTurn(input: StartTurnInput): Promise<StartTurnResult> {
     // Rejection must not enter the preparation-failure lifecycle appender.
-    await this.assertLifecycleStartAllowed(input);
+    const replayed = await this.readLifecycleStart(input);
+    if (replayed) return replayed;
     let prepared: PreparedTurn;
     try {
       prepared = await this.prepareTurn(input);
@@ -225,7 +227,7 @@ export class RuntimeKernel {
     }
   }
 
-  private async assertLifecycleStartAllowed(input: StartTurnInput): Promise<void> {
+  private async readLifecycleStart(input: StartTurnInput): Promise<StartTurnResult | undefined> {
     const run = RunSchema.parse(input.run);
     const turn = TurnSchema.parse(input.turn);
     const attempt = RunAttemptIdSchema.parse(input.runAttemptId);
@@ -255,10 +257,18 @@ export class RuntimeKernel {
       (replay.nextSequence !== null && replay.nextSequence !== first.sequence)
     )
       throw new RuntimeKernelError("invalid_turn_identity", "Canonical lifecycle preflight has a different identity or sequence");
-    if (!recovery)
+    if (recovery) return;
+    if (input.execution?.kind === "delegated" || run.harnessSelection?.selection != null)
       throw new RuntimeKernelError("turn_already_owned", "Canonical lifecycle history requires explicit supported recovery");
-    // Only the existing delegated strategy may continue to its full persisted
-    // session/generation, frozen binding and committed start-snapshot checks.
+    const replayed = await readCompletedTurnReplay(
+      this.dependencies.lifecycleEvents, { ...input, run, turn, runAttemptId: attempt },
+      this.dependencies.producerId, first,
+    );
+    const lifecycle = this.instantiateLifecycle(run, turn, attempt, input);
+    await lifecycle.restoreCompletedNativeHistory(replayed.history);
+    this.assertTurnAvailable(turn);
+    this.lifecycles.set(turn.id, lifecycle);
+    return replayed.result;
   }
 
   private async prepareTurn(input: StartTurnInput): Promise<PreparedTurn> {
@@ -376,7 +386,8 @@ export class RuntimeKernel {
       const result = prepared.delegated
         ? { status: "completed" as const, ...await prepared.delegated.execute() }
         : await this.executeNativePreparedTurn(prepared);
-      if (prepared.executionSignal.aborted || lifecycle.isTerminal) {
+      prepared.executionSignal.throwIfAborted();
+      if (lifecycle.isTerminal) {
         throw new LifecycleTransitionError(
           "turn",
           "interrupted",
@@ -391,7 +402,7 @@ export class RuntimeKernel {
       await this.settleArtifacts(turn.id, lifecycle, artifacts);
       // Snapshot capture awaits filesystem/Git work. Stop may have been accepted
       // during that await; revalidate before entering terminal arbitration.
-      if (prepared.executionSignal.aborted) throw new RuntimeKernelError("turn_cancelled", "Turn stopped during artifact capture");
+      prepared.executionSignal.throwIfAborted();
       if (prepared.delegated) await prepared.delegated.requireQuiescence();
       await lifecycle.complete(result.output, result.finalItemId, () => !prepared.executionSignal.aborted);
       return {
@@ -443,6 +454,10 @@ export class RuntimeKernel {
           await this.recoverFailedTurn(lifecycle, error);
         }
       }
+      if (lifecycle.terminalStatus === "interrupted" &&
+        error instanceof LifecycleTransitionError && error.subject === "turn" &&
+        error.from === "interrupted" && error.to === "completed"
+      ) prepared.executionSignal.throwIfAborted();
       throw error;
     } finally {
       this.activeContexts.delete(turn.id);
@@ -1035,8 +1050,19 @@ export class RuntimeKernel {
     runAttemptId: StartTurnInput["runAttemptId"],
     input: StartTurnInput,
   ): RuntimeLifecycleCoordinator {
+    const lifecycle = this.instantiateLifecycle(run, turn, runAttemptId, input);
+    this.lifecycles.set(turn.id, lifecycle);
+    return lifecycle;
+  }
+
+  private instantiateLifecycle(
+    run: Run,
+    turn: Turn,
+    runAttemptId: StartTurnInput["runAttemptId"],
+    input: StartTurnInput,
+  ): RuntimeLifecycleCoordinator {
     this.assertTurnAvailable(turn);
-    const lifecycle = new RuntimeLifecycleCoordinator({
+    return new RuntimeLifecycleCoordinator({
       sink: this.dependencies.lifecycleEvents,
       producerId: this.dependencies.producerId,
       executionCapability: run.executionCapability,
@@ -1050,8 +1076,6 @@ export class RuntimeKernel {
       continuationOfTurnId: input.continuationOfTurnId,
       originalPromptId: input.originalPromptId,
     });
-    this.lifecycles.set(turn.id, lifecycle);
-    return lifecycle;
   }
 
   private async recoverFailedTurn(
