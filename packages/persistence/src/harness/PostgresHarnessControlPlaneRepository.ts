@@ -124,21 +124,28 @@ export class PostgresHarnessControlPlaneRepository {
   async setupInstance(
     scope: HarnessControlPlaneScope,
     input: HarnessSetupRequest,
-    connection: { connectionId: string; ownerGeneration: number },
+    connection: {
+      connectionId: string;
+      providerId: ProviderId;
+      credentialKind: CredentialSecret["type"];
+      ownerGeneration: number;
+      tokenMaterialVersion: number;
+    },
   ): Promise<StoredHarnessInstance> {
     scope = Object.freeze({ ...scope });
-    connection = Object.freeze({ ...connection });
+    connection = Object.freeze({ connectionId: connection.connectionId, providerId: connection.providerId,
+      credentialKind: connection.credentialKind, ownerGeneration: connection.ownerGeneration,
+      tokenMaterialVersion: connection.tokenMaterialVersion });
     const params = HarnessSetupRequestSchema.parse(input);
     assertScope(scope, params);
     if (params.connectionId !== connection.connectionId)
       fail("connection_unavailable", "Selected connection does not match");
-    safeRevision(connection.ownerGeneration);
-    if (connection.ownerGeneration === 0)
-      fail("connection_unavailable", "Selected connection generation is invalid");
-    const fp = createStableEventFingerprint({
-      params,
-      ownerGeneration: connection.ownerGeneration,
-    });
+    if (!ProviderIdSchema.safeParse(connection.providerId).success ||
+        !["api_key", "oauth", "external_reference"].includes(connection.credentialKind) ||
+        !Number.isSafeInteger(connection.ownerGeneration) || connection.ownerGeneration < 1 ||
+        !Number.isSafeInteger(connection.tokenMaterialVersion) || connection.tokenMaterialVersion < 1)
+      fail("connection_unavailable", "Selected connection metadata is invalid");
+    const fp = createStableEventFingerprint({ params, connection });
     return this.client.transaction(async (tx) => {
       await ownedWorkspace(tx, scope);
       await lock(tx, ["harness-setup-command", scope, params.clientCommandId]);
@@ -179,6 +186,7 @@ export class PostgresHarnessControlPlaneRepository {
         scope,
         connection.connectionId,
         connection.ownerGeneration,
+        connection,
       );
       if (!record) {
         const rows = await tx.query<InstanceRow>(
@@ -546,10 +554,12 @@ async function activeConnection(
   scope: HarnessControlPlaneScope,
   id: string,
   generation: number,
+  expected?: { providerId: ProviderId; credentialKind: CredentialSecret["type"]; tokenMaterialVersion: number },
 ): Promise<void> {
   const r = await tx.query(
-    "SELECT id FROM provider_credentials WHERE id::text=$1 AND user_id::text=$2 AND auth_owner_generation=$3 AND status='connected' AND deleted_at IS NULL AND refresh_claim_id IS NULL FOR SHARE",
-    [id, scope.userId, generation],
+    `SELECT id FROM provider_credentials WHERE id::text=$1 AND user_id::text=$2 AND auth_owner_generation=$3 AND status='connected' AND deleted_at IS NULL AND refresh_claim_id IS NULL${expected ? " AND provider_id=$4 AND credential_kind=$5 AND token_material_version=$6" : ""} FOR SHARE`,
+    expected ? [id, scope.userId, generation, expected.providerId, expected.credentialKind, expected.tokenMaterialVersion]
+      : [id, scope.userId, generation],
   );
   if (!r.rows[0])
     fail("connection_unavailable", "Selected connection is unavailable");
