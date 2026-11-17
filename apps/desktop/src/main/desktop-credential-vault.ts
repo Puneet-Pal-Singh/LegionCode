@@ -192,7 +192,12 @@ export class DesktopCredentialVault implements CredentialVault {
   }
 
   private assertAvailable(): void {
-    if (this.durabilityUncertain || !this.safeStorage.isEncryptionAvailable()) throw unavailable();
+    this.assertDurable();
+    if (!this.safeStorage.isEncryptionAvailable()) throw unavailable();
+  }
+
+  private assertDurable(): void {
+    if (this.durabilityUncertain) throw unavailable();
   }
 
   private decryptCredential(encoded: string, providerId: ProviderId): DesktopRuntimeCredential {
@@ -206,7 +211,10 @@ export class DesktopCredentialVault implements CredentialVault {
 
   /** Envelope/metadata validation only. Loading never decrypts or queues a write. */
   private async loadRaw(): Promise<StoredVaultFile> {
-    this.assertAvailable();
+    // Even checking Keychain availability can synchronously prompt on macOS.
+    // Empty-profile discovery needs no encryption key; actual credential reads,
+    // leases and writes retain their own protected-storage checks.
+    this.assertDurable();
     if (this.loaded) return this.loaded;
     if (this.loadPromise) return await this.loadPromise;
     this.loadPromise = (async () => {
@@ -215,12 +223,12 @@ export class DesktopCredentialVault implements CredentialVault {
         if (contents.byteLength > MAX_VAULT_BYTES) throw unavailable();
         const parsed: unknown = JSON.parse(contents.toString("utf8"));
         if (!isStoredVaultFile(parsed)) throw unavailable();
-        this.assertAvailable();
+        this.assertDurable();
         this.loaded = parsed;
         return parsed;
       } catch (error) {
         if (isNotFound(error)) {
-          this.assertAvailable();
+          this.assertDurable();
           const empty: VaultFile = { version: 2, credentials: {} };
           this.loaded = empty;
           return empty;
