@@ -1,3 +1,4 @@
+import { CredentialAcquisitionSchema } from "@repo/shared-types";
 import { HarnessConnectionMetadataService, HarnessConnectionMetadataSchema, type HarnessConnectionMetadataAuthority } from "../../harness/HarnessConnectionService";
 import {
   DatabaseConfigurationError,
@@ -155,9 +156,11 @@ export function createPostgresHarnessConnectionMetadataService(
   const encryption = getProviderEncryptionConfig(env as unknown as Record<string, unknown>);
   return new HarnessConnectionMetadataService(authority, {
     async readConnectionMetadataWithin(transaction, connectionId) {
+      const parsedConnectionId = CredentialAcquisitionSchema.shape.connectionId.safeParse(connectionId);
+      if (!parsedConnectionId.success) return null;
       const credentials = new PostgresCredentialStore(transaction, userId, workspaceId,
         encryption.masterKey, encryption.keyVersion, encryption.previousMasterKey);
-      const record = await credentials.getConnection(connectionId);
+      const record = await credentials.getConnection(parsedConnectionId.data);
       if (!record || record.status !== "connected" || record.deletedAt !== null || record.refreshClaimId !== null) return null;
       if (record.userId !== userId || record.credentialId !== connectionId) throw unavailable();
       return HarnessConnectionMetadataSchema.parse({ connectionId: record.credentialId,
