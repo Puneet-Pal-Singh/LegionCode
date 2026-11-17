@@ -1,3 +1,5 @@
 /app /agents 302
 /web-agents /agents 302
+/agents/manifest.webmanifest /manifest.webmanifest 200
+/agents/assets/* /assets/:splat 200
 /* /index.html 200
