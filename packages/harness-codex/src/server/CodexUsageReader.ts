@@ -70,12 +70,19 @@ export function codexAccountIdentityFingerprint(raw: unknown): string | null {
 
 /** Private redacted account reader. Login/refresh/token-bearing APIs are deliberately absent. */
 export class CodexUsageReader {
-  constructor(private readonly transport: CodexStdioTransport) {}
+  constructor(
+    private readonly transport: CodexStdioTransport,
+    private readonly route:
+      | "api_key"
+      | "cli_managed_chatgpt"
+      | "app_managed_chatgpt" = "cli_managed_chatgpt",
+  ) {}
 
   async account(): Promise<{
     route: "api_key" | "subscription" | "unavailable";
     checkedAt: string;
     identityFingerprint: string | null;
+    hasNativeAccount: boolean;
     requiresOpenaiAuth: boolean;
   }> {
     const response = z
@@ -94,6 +101,7 @@ export class CodexUsageReader {
             ? "subscription"
             : "unavailable",
       identityFingerprint: codexAccountIdentityFingerprint(response.account),
+      hasNativeAccount: response.account !== null,
       requiresOpenaiAuth: response.requiresOpenaiAuth,
       checkedAt: new Date().toISOString(),
     };
@@ -106,18 +114,21 @@ export class CodexUsageReader {
     secondary: z.infer<typeof window> | null;
   }> {
     const checkedAt = new Date().toISOString();
+    const unavailable = {
+      status: "unavailable" as const,
+      checkedAt,
+      primary: null,
+      secondary: null,
+    };
+    if (this.route !== "cli_managed_chatgpt") return unavailable;
     try {
       const account = await this.account();
       if (
+        !account.requiresOpenaiAuth ||
         account.route !== "subscription" ||
         account.identityFingerprint === null
       )
-        return {
-          status: "unavailable",
-          checkedAt,
-          primary: null,
-          secondary: null,
-        };
+        return unavailable;
       const response = z
         .object({
           rateLimits: z.object({
@@ -137,12 +148,7 @@ export class CodexUsageReader {
       };
     } catch {
       // Unavailable telemetry is never interpreted as zero remaining or unlimited quota.
-      return {
-        status: "unavailable",
-        checkedAt,
-        primary: null,
-        secondary: null,
-      };
+      return unavailable;
     }
   }
 }

@@ -4,8 +4,10 @@ import { z } from "zod";
 import { isAbsolute } from "node:path";
 import type {
   HarnessDriver,
+  HarnessInstanceScope,
   HarnessLiveSession,
 } from "@repo/harness-core/server";
+import { RuntimeCredentialReferenceSchema } from "@repo/platform-protocol/private/runtime-credential-reference";
 import {
   HarnessSessionSchema,
   HarnessControlCommandSchema,
@@ -28,40 +30,67 @@ import {
 } from "./CodexEventMapper.js";
 import { codexQuestion } from "./CodexQuestionMapper.js";
 import { codexPermission } from "./CodexPermissionMapper.js";
-import { CodexAuthentication } from "./CodexAuthentication.js";
+import {
+  CodexAuthentication,
+  type CodexAppManagedSubscriptionBinding,
+} from "./CodexAuthentication.js";
 
-/** Concrete native loop driver; the shared host owns launch policy, delivery journal and process cleanup. */
-export class CodexDriver implements HarnessDriver {
-  readonly kind = "codex" as const;
-  private readonly options: Readonly<{
-    experimentalQuestions?: boolean;
-    modelProvider?: string;
-    policy?: Readonly<{ id: string; revision: string }>;
-    accountBinding?: Readonly<{
+type CodexAccountBinding =
+  | Readonly<{
+      kind?: "api_key" | "cli_managed_chatgpt";
       instanceId: string;
       connectionId: string;
       authOwnerGeneration: number;
       identityFingerprint: string;
-    }>;
-  }>;
+    }>
+  | CodexAppManagedSubscriptionBinding;
+
+type CodexDriverOptions = Readonly<{
+  experimentalQuestions?: boolean;
+  modelProvider?: string;
+  policy?: Readonly<{ id: string; revision: string }>;
+  accountBinding?: CodexAccountBinding;
+}>;
+
+const instanceScopeFields = [
+  "userId",
+  "workspaceId",
+  "environmentId",
+  "workspaceGrantId",
+  "harness",
+  "instanceId",
+  "connectionId",
+  "authOwnerGeneration",
+  "runtimeVersion",
+  "protocolVersion",
+  "transport",
+] as const satisfies readonly (keyof HarnessInstanceScope)[];
+
+/** Concrete native loop driver; the shared host owns launch policy, delivery journal and process cleanup. */
+export class CodexDriver implements HarnessDriver {
+  readonly kind = "codex" as const;
+  private readonly options: CodexDriverOptions;
   constructor(
     private readonly executable: string,
-    options: {
-      experimentalQuestions?: boolean;
-      modelProvider?: string;
-      policy?: Readonly<{ id: string; revision: string }>;
-      accountBinding?: Readonly<{
-        instanceId: string;
-        connectionId: string;
-        authOwnerGeneration: number;
-        identityFingerprint: string;
-      }>;
-    } = {},
+    options: CodexDriverOptions = {},
   ) {
+    const binding = options.accountBinding;
     this.options = Object.freeze({
       ...options,
-      ...(options.accountBinding
-        ? { accountBinding: Object.freeze({ ...options.accountBinding }) }
+      ...(binding
+        ? {
+            accountBinding: Object.freeze(
+              binding.kind === "app_managed_chatgpt"
+                ? {
+                    ...binding,
+                    scope: Object.freeze({ ...binding.scope }),
+                    credentialReference: Object.freeze({
+                      ...binding.credentialReference,
+                    }),
+                  }
+                : { ...binding },
+            ),
+          }
         : {}),
       ...(options.policy
         ? { policy: Object.freeze({ ...options.policy }) }
@@ -72,16 +101,26 @@ export class CodexDriver implements HarnessDriver {
   async open(
     input: Parameters<HarnessDriver["open"]>[0],
   ): Promise<HarnessLiveSession> {
-    const { command, host, signal, observe } = input;
-    const { selection } = command;
+    const { host, signal, observe } = input;
+    const selection = Object.freeze({ ...input.command.selection });
+    const command = Object.freeze({
+      ...input.command,
+      selection,
+      resumeSession: input.command.resumeSession
+        ? Object.freeze({ ...input.command.resumeSession })
+        : null,
+    });
+    const processGeneration = host.processGeneration;
+    const binding = this.options.accountBinding;
+    const scope =
+      binding?.kind === "app_managed_chatgpt" ? binding.scope : binding;
     const runtimePin = codexRuntimePin(process.platform, process.arch);
     if (
-      !this.options.accountBinding ||
-      this.options.accountBinding.instanceId !== selection.instanceId ||
-      this.options.accountBinding.connectionId !== selection.connectionId ||
-      this.options.accountBinding.authOwnerGeneration !==
-        selection.authOwnerGeneration ||
-      !/^[a-f0-9]{64}$/.test(this.options.accountBinding.identityFingerprint) ||
+      !binding ||
+      scope?.instanceId !== selection.instanceId ||
+      scope.connectionId !== selection.connectionId ||
+      scope.authOwnerGeneration !== selection.authOwnerGeneration ||
+      !/^[a-f0-9]{64}$/.test(binding.identityFingerprint) ||
       !this.options.policy ||
       this.options.policy.id !== selection.policyId ||
       this.options.policy.revision !== selection.policyRevision ||
@@ -105,9 +144,37 @@ export class CodexDriver implements HarnessDriver {
       selection.billingSource !== "subscription"
     )
       throw new Error("Codex selected payer route is unsupported");
+    const expectedKind =
+      selection.billingSource === "api_key" ? "api_key" : "cli_managed_chatgpt";
+    if (binding.kind === "app_managed_chatgpt") {
+      const reference = binding.credentialReference;
+      if (
+        selection.billingSource !== "subscription" ||
+        instanceScopeFields.some(
+          (field) => binding.scope[field] !== selection[field],
+        ) ||
+        !RuntimeCredentialReferenceSchema.safeParse(reference).success ||
+        reference.connectionId !== selection.connectionId ||
+        reference.providerId !== "openai" ||
+        reference.ownerGeneration !== selection.authOwnerGeneration ||
+        typeof binding.assertCurrent !== "function"
+      )
+        throw new Error("Codex app-managed subscription binding unavailable");
+      // There is no compatible cross-process turn recovery receipt in this port.
+      if (command.mode !== "start" || command.resumeSession)
+        throw new Error(
+          "Codex app-managed recovery requires compatible session evidence",
+        );
+    } else if (binding.kind !== undefined && binding.kind !== expectedKind) {
+      throw new Error("Codex authentication route differs from selected payer");
+    }
     const authentication = new CodexAuthentication(
-      selection.billingSource,
-      this.options.accountBinding.identityFingerprint,
+      binding.kind === "app_managed_chatgpt"
+        ? binding
+        : {
+            kind: expectedKind,
+            identityFingerprint: binding.identityFingerprint,
+          },
       host.environment,
       this.options.modelProvider ?? "openai",
     );
@@ -116,6 +183,14 @@ export class CodexDriver implements HarnessDriver {
       .digest("hex");
     if (digest !== runtimePin.binarySha256)
       throw new Error("Codex executable pin mismatch");
+    const launchLease = authentication.appManaged
+      ? await authentication.assertCurrent({
+          selection,
+          processGeneration,
+          signal,
+        })
+      : undefined;
+    authentication.assertUsable(signal, launchLease);
     if (signal.aborted) throw new Error("Codex opening interrupted");
     const child = await host.launch({
       executable: this.executable,
@@ -415,10 +490,21 @@ export class CodexDriver implements HarnessDriver {
       },
     });
     const native = new CodexNativeSession(transport);
-    const accountReader = new CodexUsageReader(transport);
-    const verifyPayer = async () => {
+    const accountReader = new CodexUsageReader(
+      transport,
+      authentication.appManaged ? "app_managed_chatgpt" : expectedKind,
+    );
+    const verifyPayer = async (payerSignal: AbortSignal) => {
       await authentication.verify(accountReader);
+      const lease = authentication.appManaged
+        ? await authentication.assertCurrent({
+            selection,
+            processGeneration,
+            signal: payerSignal,
+          })
+        : undefined;
       accountVerified = true;
+      return lease;
     };
     // Process exit can precede buffered stdout and its final queued terminal.
     // Only a natural frame-complete EOF followed by the ordered ACK drain may
@@ -463,6 +549,7 @@ export class CodexDriver implements HarnessDriver {
     void child.exited.then(inspectClosedOutput);
     try {
       await child.ready;
+      authentication.assertUsable(signal, launchLease);
       if (stopped) throw new Error("Codex opening interrupted");
       const initialized = await initializeCodex(
         transport,
@@ -472,13 +559,14 @@ export class CodexDriver implements HarnessDriver {
       if (initialized.codexHome !== host.instanceDirectory)
         throw new Error("Codex instance home mismatch");
       await authentication.establish(transport);
-      await verifyPayer();
+      const openLease = await verifyPayer(signal);
+      authentication.assertUsable(signal, openLease);
       if (stopped || signal.aborted)
         throw new Error("Codex account binding fenced");
       const common = {
         cwd: host.workspaceRoot,
         model: selection.modelId,
-        modelProvider: this.options.modelProvider ?? "openai",
+        modelProvider: authentication.modelProvider,
         config: {
           sandbox_workspace_write: {
             writable_roots: [],
@@ -521,8 +609,9 @@ export class CodexDriver implements HarnessDriver {
           executing = true;
           execution.signal.addEventListener("abort", fail, { once: true });
           try {
-            await verifyPayer();
-            if (stopped || execution.signal.aborted)
+            const promptLease = await verifyPayer(execution.signal);
+            authentication.assertUsable(execution.signal, promptLease);
+            if (stopped || signal.aborted || execution.signal.aborted)
               throw new Error("Codex payer binding fenced");
             externalTurnId = await native.start({
               threadId,
@@ -602,6 +691,17 @@ export class CodexDriver implements HarnessDriver {
             if (!externalTurnId || (terminal && control.kind === "steer"))
               throw new Error("Codex turn unavailable");
             if (control.kind === "steer") {
+              if (authentication.appManaged) {
+                try {
+                  const steerLease = await verifyPayer(signal);
+                  authentication.assertUsable(signal, steerLease);
+                  if (stopped || signal.aborted)
+                    throw new Error("Codex payer binding fenced");
+                } catch (error) {
+                  fail();
+                  throw error;
+                }
+              }
               await native.steer({
                 threadId,
                 expectedTurnId: control.expectedExternalTurnId,

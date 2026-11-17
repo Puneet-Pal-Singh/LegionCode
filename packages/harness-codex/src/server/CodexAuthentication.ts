@@ -1,7 +1,52 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import type { HarnessInstanceScope } from "@repo/harness-core/server";
+import type { HarnessSelection } from "@repo/platform-protocol";
+import type { RuntimeCredentialReference } from "@repo/platform-protocol/private/runtime-credential-reference";
 import { CodexStdioTransport } from "./transport/CodexStdioTransport.js";
 import { CodexUsageReader } from "./CodexUsageReader.js";
+
+const chatgptPlanProvider = "openai_chatgpt_plan";
+
+/** Supplied by the private composition that owns verified OAuth and admission. */
+export interface CodexAppManagedSubscriptionBinding {
+  readonly kind: "app_managed_chatgpt";
+  readonly scope: Readonly<HarnessInstanceScope>;
+  readonly credentialReference: Readonly<RuntimeCredentialReference>;
+  readonly identityFingerprint: string;
+  /** SHA-256 hex digest of the exact access token selected for this host. */
+  readonly accessTokenFingerprint: string;
+  /** Unix time in milliseconds, from verified OAuth custody. */
+  readonly expiresAt: number;
+  /** Check live admission and custody for this exact binding and process. */
+  readonly assertCurrent: (input: {
+    readonly selection: HarnessSelection;
+    readonly credentialReference: Readonly<RuntimeCredentialReference>;
+    readonly identityFingerprint: string;
+    readonly accessTokenFingerprint: string;
+    readonly expiresAt: number;
+    readonly processGeneration: string;
+    readonly signal: AbortSignal;
+  }) => Promise<{
+    /** Invalidated synchronously when the selected owner or material changes. */
+    readonly canDeliver: () => boolean;
+  }>;
+}
+
+type CodexCustodyCheck = Pick<
+  Parameters<CodexAppManagedSubscriptionBinding["assertCurrent"]>[0],
+  "selection" | "processGeneration" | "signal"
+>;
+type CodexCustodyLease = Awaited<
+  ReturnType<CodexAppManagedSubscriptionBinding["assertCurrent"]>
+>;
+
+type CodexAuthenticationRoute =
+  | {
+      readonly kind: "api_key" | "cli_managed_chatgpt";
+      readonly identityFingerprint: string;
+    }
+  | CodexAppManagedSubscriptionBinding;
 
 /** Private selected-key evidence. Compute at trusted connection setup, before
  * admission, from the vault's API-key record. Never bless a runtime-observed key.
@@ -34,20 +79,29 @@ export class CodexAuthentication {
     resolve(): void;
     reject(error: Error): void;
   } | null = null;
+  readonly modelProvider: string;
 
   constructor(
-    private readonly billingSource: "api_key" | "subscription",
-    private readonly identityFingerprint: string,
+    private readonly route: CodexAuthenticationRoute,
     environment: Readonly<Record<string, string>>,
     modelProvider: string,
   ) {
+    this.modelProvider = this.appManaged ? chatgptPlanProvider : modelProvider;
     this.apiKey =
-      billingSource === "api_key" ? (environment.OPENAI_API_KEY ?? null) : null;
-    if (billingSource === "api_key") {
+      route.kind === "api_key" ? (environment.OPENAI_API_KEY ?? null) : null;
+    if (
+      !this.appManaged &&
+      (environment.ACCESS_TOKEN || modelProvider === chatgptPlanProvider)
+    )
+      throw new Error(
+        "Codex authentication binding contains alternate credentials",
+      );
+    if (route.kind === "api_key") {
       if (
         modelProvider !== "openai" ||
         !this.apiKey ||
-        codexApiKeyIdentityFingerprint(this.apiKey) !== identityFingerprint ||
+        codexApiKeyIdentityFingerprint(this.apiKey) !==
+          route.identityFingerprint ||
         [
           "CODEX_API_KEY",
           "AZURE_OPENAI_API_KEY",
@@ -70,9 +124,84 @@ export class CodexAuthentication {
         "Codex subscription binding contains alternate credentials",
       );
     }
+    if (route.kind === "app_managed_chatgpt") {
+      const token = environment.ACCESS_TOKEN;
+      if (
+        !token ||
+        token.length > 65_536 ||
+        !/^[A-Za-z0-9._~+/-]+=*$/.test(token) ||
+        createHash("sha256").update(token).digest("hex") !==
+          route.accessTokenFingerprint
+      )
+        throw new Error("Codex app-managed token binding unavailable");
+    }
+  }
+
+  get appManaged(): boolean {
+    return this.route.kind === "app_managed_chatgpt";
+  }
+
+  async assertCurrent(
+    input: CodexCustodyCheck,
+  ): Promise<CodexCustodyLease | undefined> {
+    const route = this.route;
+    if (route.kind !== "app_managed_chatgpt") return;
+    if (
+      input.signal.aborted ||
+      !Number.isSafeInteger(route.expiresAt) ||
+      Date.now() >= route.expiresAt
+    )
+      throw new Error("Codex app-managed custody expired or fenced");
+    try {
+      return await route.assertCurrent(
+        Object.freeze({
+          ...input,
+          credentialReference: route.credentialReference,
+          identityFingerprint: route.identityFingerprint,
+          accessTokenFingerprint: route.accessTokenFingerprint,
+          expiresAt: route.expiresAt,
+        }),
+      );
+    } catch {
+      throw new Error("Codex app-managed custody unavailable");
+    }
+  }
+
+  assertUsable(
+    signal: AbortSignal,
+    lease: CodexCustodyLease | undefined,
+  ): void {
+    if (this.route.kind !== "app_managed_chatgpt") return;
+    try {
+      if (
+        !signal.aborted &&
+        Number.isSafeInteger(this.route.expiresAt) &&
+        Date.now() < this.route.expiresAt &&
+        lease?.canDeliver() === true
+      )
+        return;
+    } catch {
+      // Custody diagnostics may carry private material.
+    }
+    throw new Error("Codex app-managed custody expired or fenced");
   }
 
   launchArgs(): readonly string[] {
+    if (this.appManaged) {
+      return [
+        "app-server",
+        "--listen",
+        "stdio://",
+        "-c",
+        `model_provider="${chatgptPlanProvider}"`,
+        "-c",
+        `model_providers.${chatgptPlanProvider}={name="ChatGPT plan",base_url="https://api.openai.com/v1",env_key="ACCESS_TOKEN",wire_api="responses",requires_openai_auth=false,supports_websockets=false}`,
+        "-c",
+        'cli_auth_credentials_store="ephemeral"',
+        "-c",
+        'shell_environment_policy.filters.ACCESS_TOKEN="exclude"',
+      ];
+    }
     if (this.apiKey === null) return ["app-server"];
     // 0.167 app-server deliberately disables ambient CODEX_API_KEY auth.
     // Its supported API-key login stores only in this process, never auth.json.
@@ -166,12 +295,18 @@ export class CodexAuthentication {
     if (!this.established)
       throw new Error("Codex authentication not established");
     const account = await reader.account();
+    if (this.route.kind === "app_managed_chatgpt") {
+      if (account.requiresOpenaiAuth || account.hasNativeAccount)
+        throw new Error("Codex app-managed payer configuration unavailable");
+      return;
+    }
     if (
       !account.requiresOpenaiAuth ||
-      account.route !== this.billingSource ||
-      (this.billingSource === "subscription" &&
+      account.route !==
+        (this.route.kind === "api_key" ? "api_key" : "subscription") ||
+      (this.route.kind === "cli_managed_chatgpt" &&
         (account.identityFingerprint === null ||
-          account.identityFingerprint !== this.identityFingerprint))
+          account.identityFingerprint !== this.route.identityFingerprint))
     )
       throw new Error(
         "Codex account identity or payer differs from selected connection",
