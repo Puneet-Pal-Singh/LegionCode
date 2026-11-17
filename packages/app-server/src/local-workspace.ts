@@ -28,6 +28,7 @@ import type { DefaultGitService } from "@repo/git-service";
 import type { VerifiedMacGitOptions } from "./local-mac-git-execution.js";
 import { LocalWorkspaceRootPin } from "./local-workspace-root-pin.js";
 import { LocalWorkspaceMetadataResolver } from "./local-workspace-metadata-resolver.js";
+import { assertFilesystemWorkspaceIdentity, buildFilesystemWorkspaceGrant, readFilesystemWorkspaceIdentity } from "./local-filesystem-workspace.js";
 import { workspaceGrantFailure, type LocalWorkspaceGrantStage } from "./local-workspace-grant-error.js";
 
 export type LocalWorkspaceServiceOptions = {
@@ -38,7 +39,7 @@ export type LocalWorkspaceServiceOptions = {
   createMetadataInspector?: (
     rootDirectory: FileHandle,
     observeExecution: (execution: NativeFilesystemExecution) => void,
-  ) => Pick<NativeFilesystemBridge, "inspectGitMetadataLayout">;
+  ) => Pick<NativeFilesystemBridge, "inspectGitMetadataLayout"> & Partial<Pick<NativeFilesystemBridge, "hasGitMetadataEntry">>;
   createProbeService?: (
     authority: Pick<VerifiedMacGitOptions, "probeRoot" | "withRootAuthority">,
   ) => Promise<Pick<DefaultGitService, "probeRepository">>;
@@ -49,6 +50,8 @@ export interface LocalWorkspaceExecutionBinding {
   readonly workspace: LocalWorkspaceGrant;
   readonly filesystemRoot: string;
   readonly rootDirectory: FileHandle;
+  /** Original held-root observer; file-browsing bindings require this port. */
+  readonly observeNativeExecution?: LocalWorkspaceRootPin["observeNativeExecution"];
   readonly metadataIdentity: NativeGitMetadataIdentity;
   /** Same original pin, private layout only. Call inside its writer lease loan.
    * Settlement supplies its retained signal and actual native-resource observer. */
@@ -67,6 +70,11 @@ export interface LocalWorkspaceExecutionBinding {
   /** Retained authority only for authorized final settlement of the same admitted scope. */
   assertSettlementCurrent(): void;
 }
+
+/** File browsing borrows the same pinned root without inventing Git authority. */
+export type LocalWorkspaceFilesystemBinding = Pick<LocalWorkspaceExecutionBinding,
+  "workspace" | "filesystemRoot" | "rootDirectory" | "generation" | "signal" | "close" | "assertCurrent"
+> & Pick<LocalWorkspaceRootPin, "observeNativeExecution">;
 
 type WorkspaceGeneration = {
   readonly value: number;
@@ -118,7 +126,7 @@ export class LocalWorkspaceService {
   }
 
   async list(): Promise<readonly LocalWorkspaceGrant[]> {
-    return (await this.workspaceGrants.list()).map((stored) => stored.version === 2
+    return (await this.workspaceGrants.list()).map((stored) => stored.version !== 1
       ? stored.grant
       : invalidGrant(stored.grant, "Explicit workspace regrant is required"));
   }
@@ -145,7 +153,7 @@ export class LocalWorkspaceService {
     const signal = generation.controller.signal;
     const stored = await this.workspaceGrants.read(workspaceId);
     if (!stored || !generation.current) return null;
-    if (stored.version !== 2 || stored.grant.readiness !== "ready") {
+    if (stored.version === 1 || stored.grant.readiness !== "ready") {
       generation.controller.abort("Explicit workspace regrant is required");
       return invalidGrant(stored.grant, "Explicit workspace regrant is required");
     }
@@ -195,34 +203,38 @@ export class LocalWorkspaceService {
         pin = await this.openRootPin(canonicalPath, generation, signal);
         // Identity inspection is native metadata I/O, and precedes even Git readiness execution.
         stage = "metadata";
-        const gitMetadataIdentity = await this.inspectIdentity(pin);
-        stage = "git_probe";
-        const { repoRoot, probe } = await this.readRepository(
-          canonicalPath,
-          generation,
-          signal,
-          pin,
-        );
-        if (repoRoot !== canonicalPath)
-          throw new Error("Workspace selection must be the repository root");
-        stage = "identity";
-        await this.assertIdentity(pin, gitMetadataIdentity);
+        const filesystemOnly = await this.metadataResolver.isFilesystemOnly({
+          rootDirectory: pin.rootDirectory, signal, observeExecution: pin.observeNativeExecution,
+        });
+        await pin.assertPathCurrent();
+        let stored: Extract<StoredLocalWorkspaceGrant, { version: 2 | 3 }>;
+        if (filesystemOnly) {
+          const filesystemIdentity = await readFilesystemWorkspaceIdentity(pin);
+          const previous = (await this.workspaceGrants.list()).find((value) => value.version === 3 &&
+            value.filesystemIdentity.device === filesystemIdentity.device && value.filesystemIdentity.inode === filesystemIdentity.inode &&
+            value.filesystemIdentity.birthtimeNs === filesystemIdentity.birthtimeNs);
+          this.assertGeneration(generation);
+          const knownWorkspaceId = await this.workspaceGrants.findKnownWorkspaceId(filesystemIdentity);
+          this.assertGeneration(generation);
+          const workspaceId = previous?.grant.workspaceId ?? knownWorkspaceId ?? WorkspaceIdSchema.parse(workspaceIdFromExternalId(`local-${randomUUID()}`));
+          stored = { version: 3, path: canonicalPath, grant: buildFilesystemWorkspaceGrant(canonicalPath, workspaceId), filesystemIdentity };
+        } else {
+          const gitMetadataIdentity = await this.inspectIdentity(pin);
+          stage = "git_probe";
+          const { repoRoot, probe } = await this.readRepository(canonicalPath, generation, signal, pin);
+          if (repoRoot !== canonicalPath) throw new Error("Workspace selection must be the repository root");
+          stage = "identity";
+          await this.assertIdentity(pin, gitMetadataIdentity);
+          const previous = (await this.workspaceGrants.list()).find((value) =>
+            value.version === 2 && value.gitMetadataIdentity === gitMetadataIdentity);
+          this.assertGeneration(generation);
+          const knownWorkspaceId = await this.workspaceGrants.findKnownWorkspaceId(gitMetadataIdentity);
+          this.assertGeneration(generation);
+          const workspaceId = previous?.grant.workspaceId ?? knownWorkspaceId ?? WorkspaceIdSchema.parse(workspaceIdFromExternalId(`local-${randomUUID()}`));
+          stored = { version: 2, path: repoRoot, grant: buildGrant(repoRoot, probe, workspaceId), gitMetadataIdentity };
+        }
+        const { grant } = stored, workspaceId = grant.workspaceId;
         stage = "persistence";
-        const previous = (await this.workspaceGrants.list()).find((value) =>
-          value.version === 2 && value.gitMetadataIdentity === gitMetadataIdentity);
-        this.assertGeneration(generation);
-        const knownWorkspaceId = await this.workspaceGrants.findKnownWorkspaceId(gitMetadataIdentity);
-        this.assertGeneration(generation);
-        const workspaceId = previous?.grant.workspaceId ?? knownWorkspaceId ?? WorkspaceIdSchema.parse(
-          workspaceIdFromExternalId(`local-${randomUUID()}`),
-        );
-        const grant = buildGrant(repoRoot, probe, workspaceId);
-        const stored: Extract<StoredLocalWorkspaceGrant, { version: 2 }> = {
-          version: 2,
-          path: repoRoot,
-          grant,
-          gitMetadataIdentity,
-        };
         this.assertGeneration(generation);
         this.assertProbingAvailable();
         signal.throwIfAborted();
@@ -232,7 +244,8 @@ export class LocalWorkspaceService {
         const publishedGeneration = this.generationFor(workspaceId);
         await this.workspaceGrants.write(stored);
         stage = "final_validation";
-        await pin.assertPathCurrent();
+        if (stored.version === 3) await assertFilesystemWorkspaceIdentity(pin, stored);
+        else await pin.assertPathCurrent();
         this.assertGeneration(publishedGeneration);
         publishedGeneration.controller.signal.throwIfAborted();
         this.assertGeneration(generation);
@@ -277,6 +290,9 @@ export class LocalWorkspaceService {
     if (!stored || stored.grant.workspaceId !== workspaceId) {
       throw new Error("Workspace is not granted for local execution");
     }
+    if (stored.version === 3) {
+      throw new Error("Native execution and Git operations are unavailable for filesystem-only folders");
+    }
     if (stored.version !== 2 || stored.grant.readiness !== "ready") {
       generation.controller.abort("Explicit workspace regrant is required");
       throw new Error("Explicit workspace regrant is required");
@@ -312,6 +328,7 @@ export class LocalWorkspaceService {
         workspace,
         filesystemRoot: stored.path,
         rootDirectory: pin.rootDirectory,
+        observeNativeExecution: pin.observeNativeExecution,
         metadataIdentity,
         inspectMetadataLayout: async (input: {
           signal: AbortSignal;
@@ -346,6 +363,50 @@ export class LocalWorkspaceService {
     }
   }
 
+  /** Native file readers only: Git-backed roots keep their complete existing
+   * metadata verification; filesystem-only roots require their exact held inode.
+   */
+  async bindForFilesystem(workspaceId: WorkspaceId): Promise<LocalWorkspaceFilesystemBinding> {
+    this.assertProbingAvailable();
+    const generation = this.generationFor(workspaceId), signal = generation.controller.signal;
+    const stored = await this.workspaceGrants.read(workspaceId);
+    this.assertGeneration(generation);
+    if (!stored || stored.grant.workspaceId !== workspaceId) throw new Error("Workspace is not granted for file browsing");
+    if (stored.version !== 3) {
+      const binding = await this.bindForExecution(workspaceId);
+      if (!binding.observeNativeExecution) {
+        await binding.close();
+        throw new Error("The original file-browsing lifetime observer is unavailable");
+      }
+      return Object.freeze({
+        workspace: binding.workspace, filesystemRoot: binding.filesystemRoot, rootDirectory: binding.rootDirectory,
+        generation: binding.generation, signal: binding.signal, close: binding.close, assertCurrent: binding.assertCurrent,
+        observeNativeExecution: binding.observeNativeExecution,
+      });
+    }
+    if (stored.grant.readiness !== "ready") throw new Error("Filesystem workspace requires explicit regrant");
+    let pin: LocalWorkspaceRootPin | undefined;
+    try {
+      await this.assertOutsideProtectedRoots(stored.path);
+      pin = await this.openRootPin(stored.path, generation, signal);
+      const workspace = await this.verifyStoredGrant(stored, generation, signal, pin, "physical");
+      if (workspace.readiness !== "ready") throw new Error("Filesystem workspace requires explicit regrant");
+      await this.assertStoredGrantCurrent(stored, generation, signal);
+      const bound = pin;
+      Object.freeze(workspace.capabilities);
+      Object.freeze(workspace);
+      return Object.freeze({
+        workspace, filesystemRoot: stored.path, rootDirectory: bound.rootDirectory,
+        observeNativeExecution: bound.observeNativeExecution,
+        generation: generation.value, signal, close: () => bound.close(),
+        assertCurrent: () => { bound.assertCurrent(); this.assertGeneration(generation); },
+      });
+    } catch (error) {
+      if (pin && !pin.quarantined) await pin.close();
+      throw error;
+    }
+  }
+
   /** Host-only verified record: preserve private identity; never return this record through HTTP. */
   async requireExecutionGrant(
     workspaceId: WorkspaceId,
@@ -354,6 +415,7 @@ export class LocalWorkspaceService {
     const signal = generation.controller.signal;
     const stored = await this.workspaceGrants.read(workspaceId);
     this.assertGeneration(generation);
+    if (stored?.version === 3) throw new Error("Git execution grants are unavailable for filesystem-only folders");
     if (
       !stored ||
       stored.version !== 2 ||
@@ -376,7 +438,7 @@ export class LocalWorkspaceService {
   }
 
   private async assertStoredGrantCurrent(
-    stored: Extract<StoredLocalWorkspaceGrant, { version: 2 }>,
+    stored: Extract<StoredLocalWorkspaceGrant, { version: 2 | 3 }>,
     generation: WorkspaceGeneration,
     signal: AbortSignal,
   ): Promise<void> {
@@ -384,11 +446,15 @@ export class LocalWorkspaceService {
     this.assertGeneration(generation);
     this.assertProbingAvailable();
     signal.throwIfAborted();
+    const sameIdentity = current?.version === 2 && stored.version === 2
+      ? current.gitMetadataIdentity === stored.gitMetadataIdentity
+      : current?.version === 3 && stored.version === 3 &&
+        current.filesystemIdentity.device === stored.filesystemIdentity.device && current.filesystemIdentity.inode === stored.filesystemIdentity.inode &&
+        current.filesystemIdentity.birthtimeNs === stored.filesystemIdentity.birthtimeNs;
     if (
       !current ||
-      current.version !== 2 ||
+      !sameIdentity ||
       current.path !== stored.path ||
-      current.gitMetadataIdentity !== stored.gitMetadataIdentity ||
       current.grant.readiness !== "ready" ||
       current.grant.workspaceId !== stored.grant.workspaceId ||
       current.grant.grantedAt !== stored.grant.grantedAt
@@ -435,7 +501,7 @@ export class LocalWorkspaceService {
     pin?: LocalWorkspaceRootPin,
     projection: "physical" | "git" = "git",
   ): Promise<LocalWorkspaceGrant> {
-    if (stored.version !== 2 || stored.grant.readiness !== "ready") {
+    if (stored.version === 1 || stored.grant.readiness !== "ready") {
       if (generation.current)
         generation.controller.abort(
           "Explicit workspace regrant is required",
@@ -453,6 +519,12 @@ export class LocalWorkspaceService {
       const currentPin =
         pin ??
         (ownedPin = await this.openRootPin(canonicalPath, generation, signal));
+      if (stored.version === 3) {
+        await assertFilesystemWorkspaceIdentity(currentPin, stored);
+        identityVerified = true;
+        await this.assertStoredGrantCurrent(stored, generation, signal);
+        return stored.grant;
+      }
       try {
         // Canonical parsing and exact native comparison happen before any Git invocation.
         const expected = parseNativeGitMetadataIdentity(
@@ -535,7 +607,7 @@ export class LocalWorkspaceService {
   }
 
   private async requireRegrant(
-    stored: Extract<StoredLocalWorkspaceGrant, { version: 2 }>,
+    stored: Extract<StoredLocalWorkspaceGrant, { version: 2 | 3 }>,
     generation: WorkspaceGeneration,
     reason: string,
   ): Promise<LocalWorkspaceGrant> {
