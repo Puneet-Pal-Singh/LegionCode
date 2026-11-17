@@ -138,7 +138,7 @@ async function prepareOwnedRuntimeResources(
   rejectUnavailableNativePhysicalPreparation(payload.correlationId);
   const orchestrator = new TaskCheckoutExecutionOrchestrator(env);
   ownership.expose();
-  const issued = await new TaskCheckoutIssuer(env).issue(payload, {
+  const issued = await new TaskCheckoutIssuer(env).issueAdmitted(payload, {
     resumeSnapshot: payload.resumeSnapshotRef,
     failureCleanup: ownership.closed,
     beforeSessionAcquire: async ({ snapshot, workspaceScope }) => {

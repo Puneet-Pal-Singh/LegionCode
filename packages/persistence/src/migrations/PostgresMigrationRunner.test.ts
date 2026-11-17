@@ -6,6 +6,7 @@ import { nativeProviderAdmissionBindingMigration } from "./0042-native-provider-
 import { taskCheckoutIssuanceMigration } from "./0043-task-checkout-issuance.js";
 import { taskCheckoutOriginalReferenceMigration } from "./0044-task-checkout-original-reference.js";
 import { harnessBindingsMigration } from "./0045-harness-bindings.js";
+import { harnessControlPlaneMigration } from "./0046-harness-control-plane.js";
 
 import { PostgresMigrationRunner } from "./PostgresMigrationRunner.js";
 import { projectlessSessionRepositoryMigration } from "./0034-projectless-session-repository.js";
@@ -96,6 +97,7 @@ describe("PostgresMigrationRunner", () => {
       taskCheckoutIssuanceMigration,
       taskCheckoutOriginalReferenceMigration,
       harnessBindingsMigration,
+      harnessControlPlaneMigration,
     ]);
 
     expect(result).toEqual({
@@ -109,6 +111,7 @@ describe("PostgresMigrationRunner", () => {
         "0043_task_checkout_issuance",
         "0044_task_checkout_original_reference",
         "0045_harness_bindings",
+        "0046_harness_control_plane",
       ],
       skipped: ["0001_done"],
     });
@@ -123,6 +126,7 @@ describe("PostgresMigrationRunner", () => {
       ...taskCheckoutIssuanceMigration.statements,
       ...taskCheckoutOriginalReferenceMigration.statements,
       ...harnessBindingsMigration.statements,
+      ...harnessControlPlaneMigration.statements,
 
     ]);
     expect(ledger.recorded).toEqual([
@@ -135,6 +139,7 @@ describe("PostgresMigrationRunner", () => {
       "0043_task_checkout_issuance",
       "0044_task_checkout_original_reference",
       "0045_harness_bindings",
+      "0046_harness_control_plane",
     ]);
     expect(legacyHistoryImportReceiptsMigration.statements[1]).toContain(
       "FOREIGN KEY (session_id, user_id) REFERENCES sessions (id, user_id) ON DELETE RESTRICT",
@@ -165,6 +170,7 @@ describe("PostgresMigrationRunner", () => {
         taskCheckoutIssuanceMigration,
         taskCheckoutOriginalReferenceMigration,
         harnessBindingsMigration,
+        harnessControlPlaneMigration,
       ]),
     ).toEqual({
       applied: [],
@@ -176,6 +182,7 @@ describe("PostgresMigrationRunner", () => {
         "0043_task_checkout_issuance",
         "0044_task_checkout_original_reference",
         "0045_harness_bindings",
+        "0046_harness_control_plane",
       ],
     });
 

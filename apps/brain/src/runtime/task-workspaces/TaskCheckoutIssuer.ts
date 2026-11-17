@@ -81,11 +81,23 @@ export type BeforeTaskCheckoutSessionAcquire = (
   input: BeforeTaskCheckoutSessionAcquireInput,
 ) => Promise<ServerExecutionDomainBinding>;
 
-export interface TaskCheckoutIssueOptions {
-  readonly beforeSessionAcquire: BeforeTaskCheckoutSessionAcquire;
+interface TaskCheckoutCommonIssueOptions {
   readonly resumeSnapshot?: ResumeWorkspaceSnapshotRef;
   readonly failureCleanup?: (receipt: NativePreparationCleanupReceipt) => void;
 }
+export interface TaskCheckoutIssueOptions extends TaskCheckoutCommonIssueOptions {
+  readonly beforeSessionAcquire?: never;
+}
+export interface AdmittedTaskCheckoutIssueOptions
+  extends TaskCheckoutCommonIssueOptions {
+  readonly beforeSessionAcquire: BeforeTaskCheckoutSessionAcquire;
+}
+type CheckoutIssuanceMode =
+  | { readonly kind: "legacy" }
+  | {
+      readonly kind: "admitted";
+      readonly beforeSessionAcquire: BeforeTaskCheckoutSessionAcquire | undefined;
+    };
 
 export class TaskCheckoutIssuer {
   constructor(
@@ -109,13 +121,48 @@ export class TaskCheckoutIssuer {
     },
   ) {}
 
-  async issue(
+  /** Established Native construction; never upgrades persisted custody. */
+  issue(
     payload: ExecuteRunPayload,
     options?: TaskCheckoutIssueOptions,
+  ): Promise<IssuedTaskCheckout> {
+    return this.issueSelected(payload, options, { kind: "legacy" });
+  }
+
+  /** Explicit opt-in to the existing one-shot, server-admitted issuance owner. */
+  issueAdmitted(
+    payload: ExecuteRunPayload,
+    options: AdmittedTaskCheckoutIssueOptions,
+  ): Promise<IssuedTaskCheckout> {
+    return this.issueSelected(payload, options, {
+      kind: "admitted",
+      beforeSessionAcquire: options?.beforeSessionAcquire,
+    });
+  }
+
+  private async issueSelected(
+    payload: ExecuteRunPayload,
+    options:
+      | TaskCheckoutIssueOptions
+      | AdmittedTaskCheckoutIssueOptions
+      | undefined,
+    mode: CheckoutIssuanceMode,
   ): Promise<IssuedTaskCheckout> {
     const failureCleanup = options?.failureCleanup;
     let exposurePossible = false;
     try {
+      if (
+        (mode.kind === "legacy" && options && "beforeSessionAcquire" in options) ||
+        (mode.kind === "admitted" && typeof mode.beforeSessionAcquire !== "function")
+      ) {
+        throw new DomainError(
+          "TASK_CHECKOUT_DOMAIN_REQUIRED",
+          "Marked checkout issuance requires the explicit admitted entry point and its owner callback.",
+          428,
+          false,
+          payload.correlationId,
+        );
+      }
       // Capture caller-owned identity, selection and continuations synchronously.
       // The lookup and later restore callback must use this same admitted input.
       payload = Object.freeze({
@@ -132,7 +179,6 @@ export class TaskCheckoutIssuer {
       });
       options = options
         ? Object.freeze({
-            beforeSessionAcquire: options.beforeSessionAcquire,
             failureCleanup,
             resumeSnapshot: options.resumeSnapshot
               ? Object.freeze(
@@ -146,6 +192,7 @@ export class TaskCheckoutIssuer {
       return await this.issueOwned(
         payload,
         options,
+        mode,
         () => {
           exposurePossible = true;
         },
@@ -161,7 +208,8 @@ export class TaskCheckoutIssuer {
 
   private async issueOwned(
     payload: ExecuteRunPayload,
-    options: TaskCheckoutIssueOptions | undefined,
+    options: TaskCheckoutCommonIssueOptions | undefined,
+    mode: CheckoutIssuanceMode,
     expose: () => void,
     noExistingOwnership: () => void,
   ): Promise<IssuedTaskCheckout> {
@@ -215,20 +263,12 @@ export class TaskCheckoutIssuer {
         payload,
         existing.checkout,
         existing.snapshot,
+        mode.kind,
         resumeSnapshot,
       );
     }
 
     noExistingOwnership(); // Positive lookup absence, before any new secure acquire.
-    const beforeSessionAcquire = options?.beforeSessionAcquire;
-    if (!beforeSessionAcquire)
-      throw new DomainError(
-        "TASK_CHECKOUT_DOMAIN_REQUIRED",
-        "An admitted execution owner must freeze this checkout before session acquisition.",
-        428,
-        false,
-        payload.correlationId,
-      );
     const capturedSnapshot = resumeSnapshot
       ? await this.findResumeBaseSnapshot(payload, resumeSnapshot)
       : await this.capture.capture({
@@ -273,61 +313,71 @@ export class TaskCheckoutIssuer {
         payload.correlationId,
       );
     }
-    const reservation: TaskCheckoutIssuanceReservation = {
-      checkoutId,
-      snapshotId: snapshot.snapshotId,
-      workspaceId: snapshot.workspaceId,
-      threadId: identity.threadId,
-      turnId: identity.turnId,
-      runAttemptId: identity.runAttemptId,
-      filesystemRoot,
-      gitDir: `${filesystemRoot}/.git`,
-      indexFile: `${filesystemRoot}/.git/index`,
-      workingBranch: `task/${checkoutId}`,
-      startTreeId: snapshot.authorizedTreeId,
-      createdAt: new Date().toISOString(),
-      issuanceToken: crypto.randomUUID(),
-    };
-    // A reservation or external freeze may have committed even if its response is lost.
+    const reservation: TaskCheckoutIssuanceReservation | undefined =
+      mode.kind === "admitted"
+        ? {
+            checkoutId,
+            snapshotId: snapshot.snapshotId,
+            workspaceId: snapshot.workspaceId,
+            threadId: identity.threadId,
+            turnId: identity.turnId,
+            runAttemptId: identity.runAttemptId,
+            filesystemRoot,
+            gitDir: `${filesystemRoot}/.git`,
+            indexFile: `${filesystemRoot}/.git/index`,
+            workingBranch: `task/${checkoutId}`,
+            startTreeId: snapshot.authorizedTreeId,
+            createdAt: new Date().toISOString(),
+            issuanceToken: crypto.randomUUID(),
+          }
+        : undefined;
+    // Fence before any reservation, callback or secure acquire can take effect.
     expose();
     let executionSession: SecureExecutionSessionPort | undefined;
     try {
-      await this.withIssuance((repository) =>
-        repository.reserveIssuance(snapshot, reservation),
-      );
-      await this.withIssuance((repository) =>
-        repository.beginIssuanceCallback(checkoutId, reservation.issuanceToken),
-      );
-      // The durable callback-start fence is one-shot. No catch/reopen path calls it again.
-      const executionDomain = this.validateExecutionDomain(
-        await beforeSessionAcquire({ checkoutId, snapshot, workspaceScope }),
-        payload,
-        snapshot,
-        workspaceScope,
-      );
-      const digest = await executionDomainDigest(executionDomain);
-      await this.withIssuance((repository) =>
-        repository.freezeIssuanceDomain(checkoutId, reservation.issuanceToken, {
-          value: JSON.parse(
-            serializeExecutionDomain(executionDomain),
-          ) as JsonValue,
-          digest,
-        }),
-      );
-      const bootstrapIntent = executionDomain.domain === "legioncode_native"
+      let executionDomain: ServerExecutionDomainBinding | undefined;
+      let digest: string | undefined;
+      if (reservation && mode.kind === "admitted") {
+        await this.withIssuance((repository) =>
+          repository.reserveIssuance(snapshot, reservation),
+        );
+        await this.withIssuance((repository) =>
+          repository.beginIssuanceCallback(checkoutId, reservation.issuanceToken),
+        );
+        // The durable callback-start fence is one-shot. No catch/reopen path calls it again.
+        executionDomain = this.validateExecutionDomain(
+          await mode.beforeSessionAcquire!({ checkoutId, snapshot, workspaceScope }),
+          payload,
+          snapshot,
+          workspaceScope,
+        );
+        digest = await executionDomainDigest(executionDomain);
+        const frozenDomain = executionDomain;
+        const frozenDigest = digest;
+        await this.withIssuance((repository) =>
+          repository.freezeIssuanceDomain(checkoutId, reservation.issuanceToken, {
+            value: JSON.parse(
+              serializeExecutionDomain(frozenDomain),
+            ) as JsonValue,
+            digest: frozenDigest,
+          }),
+        );
+      }
+      const bootstrapIntent = executionDomain?.domain === "legioncode_native"
         ? nativeCheckoutBootstrapIntent(snapshot, checkoutId, filesystemRoot) : undefined;
       executionSession = this.sessionFactory({
         nativeCheckoutIntent: bootstrapIntent,
         sessionId: payload.sessionId,
         runId: payload.runId,
         workspaceScope,
-        executionDomain,
+        ...(executionDomain ? { executionDomain } : {}),
       });
       const session = await executionSession.acquire();
       if (session.lease.executionDomainDigest !== digest) {
         throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
       }
       if (bootstrapIntent) {
+        if (!reservation) throw new Error("NATIVE_ISSUANCE_RESERVATION_REQUIRED");
         const original = toPersistedReference(session);
         if (!original.nativeSandboxBinding) throw new Error("NATIVE_SANDBOX_ORIGINAL_BINDING_UNAVAILABLE");
         await this.withIssuance(repository => {
@@ -356,13 +406,25 @@ export class TaskCheckoutIssuer {
         status: "ready",
         settledAt: null,
         failureCode: null,
-        createdAt: reservation.createdAt,
+        createdAt: reservation?.createdAt ?? new Date().toISOString(),
       });
-      const issued = {
-        checkout: await this.withIssuance((repository) =>
-          repository.completeIssuance(checkout, reservation.issuanceToken),
-        ),
-      };
+      // TaskCheckoutIssuer retains the established unmarked Native producer in
+      // this same owner until the admitted physical path proves actual hosted
+      // bootstrap, tools, review, Stop and recovery through the product. Migrate
+      // its RuntimeExecutionResources caller before deleting this branch.
+      const issued = reservation
+        ? {
+            checkout: await this.withIssuance((repository) =>
+              repository.completeIssuance(checkout, reservation.issuanceToken),
+            ),
+          }
+        : await withBrainPersistenceRepository(
+            this.env,
+            this.repositoryOverride ?? this.env.AUTH_TASK_WORKSPACE_REPOSITORY,
+            (client) => new PostgresTaskWorkspaceRepository(client),
+            (taskWorkspaces) =>
+              taskWorkspaces.issueSnapshotCheckout(snapshot, checkout),
+          );
       const issuedCheckout: IssuedTaskCheckout = {
         checkout: issued.checkout,
         authorizedCommitId: snapshot.authorizedCommitId,
@@ -389,12 +451,14 @@ export class TaskCheckoutIssuer {
       }
       return issuedCheckout;
     } catch (error) {
-      try {
-        await this.withIssuance((repository) =>
-          repository.markIssuanceUnknown(checkoutId, reservation.issuanceToken),
-        );
-      } catch {
-        /* The durable reserved/started/frozen state already prevents replay. */
+      if (reservation) {
+        try {
+          await this.withIssuance((repository) =>
+            repository.markIssuanceUnknown(checkoutId, reservation.issuanceToken),
+          );
+        } catch {
+          /* The durable reserved/started/frozen state already prevents replay. */
+        }
       }
       try {
         await executionSession?.release();
@@ -698,6 +762,7 @@ export class TaskCheckoutIssuer {
     payload: ExecuteRunPayload,
     checkout: TaskCheckout,
     snapshot: WorkspaceSnapshot,
+    mode: CheckoutIssuanceMode["kind"],
     resumeSnapshot?: ResumeWorkspaceSnapshotRef,
   ): Promise<IssuedTaskCheckout> {
     const identity = payload.identity!;
@@ -742,6 +807,15 @@ export class TaskCheckoutIssuer {
     const domainState = await this.withIssuance((repository) =>
       repository.getCheckoutExecutionDomainState(checkout.checkoutId),
     );
+    if (domainState.kind !== (mode === "admitted" ? "marked" : "legacy")) {
+      throw new DomainError(
+        "TASK_CHECKOUT_DOMAIN_MODE_MISMATCH",
+        "The persisted checkout belongs to a different issuance owner.",
+        409,
+        false,
+        payload.correlationId,
+      );
+    }
     const persistedDomain =
       domainState.kind === "marked" ? domainState.domain : undefined;
     if (domainState.kind !== "legacy" && !persistedDomain) {
