@@ -93,9 +93,24 @@ class DeferredClaudeProcess extends EventEmitter implements SpawnedProcess {
       } catch {
         return false;
       }
-      void this.termination.catch(() =>
-        this.fail("Claude process termination request failed"),
-      );
+      const attempt = this.termination;
+      void attempt
+        .then(
+          (settlement) => {
+            if (settlement.kind === "unknown" && this.termination === attempt)
+              this.termination = undefined;
+          },
+          () => {
+            try {
+              this.fail("Claude process termination request failed");
+            } finally {
+              // fail() requests cleanup itself. Keep this attempt cached until
+              // that call returns so only a later explicit kill can retry.
+              if (this.termination === attempt) this.termination = undefined;
+            }
+          },
+        )
+        .catch(() => undefined);
     }
     this.pendingKill = signal;
     return true;
