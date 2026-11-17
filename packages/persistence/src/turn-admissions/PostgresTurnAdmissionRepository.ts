@@ -131,6 +131,7 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
         [input.sessionId, input.userId, input.runId])).rows[0];
       if (!session || session.thread_id !== input.threadId || resolveEstablishedWorkspace(session) !== input.workspaceId)
         throw new TurnAdmissionConflictError("Conversation scope does not match", "thread_scope_conflict");
+      assertOwnedTaskScope(session, input.userId, session.task_id ?? null);
       const prior = (await tx.query<AdmissionRow>(READ_SESSION_CLIENT_SQL,
         [input.sessionId, input.clientMessageId])).rows[0];
       if (prior) {
