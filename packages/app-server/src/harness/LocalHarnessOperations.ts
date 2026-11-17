@@ -113,8 +113,20 @@ export class LocalHarnessOperations implements HarnessOperations {
    * and receipts. A picker change can only affect a later admitted attempt.
    */
   withSelection<T>(params: HarnessSelectionReadRequest,
-    admit: (saved: HarnessSelectionResponse) => Promise<T>): Promise<T> {
-    return this.serializeSelection(async () => admit(await this.readSelection(params)));
+    admit: (saved: HarnessSelectionResponse, published: () => void) => Promise<T>): Promise<T> {
+    let release!: () => void;
+    const publication = new Promise<void>((resolve) => { release = resolve; });
+    let resolveResult!: (value: T | PromiseLike<T>) => void;
+    let rejectResult!: (reason: unknown) => void;
+    const result = new Promise<T>((resolve, reject) => { resolveResult = resolve; rejectResult = reject; });
+    void this.serializeSelection(async () => {
+      try {
+        const saved = await this.readSelection(params);
+        void Promise.resolve().then(() => admit(saved, release)).then(resolveResult, rejectResult).finally(release);
+        await publication;
+      } catch (error) { rejectResult(error); release(); }
+    });
+    return result;
   }
 
   private serializeSelection<T>(operation: () => Promise<T>): Promise<T> {

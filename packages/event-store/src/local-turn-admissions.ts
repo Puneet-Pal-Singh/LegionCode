@@ -30,6 +30,7 @@ export class LocalTurnAdmissions {
     private readonly database: Database.Database,
     private readonly append: (input: AppendEventInput) => PlatformEvent,
     private readonly onAdmitted?: (admission: TurnAdmission) => void,
+    private readonly assertNativeSelection?: (admission: TurnAdmission) => void,
   ) {}
 
   initialize(): void {
@@ -88,6 +89,7 @@ export class LocalTurnAdmissions {
       if (existing.fingerprint !== fingerprint) throw new EventStoreError("idempotency_conflict", "Admission request key has different content or configuration");
       return { admission: this.reconstruct(existing), newlyAdmitted: false };
     }
+    if (!isDelegated(candidate)) this.assertNativeSelection?.(candidate);
     // Retries above retain the original private capture, even when today's
     // credential selection differs. Capture is not part of public request identity.
     const credential = credentialAcquisition == null ? null : RuntimeCredentialReferenceSchema.parse(credentialAcquisition);

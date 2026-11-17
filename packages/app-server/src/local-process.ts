@@ -129,6 +129,7 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
       workspaces: workspaceService,
       threads: threadService,
       providers: providerService,
+      harnessSelection: { environmentId: persistence.environmentId, operations: harnessOperations },
       runtime,
       media,
       queuedInputs: persistence.threadInputs,
