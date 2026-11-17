@@ -90,6 +90,7 @@ export {
 } from "./turn-admissions/native-provider-binding.js";
 export type {
   HarnessAdmissionReceipt,
+  NativeRootAdmissionGuardInput,
   AdmitContinuationInput,
   AdmitTurnWithPromptInput,
   InterruptedTurnTarget,

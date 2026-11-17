@@ -99,6 +99,7 @@ export interface FreezeHarnessAdmissionInput {
 export class HarnessControlPlaneConflictError extends Error {
   constructor(
     readonly code:
+      | "execution_unavailable"
       | "not_found"
       | "command_conflict"
       | "revision_conflict"
@@ -146,6 +147,26 @@ export class PostgresHarnessControlPlaneRepository {
       fail("admission_conflict", "Metadata environment mismatch");
     assertScope(scope, params);
     await ownedWorkspace(tx, scope, true);
+  }
+  /** Read-only Native gate; the session lock serializes selection publication. */
+  async assertNativeRootSelectionWithin(
+    tx: SqlClient,
+    input: { readonly scope: Readonly<HarnessControlPlaneScope>; readonly sessionId: string;
+      readonly threadId: string; readonly expectedEnvironmentId: string },
+  ): Promise<void> {
+    input = structuredClone(input);
+    const scope = Object.freeze({ ...input.scope });
+    const params = HarnessSelectionReadRequestSchema.parse({ workspaceId: scope.workspaceId,
+      environmentId: scope.environmentId, sessionId: input.sessionId, threadId: input.threadId });
+    if (!input.expectedEnvironmentId || input.expectedEnvironmentId !== scope.environmentId)
+      fail("admission_conflict", "Native placement mismatch");
+    assertScope(scope, params);
+    await ownedConversation(tx, scope, params, true, true);
+    await ownedWorkspace(tx, scope, true);
+    const row = await selectionRow(tx, scope, params, true);
+    if (row) databaseVersion(row.revision, 0);
+    if (selectionResponse(params, row).selection !== null)
+      fail("execution_unavailable", "The selected hosted harness execution is unavailable");
   }
   async setupInstance(
     scope: HarnessControlPlaneScope,
