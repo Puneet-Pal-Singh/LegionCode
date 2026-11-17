@@ -11,6 +11,7 @@ import {
 } from "./scripts/build-file-helper.mjs";
 
 import { verifyBundledProcessHelper } from "./scripts/verify-process-helper.mjs";
+import { sealUnsignedMacApp } from "./scripts/unsigned-mac-app.mjs";
 
 const config: Configuration = {
   appId: "dev.legioncode.desktop",
@@ -106,6 +107,14 @@ const config: Configuration = {
           `${context.packager.appInfo.productFilename}.app`,
           "Contents", "Resources", "native", "legioncode-native-installer",
         ), context.electronPlatformName, Arch[context.arch]);
+        // The pinned builder skips PR signing. Seal this owned app before it
+        // creates archives, using the same no-certificate policy as the PKG.
+        if (context.packager.config.electronFuses != null)
+          throw new Error("Unsigned archive sealing must follow any Electron fuse changes");
+        await sealUnsignedMacApp(
+          join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`),
+          { unknownClosure: false }, context.electronPlatformName, Arch[context.arch],
+        );
       }
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Unknown verifier failure";
@@ -119,6 +128,7 @@ const config: Configuration = {
   },
   files: ["out/**/*", "package.json"],
   mac: {
+    identity: null,
     icon: "../web/public/assets/legioncode-icon-512.png",
     minimumSystemVersion: minimumMacOSVersion,
     category: "public.app-category.developer-tools",
