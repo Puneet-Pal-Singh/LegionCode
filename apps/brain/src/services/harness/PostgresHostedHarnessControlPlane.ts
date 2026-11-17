@@ -1,8 +1,9 @@
 import { AppServerOperationError } from "@legioncode/app-server/server";
 import {
   HarnessControlPlaneConflictError, PostgresHarnessControlPlaneRepository,
-  type SqlClient,
+  type SqlClient, type StoredHarnessInstance,
 } from "@repo/persistence";
+import type { HarnessSetupRequest } from "@repo/platform-protocol";
 import type { HostedHarnessOperationContext } from "../../integration/app-server/HostedHarnessOperations";
 import type { Env } from "../../types/ai";
 import { withBrainPersistenceRepository } from "../persistence/BrainPersistenceRepositoryFactory";
@@ -11,6 +12,7 @@ import type { HarnessConnectionMetadata } from "./HarnessConnectionService";
 
 export interface HostedHarnessMetadataTransaction {
   readonly repository: PostgresHarnessControlPlaneRepository;
+  setup(params: HarnessSetupRequest): Promise<StoredHarnessInstance>;
   connection(connectionId: string): Promise<HarnessConnectionMetadata | null>;
 }
 export interface HostedHarnessControlPlane {
@@ -37,16 +39,23 @@ export function createPostgresHostedHarnessControlPlane(
           client.transaction(async (tx: SqlClient) => {
             const repository = new PostgresHarnessControlPlaneRepository(tx);
             await repository.authorizeMetadataScopeWithin(tx, { scope, expectedEnvironmentId });
-            const connections = createPostgresHarnessConnectionMetadataService(
-              env, scope.userId, scope.workspaceId, repository, expectedEnvironmentId,
-            );
-            context.signal.throwIfAborted();
-            const result = await operation({ repository, connection: async (connectionId) => {
+            let connections: ReturnType<typeof createPostgresHarnessConnectionMetadataService> | undefined;
+            const connection = async (connectionTx: SqlClient, connectionId: string) => {
               context.signal.throwIfAborted();
-              const metadata = await connections.assertUsableConnectionWithin(tx, { scope, connectionId });
+              // Exact setup receipts do not depend on current encryption config
+              // or metadata. The canonical repository invokes this only for NEW commands.
+              connections ??= createPostgresHarnessConnectionMetadataService(
+                env, scope.userId, scope.workspaceId, repository, expectedEnvironmentId,
+              );
+              const metadata = await connections.assertUsableConnectionWithin(connectionTx, { scope, connectionId });
               context.signal.throwIfAborted();
               return metadata;
-            } });
+            };
+            context.signal.throwIfAborted();
+            const result = await operation({ repository,
+              setup: (params) => repository.setupInstance(scope, params, expectedEnvironmentId, connection),
+              connection: (connectionId) => connection(tx, connectionId),
+            });
             context.signal.throwIfAborted();
             return result;
           }),

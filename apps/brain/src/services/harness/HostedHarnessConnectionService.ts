@@ -19,25 +19,25 @@ export function createHostedHarnessConnectionService(controlPlane: HostedHarness
   const scope = (context: HostedHarnessOperationContext) => ({
     userId: context.userId, workspaceId: context.workspaceId, environmentId: context.environmentId,
   });
-  const status = async (ports: HostedHarnessMetadataTransaction, stored: StoredHarnessInstance): Promise<HarnessInstanceStatus> => {
-    const connection = await ports.connection(stored.connectionId);
-    const connected = connection !== null && connection.ownerGeneration === stored.authOwnerGeneration;
-    return HarnessInstanceStatusSchema.parse({
+  const configuredStatus = (stored: StoredHarnessInstance, reauthenticationRequired = false, observedAt = stored.createdAt): HarnessInstanceStatus =>
+    HarnessInstanceStatusSchema.parse({
       workspaceId: stored.workspaceId, environmentId: stored.environmentId, instanceId: stored.instanceId,
       harness: stored.harness, connectionId: stored.connectionId, accountLabel: null, usage: null,
-      state: connected ? "unavailable" : "reauthentication_required",
-      reason: connected ? "Hosted account and execution boundary have not been verified" : "Selected connection is unavailable",
+      state: reauthenticationRequired ? "reauthentication_required" : "unavailable",
+      reason: reauthenticationRequired ? "Selected connection is unavailable" : "Hosted account and execution boundary have not been verified",
       capabilities: { approvals: false, questions: false, steer: false, resume: false, fork: false,
         images: false, terminal: false, contextTelemetry: false, accountQuota: false, experimental: false },
-      runtimeVersion: null, protocolVersion: null, observedAt: new Date().toISOString(),
+      runtimeVersion: null, protocolVersion: null, observedAt,
     });
+  const status = async (ports: HostedHarnessMetadataTransaction, stored: StoredHarnessInstance): Promise<HarnessInstanceStatus> => {
+    const connection = await ports.connection(stored.connectionId);
+    return configuredStatus(stored, connection === null || connection.ownerGeneration !== stored.authOwnerGeneration, new Date().toISOString());
   };
   return {
     setup: (context, params) => controlPlane.within(context, async (ports) => {
-      const metadata = await ports.connection(params.connectionId);
-      if (!metadata) throw new AppServerOperationError(404, "not_found", "Selected harness connection was not found");
-      const stored = await ports.repository.setupInstance(scope(context), params, metadata);
-      return HarnessSetupResponseSchema.parse({ instance: await status(ports, stored) });
+      // The canonical command receipt wins before any current credential observation.
+      const stored = await ports.setup(params);
+      return HarnessSetupResponseSchema.parse({ instance: configuredStatus(stored) });
     }),
     status: (context) => controlPlane.within(context, async (ports) => {
       const instances = await ports.repository.listInstances(scope(context));
