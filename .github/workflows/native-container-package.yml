@@ -251,13 +251,18 @@ jobs:
           node --input-type=module - <<'JS'
           import { realpathSync } from 'node:fs';
           import { join } from 'node:path';
-          import { verifyNativeOciPackage } from './scripts/local-dev/native-oci-publisher.mjs';
+          import { verifyNativeOciPackage, nativeOciExpansionDiagnostic } from './scripts/local-dev/native-oci-publisher.mjs';
 
-          const verified = await verifyNativeOciPackage({
-            packageDirectory: realpathSync(join(process.env.NATIVE_PACKAGE_TMP, 'package')),
-            repositoryRoot: process.cwd(),
-            expectedSourceCommit: process.env.GITHUB_SHA,
-          });
-          try { console.log(JSON.stringify(verified)); }
-          finally { verified.close(); }
+          try {
+            const verified = await verifyNativeOciPackage({
+              packageDirectory: realpathSync(join(process.env.NATIVE_PACKAGE_TMP, 'package')),
+              repositoryRoot: process.cwd(),
+              expectedSourceCommit: process.env.GITHUB_SHA,
+            });
+            try { console.log(JSON.stringify(verified)); }
+            finally { verified.close(); }
+          } catch (error) {
+            console.error(JSON.stringify(nativeOciExpansionDiagnostic(error) ?? { code: 'OCI_PACKAGE_VERIFICATION_FAILED' }));
+            process.exitCode = 1;
+          }
           JS

@@ -16,6 +16,12 @@ const maxArchiveBytes = 1_600_000_000;
 const files = ["SHA256SUMS", "checked-docker-config.json", "docker-inspect.json", "expected-oci-config.json", "image.oci.tar", "legioncode-command-supervisor", "sbom.spdx.json", "source-receipt.json"];
 const sourcePaths = ["apps/secure-agent-api/Dockerfile", "apps/secure-agent-api/container-native", "apps/secure-agent-api/container-tools", "apps/secure-agent-api/container-requirements.txt", "scripts/gates/check-secure-container-image.mjs", ".github/workflows/native-container-package.yml"];
 const verified = new WeakMap();
+// Only diagnostics produced by this verifier are reportable. Never inspect an
+// arbitrary error message/cause, package path, environment or raw package data.
+const expansionDiagnostics = new WeakMap();
+export function nativeOciExpansionDiagnostic(error) {
+  return error !== null && typeof error === "object" ? expansionDiagnostics.get(error) : undefined;
+}
 const hash = value => createHash("sha256").update(value).digest("hex");
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value !== null && typeof value === "object" ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, child]) => [key, canonical(child)])) : value;
 const same = (a, b) => JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
@@ -179,8 +185,29 @@ export async function verifyNativeOciPackage({ packageDirectory, repositoryRoot,
       const stream = layer.mediaType.endsWith("+gzip") ? source.pipe(createGunzip()) : source;
       source.on("error", error => stream.destroy(error));
       const checksum = createHash("sha256");
+      const completedLayersExpandedBytes = uncompressedTotal;
+      let layerExpandedPrefixBytes = 0;
       try {
-        for await (const chunk of stream) { uncompressedTotal += chunk.length; assert(uncompressedTotal <= maxImageBytes, "OCI_LAYER_EXPANSION_LIMIT"); checksum.update(chunk); }
+        for await (const chunk of stream) {
+          layerExpandedPrefixBytes += chunk.length;
+          uncompressedTotal += chunk.length;
+          if (!(uncompressedTotal <= maxImageBytes)) {
+            // Raw layer TAR bytes include serialization overhead; Docker's
+            // inspect Size is a separate daemon counter. This is only the
+            // measured prefix at rejection, never the complete expanded total.
+            const error = new Error("OCI_LAYER_EXPANSION_LIMIT");
+            expansionDiagnostics.set(error, Object.freeze({
+              code: "OCI_LAYER_EXPANSION_LIMIT", limitBytes: maxImageBytes,
+              dockerInspectBytes: inspected[0].Size, archiveBytes: archive.size,
+              layerIndex: index, layerCount: manifest.layers.length,
+              layerDigest: entry.digest, layerBlobBytes: entry.size,
+              completedLayersExpandedBytes, layerExpandedPrefixBytes,
+              expandedPrefixBytes: uncompressedTotal, chunkBytes: chunk.length,
+            }));
+            throw error;
+          }
+          checksum.update(chunk);
+        }
       } finally { stream.destroy(); source.destroy(); }
       assert(`sha256:${checksum.digest("hex")}` === config.rootfs.diff_ids[index], "OCI_LAYER_DIFFID_MISMATCH");
       blobs.push(entry);
