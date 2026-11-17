@@ -11,6 +11,7 @@ import {
   createSandboxLease,
   isLeaseExpired,
   workspaceLeaseKey,
+  sameSandboxExecutionLease,
   type SandboxExecutionLease,
   type SandboxExecutionLeaseRequest,
 } from "../ports/SandboxExecutionLease";
@@ -210,6 +211,10 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
   ): Promise<LeaseReleaseResult> {
     // Creator eligibility and physical reference ownership are separate. A
     // fenced registration still counts while its original work is closing.
+    if (registration.lease.executionDomainDigest !== undefined && ![...this.activeExecutions.values()].some(active => active.leaseId === leaseId && active.nativeCommands)) {
+      await this.cleanup(leaseId);
+      return { released: false, sandboxReleased: false };
+    }
     await this.cleanup(leaseId);
     const owned = [...this.activeExecutions.entries()].filter(([, active]) => active.leaseId === leaseId);
     for (const [, active] of owned) {

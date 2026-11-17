@@ -27,8 +27,16 @@ import type {
 } from "../ports/SandboxExecutionPort";
 import type { RuntimeEventPublisher } from "../services/runtime-events/InternalRuntimeEventClient";
 import type { JsonValue } from "@repo/shared-types";
-import { snapshotExecutionDomain, sameExecutionDomain, type ServerExecutionDomainBinding } from "@repo/worker-protocol/private/execution-domain";
-import { validExecutionDomain, matchesDomainWorkspace } from "../core/ExecutionSessionDomain";
+import {
+  snapshotExecutionDomain,
+  sameExecutionDomain,
+  type ServerExecutionDomainBinding,
+} from "@repo/worker-protocol/private/execution-domain";
+import {
+  validExecutionDomain,
+  matchesDomainWorkspace,
+  hasExecutionDomain,
+} from "../core/ExecutionSessionDomain";
 import {
   createSandboxLease,
   type SandboxExecutionLease,
@@ -274,7 +282,6 @@ async function authorizeSessionRequest(
   request: Request,
   runtime: RuntimeStub,
   sessionId: string,
-  _preserveExpiredLease = false,
 ): Promise<
   { ok: true; session: SessionRecord } | { ok: false; response: Response }
 > {
@@ -299,10 +306,20 @@ async function authorizeSessionRequest(
     };
   }
 
-  if (session.executionDomain || session.lease.executionDomainDigest) {
+  if (hasExecutionDomain(session)) {
     const domain = await validExecutionDomain(session);
-    if (!domain || !requestMatchesDomain(request, domain, session.workspaceScope)) {
-      return { ok: false, response: errorResponse("Execution domain binding unavailable", "UNAUTHORIZED", 401) };
+    if (
+      !domain ||
+      !requestMatchesDomain(request, domain, session.workspaceScope)
+    ) {
+      return {
+        ok: false,
+        response: errorResponse(
+          "Execution domain binding unavailable",
+          "UNAUTHORIZED",
+          401,
+        ),
+      };
     }
   }
 
@@ -362,7 +379,10 @@ function getRuntimeExecutionPort(
         return false;
       }
       return await (
-        cancelTask as (leaseIdArg: string, taskIdArg: string) => Promise<boolean>
+        cancelTask as (
+          leaseIdArg: string,
+          taskIdArg: string,
+        ) => Promise<boolean>
       )(leaseId, taskId);
     },
   };
@@ -448,7 +468,7 @@ async function replaceDeadLease(
   const sessionStore = getRuntimeSessionStore(runtime);
   if (!sessionStore) return;
   // Marked attempts require their canonical claim/recovery owner; never issue a replacement here.
-  if (session.executionDomain || session.lease.executionDomainDigest) return;
+  if (hasExecutionDomain(session)) return;
   if (session.lease.generation >= 1) {
     await sessionStore.storeExecutionSession(sessionId, {
       ...session,
@@ -643,7 +663,11 @@ export async function handleBorrowSession(
   } catch (error) {
     const message = sanitizeUnknownError(error);
     console.error(`[api/session/borrow] Failed: ${sanitizeLogText(message)}`);
-    return errorResponse("The original secure checkout session is unavailable for Git borrowing", "SESSION_BORROW_UNAVAILABLE", 503);
+    return errorResponse(
+      "The original secure checkout session is unavailable for Git borrowing",
+      "SESSION_BORROW_UNAVAILABLE",
+      503,
+    );
   }
 }
 
@@ -653,14 +677,16 @@ function isExactBorrowableSession(
 ): session is SessionRecord {
   if (!session || session.cleanupInProgress || !session.token) return false;
   const lease = session.lease;
-  return session.runId === expected.runId &&
+  return (
+    session.runId === expected.runId &&
     session.expiresAt > Date.now() &&
     lease.expiresAt > Date.now() &&
     lease.leaseId === expected.lease.leaseId &&
     lease.sandboxId === expected.lease.sandboxId &&
     lease.generation === expected.lease.generation &&
     workspaceScopesEqual(session.workspaceScope, expected.workspaceScope) &&
-    workspaceScopesEqual(lease.workspaceScope, expected.workspaceScope);
+    workspaceScopesEqual(lease.workspaceScope, expected.workspaceScope)
+  );
 }
 
 /** Internal service and exact session bearer are both required by this setup
@@ -704,19 +730,47 @@ export async function handleResumeSession(
     if (!validation.valid) {
       return errorResponse(validation.error, "INVALID_REQUEST", 400);
     }
-    const domain = validation.data.executionDomain ? snapshotExecutionDomain(validation.data.executionDomain) : undefined;
-    if (domain && !requestMatchesDomain(request, domain, validation.data.workspaceScope)) {
-      return errorResponse("Execution domain binding unavailable", "EXECUTION_DOMAIN_BINDING_UNAVAILABLE", 409);
+    const domain = validation.data.executionDomain
+      ? snapshotExecutionDomain(validation.data.executionDomain)
+      : undefined;
+    if (
+      domain &&
+      !requestMatchesDomain(request, domain, validation.data.workspaceScope)
+    ) {
+      return errorResponse(
+        "Execution domain binding unavailable",
+        "EXECUTION_DOMAIN_BINDING_UNAVAILABLE",
+        409,
+      );
     }
-    const rawSession = await getRuntimeSessionStore(runtime)?.getExecutionSession(sessionId);
-    if (rawSession && (!await matchesStoredDomain(request, rawSession, domain) ||
-      (domain?.domain === "legioncode_native" && !samePhysicalBinding(rawSession.nativeSandboxBinding, validation.data.nativeSandboxBinding)))) {
-      return errorResponse("Execution domain binding unavailable", "EXECUTION_DOMAIN_BINDING_UNAVAILABLE", 409);
+    const rawSession =
+      await getRuntimeSessionStore(runtime)?.getExecutionSession(sessionId);
+    if (
+      rawSession &&
+      (!(await matchesStoredDomain(request, rawSession, domain)) ||
+        (domain?.domain === "legioncode_native" && !samePhysicalBinding(rawSession.nativeSandboxBinding, validation.data.nativeSandboxBinding)))
+    ) {
+      return errorResponse(
+        "Execution domain binding unavailable",
+        "EXECUTION_DOMAIN_BINDING_UNAVAILABLE",
+        409,
+      );
     }
-    if (domain && (!rawSession || rawSession.expiresAt <= Date.now() || (domain.domain === "legioncode_native" && rawSession.lease.expiresAt <= Date.now()))) {
-      return errorResponse("The original marked execution session is unavailable", "EXECUTION_DOMAIN_BINDING_UNAVAILABLE", 503);
+    if (
+      domain &&
+      (!rawSession ||
+        rawSession.expiresAt <= Date.now() ||
+        rawSession.lease.expiresAt <= Date.now())
+    ) {
+      return errorResponse(
+        "The original marked execution session is unavailable",
+        "EXECUTION_DOMAIN_BINDING_UNAVAILABLE",
+        503,
+      );
     }
-    const session = domain ? rawSession : await getActiveSession(runtime, sessionId);
+    const session = domain
+      ? rawSession
+      : await getActiveSession(runtime, sessionId);
     if (!session) {
       if (validation.data.lease.generation >= 1) {
         return errorResponse(
@@ -789,7 +843,7 @@ export async function handleResumeSession(
       session.lease.generation === validation.data.lease.generation;
     const pendingReplacement =
       session.lease.generation === validation.data.lease.generation + 1;
-    if (!exactLease && !pendingReplacement) {
+    if ((!exactLease && !pendingReplacement) || (domain && !exactLease)) {
       return errorResponse(
         "Persisted checkout lease generation does not match the secure session",
         "SESSION_SCOPE_MISMATCH",
@@ -831,13 +885,28 @@ export async function handleResumeSession(
   }
 }
 
-function requestMatchesDomain(request: Request, domain: ServerExecutionDomainBinding, workspace: WorkspaceScope): boolean {
-  return new URL(request.url).searchParams.get("session") === domain.scope.brainSessionId && matchesDomainWorkspace(domain, workspace);
+function requestMatchesDomain(
+  request: Request,
+  domain: ServerExecutionDomainBinding,
+  workspace: WorkspaceScope,
+): boolean {
+  return (
+    new URL(request.url).searchParams.get("session") ===
+      domain.scope.brainSessionId && matchesDomainWorkspace(domain, workspace)
+  );
 }
-async function matchesStoredDomain(request: Request, session: SessionRecord, expected: ServerExecutionDomainBinding | undefined): Promise<boolean> {
-  if (!expected) return !session.executionDomain && session.lease.executionDomainDigest === undefined;
+async function matchesStoredDomain(
+  request: Request,
+  session: SessionRecord,
+  expected: ServerExecutionDomainBinding | undefined,
+): Promise<boolean> {
+  if (!expected) return !hasExecutionDomain(session);
   const actual = await validExecutionDomain(session);
-  return !!actual && sameExecutionDomain(actual, expected) && requestMatchesDomain(request, actual, session.workspaceScope);
+  return (
+    !!actual &&
+    sameExecutionDomain(actual, expected) &&
+    requestMatchesDomain(request, actual, session.workspaceScope)
+  );
 }
 
 export async function handleExecuteTask(
@@ -874,12 +943,7 @@ export async function handleExecuteTask(
         400,
       );
     }
-    const auth = await authorizeSessionRequest(
-      request,
-      runtime,
-      sessionId,
-      validation.data.borrowedLease !== undefined,
-    );
+    const auth = await authorizeSessionRequest(request, runtime, sessionId);
     if (!auth.ok) {
       console.warn(
         `[api/execute] requestId=${requestId} sessionId=${sessionId} taskId=${validation.data.taskId} action=${validation.data.action} status=unauthorized elapsedMs=${Date.now() - startedAt}`,
@@ -910,6 +974,25 @@ export async function handleExecuteTask(
       );
     }
 
+    if (
+      hasExecutionDomain(auth.session) &&
+      auth.session.lease.expiresAt <= Date.now()
+    ) {
+      return errorResponse(
+        "The original marked lease has expired",
+        "EXECUTION_DOMAIN_BINDING_UNAVAILABLE",
+        409,
+      );
+    }
+    // Native uses the retained physical owner, whose Ready evidence check still
+    // gates execution. Delegated markers cannot enter ordinary Native plugins.
+    if (hasExecutionDomain(auth.session) && auth.session.executionDomain?.domain !== "legioncode_native") {
+      return errorResponse(
+        "Marked execution requires its actual runtime owner",
+        "EXECUTION_DOMAIN_NOT_READY",
+        503,
+      );
+    }
     const executionPort = getRuntimeExecutionPort(runtime);
     if (!executionPort) {
       await recordLog(
@@ -990,7 +1073,10 @@ export async function handleExecuteTask(
     console.log(
       `[api/execute] requestId=${requestId} sessionId=${sessionId} taskId=${executionResult.taskId} action=${validation.data.action} status=${executionResult.status} outputLength=${executionResult.output?.length ?? 0} durationMs=${executionResult.metrics?.duration ?? "none"} elapsedMs=${Date.now() - startedAt}`,
     );
-    return jsonResponse(executionResult, getExecutionHttpStatus(executionResult));
+    return jsonResponse(
+      executionResult,
+      getExecutionHttpStatus(executionResult),
+    );
   } catch (error) {
     const msg = sanitizeUnknownError(error);
     console.error(
@@ -1164,9 +1250,15 @@ export async function getSession(
     return null;
   }
   const { executionDomainDigest: _digest, ...lease } = session.lease;
-  return { runId: session.runId, taskId: session.taskId, repoPath: session.repoPath,
-    expiresAt: session.expiresAt, createdAt: session.createdAt,
-    workspaceScope: session.workspaceScope, lease };
+  return {
+    runId: session.runId,
+    taskId: session.taskId,
+    repoPath: session.repoPath,
+    expiresAt: session.expiresAt,
+    createdAt: session.createdAt,
+    workspaceScope: session.workspaceScope,
+    lease,
+  };
 }
 
 export async function isSessionValid(

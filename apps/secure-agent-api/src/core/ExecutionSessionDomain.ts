@@ -1,67 +1,126 @@
 import { snapshotNativeSandboxPhysicalBinding, type NativeSandboxPhysicalBinding } from "@repo/worker-protocol/private/native-sandbox-binding";
 import {
-  executionDomainDigest, sameExecutionDomain, snapshotExecutionDomain,
+  executionDomainDigest,
+  sameExecutionDomain,
+  snapshotExecutionDomain,
   type ServerExecutionDomainBinding,
 } from "@repo/worker-protocol/private/execution-domain";
-import type { SandboxExecutionLease, WorkspaceScope } from "../ports/SandboxExecutionLease";
+import {
+  sameSandboxExecutionLease,
+  sameWorkspaceScope,
+  type SandboxExecutionLease,
+  type WorkspaceScope,
+} from "../ports/SandboxExecutionLease";
 
-export interface ExecutionDomainSessionFields { executionDomain?: ServerExecutionDomainBinding; nativeSandboxBinding?: NativeSandboxPhysicalBinding }
+export interface ExecutionDomainSessionFields {
+  executionDomain?: ServerExecutionDomainBinding;
+  nativeSandboxBinding?: NativeSandboxPhysicalBinding;
+}
 export interface DomainSession extends ExecutionDomainSessionFields {
   workspaceScope: WorkspaceScope;
   lease: SandboxExecutionLease;
   cleanupInProgress?: boolean;
 }
-/** Deny/reconciliation history in the original execution:session row, never a
- * new lease, permission to recreate, or assertion about unknown original loans. */
-export interface RetiredExecutionSessionRecord {
+/** Same-row classification history only. This record is never a closure,
+ * quiescence, release or Native qualification receipt. */
+export interface RetiredExecutionSessionRecord extends DomainSession {
   kind: "retired_execution_binding";
   version: 1;
-  physicalAttempt: { workspaceId: string; runAttemptId: string };
-  executionDomain: ServerExecutionDomainBinding | null;
-  executionDomainDigest: string | null;
-  nativeSandboxBinding?: NativeSandboxPhysicalBinding;
 }
 export function isRetiredExecutionSession(value: DomainSession | RetiredExecutionSessionRecord): value is RetiredExecutionSessionRecord {
   return "kind" in value && value.kind === "retired_execution_binding";
 }
-export function matchesDomainWorkspace(binding: ServerExecutionDomainBinding, workspace: WorkspaceScope): boolean {
-  const scope = binding.scope;
-  return scope.workspaceId === workspace.workspaceId && scope.runId === workspace.runId &&
-    scope.threadId === workspace.threadId && scope.turnId === workspace.turnId && scope.runAttemptId === workspace.runAttemptId;
+export function retiredExecutionBinding(session: DomainSession): RetiredExecutionSessionRecord {
+  return Object.freeze({ kind: "retired_execution_binding", version: 1,
+    workspaceScope: Object.freeze({ ...session.workspaceScope }),
+    lease: Object.freeze({ ...session.lease, workspaceScope: Object.freeze({ ...session.lease.workspaceScope }) }),
+    ...(session.executionDomain ? { executionDomain: snapshotExecutionDomain(session.executionDomain) } : {}),
+    ...(session.nativeSandboxBinding ? { nativeSandboxBinding: snapshotNativeSandboxPhysicalBinding(session.nativeSandboxBinding) } : {}) });
 }
-export async function validExecutionDomain(session: DomainSession): Promise<ServerExecutionDomainBinding | null> {
+
+export function matchesDomainWorkspace(
+  binding: ServerExecutionDomainBinding,
+  workspace: WorkspaceScope,
+): boolean {
+  const scope = binding.scope;
+  return (
+    scope.workspaceId === workspace.workspaceId &&
+    scope.runId === workspace.runId &&
+    scope.threadId === workspace.threadId &&
+    scope.turnId === workspace.turnId &&
+    scope.runAttemptId === workspace.runAttemptId
+  );
+}
+export function hasExecutionDomain(session: DomainSession): boolean {
+  return (
+    session.executionDomain !== undefined ||
+    session.lease.executionDomainDigest !== undefined
+  );
+}
+export async function validExecutionDomain(
+  session: DomainSession,
+): Promise<ServerExecutionDomainBinding | null> {
   if (!session.executionDomain) return null;
   try {
     const binding = snapshotExecutionDomain(session.executionDomain);
-    return matchesDomainWorkspace(binding, session.workspaceScope) && matchesDomainWorkspace(binding, session.lease.workspaceScope) &&
-      await executionDomainDigest(binding) === session.lease.executionDomainDigest ? binding : null;
-  } catch { return null; }
-}
-export async function assertExecutionDomainAdmission(
-  records: Array<[string, DomainSession | RetiredExecutionSessionRecord]>, key: string, incoming: DomainSession,
-): Promise<void> {
-  // Snapshot the caller-owned object before the first async fingerprint operation.
-  const binding = incoming.executionDomain ? snapshotExecutionDomain(incoming.executionDomain) : undefined;
-  if (binding && !await validExecutionDomain({ ...incoming, executionDomain: binding })) throw denied();
-  if (!binding && incoming.lease.executionDomainDigest !== undefined) throw denied();
-  for (const [existingKey, value] of records) {
-    const attempt = isRetiredExecutionSession(value) ? value.physicalAttempt : value.workspaceScope;
-    if (attempt.workspaceId !== incoming.workspaceScope.workspaceId || attempt.runAttemptId !== incoming.workspaceScope.runAttemptId) continue;
-    if (isRetiredExecutionSession(value) || existingKey !== key || value.cleanupInProgress) throw denied();
-    if (binding && (value.lease.leaseId !== incoming.lease.leaseId || value.lease.sandboxId !== incoming.lease.sandboxId ||
-      value.lease.generation !== incoming.lease.generation || value.lease.owner !== incoming.lease.owner)) throw denied();
-    if (!value.executionDomain && !binding) continue; // Legacy stays legacy, granting no Native capability.
-    if (!value.executionDomain || !binding || !await validExecutionDomain(value) ||
-      !sameExecutionDomain(value.executionDomain, binding)) throw denied();
+    return sameWorkspaceScope(
+      session.workspaceScope,
+      session.lease.workspaceScope,
+    ) &&
+      matchesDomainWorkspace(binding, session.workspaceScope) &&
+      (await executionDomainDigest(binding)) ===
+        session.lease.executionDomainDigest
+      ? binding
+      : null;
+  } catch {
+    return null;
   }
 }
-export function retiredExecutionBinding(session: DomainSession): RetiredExecutionSessionRecord {
-  return {
-    kind: "retired_execution_binding", version: 1,
-    physicalAttempt: { workspaceId: session.workspaceScope.workspaceId, runAttemptId: session.workspaceScope.runAttemptId },
-    executionDomain: session.executionDomain ? snapshotExecutionDomain(session.executionDomain) : null,
-    executionDomainDigest: session.lease.executionDomainDigest ?? null,
-    ...(session.executionDomain?.domain === "legioncode_native" ? { nativeSandboxBinding: snapshotNativeSandboxPhysicalBinding(session.nativeSandboxBinding) } : {}),
-  };
+/** Existing session rows, including sealed/expired rows, are permanent marked
+ * attempt fences. Missing state never authorizes replacement or proves cleanup. */
+export async function assertExecutionDomainAdmission(
+  records: Array<[string, DomainSession | RetiredExecutionSessionRecord]>,
+  key: string,
+  incoming: DomainSession,
+): Promise<void> {
+  const binding = incoming.executionDomain
+    ? snapshotExecutionDomain(incoming.executionDomain)
+    : undefined;
+  if (
+    hasExecutionDomain(incoming) &&
+    (!binding || !(await validExecutionDomain(incoming)))
+  )
+    throw denied();
+  for (const [existingKey, stored] of records) {
+    const sameAttempt =
+      stored.workspaceScope.workspaceId ===
+        incoming.workspaceScope.workspaceId &&
+      stored.workspaceScope.runAttemptId ===
+        incoming.workspaceScope.runAttemptId;
+    if (existingKey !== key && !sameAttempt) continue;
+    if (isRetiredExecutionSession(stored)) {
+      // Legacy remains unmarked, including its established one-generation
+      // recovery. History still rejects later marked reclassification under
+      // either this key or another key for the same attempt.
+      if (binding || hasExecutionDomain(stored)) throw denied();
+      if (existingKey === key && (!sameWorkspaceScope(stored.workspaceScope, incoming.workspaceScope) ||
+        stored.lease.owner !== incoming.lease.owner || incoming.lease.generation !== stored.lease.generation + 1 ||
+        incoming.lease.generation > 1 || incoming.lease.leaseId === stored.lease.leaseId || incoming.lease.sandboxId === stored.lease.sandboxId)) throw denied();
+      continue;
+    }
+    if (!hasExecutionDomain(stored) && !binding) continue; // Legacy remains legacy.
+    if (
+      existingKey !== key ||
+      stored.cleanupInProgress ||
+      !binding ||
+      !(await validExecutionDomain(stored)) ||
+      !stored.executionDomain ||
+      !sameExecutionDomain(stored.executionDomain, binding) ||
+      !sameSandboxExecutionLease(stored.lease, incoming.lease)
+    )
+      throw denied();
+  }
 }
-function denied(): Error { return new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE"); }
+function denied(): Error {
+  return new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
+}

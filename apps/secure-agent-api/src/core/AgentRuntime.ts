@@ -13,10 +13,7 @@ import { NativeCommandBindingSchema, NativeWorkspaceStateSchema, sameNativeBindi
 // debugging state with no Postgres equivalent.
 import { DurableObject } from "cloudflare:workers";
 import { getSandbox, type Sandbox } from "@cloudflare/sandbox";
-import {
-  IPlugin,
-  Message,
-} from "../interfaces/types";
+import { IPlugin, Message } from "../interfaces/types";
 import { StreamHandler } from "./StreamHandler";
 import { StorageService } from "../services/StorageService";
 import { PythonPlugin } from "../plugins/PythonPlugin";
@@ -41,12 +38,13 @@ import type {
 } from "../ports/SandboxExecutionPort";
 import {
   workspaceLeaseKey,
+  sameSandboxExecutionLease,
   type SandboxExecutionLease,
 } from "../ports/SandboxExecutionLease";
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 import { OwnedNativeCommandSession, hasUnsettledNativeCommand, nativeClosureEvidence, nativeCommandScope, sameExecutionLease, type NativeSessionFields } from "./OwnedNativeCommandSession";
 import type { OwnedNativeSandboxPort } from "../toolbox/contracts/OwnedSandboxCommand";
-import { assertExecutionDomainAdmission, isRetiredExecutionSession, retiredExecutionBinding, validExecutionDomain,
+import { assertExecutionDomainAdmission, isRetiredExecutionSession, retiredExecutionBinding, validExecutionDomain, hasExecutionDomain,
   type ExecutionDomainSessionFields, type RetiredExecutionSessionRecord } from "./ExecutionSessionDomain";
 import { parseNativeCommandClosure } from "@repo/shared-types/native-command-closure";
 import { snapshotExecutionDomain } from "@repo/worker-protocol/private/execution-domain";
@@ -166,6 +164,7 @@ export class AgentRuntime extends DurableObject<Env> {
     const original = await this.getExecutionSession(lease.owner);
     if (!original || !sameExecutionLease(original.lease, lease)) throw new Error("ORIGINAL_SESSION_UNAVAILABLE");
     const native = original.executionDomain?.domain === "legioncode_native";
+    if (hasExecutionDomain(original) && !native) throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
     const physical = native ? snapshotNativeSandboxPhysicalBinding(original.nativeSandboxBinding) : undefined;
     const workspaceKey = workspaceLeaseKey(lease);
     let entry = this.workspaceRuntimes.get(workspaceKey);
@@ -187,10 +186,20 @@ export class AgentRuntime extends DurableObject<Env> {
       }
     }
 
-    // A concurrent composition may have awaited a different frozen binding.
-    if (entry.lease.sandboxId !== lease.sandboxId || entry.lease.generation !== lease.generation ||
-      entry.lease.executionDomainDigest !== lease.executionDomainDigest || entry.lease.workspaceScope.root !== lease.workspaceScope.root) {
+    // Marked cache entries retain their exact original after shared awaits.
+    // Unmarked legacy callers retain their existing multi-lease behavior.
+    if (
+      (entry.lease.executionDomainDigest !== undefined ||
+        lease.executionDomainDigest !== undefined) &&
+      !sameSandboxExecutionLease(entry.lease, lease)
+    )
       throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
+    if (lease.executionDomainDigest !== undefined) {
+      const original = await this.ctx.storage.get<PhysicalExecutionSessionRecord>(this.getExecutionSessionKey(lease.owner));
+      if (!original || isQualificationRecord(original) || isRetiredExecutionSession(original) || original.cleanupInProgress || !this.matchesLease(original.lease, lease)) {
+        await entry.composed.executionPort.cleanup(lease.leaseId);
+        throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
+      }
     }
     if (JSON.stringify(entry.nativeSandboxBinding) !== JSON.stringify(physical)) throw new Error("NATIVE_SANDBOX_ORIGINAL_BINDING_UNAVAILABLE");
     entry.composed.executionPort.registerLease(lease);
@@ -203,6 +212,8 @@ export class AgentRuntime extends DurableObject<Env> {
   ): Promise<WorkspaceRuntimeEntry> {
     const original = await this.getExecutionSession(lease.owner);
     if (!original || !sameExecutionLease(original.lease, lease)) throw new Error("ORIGINAL_SESSION_UNAVAILABLE");
+    if (hasExecutionDomain(original) && original.executionDomain?.domain !== "legioncode_native")
+      throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
     const nativeSandboxBinding = original.executionDomain?.domain === "legioncode_native"
       ? snapshotNativeSandboxPhysicalBinding(original.nativeSandboxBinding) : undefined;
     // SDK composition types its RPC stub as the concrete Sandbox class. This
@@ -433,17 +444,19 @@ export class AgentRuntime extends DurableObject<Env> {
         persisted.cleanupInProgress ||
         hasUnsettledNativeCommand(persisted) ||
         persisted.nativeCommand?.binding.taskId === input.taskId ||
+        persisted.lease.owner !== sessionId ||
         !this.matchesLease(persisted.lease, input.lease)
       ) {
         return null;
       }
       const domain = await validExecutionDomain(persisted);
-      if ((persisted.executionDomain || persisted.lease.executionDomainDigest) && !domain) return null;
+      if (hasExecutionDomain(persisted) && !domain) return null;
       nativeDomain = domain?.domain === "legioncode_native";
       if (nativeDomain) {
         try { await this.getNativeCheckoutReadyEvidence(sessionId, input.lease); }
         catch { return null; }
       }
+      if (hasExecutionDomain(persisted) && !nativeDomain) return null;
       return await this.ensureWorkspaceRuntime(
         input.lease,
         !input.borrowedLease,
@@ -524,8 +537,28 @@ export class AgentRuntime extends DurableObject<Env> {
     this.assertProductPlane();
     const nativeCommands = this.nativeCommands.get(`${leaseId}:${taskId}`);
     if (nativeCommands && !await nativeCommands.stop()) return false;
+    const owned = (await this.listExecutionSessions()).filter(
+      ([, session]) => session.lease.leaseId === leaseId,
+    );
+    for (const [, session] of owned) {
+      if (hasExecutionDomain(session)) {
+        const domain = await validExecutionDomain(session);
+        if (!domain) return false;
+      }
+    }
     for (const [workspaceKey, runtime] of this.workspaceRuntimes) {
-      const cancelled = await runtime.composed.executionPort.cancelTask(leaseId, taskId);
+      if (
+        runtime.lease.leaseId === leaseId &&
+        runtime.lease.executionDomainDigest !== undefined &&
+        !owned.some(([, session]) =>
+          this.matchesLease(session.lease, runtime.lease),
+        )
+      )
+        return false;
+      const cancelled = await runtime.composed.executionPort.cancelTask(
+        leaseId,
+        taskId,
+      );
       if (cancelled) {
         return true;
       }
@@ -548,16 +581,13 @@ export class AgentRuntime extends DurableObject<Env> {
     const owned = records.filter(
       ([, session]) => session.lease.leaseId === leaseId,
     );
+    if (owned.length === 0) throw new Error("ORIGINAL_EXECUTION_SESSION_UNAVAILABLE");
     // Revoke bearer/capability before any awaited drain. Existing operations
     // may finish their original proof, but no fresh creator can use this row.
     await this.markSandboxCleanupInProgress(owned);
     if (owned.some(([, session]) => hasUnsettledNativeCommand(session))) {
       await this.scheduleExecutionSessionAlarm();
       throw new Error("Native command closure must settle before lease release");
-    }
-    if (owned.length === 0) {
-      await this.releaseLoadedLease(leaseId);
-      return;
     }
 
     const now = Date.now();
@@ -569,6 +599,12 @@ export class AgentRuntime extends DurableObject<Env> {
       const group = records.filter(
         ([, session]) => session.lease.sandboxId === sandboxId,
       );
+      if (group.some(([, session]) => hasExecutionDomain(session) && (session.executionDomain?.domain !== "legioncode_native" || !this.hasPositiveNativeClosure(session)))) {
+        await this.markSandboxCleanupInProgress(group);
+        await this.persistSandboxCleanupRetry(group, now);
+        await this.scheduleExecutionSessionAlarm();
+        throw new Error("MARKED_EXECUTION_CLEANUP_UNAVAILABLE");
+      }
       const hasOtherLiveReference = group.some(
         ([key, session]) =>
           !ownedIds.has(key) &&
@@ -627,18 +663,18 @@ export class AgentRuntime extends DurableObject<Env> {
     });
   }
 
-  private matchesLease(
-    actual: SandboxExecutionLease,
-    expected: SandboxExecutionLease,
-  ): boolean {
-    return sameExecutionLease(actual, expected);
+  private matchesLease(actual: SandboxExecutionLease, expected: SandboxExecutionLease): boolean {
+    return sameSandboxExecutionLease(actual, expected);
   }
 
   private async releaseLoadedLease(leaseId: string): Promise<void> {
     for (const [workspaceKey, runtime] of this.workspaceRuntimes) {
-      const release = await runtime.composed.executionPort.releaseLease(leaseId, {
-        destroySandbox: false,
-      });
+      const release = await runtime.composed.executionPort.releaseLease(
+        leaseId,
+        {
+          destroySandbox: false,
+        },
+      );
       if (release.sandboxReleased) {
         this.workspaceRuntimes.delete(workspaceKey);
       }
@@ -661,12 +697,17 @@ export class AgentRuntime extends DurableObject<Env> {
     const incomingDomain = session.executionDomain ? snapshotExecutionDomain(session.executionDomain) : undefined;
     const incomingPhysical = session.nativeSandboxBinding ? snapshotNativeSandboxPhysicalBinding(session.nativeSandboxBinding) : undefined;
     session = { ...session, ...(incomingPhysical ? { nativeSandboxBinding: incomingPhysical } : {}), workspaceScope: Object.freeze({ ...session.workspaceScope }),
-      lease: { ...session.lease, workspaceScope: Object.freeze({ ...session.lease.workspaceScope }) },
+      lease: Object.freeze({ ...session.lease, workspaceScope: Object.freeze({ ...session.lease.workspaceScope }) }),
       ...(incomingDomain ? { executionDomain: incomingDomain } : {}) };
+    if (incomingDomain && (session.lease.owner !== sessionId || session.runId !== incomingDomain.scope.runId))
+      throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
     await this.ctx.blockConcurrencyWhile(async () => {
       const bindings = await this.ctx.storage.list<PhysicalExecutionSessionRecord>({ prefix: EXECUTION_SESSION_KEY_PREFIX });
       if ([...bindings.values()].some(isQualificationRecord)) throw new Error("QUALIFICATION_PLANE_ONLY");
-      await assertExecutionDomainAdmission([...bindings].filter((entry): entry is [string, RuntimeSessionRecord | RetiredExecutionSessionRecord] => !isQualificationRecord(entry[1])), this.getExecutionSessionKey(sessionId), session);
+      await assertExecutionDomainAdmission(
+        [...bindings].filter((entry): entry is [string, RuntimeSessionRecord | RetiredExecutionSessionRecord] => !isQualificationRecord(entry[1])),
+        this.getExecutionSessionKey(sessionId), session,
+      );
       const sessions = await this.listExecutionSessions();
       const sessionKey = this.getExecutionSessionKey(sessionId);
       if (
@@ -871,11 +912,17 @@ export class AgentRuntime extends DurableObject<Env> {
   private async markSandboxCleanupInProgress(
     group: Array<[string, RuntimeSessionRecord]>,
   ): Promise<void> {
+    // Invoke existing marked fences synchronously before the first closing
+    // await. Cancellation observers never become release/closure evidence.
+    const fences = group.filter(([, session]) => hasExecutionDomain(session)).flatMap(([, session]) =>
+      [...this.workspaceRuntimes.values()].map(runtime => runtime.composed.executionPort.cleanup(session.lease.leaseId)));
+    const fenced = Promise.allSettled(fences);
     for (const [key] of group) {
       const session = await this.ctx.storage.get<PhysicalExecutionSessionRecord>(key);
       if (!session || isQualificationRecord(session) || isRetiredExecutionSession(session)) continue;
       await this.ctx.storage.put(key, { ...session, token: "", cleanupInProgress: true });
     }
+    if ((await fenced).some(result => result.status === "rejected")) throw new Error("MARKED_EXECUTION_CLEANUP_UNAVAILABLE");
   }
 
   private async persistSandboxCleanupRetry(
@@ -907,6 +954,10 @@ export class AgentRuntime extends DurableObject<Env> {
     now: number,
   ): Promise<boolean> {
     try {
+      if (group.some(([, session]) => hasExecutionDomain(session) && session.executionDomain?.domain !== "legioncode_native")) {
+        await this.markSandboxCleanupInProgress(group);
+        throw new Error("MARKED_EXECUTION_CLEANUP_UNAVAILABLE");
+      }
       for (const [, session] of group) {
         const domain = await validExecutionDomain(session);
         if ((session.executionDomain || session.lease.executionDomainDigest) && !domain) throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
@@ -931,15 +982,7 @@ export class AgentRuntime extends DurableObject<Env> {
       }
       for (const [key, session] of group) {
         const sessionId = key.slice(EXECUTION_SESSION_KEY_PREFIX.length);
-        if (session.executionDomain?.domain === "legioncode_native") {
-          await this.retireExecutionSessionRecord(sessionId, session);
-        } else {
-          // Preserve the old physical destroy path while retaining deny-only
-          // authority history. Its original-process closure is not a Native proof.
-          // Closing/count semantics await the delegated physical owner's contract.
-          await this.ctx.storage.put(key, { ...session, token: "", cleanupInProgress: true });
-          await this.persistSandboxCleanupRetry([[key, session]], now, "ORIGINAL_COMMAND_CLOSURE_UNKNOWN");
-        }
+        await this.retireExecutionSessionRecord(sessionId, session);
       }
       return true;
     } catch {
@@ -954,7 +997,8 @@ export class AgentRuntime extends DurableObject<Env> {
   }
 
   private async retireExecutionSessionRecord(sessionId: string, session: RuntimeSessionRecord): Promise<void> {
-    if (!this.hasPositiveNativeClosure(session)) throw new Error("Original physical closure remains unknown");
+    if (hasExecutionDomain(session) && (session.executionDomain?.domain !== "legioncode_native" || !this.hasPositiveNativeClosure(session)))
+      throw new Error("MARKED_EXECUTION_CLEANUP_UNAVAILABLE");
     // Same original row is permanent deny/reconciliation history; no TTL or sweep.
     // Only actual physical destruction plus retained original transport settlement
     // reaches this caller. Unknown rows remain closing and count as active.
@@ -1162,8 +1206,8 @@ export class AgentRuntime extends DurableObject<Env> {
         await this.ctx.storage.put(existingKey, "saved");
       }
     });
-  }
 
+  }
 }
 
 async function destroySandboxWithTimeout(

@@ -1,4 +1,8 @@
-import { executionDomainDigest, snapshotExecutionDomain, type ServerExecutionDomainBinding } from "@repo/worker-protocol/private/execution-domain";
+import {
+  executionDomainDigest,
+  snapshotExecutionDomain,
+  type ServerExecutionDomainBinding,
+} from "@repo/worker-protocol/private/execution-domain";
 
 export const DEFAULT_SANDBOX_LEASE_TTL_MS = 15 * 60 * 1000;
 export const MAX_SANDBOX_LEASE_TTL_MS = 60 * 60 * 1000;
@@ -40,7 +44,9 @@ export interface SandboxExecutionLeaseRequest {
 }
 
 export function workspaceLeaseKey(
-  lease: Pick<SandboxExecutionLease, "workspaceScope"> | SandboxExecutionLeaseRequest,
+  lease:
+    | Pick<SandboxExecutionLease, "workspaceScope">
+    | SandboxExecutionLeaseRequest,
 ): string {
   return [
     lease.workspaceScope.workspaceId,
@@ -51,9 +57,12 @@ export function workspaceLeaseKey(
 export async function createSandboxLease(
   input: SandboxExecutionLeaseRequest & { now?: number },
 ): Promise<SandboxExecutionLease> {
-  const domain = input.executionDomain ? snapshotExecutionDomain(input.executionDomain) : undefined;
+  const domain = input.executionDomain
+    ? snapshotExecutionDomain(input.executionDomain)
+    : undefined;
   const workspaceScope = Object.freeze({ ...input.workspaceScope });
-  const owner = input.owner, correlationId = input.correlationId;
+  const owner = input.owner,
+    correlationId = input.correlationId;
   const mutationMode = input.mutationMode ?? "serialized";
   const now = input.now ?? Date.now();
   const ttlMs = Math.min(
@@ -62,6 +71,15 @@ export async function createSandboxLease(
   );
   const { workspaceId, runAttemptId } = workspaceScope;
   const generation = input.generation ?? 0;
+  if (
+    domain &&
+    (domain.scope.workspaceId !== workspaceScope.workspaceId ||
+      domain.scope.runId !== workspaceScope.runId ||
+      domain.scope.threadId !== workspaceScope.threadId ||
+      domain.scope.turnId !== workspaceScope.turnId ||
+      domain.scope.runAttemptId !== workspaceScope.runAttemptId)
+  )
+    throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
   const domainDigest = domain ? await executionDomainDigest(domain) : undefined;
   return {
     leaseId: `lease_${crypto.randomUUID()}`,
@@ -107,4 +125,35 @@ export function isLeaseExpired(
   now = Date.now(),
 ): boolean {
   return lease.expiresAt <= now;
+}
+
+/** Exact original lease comparison, including domain and the complete attempt. */
+export function sameSandboxExecutionLease(
+  actual: SandboxExecutionLease,
+  expected: SandboxExecutionLease,
+): boolean {
+  return (
+    actual.leaseId === expected.leaseId &&
+    actual.sandboxId === expected.sandboxId &&
+    actual.owner === expected.owner &&
+    actual.executionDomainDigest === expected.executionDomainDigest &&
+    actual.correlationId === expected.correlationId &&
+    actual.expiresAt === expected.expiresAt &&
+    actual.generation === expected.generation &&
+    actual.mutationMode === expected.mutationMode &&
+    sameWorkspaceScope(actual.workspaceScope, expected.workspaceScope)
+  );
+}
+export function sameWorkspaceScope(
+  actual: WorkspaceScope,
+  expected: WorkspaceScope,
+): boolean {
+  return (
+    actual.workspaceId === expected.workspaceId &&
+    actual.runId === expected.runId &&
+    actual.threadId === expected.threadId &&
+    actual.turnId === expected.turnId &&
+    actual.runAttemptId === expected.runAttemptId &&
+    actual.root === expected.root
+  );
 }
