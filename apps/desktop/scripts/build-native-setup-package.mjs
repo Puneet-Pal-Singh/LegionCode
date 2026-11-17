@@ -1,49 +1,15 @@
-import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, copyFile, cp, link, lstat, mkdir, mkdtemp, open, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import { inspectNativeFileHelper, nativeHelperSources } from "./build-file-helper.mjs";
+import { inspectNativeFileHelper } from "./build-file-helper.mjs";
+import { nativePackageCommand as command } from "./native-package-command.mjs";
+import { sealUnsignedMacApp } from "./unsigned-mac-app.mjs";
 import { captureBundleSnapshot, relocateSnapshotLinks, verifyBundleSnapshot, verifySnapshotIdentities } from "./native-setup-snapshot.mjs";
 
-const environment = { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", LANG: "C", LC_ALL: "C" };
 const installedApp = "/Library/Application Support/LegionCode/Applications/LegionCode Desktop.app";
 const identifier = "dev.legioncode.desktop.native-setup";
 
-/** A deadline is failure, never proof that a child or its descendants closed. */
-function command(file, args, ownership, timeoutMs = 30_000) {
-  return new Promise((resolve, reject) => {
-    let child;
-    try { child = spawn(file, args, { env: environment, shell: false, stdio: ["ignore", "pipe", "pipe"] }); }
-    catch { reject(new Error("Package tool could not start")); return; }
-    let output = "", size = 0, failure = null, finished = false, stopping = false, forceTimer, closeTimer;
-    const finish = (error) => {
-      if (finished) return;
-      finished = true;
-      clearTimeout(timer); clearTimeout(forceTimer); clearTimeout(closeTimer);
-      error ? reject(error) : resolve(output);
-    };
-    const stop = () => {
-      if (stopping) return;
-      stopping = true;
-      ownership.unknownClosure = true;
-      failure = new Error("Package tool closure is unconfirmed; staging is retained");
-      child.kill("SIGTERM");
-      forceTimer = setTimeout(() => child.kill("SIGKILL"), 1_000);
-      closeTimer = setTimeout(() => finish(failure), 5_000);
-    };
-    const timer = setTimeout(stop, timeoutMs);
-    child.on("error", () => { failure ??= new Error("Package tool failed"); });
-    child.stdout.on("error", stop); child.stderr.on("error", stop);
-    child.stdout.on("data", bytes => {
-      size += bytes.length;
-      if (size > 64 * 1024) stop(); else output += bytes.toString("utf8");
-    });
-    child.stderr.on("data", bytes => { size += bytes.length; if (size > 64 * 1024) stop(); });
-    child.once("close", (code, signal) => finish(failure ?? (code === 0 && signal === null
-      ? null : new Error("Package tool returned a failure"))));
-  });
-}
 
 function beneath(root, path) {
   const value = relative(root, path);
@@ -160,17 +126,7 @@ export async function buildNativeSetupPackage(appPath, packagePath) {
     await verifySnapshotIdentities(verified);
     await inspectApp(stagedApp, true);
     await command("/bin/chmod", ["-RN", stagedApp, scripts], ownership);
-    // The preview needs no Developer ID. Seal only this owned snapshot with an
-    // ad-hoc content identity so the broker can validate its exact installed code.
-    // Existing unsigned previews do not enable hardened-runtime library checks.
-    for (const { name } of nativeHelperSources) {
-      const helper = join(stagedApp, "Contents", "Resources", "native", name);
-      await inspectNativeFileHelper(helper, process.platform, process.arch);
-      await command("/usr/bin/codesign", ["--force", "--sign", "-", "--options", "0", "--timestamp=none", helper], ownership);
-    }
-    await command("/usr/bin/codesign", ["--force", "--deep", "--sign", "-", "--options", "0",
-      "--timestamp=none", "--preserve-metadata=entitlements", stagedApp], ownership, 120_000);
-    await command("/usr/bin/codesign", ["--verify", "--deep", "--strict", stagedApp], ownership);
+    await sealUnsignedMacApp(stagedApp, ownership);
     const stagedInstaller = join(stagedApp, "Contents", "Resources", "native", "legioncode-native-installer");
     const original = await inspectNativeFileHelper(stagedInstaller, process.platform, process.arch);
     const preflightInstaller = join(scripts, "legioncode-native-installer");
