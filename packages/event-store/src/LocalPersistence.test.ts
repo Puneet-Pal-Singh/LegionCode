@@ -541,7 +541,7 @@ describe("LocalPersistence", () => {
     } });
     stores.push(atomic);
     const candidate = admission("atomic");
-    await atomic.workspaceGrants.write({ version: 1, path: "/tmp/local-admission-workspace",
+    await atomic.workspaceGrants.write({ version: 1, path: idDirectory,
       grant: { workspaceId: candidate.run.workspaceId, displayName: "Admission workspace", repositoryIdentity: "git:admission:repo",
         branch: "main", readiness: "ready", capabilities: ["filesystem", "git"], reason: null,
         grantedAt: "2026-06-15T00:00:00.000Z" } });
