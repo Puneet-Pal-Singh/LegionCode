@@ -82,6 +82,7 @@ describe("TaskCheckoutIssuer", () => {
             leaseId: `lease_${workspaceScope.runAttemptId}`,
             sandboxId: `sb-attempt-${workspaceScope.runAttemptId.at(-1)}`,
             generation: 0,
+            executionDomainDigest: await fixtureDomainDigest(repository, workspaceScope.root),
           },
         })),
         bootstrapNativeCheckout: vi.fn(async () => undefined),
@@ -145,6 +146,7 @@ describe("TaskCheckoutIssuer", () => {
             leaseId: "lease_secure01",
             sandboxId: "sb-secure01",
             generation: 0,
+            executionDomainDigest: await fixtureDomainDigest(repository, workspaceScope.root),
           },
         })),
         bootstrapNativeCheckout: vi.fn(async () => undefined),
@@ -194,7 +196,7 @@ describe("TaskCheckoutIssuer", () => {
             leaseId: "lease_secure01",
             sandboxId: "sb-secure01",
             generation: 0,
-            executionDomainDigest: (await repository.getCheckoutExecutionDomain(input.workspaceScope.root.split("/").at(-1)!)).digest,
+            executionDomainDigest: await fixtureDomainDigest(repository, input.workspaceScope.root),
           },
         })),
         bootstrapNativeCheckout: vi.fn(async () => undefined),
@@ -272,8 +274,8 @@ describe("TaskCheckoutIssuer", () => {
       ({ workspaceScope }) => ({
         acquire: async () => {
           const handle = await acquire();
-          const domain = await repository.getCheckoutExecutionDomain(workspaceScope.root.split("/").at(-1)!);
-          return { ...handle, lease: { ...handle.lease, executionDomainDigest: domain.digest } };
+          const executionDomainDigest = await fixtureDomainDigest(repository, workspaceScope.root);
+          return { ...handle, lease: { ...handle.lease, executionDomainDigest } };
         },
         bootstrapNativeCheckout: vi.fn(async () => undefined),
         verifyNativeCheckoutReady: vi.fn(async () => undefined),
@@ -316,7 +318,7 @@ describe("TaskCheckoutIssuer", () => {
       {} as Env,
       { capture: vi.fn(async () => snapshot) },
       repository,
-      () => ({
+      ({ workspaceScope }) => ({
         acquire: vi.fn(async () => ({
           sessionId: "sess_secure001",
           token: "secret-test-token",
@@ -326,6 +328,7 @@ describe("TaskCheckoutIssuer", () => {
             leaseId: "lease_secure01",
             sandboxId: "sb-secure01",
             generation: 0,
+            executionDomainDigest: await fixtureDomainDigest(repository, workspaceScope.root),
           },
         })),
         bootstrapNativeCheckout: vi.fn(async () => undefined),
@@ -392,7 +395,7 @@ describe("TaskCheckoutIssuer", () => {
       {} as Env,
       { capture: vi.fn(async () => snapshot) },
       repository,
-      () => ({
+      ({ workspaceScope }) => ({
         acquire: vi.fn(async () => ({
           sessionId: "sess_secure001",
           token: "secret-test-token",
@@ -402,6 +405,7 @@ describe("TaskCheckoutIssuer", () => {
             leaseId: "lease_secure01",
             sandboxId: "sb-secure01",
             generation: 0,
+            executionDomainDigest: await fixtureDomainDigest(repository, workspaceScope.root),
           },
         })),
         bootstrapNativeCheckout: vi.fn(async () => undefined),
@@ -507,6 +511,11 @@ function issueOptions(input = payload()): TaskCheckoutIssueOptions {
       },
     }),
   };
+}
+
+async function fixtureDomainDigest(repository: ReturnType<typeof createRepository>, root: string) {
+  const checkoutId = root.slice(root.lastIndexOf("/") + 1);
+  return (await repository.getCheckoutExecutionDomain(checkoutId)).digest;
 }
 
 function createRepository() {
