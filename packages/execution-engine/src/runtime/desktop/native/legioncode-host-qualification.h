@@ -163,10 +163,12 @@ static inline bool lc_qualification_fixture(int state, const lc_host_approval *a
   job->fd[LC_QUAL_WORK_CLEANUP] = fcntl(scope->work, F_DUPFD_CLOEXEC, 20);
   if (!lc_host_identity(scope->work, true, &job->work_identity)) return false;
   char journal[96]; snprintf(journal, sizeof(journal), "%s.access", scope->name);
-  scope->journal = openat(state, journal, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+  scope->journal = openat(state, journal, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
   if (scope->journal < 0 || job->fd[LC_QUAL_WORK_CLEANUP] < 0) return false;
   scope->access.actor = approval->actor; scope->access.actor_gid = actor.pw_gid;
   scope->access.principal = scope->record.principal; scope->access.journal = scope->journal;
+  scope->access.binding = &scope->record.binding; scope->access.boot = scope->record.boot;
+  scope->access.generation = scope->record.origin_generation; scope->access.command_ids = scope->record.command_ids;
   scope->access.root_path = scope->record.root_path; scope->access.executables = approval->executables;
   scope->access.root_device = scope->record.binding.root.device;
   const char *directories[] = { ".git", ".git/objects", ".git/objects/pack", ".git/objects/info", ".git/refs", ".git/refs/heads", ".git/info" };

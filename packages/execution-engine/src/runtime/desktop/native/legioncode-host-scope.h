@@ -140,12 +140,14 @@ static inline bool lc_host_scope_open(int state, const lc_host_approval *approva
       lc_host_beneath(scope->record.root_path, scope->record.work_path) ||
       lc_host_beneath(scope->record.work_path, scope->record.root_path)) { lc_host_scope_unknown(state, scope); return false; }
   char journal[96]; snprintf(journal, sizeof(journal), "%s.access", scope->name);
-  scope->journal = openat(state, journal, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+  scope->journal = openat(state, journal, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
   struct passwd actor, *found = NULL; char user[16384];
   if (scope->journal < 0 || getpwuid_r(approval->actor, &actor, user, sizeof(user), &found) || !found ||
       !lc_host_scope_save(state, scope)) { lc_host_scope_unknown(state, scope); return false; }
   scope->access.actor = approval->actor; scope->access.actor_gid = actor.pw_gid;
   scope->access.principal = scope->record.principal; scope->access.journal = scope->journal;
+  scope->access.binding = &scope->record.binding; scope->access.boot = scope->record.boot;
+  scope->access.generation = scope->record.origin_generation; scope->access.command_ids = scope->record.command_ids;
   scope->access.root_path = scope->record.root_path; scope->access.executables = approval->executables;
   scope->access.root_device = scope->record.binding.root.device;
   scope->access.metadata = &scope->record.metadata; scope->access.metadata_pins = &scope->metadata_pins;
@@ -196,7 +198,7 @@ static inline bool lc_host_prepare_command_internal(int state, const lc_host_app
   scope->stdout_size = scope->stderr_size = 0; scope->timed_out = scope->truncated = false;
   if (!lc_host_scope_save(state, scope)) { lc_host_scope_unknown(state, scope); return false; }
   scope->access_ready = false;
-  if (!lc_host_access_prepare(&scope->access, scope->root, scope->record.root_path)) {
+  if (!lc_host_access_prepare(&scope->access, scope->root, scope->record.root_path, scope->record.command_count, hash)) {
     /* Some ACEs may already exist; keep the writer until exact restoration. */
     (void)lc_host_scope_seal(state, scope); return false;
   }
@@ -363,7 +365,7 @@ static inline void lc_host_scope_tick(int state, lc_host_scope *scope) {
   }
   if ((scope->stdout_fd >= 0 && !lc_host_drain(&scope->stdout_fd, scope->stdout_bytes, &scope->stdout_size, &scope->stdout_closed, &scope->truncated)) ||
       (scope->stderr_fd >= 0 && !lc_host_drain(&scope->stderr_fd, scope->stderr_bytes, &scope->stderr_size, &scope->stderr_closed, &scope->truncated))) lc_host_scope_unknown(state, scope);
-  if (scope->record.phase == LC_HOST_RUNNING && now >= scope->deadline) { scope->timed_out = true; (void)lc_host_scope_seal(state, scope); }
+  if (scope->record.phase == LC_HOST_RUNNING && !scope->access.cleanup_started && now >= scope->deadline) { scope->timed_out = true; (void)lc_host_scope_seal(state, scope); }
   bool cleanup = scope->sealed || (scope->child && scope->reaped);
   if (!cleanup) return;
   /* A pre-drop bootstrap is not yet represented by the UID census. Its exact
@@ -379,7 +381,15 @@ static inline void lc_host_scope_tick(int state, lc_host_scope *scope) {
   if (scope->record.phase == LC_HOST_UNKNOWN) return;
   if ((scope->child && !scope->launch_closed) || scope->access.unknown) { lc_host_scope_unknown(state, scope); return; }
   /* No UID member remains and no command can be released during restoration. */
-  if (scope->access.count && !lc_host_access_restore(&scope->access, scope->root)) { lc_host_scope_unknown(state, scope); return; }
+  lc_host_access_validation journal = lc_host_access_validate(&scope->access);
+  if (journal == LC_HOST_ACCESS_PENDING) return;
+  if (journal != LC_HOST_ACCESS_VALID) { lc_host_scope_unknown(state, scope); return; }
+  if (scope->access.count) {
+    if (!lc_host_access_restore(&scope->access, scope->root)) lc_host_scope_unknown(state, scope);
+    /* Revalidate the closed epoch before work-owner restore or IDLE. Journal
+     * cleanup time is not more target execution time; creators remain fenced. */
+    return;
+  }
   scope->access_ready = false;
   if (!scope->sealed) {
     scope->record.phase = LC_HOST_IDLE;
