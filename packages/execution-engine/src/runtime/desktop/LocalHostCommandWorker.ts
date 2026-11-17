@@ -115,7 +115,24 @@ export class LocalHostCommandWorker implements WorkerProtocolPort {
             authority.trackHostResource(this.resource);
           } catch (error) { this.markUnknown(); if (this.resource) void this.resource.seal().catch(() => undefined); throw error; }
         } else if (this.authority !== authority) throw new MacHostBrokerError("writer_authority_changed", true);
-        const result = await this.resource.execute(input.toolCall.toolCallId, parsed.command, parsed.cwd ?? ".", metadataLayout);
+        let display = "", displayBytes = 0, displayCapped = false, outputOpen = true;
+        const onOutput = async (delta: string) => {
+          if (!outputOpen) throw new Error("Host command output admission is sealed");
+          if (displayCapped) return;
+          const bytes = Buffer.from(delta, "utf8");
+          const remaining = 20000 - displayBytes;
+          const admitted = new TextDecoder().decode(bytes.subarray(0, remaining), { stream: true });
+          if (bytes.length > remaining) displayCapped = true;
+          if (!admitted) return;
+          display += admitted;
+          displayBytes += Buffer.byteLength(admitted, "utf8");
+          // The runtime callback acknowledges only after canonical persistence.
+          // The bounded display remains separate from the final model result.
+          await input.onOutput?.(admitted);
+        };
+        let result: Awaited<ReturnType<MacHostCommandAttempt["execute"]>>;
+        try { result = await this.resource.execute(input.toolCall.toolCallId, parsed.command, parsed.cwd ?? ".", metadataLayout, onOutput); }
+        finally { outputOpen = false; }
         if (!signal.aborted) {
           const after = await authority.readMetadataLayout({ signal, purpose: "mutation" });
           await authority.assertCurrent();
@@ -134,7 +151,8 @@ export class LocalHostCommandWorker implements WorkerProtocolPort {
             code: result.timedOut ? "command_timed_out" : "command_failed", message: "The local project command did not succeed",
             retryable: false, correlationId: null, details: output,
           } };
-        return { kind: "completed", output };
+        return { kind: "completed", output,
+          events: display ? [{ type: "tool_output_delta", delta: display }] : [] };
       } finally { signal.removeEventListener("abort", abort); }
     });
   }

@@ -481,13 +481,29 @@ export class MacHostCommandAttempt implements MacHostCommandResource {
   get quiescent(): boolean { return this.physicallyClosed && !this.unknown; }
   get closure(): MacHostCommandResource["closure"] { return this.closedProof; }
 
-  execute(commandId: string, command: string, cwd: string, metadataLayout: NativeGitMetadataLayout): Promise<LocalProcessOutput> {
+  execute(commandId: string, command: string, cwd: string, metadataLayout: NativeGitMetadataLayout,
+    onOutput?: (delta: string) => Promise<void>): Promise<LocalProcessOutput> {
     if (this.sealed || this.unknown || this.command) return Promise.reject(new MacHostBrokerError("command_owner_unavailable", this.unknown));
     if (!commandId || commandId.length > 256 || !command || Buffer.byteLength(command) > 500 ||
         Buffer.byteLength(cwd) > 500 || command.includes("\0") || cwd.includes("\0")) return Promise.reject(new MacHostBrokerError("invalid_command", false));
     const metadataFields = macHostMetadataFields(metadataLayout);
     if (macHostMetadataDigest(metadataFields) !== this.metadataSHA256) return Promise.reject(new MacHostBrokerError("metadata_layout_changed", true));
     let rejectedBeforeCommand = false;
+    let outputFailed = false;
+    let outputFailure: unknown;
+    const prefixes = { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
+    const decoders = { stdout: new TextDecoder(), stderr: new TextDecoder() };
+    const forward = async (text: string) => {
+      if (!onOutput || outputFailed || !text) return;
+      const bytes = Buffer.from(text, "utf8");
+      for (let offset = 0; offset < bytes.length;) {
+        let end = Math.min(offset + 16 * 1024, bytes.length);
+        while (end < bytes.length && (bytes[end]! & 0xc0) === 0x80) end--;
+        try { await onOutput(bytes.subarray(offset, end).toString("utf8")); }
+        catch (error) { outputFailed = true; outputFailure = error; return; }
+        offset = end;
+      }
+    };
     const operation = (async () => {
       await this.prepare();
       if (this.sealed) throw new MacHostBrokerError("attempt_sealed", false);
@@ -516,6 +532,21 @@ export class MacHostCommandAttempt implements MacHostCommandResource {
         if (macHostText(reply, "commandId", 256) !== commandId || macHostDigest(reply, "commandDigest") !== digest) {
           throw new MacHostBrokerError("command_identity_changed", true);
         }
+        // Authenticated scope/command identity above applies to BOTH prefixes.
+        // Prefixes may stop at the broker's 32 KiB cap; they must never shrink
+        // or rewrite an observed byte. Poll order is not OS-level interleaving.
+        for (const channel of ["stdout", "stderr"] as const) {
+          const next = reply.get(channel);
+          if (!next || next.length > 32 * 1024 || next.length < prefixes[channel].length ||
+            !next.subarray(0, prefixes[channel].length).equals(prefixes[channel]))
+            throw new MacHostBrokerError("command_output_prefix_changed", true);
+        }
+        for (const channel of ["stdout", "stderr"] as const) {
+          const next = reply.get(channel)!;
+          const text = decoders[channel].decode(next.subarray(prefixes[channel].length), { stream: true });
+          prefixes[channel] = Buffer.from(next);
+          await forward(text);
+        }
         if (macHostText(reply, "commandClosed", 5) === "true" || state === "closed") {
           const code = Number(macHostNumber(reply, "exitCode")), signal = Number(macHostNumber(reply, "signal"));
           return { exitCode: code <= 255 ? code : null, signal: signal ? String(signal) : null,
@@ -532,7 +563,11 @@ export class MacHostCommandAttempt implements MacHostCommandResource {
       if (this.mayHaveScope && !stoppedBeforeCommand && !rejectedBeforeCommand) this.markUnknown(error);
       throw error;
     }).finally(() => { if (this.command === operation) this.command = null; });
-    this.command = operation; return operation;
+    this.command = operation;
+    // A delivery rejection never replaces the ORIGINAL command promise or
+    // stops status/closure observation. Report it only after that command ends;
+    // the retained resource still requires its existing seal/quiescence proof.
+    return operation.then(result => { if (outputFailed) throw outputFailure; return result; });
   }
 
   seal(): Promise<void> {
