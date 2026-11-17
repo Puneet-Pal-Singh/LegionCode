@@ -33,6 +33,28 @@ export interface CodexAppManagedSubscriptionBinding {
   }>;
 }
 
+/** Private selected API-key evidence from one admission/custody acquisition. */
+export interface CodexApiKeyBinding {
+  readonly kind: "api_key";
+  readonly scope: Readonly<HarnessInstanceScope>;
+  readonly credentialReference: Readonly<RuntimeCredentialReference>;
+  readonly identityFingerprint: string;
+  /** Raw SHA-256 of the same selected key; distinct from identityFingerprint. */
+  readonly keyMaterialSha256: string;
+  readonly expiresAt: number | null;
+  /** Attest the exact reference/material and synchronously invalidate the lease
+   * on rotation, revoke or owner loss. The host must fence physical dispatch. */
+  readonly assertCurrent: (input: {
+    readonly selection: HarnessSelection;
+    readonly credentialReference: Readonly<RuntimeCredentialReference>;
+    readonly identityFingerprint: string;
+    readonly keyMaterialSha256: string;
+    readonly expiresAt: number | null;
+    readonly processGeneration: string;
+    readonly signal: AbortSignal;
+  }) => Promise<{ readonly canDeliver: () => boolean }>;
+}
+
 type CodexCustodyCheck = Pick<
   Parameters<CodexAppManagedSubscriptionBinding["assertCurrent"]>[0],
   "selection" | "processGeneration" | "signal"
@@ -43,9 +65,10 @@ type CodexCustodyLease = Awaited<
 
 type CodexAuthenticationRoute =
   | {
-      readonly kind: "api_key" | "cli_managed_chatgpt";
+      readonly kind: "cli_managed_chatgpt";
       readonly identityFingerprint: string;
     }
+  | CodexApiKeyBinding
   | CodexAppManagedSubscriptionBinding;
 
 /** Private selected-key evidence. Compute at trusted connection setup, before
@@ -102,6 +125,9 @@ export class CodexAuthentication {
         !this.apiKey ||
         codexApiKeyIdentityFingerprint(this.apiKey) !==
           route.identityFingerprint ||
+        !/^[a-f0-9]{64}$/.test(route.keyMaterialSha256) ||
+        createHash("sha256").update(this.apiKey).digest("hex") !==
+          route.keyMaterialSha256 ||
         [
           "CODEX_API_KEY",
           "AZURE_OPENAI_API_KEY",
@@ -141,29 +167,42 @@ export class CodexAuthentication {
     return this.route.kind === "app_managed_chatgpt";
   }
 
+  get requiresCustody(): boolean {
+    return this.route.kind !== "cli_managed_chatgpt";
+  }
+
   async assertCurrent(
     input: CodexCustodyCheck,
   ): Promise<CodexCustodyLease | undefined> {
     const route = this.route;
-    if (route.kind !== "app_managed_chatgpt") return;
-    if (
-      input.signal.aborted ||
-      !Number.isSafeInteger(route.expiresAt) ||
-      Date.now() >= route.expiresAt
-    )
-      throw new Error("Codex app-managed custody expired or fenced");
+    if (route.kind === "cli_managed_chatgpt") return;
+    this.assertNotExpired(input.signal);
     try {
-      return await route.assertCurrent(
-        Object.freeze({
-          ...input,
-          credentialReference: route.credentialReference,
-          identityFingerprint: route.identityFingerprint,
-          accessTokenFingerprint: route.accessTokenFingerprint,
-          expiresAt: route.expiresAt,
-        }),
-      );
+      const common = Object.freeze({
+        ...input,
+        credentialReference: route.credentialReference,
+        identityFingerprint: route.identityFingerprint,
+      });
+      const lease =
+        route.kind === "api_key"
+          ? await route.assertCurrent(
+              Object.freeze({
+                ...common,
+                keyMaterialSha256: route.keyMaterialSha256,
+                expiresAt: route.expiresAt,
+              }),
+            )
+          : await route.assertCurrent(
+              Object.freeze({
+                ...common,
+                accessTokenFingerprint: route.accessTokenFingerprint,
+                expiresAt: route.expiresAt,
+              }),
+            );
+      this.assertUsable(input.signal, lease);
+      return lease;
     } catch {
-      throw new Error("Codex app-managed custody unavailable");
+      throw new Error("Codex selected custody unavailable");
     }
   }
 
@@ -171,19 +210,27 @@ export class CodexAuthentication {
     signal: AbortSignal,
     lease: CodexCustodyLease | undefined,
   ): void {
-    if (this.route.kind !== "app_managed_chatgpt") return;
+    if (!this.requiresCustody) return;
+    this.assertNotExpired(signal);
     try {
-      if (
-        !signal.aborted &&
-        Number.isSafeInteger(this.route.expiresAt) &&
-        Date.now() < this.route.expiresAt &&
-        lease?.canDeliver() === true
-      )
-        return;
+      if (lease?.canDeliver() === true) return;
     } catch {
       // Custody diagnostics may carry private material.
     }
-    throw new Error("Codex app-managed custody expired or fenced");
+    throw new Error("Codex selected custody expired or fenced");
+  }
+
+  private assertNotExpired(signal: AbortSignal): void {
+    const route = this.route;
+    if (route.kind === "cli_managed_chatgpt") return;
+    if (
+      signal.aborted ||
+      (route.expiresAt === null
+        ? route.kind !== "api_key"
+        : !Number.isSafeInteger(route.expiresAt) ||
+          Date.now() >= route.expiresAt)
+    )
+      throw new Error("Codex selected custody expired or fenced");
   }
 
   launchArgs(): readonly string[] {
@@ -219,7 +266,11 @@ export class CodexAuthentication {
     ];
   }
 
-  async establish(transport: CodexStdioTransport): Promise<void> {
+  async establish(
+    transport: CodexStdioTransport,
+    assertCurrent: () => void,
+  ): Promise<void> {
+    assertCurrent();
     if (this.loginSubmitted)
       throw new Error("Codex authentication already submitted");
     this.loginSubmitted = true;
@@ -235,6 +286,7 @@ export class CodexAuthentication {
     });
     // No retry after a lost response. Raw transport errors never include params.
     try {
+      assertCurrent();
       const [result] = await Promise.all([
         transport.request("account/login/start", {
           type: "apiKey",
@@ -242,6 +294,7 @@ export class CodexAuthentication {
         }),
         notifications,
       ]);
+      assertCurrent();
       if (!z.object({ type: z.literal("apiKey") }).safeParse(result).success)
         throw new Error("Codex selected API-key login unavailable");
       this.established = true;
