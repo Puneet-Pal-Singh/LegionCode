@@ -34,9 +34,13 @@ export const SelectedApiKeyRequestSchema = z
     if (
       input.scope.environmentId !== input.capture.environmentId ||
       !input.capture.selection ||
-      !["codex", "opencode"].includes(input.capture.selection.harness) ||
+      !["codex", "opencode", "claude"].includes(
+        input.capture.selection.harness,
+      ) ||
       (input.capture.selection.harness === "codex" &&
-        input.providerId !== "openai")
+        input.providerId !== "openai") ||
+      (input.capture.selection.harness === "claude" &&
+        input.providerId !== "anthropic")
     )
       context.addIssue({
         code: "custom",
@@ -67,6 +71,8 @@ export const SelectedApiKeyProvenanceSchema = z
       "legioncode-selected-api-key-v1",
     ]),
     identityFingerprint: sha256,
+    // Private raw-key proof for native guards; not the identity fingerprint.
+    keyMaterialSha256: sha256,
     connectionConfigFingerprint: sha256,
   })
   .strict()
@@ -126,7 +132,8 @@ export async function projectSelectedApiKeyProvenance(
   if (
     configuration &&
     (configuration.providerId !== selected.request.providerId ||
-      selected.request.capture.selection?.harness === "codex")
+      selected.request.capture.selection?.harness === "codex" ||
+      selected.request.capture.selection?.harness === "claude")
   )
     throw unavailable();
   const codex = selected.request.capture.selection?.harness === "codex";
@@ -140,6 +147,9 @@ export async function projectSelectedApiKeyProvenance(
         apiKey,
       };
   const identityFingerprint = await digest(JSON.stringify(identity));
+  // Same authorized acquisition and held tuple as the identity/config proofs.
+  // Never obtain key material again to populate a native guard binding.
+  const keyMaterialSha256 = await digest(apiKey);
   const connectionConfigFingerprint = await digest(
     JSON.stringify({
       source: "legioncode-selected-provider-config-v1",
@@ -152,6 +162,7 @@ export async function projectSelectedApiKeyProvenance(
       ? "codex-selected-api-key-0.167.0"
       : "legioncode-selected-api-key-v1",
     identityFingerprint,
+    keyMaterialSha256,
     connectionConfigFingerprint,
   });
 }
