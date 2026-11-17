@@ -274,7 +274,7 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
         return { ...row, nativeCheckout: { ...row.nativeCheckout!, placementObservation: { observation, artifact } } };
       });
       return observation;
-    });
+    }, "observation");
   }
 
   execute(spec: NativeCommandSpec) { return this.track(() => this.executeOwned(spec)); }
@@ -467,10 +467,15 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
         runAttemptId: lease.workspaceScope.runAttemptId, taskId: this.input.taskId, nonce: randomHex() },
     };
   }
-  private track<T>(operation: () => Promise<T>): Promise<T> {
+  private track<T>(operation: () => Promise<T>, kind: "mutation" | "observation" = "mutation"): Promise<T> {
     if (this.stopped || this.original || this.operations.size > 0) return Promise.reject(unavailable());
-    this.settledOriginal = undefined;
-    this.settledBootstrap = undefined;
+    // Placement GET/artifact work borrows the same original-operation lifetime
+    // without replacing the already settled physical command or bootstrap.
+    // Every mutating caller still invalidates both receipts before its effects.
+    if (kind === "mutation") {
+      this.settledOriginal = undefined;
+      this.settledBootstrap = undefined;
+    }
     const original = Promise.resolve().then(operation);
     this.operations.add(original);
     const settled = () => { this.operations.delete(original); };
