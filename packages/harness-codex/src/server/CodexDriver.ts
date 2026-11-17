@@ -605,6 +605,7 @@ export class CodexDriver implements HarnessDriver {
               await native.steer({
                 threadId,
                 expectedTurnId: control.expectedExternalTurnId,
+                clientUserMessageId: control.accepted.inputId,
                 input: [
                   { type: "text", text: control.text, text_elements: [] },
                 ],

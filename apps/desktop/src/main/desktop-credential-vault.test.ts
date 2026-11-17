@@ -18,9 +18,12 @@ afterEach(async () => {
 describe("DesktopCredentialVault", () => {
   it("stores only OS-encrypted ciphertext and survives replacement, reload, and deletion", async () => {
     const directory = await createDirectory();
-    const vault = new DesktopCredentialVault(directory, createSafeStorage());
+    const storage = createSafeStorage();
+    const vault = new DesktopCredentialVault(directory, storage);
     const providerId = ProviderIdSchema.parse("openai");
 
+    expect(await vault.listConnectedProviders()).toEqual([]);
+    expect(storage.isEncryptionAvailable).not.toHaveBeenCalled();
     await vault.setCredential(providerId, "fixture-secret-first");
     await vault.setCredential(providerId, "fixture-secret-replaced");
     const encrypted = await readFile(join(directory, "provider-credentials", "credentials.enc.json"), "utf8");
@@ -90,7 +93,11 @@ describe("DesktopCredentialVault", () => {
   });
 
   it("fails closed when OS-protected encryption is unavailable", async () => {
-    const vault = new DesktopCredentialVault(await createDirectory(), createSafeStorage(() => false, false));
+    const directory = await createDirectory();
+    await new DesktopCredentialVault(directory, createSafeStorage()).setCredential(
+      ProviderIdSchema.parse("openai"), "fixture-secret",
+    );
+    const vault = new DesktopCredentialVault(directory, createSafeStorage(() => false, false));
     expect(await vault.status(ProviderIdSchema.parse("openai"))).toBe("unavailable");
     await expect(vault.resolveRuntimeCredential(ProviderIdSchema.parse("openai"))).rejects.toThrow("Protected provider credentials are unavailable");
     await expect(vault.setCredential(ProviderIdSchema.parse("openai"), "fixture-secret")).rejects.toThrow(
@@ -110,7 +117,7 @@ function createSafeStorage(
   encryptionAvailable = true,
 ) {
   return {
-    isEncryptionAvailable: () => encryptionAvailable,
+    isEncryptionAvailable: vi.fn(() => encryptionAvailable),
     encryptString: vi.fn((value: string) => {
       if (shouldFail()) throw new Error("fixture storage failure");
       return Buffer.from(`fixture-cipher:${value}`);

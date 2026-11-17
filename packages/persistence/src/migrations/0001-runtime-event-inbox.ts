@@ -36,6 +36,8 @@ import { threadInputsAndContinuationsMigration } from "./0033-thread-inputs-and-
 import { legacyHistoryImportReceiptsMigration } from "./0034-legacy-history-import-receipts.js";
 import { nativeProviderAdmissionBindingMigration } from "./0042-native-provider-admission-binding.js";
 import { taskCheckoutIssuanceMigration } from "./0043-task-checkout-issuance.js";
+import { harnessBindingsMigration } from "./0045-harness-bindings.js";
+import { harnessControlPlaneMigration } from "./0046-harness-control-plane.js";
 import { workspaceConfigurationVersionMigration } from "./0041-workspace-configuration-version.js";
 import type { SqlMigration } from "./types.js";
 import { projectlessSessionRepositoryMigration } from "./0034-projectless-session-repository.js";
@@ -122,4 +124,6 @@ export const persistenceMigrations = [
   workspaceConfigurationVersionMigration,
   nativeProviderAdmissionBindingMigration,
   taskCheckoutIssuanceMigration,
+  harnessBindingsMigration,
+  harnessControlPlaneMigration,
 ] as const;
