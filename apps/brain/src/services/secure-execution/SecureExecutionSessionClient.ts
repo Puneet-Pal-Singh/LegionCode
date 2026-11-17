@@ -1,4 +1,10 @@
 import {
+  ExecutionDomainDigestSchema,
+  executionDomainDigest,
+  snapshotExecutionDomain,
+  type ServerExecutionDomainBinding,
+} from "@repo/worker-protocol/private/execution-domain";
+import {
   LeaseIdSchema,
   TaskCheckoutIdSchema,
   type LeaseId,
@@ -28,6 +34,7 @@ const SecureExecutionSessionResponseSchema = z
         leaseId: LeaseIdSchema,
         sandboxId: z.string().min(1),
         generation: z.number().int().nonnegative(),
+        executionDomainDigest: ExecutionDomainDigestSchema.optional(),
       })
       .passthrough(),
   })
@@ -58,6 +65,7 @@ export interface SecureExecutionSessionHandle {
     readonly leaseId: LeaseId;
     readonly sandboxId: string;
     readonly generation: number;
+    readonly executionDomainDigest?: string;
   };
 }
 
@@ -73,6 +81,7 @@ export interface PersistedSecureExecutionSessionReference {
   readonly leaseId: LeaseId;
   readonly sandboxId: string;
   readonly generation: number;
+  readonly executionDomainDigest?: string;
 }
 
 /**
@@ -82,6 +91,8 @@ export interface PersistedSecureExecutionSessionReference {
  */
 export class SecureExecutionSessionClient implements SecureExecutionSessionPort {
   private sessionPromise: Promise<SecureExecutionSessionHandle> | null = null;
+  private originalPromise: Promise<SecureExecutionSessionHandle> | null = null;
+  private readonly executionDomain: ServerExecutionDomainBinding | undefined;
   private releasePromise: Promise<void> | null = null;
   private reference: PersistedSecureExecutionSessionReference | undefined;
 
@@ -91,29 +102,63 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
     private readonly runId: string,
     private readonly workspaceScope: SecureExecutionWorkspaceScope,
     persistedReference?: PersistedSecureExecutionSessionReference,
+    executionDomain?: ServerExecutionDomainBinding,
   ) {
-    this.reference = persistedReference;
+    this.reference = persistedReference
+      ? snapshotPersistedSecureExecutionSessionReference(persistedReference)
+      : undefined;
+    this.workspaceScope = Object.freeze({ ...workspaceScope });
+    this.executionDomain = executionDomain
+      ? snapshotExecutionDomain(executionDomain)
+      : undefined;
+    const scope = this.executionDomain?.scope;
+    if (
+      (this.reference &&
+        !!this.reference.executionDomainDigest !== !!this.executionDomain) ||
+      (scope &&
+        (scope.brainSessionId !== brainSessionId ||
+          scope.runId !== runId ||
+          scope.workspaceId !== workspaceScope.workspaceId ||
+          scope.threadId !== workspaceScope.threadId ||
+          scope.turnId !== workspaceScope.turnId ||
+          scope.runAttemptId !== workspaceScope.runAttemptId ||
+          workspaceScope.runId !== runId))
+    ) {
+      throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
+    }
   }
 
   async acquire(): Promise<SecureExecutionSessionHandle> {
     if (!this.sessionPromise) {
-      this.sessionPromise = this.create();
+      this.sessionPromise = this.createValidated();
     }
     try {
       const session = await this.sessionPromise;
       this.reference = toPersistedReference(session);
       return session;
     } catch (error) {
-      this.sessionPromise = null;
+      if (!this.executionDomain && !this.originalPromise)
+        this.sessionPromise = null;
       throw error;
     }
   }
 
   async borrowOriginal(): Promise<SecureExecutionSessionHandle> {
+    if (!this.originalPromise) this.originalPromise = this.readOriginal();
+    if (!this.sessionPromise) this.sessionPromise = this.originalPromise;
+    const handle = await this.originalPromise;
+    this.reference = toPersistedReference(handle);
+    return handle;
+  }
+
+  private async readOriginal(): Promise<SecureExecutionSessionHandle> {
     const reference = this.reference;
     if (!reference) {
-      throw new Error("Git borrowing requires the persisted checkout lease identity");
+      throw new Error(
+        "Git borrowing requires the persisted checkout lease identity",
+      );
     }
+    await this.validateReferenceDomain();
     const response = await fetchWithTimeout(
       this.env.SECURE_API,
       `http://internal/api/v1/session/${encodeURIComponent(reference.secureSessionId)}/borrow?session=${encodeURIComponent(this.brainSessionId)}`,
@@ -125,6 +170,9 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
         },
         body: JSON.stringify({
           runId: this.runId,
+          ...(this.executionDomain
+            ? { executionDomain: this.executionDomain }
+            : {}),
           workspaceScope: this.workspaceScope,
           lease: {
             leaseId: reference.leaseId,
@@ -136,23 +184,39 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
       DEFAULT_EXECUTION_TIMEOUT_MS,
     );
     if (!response.ok) {
-      throw new Error("The original secure checkout session is unavailable for Git borrowing");
+      throw new Error(
+        "The original secure checkout session is unavailable for Git borrowing",
+      );
     }
     const handle = SecureExecutionSessionResponseSchema.parse(
       await parseJsonResponse(response),
     );
-    const exactLease = handle.sessionId === reference.secureSessionId &&
+    await this.validateDomainHandle(handle);
+    const exactLease =
+      handle.sessionId === reference.secureSessionId &&
       handle.lease.leaseId === reference.leaseId &&
       handle.lease.sandboxId === reference.sandboxId &&
       handle.lease.generation === reference.generation;
     const leaseExpiry = (handle.lease as { expiresAt?: unknown }).expiresAt;
-    if (!exactLease || typeof leaseExpiry !== "number" || leaseExpiry <= Date.now()) {
-      throw new Error("The original secure checkout lease is unavailable for Git borrowing");
+    if (
+      !exactLease ||
+      typeof leaseExpiry !== "number" ||
+      leaseExpiry <= Date.now()
+    ) {
+      throw new Error(
+        "The original secure checkout lease is unavailable for Git borrowing",
+      );
     }
-    return handle;
+    return Object.freeze({
+      ...handle,
+      lease: Object.freeze({ ...handle.lease }),
+    });
   }
 
   async recoverAfterSandboxLoss(): Promise<SecureExecutionSessionHandle> {
+    if (this.executionDomain || this.originalPromise) {
+      throw new Error("SECURE_ORIGINAL_SESSION_RECOVERY_REQUIRED");
+    }
     const reference = this.reference;
     if (!reference) {
       await this.acquire();
@@ -164,6 +228,7 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
       );
     }
     const recovered = await this.resume(recoverableReference);
+    await this.validateDomainHandle(recovered);
     this.reference = toPersistedReference(recovered);
     this.sessionPromise = Promise.resolve(recovered);
     this.releasePromise = null;
@@ -204,16 +269,47 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
     return z.object({ cancelled: z.boolean() }).parse(body).cancelled;
   }
 
+  private async validateReferenceDomain(): Promise<string | undefined> {
+    const expected = this.executionDomain
+      ? await executionDomainDigest(this.executionDomain)
+      : undefined;
+    if (this.reference && this.reference.executionDomainDigest !== expected) {
+      throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
+    }
+    return expected;
+  }
+
+  private async validateDomainHandle(
+    session: SecureExecutionSessionHandle,
+  ): Promise<void> {
+    if (
+      session.lease.executionDomainDigest !==
+      (await this.validateReferenceDomain())
+    ) {
+      throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
+    }
+  }
+
+  private async createValidated(): Promise<SecureExecutionSessionHandle> {
+    const session = await this.create();
+    await this.validateDomainHandle(session);
+    return Object.freeze({
+      ...session,
+      lease: Object.freeze({ ...session.lease }),
+    });
+  }
+
   private async create(): Promise<SecureExecutionSessionHandle> {
     if (this.reference) {
-      return await this.resume(this.reference);
+      return this.executionDomain
+        ? await this.borrowOriginal()
+        : await this.resume(this.reference);
     }
     const internalSecret = this.requireInternalSecret();
-    for (
-      let attempt = 1;
-      attempt <= LOCAL_DEV_SESSION_RETRY_ATTEMPTS;
-      attempt += 1
-    ) {
+    const maximumAttempts = this.executionDomain
+      ? 1
+      : LOCAL_DEV_SESSION_RETRY_ATTEMPTS;
+    for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
       const response = await fetchWithTimeout(
         this.env.SECURE_API,
         `http://internal/api/v1/session?session=${encodeURIComponent(this.brainSessionId)}`,
@@ -228,6 +324,9 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
             taskId: `brain-session-${this.brainSessionId}`,
             repoPath: EXECUTION_SESSION_REPO_PATH,
             workspaceScope: this.workspaceScope,
+            ...(this.executionDomain
+              ? { executionDomain: this.executionDomain }
+              : {}),
           }),
         },
         DEFAULT_EXECUTION_TIMEOUT_MS,
@@ -240,16 +339,13 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
 
       const message =
         (await response.text()) || "Failed to create secure execution session";
-      if (
-        attempt < LOCAL_DEV_SESSION_RETRY_ATTEMPTS &&
-        isLocalDevSessionProxyMiss(message)
-      ) {
+      if (attempt < maximumAttempts && isLocalDevSessionProxyMiss(message)) {
         console.log(
           formatDiagnosticLogLine("execution/tool", "session-retry", {
             runId: this.runId,
             sessionId: this.brainSessionId,
             attempt,
-            maxAttempts: LOCAL_DEV_SESSION_RETRY_ATTEMPTS,
+            maxAttempts: maximumAttempts,
           }),
         );
         await sleep(LOCAL_DEV_SESSION_RETRY_DELAY_MS);
@@ -285,10 +381,9 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
     );
     if (!response.ok) {
       const responseText = await response.text();
-      const errorBody =
-        SecureExecutionSessionErrorResponseSchema.safeParse(
-          parseJsonText(responseText),
-        );
+      const errorBody = SecureExecutionSessionErrorResponseSchema.safeParse(
+        parseJsonText(responseText),
+      );
       if (
         errorBody.success &&
         errorBody.data.code === "SANDBOX_RECOVERY_EXHAUSTED"
@@ -392,7 +487,7 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
   }
 }
 
-function toPersistedReference(
+export function toPersistedReference(
   session: SecureExecutionSessionHandle,
 ): PersistedSecureExecutionSessionReference {
   return {
@@ -400,6 +495,9 @@ function toPersistedReference(
     leaseId: session.lease.leaseId,
     sandboxId: session.lease.sandboxId,
     generation: session.lease.generation,
+    ...(session.lease.executionDomainDigest
+      ? { executionDomainDigest: session.lease.executionDomainDigest }
+      : {}),
   };
 }
 
@@ -461,4 +559,21 @@ function parseJsonText(text: string): unknown {
 
 async function sleep(durationMs: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, durationMs));
+}
+
+export function snapshotPersistedSecureExecutionSessionReference(
+  value: unknown,
+): PersistedSecureExecutionSessionReference {
+  return Object.freeze(
+    z
+      .object({
+        secureSessionId: z.string().min(1),
+        leaseId: LeaseIdSchema,
+        sandboxId: z.string().min(1),
+        generation: z.number().int().nonnegative().safe(),
+        executionDomainDigest: ExecutionDomainDigestSchema.optional(),
+      })
+      .strict()
+      .parse(value),
+  );
 }
