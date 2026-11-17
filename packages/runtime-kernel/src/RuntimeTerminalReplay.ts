@@ -15,6 +15,11 @@ export async function readCompletedTurnReplay(
   producerId: string,
   first: LifecycleEvent,
 ): Promise<StartTurnResult> {
+  // Repository results include the executable manifest captured for that attempt.
+  // This replay port cannot recover it from immutable evidence.
+  if (input.run.executionCapability !== "conversation") {
+    throw new RuntimeKernelError("turn_already_owned", "Canonical lifecycle history requires explicit supported recovery");
+  }
   const events = [first];
   let cursor = first.sequence;
   let bytes = appServerJsonByteLength(first);
