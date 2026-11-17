@@ -31,7 +31,7 @@ typedef struct {
   lc_host_file_identity parent_identity, work_identity;
   uint16_t port; size_t positive_sent, positive_received;
   unsigned char positive_bytes[32], result_sha256[32], build_sha256[32], package_bin_sha256[32], core_utils_sha256[32], g_sha256[32];
-  bool package_test, package_build, detached_observed, detached_closed;
+  bool package_files_prepared, package_test, package_build, detached_observed, detached_closed;
   pid_t detached_pid; uint64_t detached_start_seconds, detached_start_microseconds;
 } lc_host_qualification;
 
@@ -263,24 +263,28 @@ static inline bool lc_qualification_package_files(const lc_host_approval *approv
     lc_qualification_write(scope->root, ".qualifier-core-script", lc_qualification_core_shell_script, sizeof(lc_qualification_core_shell_script) - 1, approval->actor, actor.pw_gid, 0755) && lc_host_sync(scope->root);
   free(configuration); return okay;
 }
-static inline bool lc_qualification_command(int state, const lc_host_approval *approval, lc_host_qualification *job, const char *recipe) {
+static inline lc_host_command_preparation lc_qualification_command(int state, const lc_host_approval *approval, lc_host_qualification *job, const char *recipe, lc_host_scope *scopes) {
   char command[501];
-  if (!lc_host_qualification_toolchain_current(approval, &job->tools)) return false;
+  if (!lc_host_qualification_toolchain_current(approval, &job->tools)) return LC_HOST_COMMAND_REJECTED;
   int count;
   if (!strcmp(recipe, "flood")) count = snprintf(command, sizeof(command), "node .qualifier-flood.cjs");
   else if (!strcmp(recipe, "test") || !strcmp(recipe, "build"))
     count = snprintf(command, sizeof(command), "npm run %s", recipe);
-  else return false;
-  if (count < 0 || count >= (int)sizeof(command)) return false;
-  xpc_object_t request = xpc_dictionary_create(NULL, NULL, 0); if (!request) return false;
+  else return LC_HOST_COMMAND_REJECTED;
+  if (count < 0 || count >= (int)sizeof(command)) return LC_HOST_COMMAND_REJECTED;
+  xpc_object_t request = xpc_dictionary_create(NULL, NULL, 0); if (!request) return LC_HOST_COMMAND_REJECTED;
   lc_host_put(request, "version", "1"); lc_host_put(request, "operation", "prepareCommand"); lc_host_put(request, "generation", approval->generation);
   lc_host_put(request, "capability", job->resource->capability); lc_host_put(request, "commandId", recipe); lc_host_put(request, "command", command); lc_host_put(request, "cwd", ".");
   const char *keys[] = { LC_HOST_METADATA_FIELDS };
   for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++)
     lc_host_put(request, keys[i], i == 0 ? job->resource->record.metadata.identity : i == 1 ? job->resource->record.metadata.storage_identity : job->resource->record.metadata.paths[i - 2]);
-  bool okay = lc_host_prepare_command_internal(state, approval, job->resource, request, LC_HOST_RESOURCE_SETUP_QUALIFICATION) &&
-    lc_host_release_command_internal(state, approval, job->resource, LC_HOST_RESOURCE_SETUP_QUALIFICATION);
-  xpc_release(request); return okay;
+  lc_host_requested_command requested;
+  lc_host_command_preparation prepared = lc_host_prepare_command_internal(state, approval, job->resource, request,
+    LC_HOST_RESOURCE_SETUP_QUALIFICATION, scopes, &requested);
+  xpc_release(request);
+  if (prepared != LC_HOST_COMMAND_PREPARED) return prepared;
+  return lc_host_release_command_internal(state, approval, job->resource, LC_HOST_RESOURCE_SETUP_QUALIFICATION)
+    ? LC_HOST_COMMAND_PREPARED : LC_HOST_COMMAND_REJECTED;
 }
 static inline bool lc_qualification_read(int root, const char *name, void *bytes, size_t size, uid_t actor, uint64_t device) {
   int fd = openat(root, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC); struct stat held, named;
@@ -599,7 +603,7 @@ static inline bool lc_qualification_cleanup_tick(int state, lc_host_approval *ap
   scope->used = false; job->metadata.resource = NULL; job->resource = NULL; job->owner_releasable = true;
   return true;
 }
-static inline void lc_host_qualification_tick(int state, lc_host_approval *approval, lc_host_qualification *job) {
+static inline void lc_host_qualification_tick(int state, lc_host_approval *approval, lc_host_qualification *job, lc_host_scope *scopes) {
   if (!job->used || job->phase == LC_QUAL_PASSED || job->phase == LC_QUAL_CANCELLED) return;
   if (job->phase == LC_QUAL_UNKNOWN) {
     if (job->acquisition.version) (void)lc_writer_setup_qualification_poll(&job->acquisition);
@@ -663,7 +667,14 @@ static inline void lc_host_qualification_tick(int state, lc_host_approval *appro
   if (job->phase == LC_QUAL_NETWORK_CONTROL) {
     if (!lc_qualification_network_poll(job)) { lc_qualification_unknown(state, job); return; }
     if (!job->socket_positive) return;
-    if (!lc_qualification_package_files(approval, job) || !lc_qualification_command(state, approval, job, "test")) { lc_qualification_unknown(state, job); return; }
+    if (lc_host_actor_access_busy(scopes, scope)) return;
+    if (!job->package_files_prepared) {
+      if (!lc_qualification_package_files(approval, job)) { lc_qualification_unknown(state, job); return; }
+      job->package_files_prepared = true;
+    }
+    lc_host_command_preparation prepared = lc_qualification_command(state, approval, job, "test", scopes);
+    if (prepared == LC_HOST_COMMAND_BUSY) return;
+    if (prepared != LC_HOST_COMMAND_PREPARED) { lc_qualification_unknown(state, job); return; }
     job->phase = LC_QUAL_TEST; return;
   }
   if (job->phase == LC_QUAL_TEST || job->phase == LC_QUAL_BUILD) {
@@ -674,13 +685,15 @@ static inline void lc_host_qualification_tick(int state, lc_host_approval *appro
     bool build = job->phase == LC_QUAL_BUILD;
     if (!lc_qualification_evidence(approval, job, build)) { lc_qualification_unknown(state, job); return; }
     if (!build) {
-      job->package_test = true;
-      if (!lc_qualification_command(state, approval, job, "build")) { lc_qualification_unknown(state, job); return; }
-      job->phase = LC_QUAL_BUILD; return;
+      lc_host_command_preparation prepared = lc_qualification_command(state, approval, job, "build", scopes);
+      if (prepared == LC_HOST_COMMAND_BUSY) return;
+      if (prepared != LC_HOST_COMMAND_PREPARED) { lc_qualification_unknown(state, job); return; }
+      job->package_test = true; job->phase = LC_QUAL_BUILD; return;
     }
-    job->package_build = true;
-    if (!lc_qualification_command(state, approval, job, "flood") || !lc_host_monotonic(&job->flood_started)) { lc_qualification_unknown(state, job); return; }
-    job->phase = LC_QUAL_FLOOD; return;
+    lc_host_command_preparation prepared = lc_qualification_command(state, approval, job, "flood", scopes);
+    if (prepared == LC_HOST_COMMAND_BUSY) return;
+    if (prepared != LC_HOST_COMMAND_PREPARED || !lc_host_monotonic(&job->flood_started)) { lc_qualification_unknown(state, job); return; }
+    job->package_build = true; job->phase = LC_QUAL_FLOOD; return;
   }
   if (job->phase == LC_QUAL_FLOOD) {
     if (scope->record.phase != LC_HOST_RUNNING || scope->reaped || scope->timed_out) { lc_qualification_unknown(state, job); return; }

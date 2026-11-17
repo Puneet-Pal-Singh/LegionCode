@@ -123,8 +123,15 @@ static xpc_object_t serve_request(xpc_connection_t peer, xpc_object_t request, c
     return lc_host_reply("retired", "okay");
   }
   if (!strcmp(operation, "prepareCommand")) {
-    if (!lc_host_prepare_command(state_directory, &approval, scope, request)) return lc_host_reply("unknown", "commandPreparationRejected");
-    return scope_reply(scope);
+    lc_host_requested_command requested;
+    lc_host_command_preparation prepared = lc_host_prepare_command(state_directory, &approval, scope, request, scopes, &requested);
+    if (prepared == LC_HOST_COMMAND_REJECTED) return lc_host_reply("unknown", "commandPreparationRejected");
+    xpc_object_t reply = scope_reply(scope);
+    if (prepared == LC_HOST_COMMAND_BUSY) {
+      lc_host_put(reply, "state", "busy"); lc_host_put(reply, "code", "actorAccessEpochBusy");
+      lc_host_put(reply, "requestedCommandId", requested.id); lc_host_put(reply, "requestedCommandDigest", requested.digest);
+    }
+    return reply;
   }
   if (!strcmp(operation, "releaseCommand")) {
     static const char *const fields[] = { "version", "operation", "generation", "capability", "commandId", "commandDigest" };
@@ -249,7 +256,7 @@ static int serve(void) {
   dispatch_source_set_event_handler(timer, ^{
     for (size_t i = 0; i < LC_HOST_MAX_SCOPES; i++) lc_host_scope_tick(state_directory, &scopes[i]);
     history_tick();
-    lc_host_qualification_tick(state_directory, &approval, &qualification);
+    lc_host_qualification_tick(state_directory, &approval, &qualification, scopes);
     lc_host_reauthorization_tick(state_directory, &reauthorization, reauthorization_originals_closed());
     if (qualification.owner_releasable) {
       if (owners[qualification.resource_index]) xpc_release(owners[qualification.resource_index]);
