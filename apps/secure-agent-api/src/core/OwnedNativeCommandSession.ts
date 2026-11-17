@@ -1,3 +1,4 @@
+import type { NativeContainerPlacementReader, NativeContainerPlacementObservation } from "./NativeContainerPlacementReader";
 import { snapshotNativeSandboxPhysicalBinding } from "@repo/worker-protocol/private/native-sandbox-binding";
 import { NativeCheckoutBootstrapIntentSchema, NativeCheckoutBootstrapReceiptSchema, freezeBootstrap,
   NativeRuntimeObservationSchema, type NativeRuntimeObservation, type NativeCheckoutBootstrapIntent, type NativeCheckoutBootstrapReceipt, type NativeCheckoutReadyEvidence } from "@repo/worker-protocol/private/native-checkout-bootstrap";
@@ -42,6 +43,8 @@ export interface NativeCheckoutState {
   runtimePreparation?: NativeRuntimePreparation;
   runtimeCommandReceipt?: NativeCommandReceipt;
   runtimeObservation?: { evidence: NativeRuntimeObservation; artifact: { id: string; sha256: string } };
+  placementObservation?: { observation: NativeContainerPlacementObservation; artifact: { id: string; sha256: string; size: number } };
+
   rawStarted?: true;
 }
 export interface NativeSessionFields {
@@ -218,6 +221,59 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
         return { ...row, nativeCheckout: { ...row.nativeCheckout, runtimeObservation: { evidence, artifact: runtimeArtifact }, runtimeCommandReceipt: commandReceipt } };
       });
       return evidence;
+    });
+  }
+
+  /** This host-side GET is registered before fetch in the SAME operation loan.
+   * Linking the guest artifact records observation order, not a same-boot image
+   * attestation. Neither this record nor its artifact is Native Ready evidence. */
+  observeNativeContainerPlacement(reader: NativeContainerPlacementReader) {
+    return this.track(async () => {
+      const before = await this.read();
+      const checkout = before.nativeCheckout;
+      const guest = checkout?.runtimeObservation;
+      const command = before.nativeCommand;
+      if (!guest || !command || !checkout.receipt || checkout.phase !== "materialized" ||
+        checkout.runtime || checkout.placementObservation || command.phase !== "settled") throw unavailable();
+      const evidence = freezeBootstrap(NativeRuntimeObservationSchema.parse(guest.evidence));
+      const physical = snapshotNativeSandboxPhysicalBinding(before.nativeSandboxBinding);
+      if (JSON.stringify(physical) !== JSON.stringify(evidence.physicalBinding) ||
+        !sameNativeBinding(command.binding, evidence.commandBinding)) throw unavailable();
+      const guestSnapshot = JSON.stringify(guest);
+      const assertCurrent = (row: Session) => {
+        if (this.stopped || row.cleanupInProgress || row.nativeCommand?.stopRequested || row.expiresAt === undefined ||
+          row.expiresAt <= Date.now() || row.lease.expiresAt <= Date.now() || row.nativeCommand?.phase !== "settled" ||
+          !sameNativeBinding(row.nativeCommand.binding, command.binding) || row.nativeCheckout?.phase !== "materialized" ||
+          row.nativeCheckout.runtime || row.nativeCheckout.placementObservation ||
+          JSON.stringify(row.nativeCheckout.runtimeObservation) !== guestSnapshot ||
+          JSON.stringify(row.nativeSandboxBinding) !== JSON.stringify(physical)) throw unavailable();
+      };
+      assertCurrent(before);
+      // read() also rechecks the original lease, complete scope and domain after
+      // each await; it never resolves or creates a replacement sandbox.
+      const observation = await reader.read(physical);
+      assertCurrent(await this.read());
+      if (observation.actorId !== physical.sandboxObjectId) throw unavailable();
+      const bytes = new TextEncoder().encode(JSON.stringify({
+        version: 1, kind: "native_placement_observation", qualifying: false,
+        binding: evidence.commandBinding, physicalBinding: physical,
+        guestObservationArtifact: guest.artifact, observation,
+      }));
+      const sha256 = await digest(bytes);
+      assertCurrent(await this.read());
+      const uploaded = await this.input.artifacts.upload({ sessionId: this.input.sessionId, contentType: "application/json", data: bytes });
+      assertCurrent(await this.read());
+      if (!uploaded.id.startsWith(`artifacts/${this.input.sessionId}/`) || uploaded.sessionId !== this.input.sessionId) throw unavailable();
+      const readback = await this.input.artifacts.download(uploaded.id, this.input.sessionId);
+      assertCurrent(await this.read());
+      if (!readback || readback.byteLength !== bytes.byteLength || await digest(readback) !== sha256) throw unavailable();
+      assertCurrent(await this.read());
+      const artifact = { id: uploaded.id, sha256, size: bytes.byteLength };
+      await this.update(command.binding.nonce, row => {
+        assertCurrent(row);
+        return { ...row, nativeCheckout: { ...row.nativeCheckout!, placementObservation: { observation, artifact } } };
+      });
+      return observation;
     });
   }
 
