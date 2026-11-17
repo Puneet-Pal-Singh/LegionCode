@@ -312,13 +312,31 @@ done:
 
 #include "legioncode-fs-transaction.h"
 
+static int inspect_git_entry(void) {
+  struct stat root, entry;
+  unsigned char extra, receipt[2] = {'K', 1};
+  if (strcmp(requested_path, ".")) return fail(1, "Git entry inspection requires the workspace root");
+  ssize_t count;
+  do { count = read(0, &extra, 1); } while (count < 0 && errno == EINTR && !stopped);
+  if (stopped) return cancelled();
+  if (count != 0) return fail(1, "Invalid Git entry request framing");
+  if (fstat(3, &root) || !S_ISDIR(root.st_mode)) return fail(5, "Workspace root is unavailable");
+  if (fstatat(3, ".git", &entry, AT_SYMLINK_NOFOLLOW)) {
+    if (errno != ENOENT) return fail(5, "Git entry could not be inspected");
+    receipt[1] = 0;
+  }
+  if (stopped) return cancelled();
+  return write_exact(1, receipt, sizeof(receipt)) ? 1 : 0;
+}
+
 static int run(void) {
   unsigned char header[6]; uint32_t path_length; char name[MAX_PATH_BYTES + 1];
-  if (read_exact(0, header, 6) || memcmp(header, "LCFM\1", 5) || (header[5] != 'R' && header[5] != 'M' && header[5] != 'D' && header[5] != 'T' && header[5] != 'I' && header[5] != 'G') ||
+  if (read_exact(0, header, 6) || memcmp(header, "LCFM\1", 5) || (header[5] != 'R' && header[5] != 'M' && header[5] != 'D' && header[5] != 'T' && header[5] != 'I' && header[5] != 'G' && header[5] != 'K') ||
       read_u32(&path_length) || !path_length || path_length > MAX_PATH_BYTES ||
       read_exact(0, requested_path, path_length)) return stopped ? cancelled() : fail(1, "Invalid native filesystem protocol");
   if (memchr(requested_path, 0, path_length)) return fail(1, "NUL is not allowed in a workspace path");
   requested_path[path_length] = 0;
+  if (header[5] == 'K') return inspect_git_entry();
   if (header[5] == 'I' || header[5] == 'G') return inspect_git_metadata(header[5] == 'G');
   if (header[5] == 'T') {
     lc_child_intent writer_header;

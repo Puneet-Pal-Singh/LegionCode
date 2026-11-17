@@ -138,6 +138,21 @@ export class NativeFilesystemBridge {
     );
   }
 
+  async hasGitMetadataEntry(input: {
+    readonly signal: AbortSignal;
+  }): Promise<boolean> {
+    return this.withHelper("K", { path: ".", signal: input.signal }, async (reader, stdin) => {
+      stdin.end();
+      await reader.tag(75);
+      const present = (await reader.read(1))[0];
+      if (present !== 0 && present !== 1)
+        throw new NativeFilesystemError(1, "Invalid Git entry receipt");
+      await reader.end();
+      input.signal.throwIfAborted();
+      return present === 1;
+    });
+  }
+
   async inspectGitMetadataLayout(input: {
     readonly signal: AbortSignal;
     readonly purpose?: "association" | "mutation";
@@ -482,7 +497,7 @@ export class NativeFilesystemBridge {
   }
 
   private async withHelper<T>(
-    operation: "R" | "M" | "D" | "T" | "I" | "G",
+    operation: "R" | "M" | "D" | "T" | "I" | "G" | "K",
     input: { path: string; signal: AbortSignal },
     run: (reader: FrameReader, stdin: Writable) => Promise<T>,
   ): Promise<T> {
@@ -496,6 +511,9 @@ export class NativeFilesystemBridge {
           1,
           "Unsupported metadata identity target",
         );
+    } else if (operation === "K") {
+      if (input.path !== ".")
+        throw new NativeFilesystemError(1, "Git entry inspection requires the workspace root");
     } else validateLocalFilesystemPath(input.path, operation === "D");
     if (
       !isAbsolute(this.options.helperPath) ||
@@ -762,6 +780,11 @@ class FrameReader {
     if (value > maximum)
       throw new Error("Native filesystem frame exceeds its limit");
     return value;
+  }
+
+  async end(): Promise<void> {
+    if (this.buffered.length !== 0 || !(await this.source.next()).done)
+      throw new NativeFilesystemError(1, "Unexpected trailing native filesystem response");
   }
 
   async tag(expected: number): Promise<void> {
