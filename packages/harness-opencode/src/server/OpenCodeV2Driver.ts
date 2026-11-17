@@ -18,6 +18,10 @@ import {
   type HarnessStartCommand,
 } from "@repo/worker-protocol";
 import { OpenCodeTransportError } from "./OpenCodeClient.js";
+import {
+  OpenCodePayerGuard,
+  type OpenCodeSelectedPayerBinding,
+} from "./OpenCodeAuthentication.js";
 import { OpenCodeEventMapper } from "./OpenCodeEventMapper.js";
 import {
   OPENCODE_TRANSPORT,
@@ -40,6 +44,7 @@ export class OpenCodeV2Driver implements HarnessDriver {
         readonly model: ModelRef;
         readonly agent?: string;
         readonly priorThreadTokens: number;
+        readonly payer: OpenCodeSelectedPayerBinding;
       }>;
       /** Existing policy authority resolves this exact frozen selection; never renderer/provider input. */
       readonly resolvePolicy: (command: HarnessStartCommand) => Promise<{
@@ -92,9 +97,40 @@ export class OpenCodeV2Driver implements HarnessDriver {
     }
     requireOpenCodeVersion(command.selection.runtimeVersion);
     signal.throwIfAborted();
-    const configuration = structuredClone(
-      await this.options.resolveConfiguration(command),
-    );
+    if (command.selection.billingSource !== "api_key")
+      throw new OpenCodeTransportError(
+        "selected payer route unavailable",
+        false,
+      );
+    const { model, agent, priorThreadTokens, payer } = await this.options
+      .resolveConfiguration(command)
+      .catch(() => {
+        throw new OpenCodeTransportError(
+          "selected configuration unavailable",
+          false,
+        );
+      });
+    const configuration = Object.freeze({
+      model: Object.freeze({ ...model }),
+      agent,
+      priorThreadTokens,
+    });
+    let payerGuard: OpenCodePayerGuard;
+    try {
+      payerGuard = new OpenCodePayerGuard(
+        payer,
+        command,
+        host,
+        configuration.model,
+        configuration.agent,
+        signal,
+      );
+    } catch {
+      throw new OpenCodeTransportError(
+        "selected payer binding unavailable",
+        false,
+      );
+    }
     if (
       !Number.isSafeInteger(configuration.priorThreadTokens) ||
       configuration.priorThreadTokens < 0
@@ -117,7 +153,21 @@ export class OpenCodeV2Driver implements HarnessDriver {
     });
     signal.throwIfAborted();
     const owner = await OpenCodeServerOwner.start({
-      host,
+      host: {
+        ...host,
+        launch: async (request) => {
+          try {
+            const beforeLaunch = await payerGuard.authorize(signal, null);
+            beforeLaunch();
+          } catch {
+            throw new OpenCodeTransportError(
+              "payer authorization before launch",
+              false,
+            );
+          }
+          return host.launch(request);
+        },
+      },
       executable: this.options.executable,
       signal,
     });
@@ -182,6 +232,7 @@ export class OpenCodeV2Driver implements HarnessDriver {
           }
           if (mapper.foregroundEnded) resolveForeground();
         },
+        () => payerGuard.authorize(signal, null, owner.transport),
       );
       const session = HarnessSessionSchema.parse({
         runAttemptId: command.selection.runAttemptId,
@@ -197,6 +248,19 @@ export class OpenCodeV2Driver implements HarnessDriver {
         priorThreadTokens: configuration.priorThreadTokens,
       });
       const capturedNative = native;
+      const fenceFailure = (message: string) => {
+        const error = new OpenCodeTransportError(message, true);
+        if (!stopping && !observationIntegritySealed) {
+          stopping = true;
+          capturedNative.fence();
+          host.fence();
+          rejectForeground(error);
+          void host
+            .terminateProcesses({ graceMs: 100, killWaitMs: 1000 })
+            .catch(() => undefined);
+        }
+        return error;
+      };
       const assertPolicy = async () => {
         try {
           await capturedNative.assertPermissions(nativePermissions);
@@ -210,19 +274,42 @@ export class OpenCodeV2Driver implements HarnessDriver {
           if (stopping)
             throw new OpenCodeTransportError("policy recheck after Stop", true);
         } catch {
-          stopping = true;
-          capturedNative.fence();
-          host.fence();
-          const error = new OpenCodeTransportError(
-            "effective policy unavailable",
-            true,
-          );
-          rejectForeground(error);
-          void host
-            .terminateProcesses({ graceMs: 100, killWaitMs: 1000 })
-            .catch(() => undefined);
-          throw error;
+          throw fenceFailure("effective policy unavailable");
         }
+      };
+      const authorizeDispatch = async (
+        payerSignal: AbortSignal,
+        sessionID = capturedNative.id,
+      ) => {
+        let checkLease: () => void;
+        try {
+          await assertPolicy();
+          if (sessionID !== capturedNative.id)
+            await capturedNative.assertPermissions(
+              nativePermissions,
+              sessionID,
+            );
+          checkLease = await payerGuard.authorize(
+            payerSignal,
+            sessionID,
+            owner.transport,
+          );
+        } catch {
+          throw fenceFailure("effective payer unavailable");
+        }
+        return () => {
+          try {
+            checkLease();
+            if (
+              stopping ||
+              observationIntegritySealed ||
+              owner.transport.continuity !== "ready"
+            )
+              throw new OpenCodeTransportError("continuation fenced", true);
+          } catch {
+            throw fenceFailure("effective payer unavailable at dispatch");
+          }
+        };
       };
 
       const capturedMapper = mapper;
@@ -391,8 +478,8 @@ export class OpenCodeV2Driver implements HarnessDriver {
           executing = true;
           execution = (async () => {
             request.signal.throwIfAborted();
-            await assertPolicy();
-            request.signal.throwIfAborted();
+            const beforeDispatch = await authorizeDispatch(request.signal);
+            beforeDispatch();
             await capturedNative.prompt(command.prompt);
             await foreground;
             while (!stopping) {
@@ -443,11 +530,17 @@ export class OpenCodeV2Driver implements HarnessDriver {
             ) {
               throw new OpenCodeTransportError("question origin", true);
             }
-            await assertPolicy();
-            await capturedNative.replyForm(
-              form.id,
-              questionAnswer(form, reply.response),
+            const answer = questionAnswer(form, reply.response);
+            const beforeDispatch = await authorizeDispatch(
+              signal,
+              reply.replyTo.origin,
             );
+            beforeDispatch();
+            if (
+              capturedNative.pendingForm(form.id)?.sessionID !== form.sessionID
+            )
+              throw new OpenCodeTransportError("question origin changed", true);
+            await capturedNative.replyForm(form.id, answer, beforeDispatch);
             return { accepted: true };
           }
           if (control.kind === "reply") {
@@ -462,10 +555,23 @@ export class OpenCodeV2Driver implements HarnessDriver {
             ) {
               throw new OpenCodeTransportError("permission origin", true);
             }
-            await assertPolicy();
+            const beforeDispatch = await authorizeDispatch(
+              signal,
+              reply.replyTo.origin,
+            );
+            beforeDispatch();
+            if (
+              capturedNative.permissionOrigin(reply.replyTo.requestId) !==
+              reply.replyTo.origin
+            )
+              throw new OpenCodeTransportError(
+                "permission origin changed",
+                true,
+              );
             await capturedNative.replyPermission(
               reply.replyTo.requestId,
               reply.decision === "approved" ? "once" : "reject",
+              beforeDispatch,
             );
             return { accepted: true };
           }
