@@ -862,6 +862,9 @@ describe("CloudflareSandboxExecutionAdapter", () => {
     });
 
     it("does not cancel a sibling lease during cleanup", async () => {
+      const markedLease = { ...TEST_LEASE, leaseId: "lease:marked:attempt-1", executionDomainDigest: "a".repeat(64) };
+      adapter.registerLease(markedLease);
+      const dispatched = vi.spyOn(mockPlugin, "execute");
       const siblingLease = {
         ...TEST_LEASE,
         leaseId: "lease:workspace-2:attempt-1",
@@ -876,11 +879,11 @@ describe("CloudflareSandboxExecutionAdapter", () => {
         sandboxId: "workspace:workspace-2:attempt:attempt-1",
       };
       adapter.registerLease(siblingLease);
-      const first = adapter.executeTask(TEST_LEASE.leaseId, {
+      const first = adapter.executeTask(markedLease.leaseId, {
         taskId: "first-task",
         action: "MockPlugin.execute",
         params: { action: "run", delay: 25, runId: TEST_RUN_ID },
-        lease: TEST_LEASE,
+        lease: markedLease,
       });
       const second = adapter.executeTask(siblingLease.leaseId, {
         taskId: "second-task",
@@ -889,11 +892,15 @@ describe("CloudflareSandboxExecutionAdapter", () => {
         lease: siblingLease,
       });
 
-      await adapter.cleanup(TEST_LEASE.leaseId);
+      await adapter.cleanup(markedLease.leaseId);
       const [firstResult, secondResult] = await Promise.all([first, second]);
 
       expect(firstResult.taskId).toBe("first-task");
       expect(secondResult.status).toBe("success");
+      expect(firstResult.status).toBe("sandbox_unavailable");
+      expect(dispatched).toHaveBeenCalledOnce();
+      expect(() => adapter.registerLease(markedLease)).toThrow();
+
     });
   });
 });
