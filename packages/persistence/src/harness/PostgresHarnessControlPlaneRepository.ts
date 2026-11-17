@@ -359,8 +359,9 @@ export class PostgresHarnessControlPlaneRepository {
     await ownedConversation(tx, scope, params, true, true);
     await ownedWorkspace(tx, scope, true);
     const row = await selectionRow(tx, scope, params, true);
-    if (!row) fail("not_found", "Owned harness selection is not persisted");
-    databaseVersion(row.revision, 0);
+    if (!row && (capture.selection !== null || capture.selectionRevision !== 0))
+      fail("not_found", "Owned harness selection is not persisted");
+    if (row) databaseVersion(row.revision, 0);
     const selected = selectionResponse(params, row);
     if (selected.revision !== capture.selectionRevision ||
         createStableEventFingerprint(selected.selection) !== createStableEventFingerprint(capture.selection))
@@ -375,9 +376,9 @@ export class PostgresHarnessControlPlaneRepository {
     databaseVersion(stored.authOwnerGeneration, 1);
     const result = await tx.query<SqlRow>(
       `SELECT id::text AS connection_id,provider_id,credential_kind,auth_owner_generation,token_material_version
-       FROM provider_credentials WHERE id::text=$1 AND user_id::text=$2 AND workspace_id::text=$3
-       AND auth_owner_generation=$4 AND status='connected' AND deleted_at IS NULL AND refresh_claim_id IS NULL FOR UPDATE`,
-      [selection.connectionId, scope.userId, scope.workspaceId, stored.authOwnerGeneration],
+       FROM provider_credentials WHERE id::text=$1 AND user_id::text=$2
+       AND auth_owner_generation=$3 AND status='connected' AND deleted_at IS NULL AND refresh_claim_id IS NULL FOR UPDATE`,
+      [selection.connectionId, scope.userId, stored.authOwnerGeneration],
     );
     const credential = result.rows[0];
     if (!credential || credential.connection_id !== selection.connectionId)
