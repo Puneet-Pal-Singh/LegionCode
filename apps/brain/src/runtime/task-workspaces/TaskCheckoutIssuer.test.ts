@@ -120,9 +120,17 @@ describe("TaskCheckoutIssuer", () => {
   it("binds one canonical checkout root to the secure lease and snapshot", async () => {
     const repository = createRepository();
     const release = vi.fn(async () => undefined);
+    const capture = vi.fn(async () => snapshot);
+    let finishLookup!: (value: null) => void;
+    repository.getByRunAttemptId.mockImplementationOnce(
+      () =>
+        new Promise<null>((resolve) => {
+          finishLookup = resolve;
+        }),
+    );
     const issuer = new TaskCheckoutIssuer(
       {} as Env,
-      { capture: vi.fn(async () => snapshot) },
+      { capture },
       repository,
       ({ workspaceScope, executionDomain }) => ({
         acquire: vi.fn(async () => ({
@@ -144,7 +152,40 @@ describe("TaskCheckoutIssuer", () => {
       }),
     );
 
-    const issued = await issuer.issue(payload(), issueOptions(payload()));
+    const admitted = payload();
+    const callerPayload = {
+      ...admitted,
+      identity: { ...admitted.identity! },
+      input: {
+        ...admitted.input,
+        repositoryContext: { ...admitted.input.repositoryContext! },
+      },
+    };
+    const options = { ...issueOptions(admitted), failureCleanup: vi.fn() };
+    const originalBeforeAcquire = options.beforeSessionAcquire;
+    const replacedBeforeAcquire = vi.fn(async () => {
+      throw new Error("mutated callback must not run");
+    });
+    const pending = issuer.issue(callerPayload, options);
+    callerPayload.identity.turnId = "trn_mutated1";
+    callerPayload.identity.runAttemptId = "attempt_mutated1";
+    callerPayload.input.repositoryContext.owner = "foreign-owner";
+    callerPayload.runId = "run_mutated1";
+    callerPayload.sessionId = "foreign-session";
+    options.beforeSessionAcquire = replacedBeforeAcquire;
+    options.failureCleanup = vi.fn();
+    finishLookup(null);
+    const issued = await pending;
+    expect(replacedBeforeAcquire).not.toHaveBeenCalled();
+    expect(options.beforeSessionAcquire).not.toBe(originalBeforeAcquire);
+    expect(capture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repository: expect.objectContaining({ owner: "acme" }),
+      }),
+    );
+    expect(issued.checkout.turnId).toBe(admitted.identity!.turnId);
+    expect(issued.checkout.runAttemptId).toBe(admitted.identity!.runAttemptId);
+    expect(issued.workspaceScope.runId).toBe(admitted.runId);
 
     expect(issued.checkout).toMatchObject({
       snapshotId: snapshot.snapshotId,
@@ -203,7 +244,7 @@ describe("TaskCheckoutIssuer", () => {
     repository.getByRunAttemptId.mockResolvedValueOnce(first.checkout);
     repository.getBySnapshotId.mockResolvedValueOnce(snapshot);
 
-    const resumed = await issuer.issue(payload(), issueOptions(payload()));
+    const resumed = await issuer.issue(payload());
 
     expect(resumed.checkout).toEqual(first.checkout);
     expect(capture).toHaveBeenCalledOnce();
@@ -221,12 +262,12 @@ describe("TaskCheckoutIssuer", () => {
     );
     repository.getByRunAttemptId.mockResolvedValueOnce(first.checkout);
     repository.getBySnapshotId.mockResolvedValueOnce(snapshot);
-    repository.getCheckoutExecutionDomain.mockRejectedValueOnce(
+    repository.getCheckoutExecutionDomainState.mockRejectedValueOnce(
       new Error("custody unavailable"),
     );
-    await expect(
-      issuer.issue(payload(), issueOptions(payload())),
-    ).rejects.toThrow("custody unavailable");
+    await expect(issuer.issue(payload())).rejects.toThrow(
+      "custody unavailable",
+    );
     expect(sessionFactory).toHaveBeenCalledTimes(2);
     expect(repository.replaceLease).not.toHaveBeenCalled();
   });
@@ -290,9 +331,28 @@ describe("TaskCheckoutIssuer", () => {
     expect(repository.replaceLease).not.toHaveBeenCalled();
     expect(first.checkout.generation).toBe(0);
 
-    // Only an explicitly unmarked legacy resume may adopt its replacement.
+    // Omitting the callback cannot turn this persisted marked checkout legacy.
     repository.getByRunAttemptId.mockResolvedValueOnce(first.checkout);
     repository.getBySnapshotId.mockResolvedValueOnce(snapshot);
+    acquire.mockResolvedValueOnce({
+      sessionId: "sess_secure001",
+      token: "legacy-replacement-token",
+      expiresAt: Date.now() + 60_000,
+      lease: {
+        leaseId: "lease_secure02",
+        sandboxId: "sb-secure02",
+        generation: 1,
+      },
+    });
+    await expect(issuer.issue(payload())).rejects.toMatchObject({
+      code: "TASK_CHECKOUT_RESUME_UNAVAILABLE",
+    });
+    expect(repository.replaceLease).not.toHaveBeenCalled();
+    repository.getByRunAttemptId.mockResolvedValueOnce(first.checkout);
+    repository.getBySnapshotId.mockResolvedValueOnce(snapshot);
+    repository.getCheckoutExecutionDomainState.mockResolvedValueOnce({
+      kind: "legacy",
+    });
     acquire.mockResolvedValueOnce({
       sessionId: "sess_secure001",
       token: "legacy-replacement-token",
@@ -518,6 +578,11 @@ function createRepository() {
     ),
     markIssuanceUnknown: vi.fn(async () => undefined),
     getCheckoutExecutionDomain: vi.fn(async () => domain),
+    getCheckoutExecutionDomainState: vi.fn(
+      async (): ReturnType<
+        TaskCheckoutIssuanceRepository["getCheckoutExecutionDomainState"]
+      > => ({ kind: "marked", domain }),
+    ),
     createSnapshot: vi.fn(),
     getBySnapshotId: vi.fn(),
     createCheckout: vi.fn(),

@@ -108,8 +108,36 @@ export class TaskCheckoutIssuer {
     payload: ExecuteRunPayload,
     options?: TaskCheckoutIssueOptions,
   ): Promise<IssuedTaskCheckout> {
+    const failureCleanup = options?.failureCleanup;
     let exposurePossible = false;
     try {
+      // Capture caller-owned identity, selection and continuations synchronously.
+      // The lookup and later restore callback must use this same admitted input.
+      payload = Object.freeze({
+        ...payload,
+        identity: payload.identity
+          ? Object.freeze({ ...payload.identity })
+          : undefined,
+        input: Object.freeze({
+          ...payload.input,
+          repositoryContext: payload.input.repositoryContext
+            ? Object.freeze({ ...payload.input.repositoryContext })
+            : undefined,
+        }),
+      });
+      options = options
+        ? Object.freeze({
+            beforeSessionAcquire: options.beforeSessionAcquire,
+            failureCleanup,
+            resumeSnapshot: options.resumeSnapshot
+              ? Object.freeze(
+                  ResumeWorkspaceSnapshotRefSchema.parse(
+                    options.resumeSnapshot,
+                  ),
+                )
+              : undefined,
+          })
+        : undefined;
       return await this.issueOwned(
         payload,
         options,
@@ -121,7 +149,7 @@ export class TaskCheckoutIssuer {
         },
       );
     } catch (error) {
-      if (!exposurePossible) options?.failureCleanup?.({ kind: "no_exposure" });
+      if (!exposurePossible) failureCleanup?.({ kind: "no_exposure" });
       throw error;
     }
   }
@@ -182,7 +210,6 @@ export class TaskCheckoutIssuer {
         payload,
         existing.checkout,
         existing.snapshot,
-        !!options?.beforeSessionAcquire,
         resumeSnapshot,
       );
     }
@@ -389,7 +416,8 @@ export class TaskCheckoutIssuer {
           typeof candidate.freezeIssuanceDomain !== "function" ||
           typeof candidate.completeIssuance !== "function" ||
           typeof candidate.markIssuanceUnknown !== "function" ||
-          typeof candidate.getCheckoutExecutionDomain !== "function"
+          typeof candidate.getCheckoutExecutionDomain !== "function" ||
+          typeof candidate.getCheckoutExecutionDomainState !== "function"
         ) {
           throw new DomainError(
             "TASK_CHECKOUT_ISSUANCE_UNAVAILABLE",
@@ -653,7 +681,6 @@ export class TaskCheckoutIssuer {
     payload: ExecuteRunPayload,
     checkout: TaskCheckout,
     snapshot: WorkspaceSnapshot,
-    expectMarked: boolean,
     resumeSnapshot?: ResumeWorkspaceSnapshotRef,
   ): Promise<IssuedTaskCheckout> {
     const identity = payload.identity!;
@@ -693,14 +720,14 @@ export class TaskCheckoutIssuer {
       workspaceId: checkout.workspaceId,
       root: checkout.filesystemRoot,
     });
-    // Selection is explicit before the custody read. A failed marked read must
-    // never become permission to use the legacy replacement-capable path.
-    const persistedDomain = expectMarked
-      ? await this.withIssuance((repository) =>
-          repository.getCheckoutExecutionDomain(checkout.checkoutId),
-        )
-      : undefined;
-    if (expectMarked && !persistedDomain) {
+    // Only the canonical persisted row may authorize legacy behavior. Neither
+    // callback omission nor a failed/partial custody read can select that path.
+    const domainState = await this.withIssuance((repository) =>
+      repository.getCheckoutExecutionDomainState(checkout.checkoutId),
+    );
+    const persistedDomain =
+      domainState.kind === "marked" ? domainState.domain : undefined;
+    if (domainState.kind !== "legacy" && !persistedDomain) {
       throw new DomainError(
         "TASK_CHECKOUT_DOMAIN_SCOPE_MISMATCH",
         "The persisted execution domain is unavailable.",
