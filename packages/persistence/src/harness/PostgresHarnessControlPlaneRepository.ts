@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   HarnessSetupRequestSchema,
+  HarnessStatusRequestSchema,
   HarnessSelectRequestSchema,
   HarnessSelectionReadRequestSchema,
   HarnessSelectionResponseSchema,
@@ -101,6 +102,25 @@ interface SelectionRow extends SqlRow {
 /** Configured ownership and future selections only. Host health/models remain P09 facts. */
 export class PostgresHarnessControlPlaneRepository {
   constructor(private readonly client: SqlClient) {}
+  /** Scope-only metadata authorization on the caller's transaction; not execution proof. */
+  async authorizeMetadataScopeWithin(
+    tx: SqlClient,
+    input: {
+      readonly scope: Readonly<HarnessControlPlaneScope>;
+      readonly expectedEnvironmentId: string;
+    },
+  ): Promise<void> {
+    input = structuredClone(input);
+    const scope = Object.freeze({ ...input.scope });
+    const params = HarnessStatusRequestSchema.parse({
+      workspaceId: scope.workspaceId,
+      environmentId: scope.environmentId,
+    });
+    if (!input.expectedEnvironmentId || input.expectedEnvironmentId !== scope.environmentId)
+      fail("admission_conflict", "Metadata environment mismatch");
+    assertScope(scope, params);
+    await ownedWorkspace(tx, scope, true);
+  }
   async setupInstance(
     scope: HarnessControlPlaneScope,
     input: HarnessSetupRequest,
