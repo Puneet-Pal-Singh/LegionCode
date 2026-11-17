@@ -84,7 +84,7 @@ COPY --from=native-command-builder /legioncode-command-supervisor /usr/local/lib
 RUN ! getent passwd 65533 && ! getent group 65533 \
     && ! getent passwd legion-native && ! getent group legion-native \
     && groupadd --gid 65533 legion-native \
-    && useradd --uid 65533 --gid 65533 --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin legion-native \
+    && useradd --no-log-init --uid 65533 --gid 65533 --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin legion-native \
     && chmod 0755 /usr/local/libexec/legioncode-command-supervisor \
     && install -d -m 0700 -o root -g root /run/legioncode/native-commands
 # Local Wrangler routing only. No public preview/exposePort is used for control.
