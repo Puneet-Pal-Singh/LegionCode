@@ -150,7 +150,20 @@ export interface InterruptedTurnTarget {
   readonly resumeArtifactEvent: JsonValue;
 }
 
+export interface NativeRootAdmissionGuardInput {
+  readonly userId: string;
+  readonly workspaceId: string;
+  readonly sessionId: string;
+  readonly threadId: string;
+  readonly clientMessageId: string;
+  readonly runId: string;
+  readonly turnId: string;
+  readonly runAttemptId: string;
+}
+
 export interface TurnAdmissionRepository {
+  /** Optional for legacy adapters; configured hosted composition requires this port. */
+  assertNativeRootAdmissionAllowed?(input: NativeRootAdmissionGuardInput): Promise<void>;
   reserve(input: ReserveTurnAdmissionInput): Promise<TurnAdmissionRecord>;
   admitWithPrompt(input: AdmitTurnWithPromptInput): Promise<{ admission: TurnAdmissionRecord; promptMessageId: string; run: RunRecord }>;
   admitContinuation(input: AdmitContinuationInput): Promise<{ admission: TurnAdmissionRecord; run: RunRecord }>;

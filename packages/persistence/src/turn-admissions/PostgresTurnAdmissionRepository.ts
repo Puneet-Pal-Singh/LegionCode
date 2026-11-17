@@ -5,7 +5,7 @@ import {
   type NativeProviderBinding, type NativeProviderBindingScope,
 } from "./native-provider-binding.js";
 import type { SqlClient, SqlRow } from "../sql.js";
-import { PostgresHarnessControlPlaneRepository, parseHarnessAdmissionReceipt } from "../harness/PostgresHarnessControlPlaneRepository.js";
+import { HarnessControlPlaneConflictError, PostgresHarnessControlPlaneRepository, parseHarnessAdmissionReceipt } from "../harness/PostgresHarnessControlPlaneRepository.js";
 import { PostgresRunRepository } from "../runs/PostgresRunRepository.js";
 import { PostgresTranscriptRepository } from "../sessions/PostgresTranscriptRepository.js";
 import type {
@@ -18,9 +18,10 @@ import type {
   ReserveQueuedStartResult,
   TurnAdmissionRecord,
   TurnAdmissionRepository,
+  NativeRootAdmissionGuardInput,
 } from "./types.js";
 import {
-  ThreadInputQueueItemSchema, HarnessAdmissionSelectionSchema,
+  ThreadInputQueueItemSchema, HarnessAdmissionSelectionSchema, AppServerEnvironmentIdSchema,
   userIdFromExternalId,
   workspaceIdFromExternalId,
 } from "@repo/platform-protocol";
@@ -119,7 +120,51 @@ function resolveEstablishedWorkspace(session: AdmissionRow): string | null {
 
 export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository {
   constructor(private readonly client: SqlClient,
-    private readonly nativeProviderCapture?: NativeProviderAdmissionCapture) {}
+    private readonly nativeProviderCapture?: NativeProviderAdmissionCapture,
+    private readonly expectedHarnessEnvironmentId?: string | null) {}
+
+  async assertNativeRootAdmissionAllowed(input: NativeRootAdmissionGuardInput): Promise<void> {
+    input = structuredClone(input);
+    if (this.expectedHarnessEnvironmentId === undefined || this.expectedHarnessEnvironmentId === null) return;
+    await this.client.transaction(async (tx) => {
+      const session = (await tx.query<AdmissionRow>(LOCK_OWNED_SESSION_SQL,
+        [input.sessionId, input.userId, input.runId])).rows[0];
+      if (!session || session.thread_id !== input.threadId || resolveEstablishedWorkspace(session) !== input.workspaceId)
+        throw new TurnAdmissionConflictError("Conversation scope does not match", "thread_scope_conflict");
+      const prior = (await tx.query<AdmissionRow>(READ_SESSION_CLIENT_SQL,
+        [input.sessionId, input.clientMessageId])).rows[0];
+      if (prior) {
+        const saved = mapAdmission(prior);
+        if (saved.userId !== input.userId || saved.workspaceId !== input.workspaceId || saved.threadId !== input.threadId ||
+            saved.runId !== input.runId || saved.turnId !== input.turnId || saved.runAttemptId !== input.runAttemptId)
+          throw new TurnAdmissionConflictError("Admission identity does not match", "identity_conflict");
+        if (saved.harnessSelection?.selection)
+          throw new TurnAdmissionConflictError("The frozen hosted harness execution is unavailable", "hosted_harness_execution_unavailable");
+        if (saved.state === "admitted" || saved.continuationOfTurnId !== null) return;
+      }
+      await this.assertNativeRootSelectionWithin(tx, input);
+    });
+  }
+
+  private async assertNativeRootSelectionWithin(tx: SqlClient,
+    input: Pick<NativeRootAdmissionGuardInput, "userId" | "workspaceId" | "sessionId" | "threadId">): Promise<void> {
+    const placement = this.expectedHarnessEnvironmentId;
+    if (placement === undefined || placement === null) return;
+    const parsedPlacement = AppServerEnvironmentIdSchema.safeParse(placement);
+    if (!parsedPlacement.success)
+      throw new TurnAdmissionConflictError("Hosted placement is unavailable", "hosted_harness_execution_unavailable");
+    const environmentId = parsedPlacement.data;
+    try {
+      await new PostgresHarnessControlPlaneRepository(tx).assertNativeRootSelectionWithin(tx, {
+        scope: { userId: input.userId, workspaceId: input.workspaceId, environmentId },
+        sessionId: input.sessionId, threadId: input.threadId, expectedEnvironmentId: environmentId,
+      });
+    } catch (error) {
+      if (error instanceof HarnessControlPlaneConflictError && error.code === "execution_unavailable")
+        throw new TurnAdmissionConflictError("The selected hosted harness execution is unavailable", "hosted_harness_execution_unavailable");
+      throw error;
+    }
+  }
 
   async reserve(input: ReserveTurnAdmissionInput): Promise<TurnAdmissionRecord> {
     return await this.client.transaction(async (tx) => {
@@ -326,6 +371,7 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
       const workspaceId = input.workspaceId;
       if (typeof workspaceId !== "string" || !workspaceId) throw new TurnAdmissionConflictError(
         "New queued admission requires an owned workspace", "workspace_conflict");
+      if (input.executionRoute === "native") await this.assertNativeRootSelectionWithin(tx, { ...input, workspaceId });
       return this.withProviderBinding<ReserveQueuedStartResult>(tx, {
         userId: input.userId, workspaceId, sessionId: input.sessionId,
         threadId: input.threadId, runId: input.runId, turnId: input.turnId, runAttemptId: input.runAttemptId,
@@ -575,6 +621,10 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
         }
       }
 
+      if (input.executionRoute === "native" && existing.continuationOfTurnId === null) {
+        if (existing.workspaceId === null) throw new TurnAdmissionConflictError("Owned workspace is required", "workspace_conflict");
+        await this.assertNativeRootSelectionWithin(tx, { ...input, workspaceId: existing.workspaceId, threadId: existing.threadId });
+      }
       return this.withProviderBinding(tx, admissionBindingScope(existing), input, async (tx, binding) => {
         const orderResult = await tx.query<AdmissionRow>(ALLOCATE_ADMISSION_ORDER_SQL, [input.sessionId]);
         const admissionOrderValue = orderResult.rows[0]?.admission_order;
