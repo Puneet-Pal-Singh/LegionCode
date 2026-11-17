@@ -24,6 +24,10 @@ describe("SecureExecutionSessionClient resume", () => {
     } as const;
     // SHA-256 of this fixture's canonical server execution-domain serialization.
     const domainDigest = "4c7e95dd5a087cd12a2438df30f6eecd1ec912dd334f5a29b7412162cea5905b";
+    const nativeSandboxBinding = {
+      version: 1, backend: "cloudflareSandbox", binding: "NativeSandbox",
+      profile: "basic", schedulingPolicy: "default", sandboxObjectId: "e".repeat(64),
+    } as const;
     const nativeCommandClosure = {
       state: "settled", profile: "linux-pid-namespace-cgroup-v2", originalTransportSettled: true, operationId: "a".repeat(64), nonce: "a".repeat(64),
       scope: { ...knownWorkspace, executionDomainDigest: domainDigest, workspaceRoot, sessionId: "sess_resume001", leaseId: "lease_resume001", sandboxId: "sandbox-resume001", generation: 2, taskId: "task_resume001" },
@@ -49,6 +53,7 @@ describe("SecureExecutionSessionClient resume", () => {
     const nativeFetch = vi.fn()
       .mockResolvedValueOnce(Response.json({
         sessionId: "sess_resume001", token: "native-secret-token", expiresAt: Date.now() + 60_000,
+        nativeSandboxBinding,
         lease: { leaseId: "lease_resume001", sandboxId: "sandbox-resume001", generation: 2,
           expiresAt: Date.now() + 60_000, executionDomainDigest: domainDigest },
       }))
@@ -78,7 +83,7 @@ describe("SecureExecutionSessionClient resume", () => {
       { ...env, SECURE_API: { fetch: nativeFetch } } as unknown as Env,
       "brain-session-1", workspaceScope.runId, workspaceScope,
       { secureSessionId: "sess_resume001", leaseId: "lease_resume001", sandboxId: "sandbox-resume001",
-        generation: 2, executionDomainDigest: domainDigest },
+        generation: 2, executionDomainDigest: domainDigest, nativeSandboxBinding },
       executionDomain,
     );
     await nativeClient.acquire();

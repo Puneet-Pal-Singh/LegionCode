@@ -5,6 +5,7 @@ import type {
   TaskCheckoutIssuanceReservation,
   PersistedTaskCheckoutExecutionDomain,
 } from "@repo/persistence";
+import type { JsonValue } from "@repo/shared-types";
 import {
   TaskCheckoutSchema,
   WorkspaceSnapshotSchema,
@@ -43,6 +44,11 @@ const snapshot = WorkspaceSnapshotSchema.parse({
   },
 });
 
+const nativeSandboxBinding = {
+  version: 1, backend: "cloudflareSandbox", binding: "NativeSandbox",
+  profile: "basic", schedulingPolicy: "default", sandboxObjectId: "a".repeat(64),
+} as const;
+
 describe("TaskCheckoutIssuer", () => {
   it("issues three same-model chats with distinct checkout and lease roots", async () => {
     const repository = createRepository();
@@ -66,6 +72,10 @@ describe("TaskCheckoutIssuer", () => {
       ({ workspaceScope }) => ({
         acquire: vi.fn(async () => ({
           sessionId: `sess_${workspaceScope.runAttemptId}`,
+          nativeSandboxBinding: {
+            ...nativeSandboxBinding,
+            sandboxObjectId: workspaceScope.runAttemptId.slice(-1).repeat(64),
+          },
           token: "secret-test-token",
           expiresAt: Date.now() + 60_000,
           lease: {
@@ -129,6 +139,7 @@ describe("TaskCheckoutIssuer", () => {
         acquire: vi.fn(async () => ({
           sessionId: "sess_secure001",
           token: "secret-test-token",
+          nativeSandboxBinding,
           expiresAt: Date.now() + 60_000,
           lease: {
             leaseId: "lease_secure01",
@@ -177,11 +188,13 @@ describe("TaskCheckoutIssuer", () => {
         acquire: vi.fn(async () => ({
           sessionId: "sess_secure001",
           token: "rotated-token",
+          nativeSandboxBinding,
           expiresAt: Date.now() + 60_000,
           lease: {
             leaseId: "lease_secure01",
             sandboxId: "sb-secure01",
             generation: 0,
+            executionDomainDigest: (await repository.getCheckoutExecutionDomain(input.workspaceScope.root.split("/").at(-1)!)).digest,
           },
         })),
         bootstrapNativeCheckout: vi.fn(async () => undefined),
@@ -215,6 +228,7 @@ describe("TaskCheckoutIssuer", () => {
           leaseId: first.checkout.leaseId,
           sandboxId: first.checkout.sandboxId,
           generation: first.checkout.generation,
+          nativeSandboxBinding,
           executionDomainDigest: (
             await repository.getCheckoutExecutionDomain(
               first.checkout.checkoutId,
@@ -232,6 +246,7 @@ describe("TaskCheckoutIssuer", () => {
       .mockResolvedValueOnce({
         sessionId: "sess_secure001",
         token: "initial-token",
+        nativeSandboxBinding,
         expiresAt: Date.now() + 60_000,
         lease: {
           leaseId: "lease_secure01",
@@ -242,6 +257,7 @@ describe("TaskCheckoutIssuer", () => {
       .mockResolvedValueOnce({
         sessionId: "sess_secure001",
         token: "replacement-token",
+        nativeSandboxBinding,
         expiresAt: Date.now() + 60_000,
         lease: {
           leaseId: "lease_secure02",
@@ -253,8 +269,12 @@ describe("TaskCheckoutIssuer", () => {
       {} as Env,
       { capture: vi.fn(async () => snapshot) },
       repository,
-      () => ({
-        acquire,
+      ({ workspaceScope }) => ({
+        acquire: async () => {
+          const handle = await acquire();
+          const domain = await repository.getCheckoutExecutionDomain(workspaceScope.root.split("/").at(-1)!);
+          return { ...handle, lease: { ...handle.lease, executionDomainDigest: domain.digest } };
+        },
         bootstrapNativeCheckout: vi.fn(async () => undefined),
         verifyNativeCheckoutReady: vi.fn(async () => undefined),
         recoverAfterSandboxLoss: vi.fn(async () => {
@@ -300,6 +320,7 @@ describe("TaskCheckoutIssuer", () => {
         acquire: vi.fn(async () => ({
           sessionId: "sess_secure001",
           token: "secret-test-token",
+          nativeSandboxBinding,
           expiresAt: Date.now() + 60_000,
           lease: {
             leaseId: "lease_secure01",
@@ -375,6 +396,7 @@ describe("TaskCheckoutIssuer", () => {
         acquire: vi.fn(async () => ({
           sessionId: "sess_secure001",
           token: "secret-test-token",
+          nativeSandboxBinding,
           expiresAt: Date.now() + 60_000,
           lease: {
             leaseId: "lease_secure01",
@@ -496,6 +518,7 @@ function createRepository() {
     }
   >();
   const domains = new Map<string, PersistedTaskCheckoutExecutionDomain>();
+  const originalReferences = new Map<string, JsonValue>();
   const issueSnapshotCheckout = vi.fn(
     async (issuedSnapshot: WorkspaceSnapshot, checkout: TaskCheckout) => ({
       snapshot: issuedSnapshot,
@@ -504,6 +527,10 @@ function createRepository() {
   );
   return {
     issueSnapshotCheckout,
+    freezeIssuanceOriginalReference: vi.fn(async (checkoutId: string, _token: string, reference: JsonValue) => {
+      originalReferences.set(checkoutId, reference);
+    }),
+    getCheckoutOriginalReference: vi.fn(async (checkoutId: string) => originalReferences.get(checkoutId)!),
     reserveIssuance: vi.fn(
       async (
         issuedSnapshot: WorkspaceSnapshot,
