@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 import {
   HarnessSetupRequestSchema,
   HarnessStatusRequestSchema,
@@ -32,6 +33,31 @@ export interface StoredHarnessInstance extends HarnessControlPlaneScope {
   authOwnerGeneration: number;
   createdAt: string;
 }
+const SetupConnectionMetadataSchema = z.object({
+  connectionId: HarnessSetupRequestSchema.shape.connectionId,
+  providerId: ProviderIdSchema,
+  credentialKind: z.enum(["api_key", "oauth", "external_reference"]),
+  ownerGeneration: z.number().int().safe().positive(),
+  tokenMaterialVersion: z.number().int().safe().positive(),
+}).strict();
+type SetupConnectionMetadata = z.infer<typeof SetupConnectionMetadataSchema>;
+const SetupInstanceReceiptSchema = z.object({
+  version: z.literal(1),
+  publicRequest: HarnessSetupRequestSchema,
+  publicFingerprint: z.string().min(1),
+  connection: SetupConnectionMetadataSchema,
+  privateFingerprint: z.string().min(1),
+  result: z.object({
+    userId: z.string().min(1),
+    workspaceId: HarnessStatusRequestSchema.shape.workspaceId,
+    environmentId: HarnessStatusRequestSchema.shape.environmentId,
+    instanceId: HarnessSetupRequestSchema.shape.instanceId.unwrap(),
+    harness: HarnessSetupRequestSchema.shape.harness,
+    connectionId: HarnessSetupRequestSchema.shape.connectionId,
+    authOwnerGeneration: z.number().int().safe().positive(),
+    createdAt: z.string().datetime(),
+  }).strict(),
+}).strict();
 export interface ResolveHarnessAdmissionSelectionInput {
   readonly scope: Readonly<HarnessControlPlaneScope>;
   readonly sessionId: string;
@@ -124,48 +150,28 @@ export class PostgresHarnessControlPlaneRepository {
   async setupInstance(
     scope: HarnessControlPlaneScope,
     input: HarnessSetupRequest,
-    connection: {
-      connectionId: string;
-      providerId: ProviderId;
-      credentialKind: CredentialSecret["type"];
-      ownerGeneration: number;
-      tokenMaterialVersion: number;
-    },
+    expectedEnvironmentId: string,
+    resolveConnection: (tx: SqlClient, connectionId: string) => Promise<SetupConnectionMetadata | null>,
   ): Promise<StoredHarnessInstance> {
     scope = Object.freeze({ ...scope });
-    connection = Object.freeze({ connectionId: connection.connectionId, providerId: connection.providerId,
-      credentialKind: connection.credentialKind, ownerGeneration: connection.ownerGeneration,
-      tokenMaterialVersion: connection.tokenMaterialVersion });
     const params = HarnessSetupRequestSchema.parse(input);
     assertScope(scope, params);
-    if (params.connectionId !== connection.connectionId)
-      fail("connection_unavailable", "Selected connection does not match");
-    if (!ProviderIdSchema.safeParse(connection.providerId).success ||
-        !["api_key", "oauth", "external_reference"].includes(connection.credentialKind) ||
-        !Number.isSafeInteger(connection.ownerGeneration) || connection.ownerGeneration < 1 ||
-        !Number.isSafeInteger(connection.tokenMaterialVersion) || connection.tokenMaterialVersion < 1)
-      fail("connection_unavailable", "Selected connection metadata is invalid");
-    const fp = createStableEventFingerprint({ params, connection });
+    if (!expectedEnvironmentId || expectedEnvironmentId !== scope.environmentId)
+      fail("admission_conflict", "Setup environment mismatch");
+    const publicFingerprint = createStableEventFingerprint(params);
     return this.client.transaction(async (tx) => {
-      await ownedWorkspace(tx, scope);
+      await ownedWorkspace(tx, scope, true);
       await lock(tx, ["harness-setup-command", scope, params.clientCommandId]);
-      const prior = await receipt(
-        tx,
-        scope,
-        "setup",
-        "",
-        params.clientCommandId,
-        fp,
-      );
-      if (prior) {
-        const stored = instanceFromJson(prior);
-        if (stored.userId !== scope.userId || stored.workspaceId !== scope.workspaceId ||
-            stored.environmentId !== scope.environmentId || stored.harness !== params.harness ||
-            stored.connectionId !== params.connectionId || stored.authOwnerGeneration !== connection.ownerGeneration ||
-            (params.instanceId !== undefined && stored.instanceId !== params.instanceId))
-          fail("command_conflict", "Stored setup receipt differs from its scoped command");
-        return stored;
-      }
+      const prior = await readCommandReceipt(tx, scope, "setup", "", params.clientCommandId);
+      if (prior) return readSetupReceipt(prior, scope, params, publicFingerprint);
+      // Only a new command may observe current custody metadata. The callback
+      // uses this same pinned client; no client or lease leaves this operation.
+      const observed = await resolveConnection(tx, params.connectionId);
+      const parsedConnection = SetupConnectionMetadataSchema.safeParse(observed);
+      if (!parsedConnection.success || parsedConnection.data.connectionId !== params.connectionId)
+        fail("connection_unavailable", "Selected connection metadata is unavailable");
+      const connection = Object.freeze(parsedConnection.data);
+      const fp = createStableEventFingerprint({ params, connection });
       const instanceId = params.instanceId ?? "harness_" + randomUUID();
       await lock(tx, ["harness-instance", scope, instanceId]);
       let record = await readInstance(tx, scope, instanceId, true);
@@ -216,7 +222,8 @@ export class PostgresHarnessControlPlaneRepository {
         "",
         params.clientCommandId,
         fp,
-        record,
+        SetupInstanceReceiptSchema.parse({ version: 1, publicRequest: params, publicFingerprint,
+          connection, privateFingerprint: fp, result: record }),
       );
       return record;
     });
@@ -591,17 +598,30 @@ function mapInstance(r: InstanceRow): StoredHarnessInstance {
       r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
   };
 }
-function instanceFromJson(value: unknown): StoredHarnessInstance {
-  const r = value as StoredHarnessInstance;
-  if (
-    !r ||
-    typeof r.userId !== "string" ||
-    typeof r.instanceId !== "string" ||
-    !["codex", "claude", "opencode"].includes(r.harness)
-  )
-    fail("command_conflict", "Stored setup receipt is invalid");
-  safeRevision(r.authOwnerGeneration);
-  return r;
+function readSetupReceipt(
+  row: { request_fingerprint: string; response_json: unknown },
+  scope: HarnessControlPlaneScope,
+  params: HarnessSetupRequest,
+  publicFingerprint: string,
+): StoredHarnessInstance {
+  let value: unknown;
+  try { value = json(row.response_json); }
+  catch { fail("command_conflict", "Stored setup receipt requires recovery"); }
+  const parsed = SetupInstanceReceiptSchema.safeParse(value);
+  if (!parsed.success) fail("command_conflict", "Stored setup receipt requires recovery");
+  const saved = parsed.data;
+  const stored = saved.result;
+  const savedPublicFingerprint = createStableEventFingerprint(saved.publicRequest);
+  const savedPrivateFingerprint = createStableEventFingerprint({ params: saved.publicRequest, connection: saved.connection });
+  if (saved.publicFingerprint !== savedPublicFingerprint || saved.publicFingerprint !== publicFingerprint ||
+      saved.privateFingerprint !== savedPrivateFingerprint || row.request_fingerprint !== savedPrivateFingerprint ||
+      stored.userId !== scope.userId || stored.workspaceId !== scope.workspaceId || stored.environmentId !== scope.environmentId ||
+      saved.publicRequest.workspaceId !== scope.workspaceId || saved.publicRequest.environmentId !== scope.environmentId ||
+      stored.harness !== params.harness || stored.connectionId !== params.connectionId ||
+      saved.connection.connectionId !== stored.connectionId || saved.connection.ownerGeneration !== stored.authOwnerGeneration ||
+      (params.instanceId !== undefined && stored.instanceId !== params.instanceId))
+    fail("command_conflict", "Stored setup receipt conflicts with its canonical command");
+  return stored;
 }
 async function selectionRow(
   tx: SqlClient,
@@ -644,14 +664,7 @@ async function receipt(
   id: string,
   fp: string,
 ): Promise<unknown | null> {
-  const r = await tx.query<{
-    request_fingerprint: string;
-    response_json: unknown;
-  }>(
-    "SELECT request_fingerprint,response_json FROM harness_control_command_receipts WHERE user_id::text=$1 AND workspace_id=$2 AND environment_id=$3 AND operation=$4 AND scope_id=$5 AND command_id=$6",
-    [s.userId, s.workspaceId, s.environmentId, op, key, id],
-  );
-  const row = r.rows[0];
+  const row = await readCommandReceipt(tx, s, op, key, id);
   if (!row) return null;
   if (row.request_fingerprint !== fp)
     fail(
@@ -659,6 +672,15 @@ async function receipt(
       "Harness command ID was reused with changed content",
     );
   return json(row.response_json);
+}
+async function readCommandReceipt(
+  tx: SqlClient, scope: HarnessControlPlaneScope, operation: string, key: string, commandId: string,
+): Promise<{ request_fingerprint: string; response_json: unknown } | null> {
+  const result = await tx.query<{ request_fingerprint: string; response_json: unknown }>(
+    "SELECT request_fingerprint,response_json FROM harness_control_command_receipts WHERE user_id::text=$1 AND workspace_id=$2 AND environment_id=$3 AND operation=$4 AND scope_id=$5 AND command_id=$6",
+    [scope.userId, scope.workspaceId, scope.environmentId, operation, key, commandId],
+  );
+  return result.rows[0] ?? null;
 }
 async function saveReceipt(
   tx: SqlClient,
