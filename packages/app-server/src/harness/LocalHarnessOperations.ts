@@ -1,6 +1,6 @@
 import {
   HarnessModelsResponseSchema, HarnessSelectionResponseSchema, HarnessSetupResponseSchema,
-  HarnessStatusResponseSchema, WorkspaceIdSchema,
+  HarnessStatusResponseSchema, HarnessSelectionReadRequestSchema, HarnessSelectRequestSchema, WorkspaceIdSchema,
   type HarnessInstanceStatus, type HarnessModelsRequest, type HarnessModelsResponse,
   type HarnessSelectRequest, type HarnessSelectionReadRequest, type HarnessSelectionResponse,
   type HarnessSetupRequest, type HarnessSetupResponse, type HarnessStatusRequest, type HarnessStatusResponse,
@@ -20,7 +20,7 @@ type DiscoveryServices = Partial<Pick<HarnessOperations, "models" | "status">>;
  * canonical selection store. No provider launch, credential read or alternate store.
  */
 export class LocalHarnessOperations implements HarnessOperations {
-  private selectionQueue: Promise<void> = Promise.resolve();
+  private readonly selectionQueues = new Map<string, Promise<void>>();
   private modelsReader: HarnessOperations["models"] | undefined;
   private statusReader: HarnessOperations["status"] | undefined;
   private discoveryBound = false;
@@ -105,7 +105,8 @@ export class LocalHarnessOperations implements HarnessOperations {
   }
 
   async select(params: HarnessSelectRequest): Promise<HarnessSelectionResponse> {
-    return this.serializeSelection(() => this.selectWithin(params));
+    const captured = HarnessSelectRequestSchema.parse(params);
+    return this.serializeSelection(captured, () => this.selectWithin(captured));
   }
 
   /** Freeze admission intent while local selection commands are excluded. The
@@ -114,14 +115,15 @@ export class LocalHarnessOperations implements HarnessOperations {
    */
   withSelection<T>(params: HarnessSelectionReadRequest,
     admit: (saved: HarnessSelectionResponse, published: () => void) => Promise<T>): Promise<T> {
+    const captured = HarnessSelectionReadRequestSchema.parse(params);
     let release!: () => void;
     const publication = new Promise<void>((resolve) => { release = resolve; });
     let resolveResult!: (value: T | PromiseLike<T>) => void;
     let rejectResult!: (reason: unknown) => void;
     const result = new Promise<T>((resolve, reject) => { resolveResult = resolve; rejectResult = reject; });
-    void this.serializeSelection(async () => {
+    void this.serializeSelection(captured, async () => {
       try {
-        const saved = await this.readSelection(params);
+        const saved = await this.readSelection(captured);
         void Promise.resolve().then(() => admit(saved, release)).then(resolveResult, rejectResult).finally(release);
         await publication;
       } catch (error) { rejectResult(error); release(); }
@@ -129,9 +131,14 @@ export class LocalHarnessOperations implements HarnessOperations {
     return result;
   }
 
-  private serializeSelection<T>(operation: () => Promise<T>): Promise<T> {
-    const result = this.selectionQueue.then(operation);
-    this.selectionQueue = result.then(() => undefined, () => undefined);
+  private serializeSelection<T>(scope: HarnessSelectionReadRequest, operation: () => Promise<T>): Promise<T> {
+    const key = JSON.stringify([scope.environmentId, scope.workspaceId, scope.sessionId, scope.threadId]);
+    const result = (this.selectionQueues.get(key) ?? Promise.resolve()).then(operation);
+    const tail = result.then(() => undefined, () => undefined);
+    this.selectionQueues.set(key, tail);
+    void tail.then(() => {
+      if (this.selectionQueues.get(key) === tail) this.selectionQueues.delete(key);
+    });
     return result;
   }
 
