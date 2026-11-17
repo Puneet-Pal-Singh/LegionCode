@@ -13,6 +13,7 @@ import {
   HarnessControlCommandSchema,
   HarnessObservationPayloadSchema,
   type HarnessObservationPayload,
+  type HarnessReply,
 } from "@repo/worker-protocol";
 import { codexRuntime, codexRuntimePin } from "./runtime.js";
 import {
@@ -197,6 +198,7 @@ export class CodexDriver implements HarnessDriver {
       args: authentication.launchArgs(),
     });
     let stopped = false;
+    let continuationFenced = false;
     let externalTurnId: string | null = null;
     let terminal = false;
     let terminalPayloadFingerprint: string | null = null;
@@ -397,6 +399,7 @@ export class CodexDriver implements HarnessDriver {
             return;
           }
           native.observeTerminal(raw);
+          continuationFenced = true;
           await emit(payload);
           // A failed/ambiguous canonical commit never installs a successful
           // deduplication receipt and is never retried by this driver.
@@ -506,6 +509,53 @@ export class CodexDriver implements HarnessDriver {
       accountVerified = true;
       return lease;
     };
+    const assertContinuable = () => {
+      if (stopped || continuationFenced || signal.aborted)
+        throw new Error("Codex continuation fenced");
+    };
+    const interrupt = async () => {
+      continuationFenced = true;
+      pendingReplies.clear();
+      pendingQuestions.clear();
+      if (externalTurnId) await native.interrupt();
+      else fail();
+    };
+    const deliverReply = async <Reply extends Pick<HarnessReply, "replyTo">>(
+      pending: Map<string, {
+        payload: { replyTo: Reply["replyTo"] };
+        reply: (value: Reply) => void;
+      }>,
+      reply: Reply,
+    ) => {
+      const { requestId } = reply.replyTo;
+      const handle = pending.get(requestId);
+      if (
+        !handle ||
+        JSON.stringify(handle.payload.replyTo) !== JSON.stringify(reply.replyTo)
+      )
+        throw new Error("Codex reply unavailable");
+      if (authentication.appManaged) {
+        assertContinuable();
+        try {
+          const lease = await authentication.assertCurrent({
+            selection,
+            processGeneration,
+            signal,
+          });
+          authentication.assertUsable(signal, lease);
+        } catch (error) {
+          // Even a decline can return to the model loop. Close a still-pending
+          // turn without delivering the reply or claiming its acceptance.
+          if (!continuationFenced && pending.get(requestId) === handle) fail();
+          throw error;
+        }
+        assertContinuable();
+        if (pending.get(requestId) !== handle)
+          throw new Error("Codex reply unavailable");
+      }
+      handle.reply(reply);
+      pending.delete(requestId);
+    };
     // Process exit can precede buffered stdout and its final queued terminal.
     // Only a natural frame-complete EOF followed by the ordered ACK drain may
     // decide that the terminal was absent. Neither exit nor local close proves it.
@@ -611,6 +661,7 @@ export class CodexDriver implements HarnessDriver {
           try {
             const promptLease = await verifyPayer(execution.signal);
             authentication.assertUsable(execution.signal, promptLease);
+            if (authentication.appManaged) assertContinuable();
             if (stopped || signal.aborted || execution.signal.aborted)
               throw new Error("Codex payer binding fenced");
             externalTurnId = await native.start({
@@ -682,10 +733,7 @@ export class CodexDriver implements HarnessDriver {
               return { accepted: true };
             }
             if (control.kind === "interrupt") {
-              pendingReplies.clear();
-              pendingQuestions.clear();
-              if (externalTurnId) await native.interrupt();
-              else fail();
+              await interrupt();
               return { accepted: true };
             }
             if (!externalTurnId || (terminal && control.kind === "steer"))
@@ -695,10 +743,9 @@ export class CodexDriver implements HarnessDriver {
                 try {
                   const steerLease = await verifyPayer(signal);
                   authentication.assertUsable(signal, steerLease);
-                  if (stopped || signal.aborted)
-                    throw new Error("Codex payer binding fenced");
+                  assertContinuable();
                 } catch (error) {
-                  fail();
+                  if (!continuationFenced) fail();
                   throw error;
                 }
               }
@@ -711,19 +758,9 @@ export class CodexDriver implements HarnessDriver {
                 ],
               });
             } else if (control.kind === "user_input_reply") {
-              const handle = pendingQuestions.get(
-                control.reply.replyTo.requestId,
-              );
-              if (!handle) throw new Error("Codex question reply unavailable");
-              handle.reply(control.reply);
-              pendingQuestions.delete(control.reply.replyTo.requestId);
+              await deliverReply(pendingQuestions, control.reply);
             } else {
-              const handle = pendingReplies.get(
-                control.reply.replyTo.requestId,
-              );
-              if (!handle) throw new Error("Codex reply unavailable");
-              handle.reply(control.reply);
-              pendingReplies.delete(control.reply.replyTo.requestId);
+              await deliverReply(pendingReplies, control.reply);
             }
             return { accepted: true };
           } catch (error) {
