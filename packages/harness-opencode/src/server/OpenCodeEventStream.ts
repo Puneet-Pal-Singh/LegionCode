@@ -39,9 +39,41 @@ export async function* readOpenCodeEvents(input: {
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder("utf-8", { fatal: true });
-  let pending = "";
+  // Keep unfinished lines in one bounded allocation. Tiny HTTP chunks must not
+  // rescan/copy the accumulated prefix or create one retained string per chunk.
+  const lineBuffer = Buffer.alloc(MAX_FRAME_BYTES);
+  let lineBytes = 0;
+  let pendingCR = false;
   let data: string[] = [];
   let frameBytes = 0;
+  const appendLine = (text: string) => {
+    const bytes = Buffer.byteLength(text, "utf8");
+    if (frameBytes + lineBytes + bytes > MAX_FRAME_BYTES)
+      throw new Error("OpenCode event frame bound exceeded.");
+    lineBuffer.write(text, lineBytes, bytes, "utf8");
+    lineBytes += bytes;
+  };
+  const finishLine = (separatorBytes: number): OpenCodeEvent | undefined => {
+    frameBytes += lineBytes + separatorBytes;
+    if (frameBytes > MAX_FRAME_BYTES)
+      throw new Error("OpenCode event frame bound exceeded.");
+    const line = lineBuffer.toString("utf8", 0, lineBytes);
+    lineBytes = 0;
+    if (line === "") {
+      if (data.length) {
+        const value: unknown = JSON.parse(data.join("\n"));
+        if (!isEvent(value)) throw new Error("Invalid OpenCode event.");
+        data = [];
+        frameBytes = 0;
+        return value;
+      }
+      frameBytes = 0;
+    } else if (line.startsWith("data:")) {
+      const value = line.slice(5);
+      data.push(value.startsWith(" ") ? value.slice(1) : value);
+    }
+    return undefined;
+  };
   try {
     while (true) {
       const chunk = await reader.read();
@@ -50,38 +82,36 @@ export async function* readOpenCodeEvents(input: {
       // HTTP chunks are not SSE frames. Decode bounded slices, then enforce the
       // limit on each frame and its unfinished line, including split UTF-8/CRLF.
       for (let offset = 0; offset < chunk.value.byteLength; offset += 16384) {
-        pending += decoder.decode(
+        const text = decoder.decode(
           chunk.value.subarray(offset, offset + 16384),
           {
             stream: true,
           },
         );
+        let consumed = 0;
+        if (pendingCR && text.length) {
+          pendingCR = false;
+          const crlf = text.startsWith("\n");
+          const event = finishLine(crlf ? 2 : 1);
+          if (event) yield event;
+          if (crlf) consumed = 1;
+        }
         let match: RegExpExecArray | null;
         const newline = /\r\n|\r|\n/gu;
-        let consumed = 0;
-        while ((match = newline.exec(pending)) !== null) {
-          // Keep a final CR until the next chunk so split CRLF is exactly one newline.
-          if (match[0] === "\r" && match.index === pending.length - 1) break;
-          const line = pending.slice(consumed, match.index);
+        newline.lastIndex = consumed;
+        while ((match = newline.exec(text)) !== null) {
+          appendLine(text.slice(consumed, match.index));
           consumed = newline.lastIndex;
-          frameBytes += Buffer.byteLength(line, "utf8") + match[0].length;
-          if (frameBytes > MAX_FRAME_BYTES)
-            throw new Error("OpenCode event frame bound exceeded.");
-          if (line === "") {
-            if (data.length) {
-              const value: unknown = JSON.parse(data.join("\n"));
-              if (!isEvent(value)) throw new Error("Invalid OpenCode event.");
-              data = [];
-              frameBytes = 0;
-              yield value;
-            } else frameBytes = 0;
-          } else if (line.startsWith("data:")) {
-            const value = line.slice(5);
-            data.push(value.startsWith(" ") ? value.slice(1) : value);
+          // Keep a final CR until the next chunk so split CRLF is exactly one newline.
+          if (match[0] === "\r" && match.index === text.length - 1) {
+            pendingCR = true;
+            break;
           }
+          const event = finishLine(match[0].length);
+          if (event) yield event;
         }
-        pending = pending.slice(consumed);
-        if (Buffer.byteLength(pending, "utf8") + frameBytes > MAX_FRAME_BYTES)
+        appendLine(text.slice(consumed));
+        if (frameBytes + lineBytes + (pendingCR ? 1 : 0) > MAX_FRAME_BYTES)
           throw new Error("OpenCode event frame bound exceeded.");
       }
     }

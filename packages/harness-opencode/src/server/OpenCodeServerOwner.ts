@@ -41,9 +41,6 @@ export class OpenCodeServerOwner {
       const probe = await host.launch({ executable, args: ["--version"] });
       await probe.ready;
       const version = await boundedOutput(probe, signal, false);
-      const exit = await probe.exited;
-      if (exit.kind !== "exited" || exit.code !== 0 || exit.signal !== null)
-        throw new OpenCodeTransportError("binary probe", false);
       verifyOpenCodeProbe(version);
       signal.throwIfAborted();
       const process = await host.launch({
@@ -141,7 +138,7 @@ async function claimFreshStore(host: HarnessHost): Promise<void> {
   }
 }
 
-/** Retain no raw logs; keep draining server stdout after the one JSON readiness announcement. */
+/** Bound probe completion and keep draining server stdout after readiness. */
 function boundedOutput(
   process: SupervisedProcess,
   signal: AbortSignal,
@@ -151,6 +148,8 @@ function boundedOutput(
     let buffer = "";
     let settled = false;
     let lines = 0;
+    let outputEnded = false;
+    let cleanExit = false;
     const finish = (value?: string) => {
       if (settled) return;
       settled = true;
@@ -186,13 +185,33 @@ function boundedOutput(
         }
       }
     });
-    process.child.stdout.once("end", () =>
-      finish(announcement ? undefined : buffer),
-    );
-    process.child.stdout.once("error", abort);
-    void process.exited.then(() => {
-      if (announcement) finish();
+    const finishProbe = () => {
+      // A probe can close stdout and remain alive. Keep the deadline and
+      // cancellation active until both natural EOF and a successful exit.
+      if (outputEnded && cleanExit) finish(buffer);
+    };
+    process.child.stdout.once("end", () => {
+      if (announcement) {
+        finish();
+        return;
+      }
+      outputEnded = true;
+      finishProbe();
     });
+    process.child.stdout.once("error", abort);
+    void process.exited.then((exit) => {
+      if (
+        announcement ||
+        exit.kind !== "exited" ||
+        exit.code !== 0 ||
+        exit.signal !== null
+      ) {
+        finish();
+        return;
+      }
+      cleanExit = true;
+      finishProbe();
+    }, abort);
     if (signal.aborted) abort();
   });
 }
