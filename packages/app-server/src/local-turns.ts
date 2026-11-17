@@ -277,6 +277,12 @@ export class LocalTurnService {
     const guard = this.options.harnessSelection;
     if (guard) return guard.operations.withSelection({ workspaceId: thread.workspaceId,
       threadId: thread.id, sessionId: thread.id, environmentId: guard.environmentId }, async (saved, published) => {
+      // Another identical request may publish while this request waits for the
+      // selection exclusion. Its immutable receipt still wins over today's picker.
+      if (await this.options.persistence.turnAdmissions.findByRequest(thread.id, params.clientRequestId)) {
+        published();
+        return this.startPreparedTurn(params, preparation, queued);
+      }
       if (saved.selection !== null) throw localHarnessExecutionUnavailable();
       return this.startNativePreparedTurn(params, preparation, thread, published, queued);
     });
