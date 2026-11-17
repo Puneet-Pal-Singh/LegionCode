@@ -36,4 +36,3 @@ export function nativePackageCommand(file, args, ownership, timeoutMs = 30_000) 
       ? null : new Error("Package tool returned a failure"))));
   });
 }
-
