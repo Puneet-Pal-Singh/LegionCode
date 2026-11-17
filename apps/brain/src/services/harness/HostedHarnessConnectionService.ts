@@ -41,7 +41,10 @@ export function createHostedHarnessConnectionService(controlPlane: HostedHarness
     }),
     status: (context) => controlPlane.within(context, async (ports) => {
       const instances = await ports.repository.listInstances(scope(context));
-      return HarnessStatusResponseSchema.parse({ instances: await Promise.all(instances.map((instance) => status(ports, instance))) });
+      const statuses: HarnessInstanceStatus[] = [];
+      // Drain each bounded metadata read before the leased transaction can end.
+      for (const instance of instances) statuses.push(await status(ports, instance));
+      return HarnessStatusResponseSchema.parse({ instances: statuses });
     }),
     models: (context, params) => controlPlane.within(context, async (ports) => {
       const stored = await ports.repository.readInstance(scope(context), params.instanceId);
