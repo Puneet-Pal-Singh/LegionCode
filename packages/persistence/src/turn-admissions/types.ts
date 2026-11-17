@@ -2,10 +2,21 @@ import type { NativeProviderBinding, NativeProviderAdmissionRoute } from "./nati
 import type { JsonValue } from "@repo/shared-types";
 import type { RunRecord, RunStatus } from "../runs/types.js";
 import type { TranscriptMessagePartType } from "../sessions/types.js";
+import type { HarnessAdmissionSelection, HarnessSelection } from "@repo/platform-protocol";
+
+export interface HarnessAdmissionReceipt {
+  readonly capture: HarnessAdmissionSelection;
+  readonly authOwnerGeneration: number | null;
+  readonly requestFingerprint: string;
+  readonly binding: HarnessSelection | null;
+}
 
 export interface TurnAdmissionRecord {
   /** Private immutable attempt binding; legacy/unbound records remain null. */
   nativeProviderBinding: NativeProviderBinding | null;
+  /** Private persisted capture; absent for legacy admissions. */
+  harnessSelection?: HarnessAdmissionSelection | null;
+  harnessAdmissionReceipt?: HarnessAdmissionReceipt | null;
   userId: string;
   sessionId: string;
   clientMessageId: string;
@@ -43,6 +54,9 @@ export interface ReserveTurnAdmissionInput {
 
 export interface AdmitTurnWithPromptInput {
   executionRoute: NativeProviderAdmissionRoute;
+  readonly harnessSelection?: HarnessAdmissionSelection;
+  /** Trusted server placement, supplied independently of the submitted capture. */
+  readonly harnessEnvironmentId?: string;
   sessionId: string;
   clientMessageId: string;
   turnId: string;
@@ -74,6 +88,9 @@ export interface AdmitContinuationInput extends Omit<AdmitTurnWithPromptInput, "
 
 export interface ReserveQueuedStartInput extends Omit<ReserveTurnAdmissionInput, "clientMessageId" | "continuationOfTurnId" | "originalPromptId" | "continuationTerminalSequence"> {
   readonly executionRoute: NativeProviderAdmissionRoute;
+  readonly harnessSelection?: HarnessAdmissionSelection;
+  /** Trusted server placement, supplied independently of the submitted capture. */
+  readonly harnessEnvironmentId?: string;
   readonly expectedRevision: number;
   readonly itemId: string;
   readonly expectedVersion: number;
@@ -133,7 +150,20 @@ export interface InterruptedTurnTarget {
   readonly resumeArtifactEvent: JsonValue;
 }
 
+export interface NativeRootAdmissionGuardInput {
+  readonly userId: string;
+  readonly workspaceId: string;
+  readonly sessionId: string;
+  readonly threadId: string;
+  readonly clientMessageId: string;
+  readonly runId: string;
+  readonly turnId: string;
+  readonly runAttemptId: string;
+}
+
 export interface TurnAdmissionRepository {
+  /** Optional for legacy adapters; configured hosted composition requires this port. */
+  assertNativeRootAdmissionAllowed?(input: NativeRootAdmissionGuardInput): Promise<void>;
   reserve(input: ReserveTurnAdmissionInput): Promise<TurnAdmissionRecord>;
   admitWithPrompt(input: AdmitTurnWithPromptInput): Promise<{ admission: TurnAdmissionRecord; promptMessageId: string; run: RunRecord }>;
   admitContinuation(input: AdmitContinuationInput): Promise<{ admission: TurnAdmissionRecord; run: RunRecord }>;

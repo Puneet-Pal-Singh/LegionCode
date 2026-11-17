@@ -1,3 +1,5 @@
+import { CredentialAcquisitionSchema } from "@repo/shared-types";
+import { HarnessConnectionMetadataService, HarnessConnectionMetadataSchema, type HarnessConnectionMetadataAuthority } from "../../harness/HarnessConnectionService";
 import {
   DatabaseConfigurationError,
   persistenceMigrations,
@@ -24,6 +26,8 @@ import {
   NativeProviderCredentialResolver,
   type NativeProviderCredentialContext,
 } from "../NativeProviderCredentialResolver";
+import { HarnessConnectionService, type HarnessSelectedAccountAuthority } from "../../harness/HarnessConnectionService";
+import { assertSelectedApiKeyRecord, projectSelectedApiKeyProvenance, unavailable } from "../../harness/SelectedApiKeyProvenance";
 
 export function createPostgresProviderConfigService(
   env: Env,
@@ -104,4 +108,64 @@ async function runPendingMigrations(client: SqlClient): Promise<void> {
     new PostgresMigrationLedger(),
   );
   await runner.runPending(persistenceMigrations);
+}
+
+/** P11 calls the service INSIDE its canonical admission transaction. No new
+ * client/transaction, default lookup, driver or host is created here. Existing
+ * NativeProviderCredentialResolver/context wiring above remains unchanged. */
+export function createPostgresHarnessConnectionService(
+  env: Env,
+  userId: string,
+  workspaceId: string,
+  authority: HarnessSelectedAccountAuthority,
+  expectedEnvironmentId: string,
+): HarnessConnectionService {
+  const encryption = getProviderEncryptionConfig(env as unknown as Record<string, unknown>);
+  return new HarnessConnectionService(authority, {
+    async projectSelectedApiKey(transaction, selected) {
+      if (selected.request.scope.userId !== userId || selected.request.scope.workspaceId !== workspaceId) throw unavailable();
+      const credentials = new PostgresCredentialStore(transaction, userId, workspaceId,
+        encryption.masterKey, encryption.keyVersion, encryption.previousMasterKey);
+      const expected = selected.credential;
+      // Existing custody read holds FOR SHARE on the explicit selected row
+      // through decrypt, Web Crypto awaits and projection. Never select default.
+      const locked = await credentials.getConnectionForAdmission(expected.providerId, expected.connectionId);
+      assertSelectedApiKeyRecord(selected, locked);
+      const acquired = await credentials.acquireConnection(expected);
+      if (!acquired) throw unavailable();
+      assertSelectedApiKeyRecord(selected, acquired.record);
+      const provenance = await projectSelectedApiKeyProvenance(selected, acquired.record, acquired.secret);
+      const current = await credentials.getConnectionForAdmission(expected.providerId, expected.connectionId);
+      assertSelectedApiKeyRecord(selected, current);
+      if (current.encryptedSecretJson !== acquired.record.encryptedSecretJson ||
+        JSON.stringify(current.connectionConfig) !== JSON.stringify(acquired.record.connectionConfig)) throw unavailable();
+      return provenance;
+    },
+  }, expectedEnvironmentId);
+}
+
+/** Explicit user-owned metadata for pre-selection setup. No decryption,
+ * provider-default lookup, credential lock or independent transaction. */
+export function createPostgresHarnessConnectionMetadataService(
+  env: Env,
+  userId: string,
+  workspaceId: string,
+  authority: HarnessConnectionMetadataAuthority,
+  expectedEnvironmentId: string,
+): HarnessConnectionMetadataService {
+  const encryption = getProviderEncryptionConfig(env as unknown as Record<string, unknown>);
+  return new HarnessConnectionMetadataService(authority, {
+    async readConnectionMetadataWithin(transaction, connectionId) {
+      const parsedConnectionId = CredentialAcquisitionSchema.shape.connectionId.safeParse(connectionId);
+      if (!parsedConnectionId.success) return null;
+      const credentials = new PostgresCredentialStore(transaction, userId, workspaceId,
+        encryption.masterKey, encryption.keyVersion, encryption.previousMasterKey);
+      const record = await credentials.getConnection(parsedConnectionId.data);
+      if (!record || record.status !== "connected" || record.deletedAt !== null || record.refreshClaimId !== null) return null;
+      if (record.userId !== userId || record.credentialId !== connectionId) throw unavailable();
+      return HarnessConnectionMetadataSchema.parse({ connectionId: record.credentialId,
+        providerId: record.providerId, credentialKind: record.credentialKind,
+        ownerGeneration: record.authOwnerGeneration, tokenMaterialVersion: record.tokenMaterialVersion });
+    },
+  }, userId, workspaceId, expectedEnvironmentId);
 }

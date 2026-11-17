@@ -5,6 +5,7 @@ import {
   type NativeProviderBinding, type NativeProviderBindingScope,
 } from "./native-provider-binding.js";
 import type { SqlClient, SqlRow } from "../sql.js";
+import { HarnessControlPlaneConflictError, PostgresHarnessControlPlaneRepository, parseHarnessAdmissionReceipt } from "../harness/PostgresHarnessControlPlaneRepository.js";
 import { PostgresRunRepository } from "../runs/PostgresRunRepository.js";
 import { PostgresTranscriptRepository } from "../sessions/PostgresTranscriptRepository.js";
 import type {
@@ -17,14 +18,17 @@ import type {
   ReserveQueuedStartResult,
   TurnAdmissionRecord,
   TurnAdmissionRepository,
+  NativeRootAdmissionGuardInput,
 } from "./types.js";
 import {
-  ThreadInputQueueItemSchema,
+  ThreadInputQueueItemSchema, HarnessAdmissionSelectionSchema, AppServerEnvironmentIdSchema,
   userIdFromExternalId,
+  workspaceIdFromExternalId,
 } from "@repo/platform-protocol";
 
 interface AdmissionRow extends SqlRow {
   native_provider_binding_json?: unknown;
+  harness_admission_receipt_json?: unknown;
   task_id?: string | null;
   task_user_id?: string | null;
   task_workspace_id?: string | null;
@@ -116,7 +120,62 @@ function resolveEstablishedWorkspace(session: AdmissionRow): string | null {
 
 export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository {
   constructor(private readonly client: SqlClient,
-    private readonly nativeProviderCapture?: NativeProviderAdmissionCapture) {}
+    private readonly nativeProviderCapture?: NativeProviderAdmissionCapture,
+    private readonly expectedHarnessEnvironmentId?: string | null) {}
+
+  async assertNativeRootAdmissionAllowed(input: NativeRootAdmissionGuardInput): Promise<void> {
+    input = structuredClone(input);
+    if (this.expectedHarnessEnvironmentId === undefined || this.expectedHarnessEnvironmentId === null) return;
+    await this.client.transaction(async (tx) => {
+      const session = (await tx.query<AdmissionRow>(LOCK_OWNED_SESSION_SQL,
+        [input.sessionId, input.userId, input.runId])).rows[0];
+      if (!session || session.thread_id !== input.threadId || resolveEstablishedWorkspace(session) !== input.workspaceId)
+        throw new TurnAdmissionConflictError("Conversation scope does not match", "thread_scope_conflict");
+      assertOwnedTaskScope(session, input.userId, session.task_id ?? null);
+      const prior = (await tx.query<AdmissionRow>(READ_SESSION_CLIENT_SQL,
+        [input.sessionId, input.clientMessageId])).rows[0];
+      if (prior) {
+        const saved = mapAdmission(prior);
+        if (saved.userId !== input.userId || saved.workspaceId !== input.workspaceId || saved.threadId !== input.threadId ||
+            saved.runId !== input.runId || saved.turnId !== input.turnId || saved.runAttemptId !== input.runAttemptId)
+          throw new TurnAdmissionConflictError("Admission identity does not match", "identity_conflict");
+        if (saved.harnessSelection?.selection)
+          throw new TurnAdmissionConflictError("The frozen hosted harness execution is unavailable", "hosted_harness_execution_unavailable");
+        if (saved.state === "admitted") return;
+        if (saved.continuationOfTurnId !== null) {
+          const parentRow = (await tx.query<AdmissionRow>(READ_BY_TURN_SQL, [saved.continuationOfTurnId])).rows[0];
+          const parent = parentRow ? mapAdmission(parentRow) : null;
+          if (!parent || parent.state !== "admitted" || parent.userId !== input.userId || parent.sessionId !== input.sessionId ||
+              parent.workspaceId !== input.workspaceId || parent.threadId !== input.threadId)
+            throw new TurnAdmissionConflictError("Frozen continuation parent does not match", "continuation_target_conflict");
+          if (parent.harnessSelection?.selection)
+            throw new TurnAdmissionConflictError("The frozen hosted harness execution is unavailable", "hosted_harness_execution_unavailable");
+          return;
+        }
+      }
+      await this.assertNativeRootSelectionWithin(tx, input);
+    });
+  }
+
+  private async assertNativeRootSelectionWithin(tx: SqlClient,
+    input: Pick<NativeRootAdmissionGuardInput, "userId" | "workspaceId" | "sessionId" | "threadId">): Promise<void> {
+    const placement = this.expectedHarnessEnvironmentId;
+    if (placement === undefined || placement === null) return;
+    const parsedPlacement = AppServerEnvironmentIdSchema.safeParse(placement);
+    if (!parsedPlacement.success)
+      throw new TurnAdmissionConflictError("Hosted placement is unavailable", "hosted_harness_execution_unavailable");
+    const environmentId = parsedPlacement.data;
+    try {
+      await new PostgresHarnessControlPlaneRepository(tx).assertNativeRootSelectionWithin(tx, {
+        scope: { userId: input.userId, workspaceId: input.workspaceId, environmentId },
+        sessionId: input.sessionId, threadId: input.threadId, expectedEnvironmentId: environmentId,
+      });
+    } catch (error) {
+      if (error instanceof HarnessControlPlaneConflictError && error.code === "execution_unavailable")
+        throw new TurnAdmissionConflictError("The selected hosted harness execution is unavailable", "hosted_harness_execution_unavailable");
+      throw error;
+    }
+  }
 
   async reserve(input: ReserveTurnAdmissionInput): Promise<TurnAdmissionRecord> {
     return await this.client.transaction(async (tx) => {
@@ -238,6 +297,7 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
 
   async reserveQueuedStart(input: ReserveQueuedStartInput): Promise<ReserveQueuedStartResult> {
     input = structuredClone(input);
+    validateHarnessCapture(input);
     return await this.client.transaction(async (tx) => {
       const clientMessageId = `thread-input:${input.itemId}`;
       const dedupeKey = clientMessageId;
@@ -267,6 +327,7 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
         if (admission.state !== "admitted" || admission.requestFingerprint !== input.requestFingerprint) {
           throw new TurnAdmissionConflictError("Queued input admission is incomplete or has a different fingerprint", "fingerprint_conflict");
         }
+        await this.captureHarnessSelection(tx, input, admission);
         const itemResult = await tx.query<AdmissionRow>(READ_QUEUED_START_SQL, [
           input.sessionId, input.userId, input.threadId, input.workspaceId, input.itemId,
         ]);
@@ -321,6 +382,7 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
       const workspaceId = input.workspaceId;
       if (typeof workspaceId !== "string" || !workspaceId) throw new TurnAdmissionConflictError(
         "New queued admission requires an owned workspace", "workspace_conflict");
+      if (input.executionRoute === "native") await this.assertNativeRootSelectionWithin(tx, { ...input, workspaceId });
       return this.withProviderBinding<ReserveQueuedStartResult>(tx, {
         userId: input.userId, workspaceId, sessionId: input.sessionId,
         threadId: input.threadId, runId: input.runId, turnId: input.turnId, runAttemptId: input.runAttemptId,
@@ -357,6 +419,7 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
           null,
           null,
         ]);
+        await this.captureHarnessSelection(tx, input, mapAdmission(requiredRow(inserted.rows[0])));
         const orderResult = await tx.query<AdmissionRow>(ALLOCATE_ADMISSION_ORDER_SQL, [input.sessionId]);
         const admissionOrder = numberValue(orderResult.rows[0]?.admission_order, "admission_order");
         const run = await new PostgresRunRepository(tx).ensureRun({
@@ -407,6 +470,7 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
 
   async admitContinuation(input: AdmitContinuationInput): Promise<{ admission: TurnAdmissionRecord; run: import("../runs/types.js").RunRecord }> {
     input = structuredClone(input);
+    validateHarnessCapture(input);
     return await this.client.transaction(async (tx) => {
       const sessionResult = await tx.query<AdmissionRow>(LOCK_OWNED_SESSION_SQL, [input.sessionId, input.userId, input.runId]);
       const session = sessionResult.rows[0];
@@ -453,12 +517,16 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
         existing.continuationOfTurnId !== input.continuationOfTurnId || existing.originalPromptId !== input.originalPromptId ||
         existing.continuationTerminalSequence !== input.continuationTerminalSequence
       ) throw new TurnAdmissionConflictError("Continuation admission identity does not match", "identity_conflict");
+      await this.captureHarnessSelection(tx, input, existing);
       if (existing.state === "admitted") {
         if (existing.requestFingerprint !== input.requestFingerprint) throw new TurnAdmissionConflictError("Admitted continuation fingerprint does not match", "fingerprint_conflict");
         const run = await new PostgresRunRepository(tx).getRun(input.runId, input.userId);
         if (!run) throw new TurnAdmissionConflictError("Admitted run projection is missing", "run_projection_missing");
         return { admission: existing, run };
       }
+      if (input.executionRoute === "native" && continuation.rows[0].harness_admission_receipt_json != null &&
+          parseHarnessAdmissionReceipt(continuation.rows[0].harness_admission_receipt_json).capture.selection !== null)
+        throw new TurnAdmissionConflictError("The frozen hosted harness execution is unavailable", "hosted_harness_execution_unavailable");
       return this.withProviderBinding(tx, admissionBindingScope(existing), input, async (tx, binding) => {
         const orderResult = await tx.query<AdmissionRow>(ALLOCATE_ADMISSION_ORDER_SQL, [input.sessionId]);
         const admissionOrder = numberValue(orderResult.rows[0]?.admission_order, "admission_order");
@@ -496,10 +564,13 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
     ]);
     const row = result.rows[0];
     if (!row) return null;
+    const admission = mapAdmission(row);
+    if (admission.harnessSelection?.selection)
+      throw new TurnAdmissionConflictError("The frozen hosted harness execution is unavailable", "hosted_harness_execution_unavailable");
     const run = await new PostgresRunRepository(this.client).getRun(requiredString(row.source_run_id, "source_run_id"), input.userId);
     if (!run) return null;
     return {
-      admission: mapAdmission(row),
+      admission,
       originalPromptId: requiredString(row.canonical_prompt_id, "canonical_prompt_id"),
       prompt: { text: requiredPossiblyEmptyString(row.prompt_text, "prompt_text"), parts: parseJsonArray(row.prompt_parts) as InterruptedTurnTarget["prompt"]["parts"] },
       run,
@@ -513,6 +584,7 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
     input: AdmitTurnWithPromptInput,
   ): Promise<{ admission: TurnAdmissionRecord; promptMessageId: string; run: import("../runs/types.js").RunRecord }> {
     input = structuredClone(input);
+    validateHarnessCapture(input);
     return await this.client.transaction(async (tx) => {
       const sessionResult = await tx.query<AdmissionRow>(LOCK_OWNED_SESSION_SQL, [
         input.sessionId,
@@ -542,6 +614,7 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
       ) {
         throw new TurnAdmissionConflictError("Turn admission identity does not match", "identity_conflict");
       }
+      await this.captureHarnessSelection(tx, input, existing);
       if (existing.state === "admitted") {
         if (existing.requestFingerprint !== input.requestFingerprint) {
           throw new TurnAdmissionConflictError("Admitted prompt fingerprint does not match", "fingerprint_conflict");
@@ -565,6 +638,10 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
         }
       }
 
+      if (input.executionRoute === "native" && existing.continuationOfTurnId === null) {
+        if (existing.workspaceId === null) throw new TurnAdmissionConflictError("Owned workspace is required", "workspace_conflict");
+        await this.assertNativeRootSelectionWithin(tx, { ...input, workspaceId: existing.workspaceId, threadId: existing.threadId });
+      }
       return this.withProviderBinding(tx, admissionBindingScope(existing), input, async (tx, binding) => {
         const orderResult = await tx.query<AdmissionRow>(ALLOCATE_ADMISSION_ORDER_SQL, [input.sessionId]);
         const admissionOrderValue = orderResult.rows[0]?.admission_order;
@@ -616,6 +693,28 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
         ]);
         return { admission: mapAdmission(requiredRow(updated.rows[0])), promptMessageId: prompt.id, run };
       });
+    });
+  }
+
+  private async captureHarnessSelection(
+    tx: SqlClient,
+    input: Pick<AdmitTurnWithPromptInput, "executionRoute" | "harnessSelection" | "harnessEnvironmentId" |
+      "userId" | "sessionId" | "requestFingerprint"> & { readonly workspaceId: string | null },
+    admission: TurnAdmissionRecord,
+  ): Promise<void> {
+    const requested = validateHarnessCapture(input);
+    if (requested === null) {
+      if (admission.harnessSelection != null)
+        throw new TurnAdmissionConflictError("Frozen harness selection cannot be omitted", "harness_selection_conflict");
+      return;
+    }
+    const { capture, environmentId } = requested;
+    if (admission.state === "admitted" && admission.requestFingerprint !== input.requestFingerprint)
+      throw new TurnAdmissionConflictError("Admitted request fingerprint does not match", "fingerprint_conflict");
+    await new PostgresHarnessControlPlaneRepository(tx).captureAdmissionSelection(tx, {
+      scope: { userId: input.userId, workspaceId: requested.workspaceId, environmentId },
+      sessionId: input.sessionId, threadId: admission.threadId, turnId: admission.turnId,
+      capture, expectedEnvironmentId: environmentId, requestFingerprint: input.requestFingerprint, admitted: admission.state === "admitted",
     });
   }
 
@@ -765,7 +864,32 @@ function mapAdmission(row: AdmissionRow): TurnAdmissionRecord {
       jsonValue(row.native_provider_binding_json), admissionBindingScope(admission),
     );
   }
+  if (row.harness_admission_receipt_json !== null && row.harness_admission_receipt_json !== undefined) {
+    const receipt = parseHarnessAdmissionReceipt(row.harness_admission_receipt_json);
+    if (receipt.requestFingerprint !== admission.requestFingerprint ||
+        (receipt.capture.selection !== null && admission.nativeProviderBinding !== null))
+      throw new TurnAdmissionConflictError("Stored harness receipt differs from its admission", "harness_selection_conflict");
+    const binding = receipt.binding;
+    if (binding && (admission.workspaceId === null || binding.userId !== userIdFromExternalId(admission.userId) ||
+        binding.workspaceId !== workspaceIdFromExternalId(admission.workspaceId) || binding.threadId !== admission.threadId ||
+        binding.runId !== admission.runId || binding.turnId !== admission.turnId || binding.runAttemptId !== admission.runAttemptId))
+      throw new TurnAdmissionConflictError("Stored harness binding differs from its admission scope", "harness_selection_conflict");
+    admission.harnessSelection = receipt.capture;
+    admission.harnessAdmissionReceipt = receipt;
+  }
   return admission;
+}
+
+function validateHarnessCapture(input: Pick<AdmitTurnWithPromptInput,
+  "executionRoute" | "harnessSelection" | "harnessEnvironmentId"> & { readonly workspaceId: string | null }) {
+  if (input.harnessSelection === undefined) return null;
+  const capture = HarnessAdmissionSelectionSchema.parse(input.harnessSelection);
+  const route = NativeProviderAdmissionRouteSchema.safeParse(input.executionRoute);
+  if (!route.success || (route.data === "native") !== (capture.selection === null))
+    throw new TurnAdmissionConflictError("Harness capture does not match the explicit execution route", "harness_selection_conflict");
+  if (!input.workspaceId || !input.harnessEnvironmentId || capture.environmentId !== input.harnessEnvironmentId)
+    throw new TurnAdmissionConflictError("Harness capture does not match trusted placement", "harness_selection_conflict");
+  return { capture, environmentId: input.harnessEnvironmentId, workspaceId: input.workspaceId };
 }
 
 function admissionBindingScope(admission: TurnAdmissionRecord): NativeProviderBindingScope {
@@ -864,7 +988,7 @@ const READ_SESSION_CLIENT_SQL = `SELECT a.*, s.user_id AS owner_user_id FROM can
 const READ_REVISION_TURN_SQL = `SELECT a.turn_id, terminal.turn_id AS terminal_turn_id FROM canonical_turn_admissions a JOIN sessions s ON s.id = a.session_id LEFT JOIN LATERAL (SELECT turn_id FROM canonical_lifecycle_events e WHERE e.turn_id = a.turn_id AND e.event_type IN ('turn.completed','turn.failed','turn.interrupted') ORDER BY e.sequence DESC LIMIT 1) terminal ON TRUE WHERE a.session_id = $1 AND a.turn_id = $2 AND a.admission_state = 'admitted' AND s.current_turn_id = a.turn_id AND NOT EXISTS (SELECT 1 FROM canonical_turn_admissions child WHERE child.session_id = a.session_id AND child.revision_of_turn_id = a.turn_id AND child.admission_state = 'admitted')`;
 const INSERT_RESERVED_SQL = `INSERT INTO canonical_turn_admissions (session_id, client_message_id, thread_id, turn_id, run_attempt_id, run_id, workspace_id, revision_of_turn_id, continuation_of_turn_id, original_prompt_id, continuation_terminal_sequence, admission_state) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'reserved') RETURNING *, (SELECT user_id FROM sessions WHERE id = $1) AS owner_user_id`;
 const READ_CONTINUATION_TARGET_SQL = `SELECT a.turn_id FROM canonical_turn_admissions a JOIN sessions s ON s.id = a.session_id JOIN canonical_lifecycle_events terminal ON terminal.turn_id = a.turn_id AND terminal.event_type = 'turn.interrupted' AND terminal.sequence = $3 LEFT JOIN LATERAL (SELECT COALESCE(m.client_message_id, m.id::text) AS prompt_id FROM messages m WHERE m.session_id = a.session_id AND m.canonical_turn_id = a.turn_id AND m.role = 'user' ORDER BY m.created_at ASC, m.id ASC LIMIT 1) prompt ON a.original_prompt_id IS NULL WHERE a.session_id = $1 AND a.turn_id = $2 AND a.admission_state = 'admitted' AND s.current_turn_id = a.turn_id AND COALESCE(a.original_prompt_id, prompt.prompt_id) = $4 AND NOT EXISTS (SELECT 1 FROM canonical_turn_admissions child WHERE child.session_id = a.session_id AND child.continuation_of_turn_id = a.turn_id AND child.admission_state = 'admitted')`;
-const READ_CONTINUATION_TARGET_FOR_COMMAND_SQL = `SELECT a.turn_id FROM canonical_turn_admissions a JOIN sessions s ON s.id = a.session_id JOIN canonical_lifecycle_events terminal ON terminal.turn_id = a.turn_id AND terminal.run_attempt_id = a.run_attempt_id AND terminal.event_type = 'turn.interrupted' AND terminal.sequence = $3 LEFT JOIN LATERAL (SELECT COALESCE(m.client_message_id, m.id::text) AS prompt_id FROM messages m WHERE m.session_id = a.session_id AND m.canonical_turn_id = a.turn_id AND m.role = 'user' ORDER BY m.created_at ASC, m.id ASC LIMIT 1) prompt ON a.original_prompt_id IS NULL WHERE a.session_id = $1 AND a.turn_id = $2 AND a.admission_state = 'admitted' AND COALESCE(a.original_prompt_id, prompt.prompt_id) = $4 AND ((s.current_turn_id = a.turn_id AND s.active_run_id IS NULL AND NOT EXISTS (SELECT 1 FROM canonical_turn_admissions child WHERE child.session_id = a.session_id AND child.continuation_of_turn_id = a.turn_id AND child.admission_state = 'admitted')) OR EXISTS (SELECT 1 FROM canonical_turn_admissions child WHERE child.session_id = a.session_id AND child.continuation_of_turn_id = a.turn_id AND child.client_message_id = $5 AND child.original_prompt_id = $4 AND child.continuation_terminal_sequence = $3 AND child.admission_state = 'admitted'))`;
+const READ_CONTINUATION_TARGET_FOR_COMMAND_SQL = `SELECT a.turn_id, a.harness_admission_receipt_json FROM canonical_turn_admissions a JOIN sessions s ON s.id = a.session_id JOIN canonical_lifecycle_events terminal ON terminal.turn_id = a.turn_id AND terminal.run_attempt_id = a.run_attempt_id AND terminal.event_type = 'turn.interrupted' AND terminal.sequence = $3 LEFT JOIN LATERAL (SELECT COALESCE(m.client_message_id, m.id::text) AS prompt_id FROM messages m WHERE m.session_id = a.session_id AND m.canonical_turn_id = a.turn_id AND m.role = 'user' ORDER BY m.created_at ASC, m.id ASC LIMIT 1) prompt ON a.original_prompt_id IS NULL WHERE a.session_id = $1 AND a.turn_id = $2 AND a.admission_state = 'admitted' AND COALESCE(a.original_prompt_id, prompt.prompt_id) = $4 AND ((s.current_turn_id = a.turn_id AND s.active_run_id IS NULL AND NOT EXISTS (SELECT 1 FROM canonical_turn_admissions child WHERE child.session_id = a.session_id AND child.continuation_of_turn_id = a.turn_id AND child.admission_state = 'admitted')) OR EXISTS (SELECT 1 FROM canonical_turn_admissions child WHERE child.session_id = a.session_id AND child.continuation_of_turn_id = a.turn_id AND child.client_message_id = $5 AND child.original_prompt_id = $4 AND child.continuation_terminal_sequence = $3 AND child.admission_state = 'admitted'))`;
 const LOCK_THREAD_INPUT_STATE_SQL = `SELECT revision, paused FROM thread_input_state WHERE session_id = $1 AND thread_id = $2 AND workspace_id = $3 FOR UPDATE`;
 const READ_THREAD_INPUT_REVISION_SQL = `SELECT revision FROM thread_input_state WHERE session_id = $1`;
 const READ_CURRENT_COMPLETED_TURN_SQL = `SELECT 1 FROM sessions s JOIN LATERAL (SELECT event_type FROM canonical_lifecycle_events WHERE turn_id = s.current_turn_id ORDER BY sequence DESC LIMIT 1) terminal ON terminal.event_type = 'turn.completed' WHERE s.id = $1`;

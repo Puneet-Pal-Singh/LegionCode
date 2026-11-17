@@ -1,3 +1,5 @@
+import { PersistenceService } from "../../services/PersistenceService";
+import { ValidationError } from "../../domain/errors";
 import type { AgentType } from "@legioncode/execution-engine/runtime";
 import { HandleChatRequest } from "../../application/chat";
 import type { Env } from "../../types/ai";
@@ -101,6 +103,12 @@ export async function submitHostedChat(
   };
 
   try {
+    const submittedMessage = coreMessages[coreMessages.length - 1];
+    if (!submittedMessage || submittedMessage.role !== "user")
+      throw new ValidationError("Latest chat message must be the submitted user prompt", "LATEST_MESSAGE_NOT_USER", correlationId);
+    await new PersistenceService(env).assertNativeRootAdmissionAllowed({
+      sessionId, runId, userId, workspaceId, identity, message: submittedMessage,
+    });
     admissionGrant = await admissionService.enforce(
       admissionInput,
       correlationId,
