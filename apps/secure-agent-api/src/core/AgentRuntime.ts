@@ -1,3 +1,10 @@
+import {
+  assertExecutionDomainAdmission,
+  hasExecutionDomain,
+  validExecutionDomain,
+  type ExecutionDomainSessionFields,
+} from "./ExecutionSessionDomain";
+import { snapshotExecutionDomain } from "@repo/worker-protocol/private/execution-domain";
 // apps/secure-agent-api/src/core/AgentRuntime.ts
 // RECONSTRUCTABILITY: Execution sessions and logs exist only in DO storage.
 // Chat history is dual-written to DO (runtime cache) and Postgres
@@ -7,10 +14,7 @@
 // debugging state with no Postgres equivalent.
 import { DurableObject } from "cloudflare:workers";
 import { getSandbox, type Sandbox } from "@cloudflare/sandbox";
-import {
-  IPlugin,
-  Message,
-} from "../interfaces/types";
+import { IPlugin, Message } from "../interfaces/types";
 import { StreamHandler } from "./StreamHandler";
 import { StorageService } from "../services/StorageService";
 import { PythonPlugin } from "../plugins/PythonPlugin";
@@ -35,11 +39,12 @@ import type {
 } from "../ports/SandboxExecutionPort";
 import {
   workspaceLeaseKey,
+  sameSandboxExecutionLease,
   type SandboxExecutionLease,
 } from "../ports/SandboxExecutionLease";
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 
-interface RuntimeSessionRecord {
+interface RuntimeSessionRecord extends ExecutionDomainSessionFields {
   runId: string;
   taskId: string;
   repoPath: string;
@@ -62,6 +67,7 @@ interface RuntimeSessionRecord {
 }
 
 interface WorkspaceRuntimeEntry {
+  readonly lease: SandboxExecutionLease;
   readonly composed: ComposedRuntime;
   readonly sandbox: Sandbox;
   readonly plugins: Map<string, IPlugin>;
@@ -135,6 +141,14 @@ export class AgentRuntime extends DurableObject {
       }
     }
 
+    // Marked cache entries retain their exact original after shared awaits.
+    // Unmarked legacy callers retain their existing multi-lease behavior.
+    if (
+      (entry.lease.executionDomainDigest !== undefined ||
+        lease.executionDomainDigest !== undefined) &&
+      !sameSandboxExecutionLease(entry.lease, lease)
+    )
+      throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
     entry.composed.executionPort.registerLease(lease);
     if (initializePlugins) await this.ensurePluginsBooted(workspaceKey, entry);
     return entry;
@@ -152,7 +166,7 @@ export class AgentRuntime extends DurableObject {
       r2Bucket: this.artifactBucket,
       executionLease: lease,
     });
-    return { composed, sandbox, plugins, pluginsBooted: false };
+    return { composed, sandbox, plugins, lease, pluginsBooted: false };
   }
 
   private async ensurePluginsBooted(
@@ -230,11 +244,20 @@ export class AgentRuntime extends DurableObject {
       if (
         !persisted ||
         persisted.cleanupInProgress ||
-        persisted.lease.leaseId !== input.lease.leaseId ||
-        persisted.lease.sandboxId !== input.lease.sandboxId ||
-        persisted.lease.generation !== input.lease.generation
+        persisted.lease.owner !== sessionId ||
+        !this.matchesLease(persisted.lease, input.lease)
       ) {
         return null;
+      }
+      if (hasExecutionDomain(persisted)) {
+        const domain = await validExecutionDomain(persisted);
+        if (
+          !domain ||
+          domain.domain === "legioncode_native" ||
+          persisted.expiresAt <= Date.now() ||
+          input.lease.expiresAt <= Date.now()
+        )
+          return null;
       }
       return await this.ensureWorkspaceRuntime(
         input.lease,
@@ -266,8 +289,28 @@ export class AgentRuntime extends DurableObject {
   }
 
   async cancelTask(leaseId: string, taskId: string): Promise<boolean> {
+    const owned = (await this.listExecutionSessions()).filter(
+      ([, session]) => session.lease.leaseId === leaseId,
+    );
+    for (const [, session] of owned) {
+      if (hasExecutionDomain(session)) {
+        const domain = await validExecutionDomain(session);
+        if (!domain || domain.domain === "legioncode_native") return false;
+      }
+    }
     for (const [workspaceKey, runtime] of this.workspaceRuntimes) {
-      const cancelled = await runtime.composed.executionPort.cancelTask(leaseId, taskId);
+      if (
+        runtime.lease.leaseId === leaseId &&
+        runtime.lease.executionDomainDigest !== undefined &&
+        !owned.some(([, session]) =>
+          this.matchesLease(session.lease, runtime.lease),
+        )
+      )
+        return false;
+      const cancelled = await runtime.composed.executionPort.cancelTask(
+        leaseId,
+        taskId,
+      );
       if (cancelled) {
         return true;
       }
@@ -289,9 +332,15 @@ export class AgentRuntime extends DurableObject {
     const owned = records.filter(
       ([, session]) => session.lease.leaseId === leaseId,
     );
-    if (owned.length === 0) {
-      await this.releaseLoadedLease(leaseId);
-      return;
+    if (owned.length === 0)
+      throw new Error("ORIGINAL_EXECUTION_SESSION_UNAVAILABLE");
+    if (owned.some(([, session]) => hasExecutionDomain(session))) {
+      // Seal the SAME row before any drain. This prerequisite has no physical
+      // closure producer; missing/void/destroy results cannot free marked loans.
+      await this.markSandboxCleanupInProgress(owned);
+      await this.persistSandboxCleanupRetry(owned, Date.now());
+      await this.scheduleExecutionSessionAlarm();
+      throw new Error("MARKED_EXECUTION_CLEANUP_UNAVAILABLE");
     }
 
     const now = Date.now();
@@ -303,6 +352,12 @@ export class AgentRuntime extends DurableObject {
       const group = records.filter(
         ([, session]) => session.lease.sandboxId === sandboxId,
       );
+      if (group.some(([, session]) => hasExecutionDomain(session))) {
+        await this.markSandboxCleanupInProgress(group);
+        await this.persistSandboxCleanupRetry(group, now);
+        await this.scheduleExecutionSessionAlarm();
+        throw new Error("MARKED_EXECUTION_CLEANUP_UNAVAILABLE");
+      }
       const hasOtherLiveReference = group.some(
         ([key, session]) =>
           !ownedIds.has(key) &&
@@ -360,34 +415,18 @@ export class AgentRuntime extends DurableObject {
     });
   }
 
-  private matchesLease(
-    actual: SandboxExecutionLease,
-    expected: SandboxExecutionLease,
-  ): boolean {
-    const scope = actual.workspaceScope;
-    const expectedScope = expected.workspaceScope;
-    return (
-      actual.leaseId === expected.leaseId &&
-      actual.sandboxId === expected.sandboxId &&
-      actual.owner === expected.owner &&
-      actual.correlationId === expected.correlationId &&
-      actual.expiresAt === expected.expiresAt &&
-      actual.generation === expected.generation &&
-      actual.mutationMode === expected.mutationMode &&
-      scope.runId === expectedScope.runId &&
-      scope.threadId === expectedScope.threadId &&
-      scope.turnId === expectedScope.turnId &&
-      scope.runAttemptId === expectedScope.runAttemptId &&
-      scope.workspaceId === expectedScope.workspaceId &&
-      scope.root === expectedScope.root
-    );
+  private matchesLease(actual: SandboxExecutionLease, expected: SandboxExecutionLease): boolean {
+    return sameSandboxExecutionLease(actual, expected);
   }
 
   private async releaseLoadedLease(leaseId: string): Promise<void> {
     for (const [workspaceKey, runtime] of this.workspaceRuntimes) {
-      const release = await runtime.composed.executionPort.releaseLease(leaseId, {
-        destroySandbox: false,
-      });
+      const release = await runtime.composed.executionPort.releaseLease(
+        leaseId,
+        {
+          destroySandbox: false,
+        },
+      );
       if (release.sandboxReleased) {
         this.workspaceRuntimes.delete(workspaceKey);
       }
@@ -405,8 +444,32 @@ export class AgentRuntime extends DurableObject {
     sessionId: string,
     session: RuntimeSessionRecord,
   ): Promise<void> {
+    const domain =
+      session.executionDomain !== undefined
+        ? snapshotExecutionDomain(session.executionDomain)
+        : undefined;
+    session = {
+      ...session,
+      ...(domain ? { executionDomain: domain } : {}),
+      workspaceScope: Object.freeze({ ...session.workspaceScope }),
+      lease: Object.freeze({
+        ...session.lease,
+        workspaceScope: Object.freeze({ ...session.lease.workspaceScope }),
+      }),
+    };
+    if (
+      domain &&
+      (session.lease.owner !== sessionId ||
+        session.runId !== domain.scope.runId)
+    )
+      throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
     await this.ctx.blockConcurrencyWhile(async () => {
       const sessions = await this.listExecutionSessions();
+      await assertExecutionDomainAdmission(
+        sessions,
+        this.getExecutionSessionKey(sessionId),
+        session,
+      );
       const sessionKey = this.getExecutionSessionKey(sessionId);
       if (
         sessions.some(
@@ -579,7 +642,11 @@ export class AgentRuntime extends DurableObject {
     for (const [key] of group) {
       const session = await this.ctx.storage.get<RuntimeSessionRecord>(key);
       if (!session) continue;
-      await this.ctx.storage.put(key, { ...session, cleanupInProgress: true });
+      await this.ctx.storage.put(key, {
+        ...session,
+        ...(hasExecutionDomain(session) ? { token: "" } : {}),
+        cleanupInProgress: true,
+      });
     }
   }
 
@@ -611,6 +678,10 @@ export class AgentRuntime extends DurableObject {
     now: number,
   ): Promise<boolean> {
     try {
+      if (group.some(([, session]) => hasExecutionDomain(session))) {
+        await this.markSandboxCleanupInProgress(group);
+        throw new Error("MARKED_EXECUTION_CLEANUP_UNAVAILABLE");
+      }
       // The ID comes from persisted leases; no replacement lease is issued.
       await destroySandboxWithTimeout(
         getSandbox(this.env.Sandbox, sandboxId),
@@ -831,8 +902,8 @@ export class AgentRuntime extends DurableObject {
         await this.ctx.storage.put(existingKey, "saved");
       }
     });
-  }
 
+  }
 }
 
 async function destroySandboxWithTimeout(
