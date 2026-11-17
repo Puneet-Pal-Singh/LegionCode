@@ -1,3 +1,8 @@
+import { createHash } from "node:crypto";
+import type {
+  TaskCheckoutIssuanceRepository,
+  PersistedTaskCheckoutExecutionDomain,
+} from "@repo/persistence";
 import { describe, expect, it, vi } from "vitest";
 import type { TaskWorkspaceRepository } from "@repo/persistence";
 import {
@@ -11,6 +16,7 @@ import type { Env } from "../../types/ai";
 import {
   TaskCheckoutIssuer,
   type SecureExecutionSessionFactory,
+  type BeforeTaskCheckoutSessionAcquire,
 } from "./TaskCheckoutIssuer";
 
 const snapshot = WorkspaceSnapshotSchema.parse({
@@ -32,7 +38,7 @@ const snapshot = WorkspaceSnapshotSchema.parse({
     kind: "authorized_repository",
     requestedRef: "dev",
     resolvedRef: "refs/heads/dev",
-    authorizedByUserId: "usr_user001",
+    authorizedByUserId: "usr_user-001",
     authorizationContextDigest: "e".repeat(64),
   },
 });
@@ -57,7 +63,7 @@ describe("TaskCheckoutIssuer", () => {
         ),
       },
       repository,
-      ({ workspaceScope }) => ({
+      ({ workspaceScope, executionDomain }) => ({
         acquire: vi.fn(async () => ({
           sessionId: `sess_${workspaceScope.runAttemptId}`,
           token: "secret-test-token",
@@ -66,6 +72,7 @@ describe("TaskCheckoutIssuer", () => {
             leaseId: `lease_${workspaceScope.runAttemptId}`,
             sandboxId: `sb-attempt-${workspaceScope.runAttemptId.at(-1)}`,
             generation: 0,
+            executionDomainDigest: await digestFor(executionDomain!),
           },
         })),
         recoverAfterSandboxLoss: vi.fn(async () => {
@@ -76,9 +83,18 @@ describe("TaskCheckoutIssuer", () => {
     );
 
     const issued = await Promise.all([
-      issuer.issue(payloadFor(1, "gpt-5.6-luna")),
-      issuer.issue(payloadFor(2, "gpt-5.6-luna")),
-      issuer.issue(payloadFor(3, "gpt-5.6-luna")),
+      issuer.issue(
+        payloadFor(1, "gpt-5.6-luna"),
+        issueOptions(payloadFor(1, "gpt-5.6-luna")),
+      ),
+      issuer.issue(
+        payloadFor(2, "gpt-5.6-luna"),
+        issueOptions(payloadFor(2, "gpt-5.6-luna")),
+      ),
+      issuer.issue(
+        payloadFor(3, "gpt-5.6-luna"),
+        issueOptions(payloadFor(3, "gpt-5.6-luna")),
+      ),
     ]);
 
     expect(
@@ -108,7 +124,7 @@ describe("TaskCheckoutIssuer", () => {
       {} as Env,
       { capture: vi.fn(async () => snapshot) },
       repository,
-      ({ workspaceScope }) => ({
+      ({ workspaceScope, executionDomain }) => ({
         acquire: vi.fn(async () => ({
           sessionId: "sess_secure001",
           token: "secret-test-token",
@@ -117,6 +133,7 @@ describe("TaskCheckoutIssuer", () => {
             leaseId: "lease_secure01",
             sandboxId: "sb-secure01",
             generation: 0,
+            executionDomainDigest: await digestFor(executionDomain!),
           },
         })),
         recoverAfterSandboxLoss: vi.fn(async () => {
@@ -127,7 +144,7 @@ describe("TaskCheckoutIssuer", () => {
       }),
     );
 
-    const issued = await issuer.issue(payload());
+    const issued = await issuer.issue(payload(), issueOptions(payload()));
 
     expect(issued.checkout).toMatchObject({
       snapshotId: snapshot.snapshotId,
@@ -143,10 +160,13 @@ describe("TaskCheckoutIssuer", () => {
       `/home/sandbox/checkouts/${issued.checkout.checkoutId}`,
     );
     expect(issued.workspaceScope.root).toBe(issued.checkout.filesystemRoot);
-    expect(repository.issueSnapshotCheckout).toHaveBeenCalledWith(
-      snapshot,
+    expect(repository.completeIssuance).toHaveBeenCalledWith(
       issued.checkout,
+      expect.any(String),
     );
+    expect(
+      repository.freezeIssuanceDomain.mock.invocationCallOrder[0],
+    ).toBeLessThan(repository.completeIssuance.mock.invocationCallOrder[0]!);
     expect(release).not.toHaveBeenCalled();
   });
 
@@ -163,6 +183,7 @@ describe("TaskCheckoutIssuer", () => {
             leaseId: "lease_secure01",
             sandboxId: "sb-secure01",
             generation: 0,
+            executionDomainDigest: await digestFor(input.executionDomain!),
           },
         })),
         recoverAfterSandboxLoss: vi.fn(async () => {
@@ -178,15 +199,15 @@ describe("TaskCheckoutIssuer", () => {
       repository,
       sessionFactory,
     );
-    const first = await issuer.issue(payload());
+    const first = await issuer.issue(payload(), issueOptions(payload()));
     repository.getByRunAttemptId.mockResolvedValueOnce(first.checkout);
     repository.getBySnapshotId.mockResolvedValueOnce(snapshot);
 
-    const resumed = await issuer.issue(payload());
+    const resumed = await issuer.issue(payload(), issueOptions(payload()));
 
     expect(resumed.checkout).toEqual(first.checkout);
     expect(capture).toHaveBeenCalledOnce();
-    expect(repository.issueSnapshotCheckout).toHaveBeenCalledOnce();
+    expect(repository.completeIssuance).toHaveBeenCalledOnce();
     expect(sessionFactory).toHaveBeenLastCalledWith(
       expect.objectContaining({
         persistedReference: {
@@ -194,13 +215,25 @@ describe("TaskCheckoutIssuer", () => {
           leaseId: first.checkout.leaseId,
           sandboxId: first.checkout.sandboxId,
           generation: first.checkout.generation,
+          executionDomainDigest: await digestFor(domainFor(payload())),
         },
       }),
     );
+    repository.getByRunAttemptId.mockResolvedValueOnce(first.checkout);
+    repository.getBySnapshotId.mockResolvedValueOnce(snapshot);
+    repository.getCheckoutExecutionDomain.mockRejectedValueOnce(
+      new Error("custody unavailable"),
+    );
+    await expect(
+      issuer.issue(payload(), issueOptions(payload())),
+    ).rejects.toThrow("custody unavailable");
+    expect(sessionFactory).toHaveBeenCalledTimes(2);
+    expect(repository.replaceLease).not.toHaveBeenCalled();
   });
 
   it("atomically adopts one secure replacement generation without changing checkout provenance", async () => {
     const repository = createRepository();
+    const digest = await digestFor(domainFor(payload()));
     const acquire = vi
       .fn()
       .mockResolvedValueOnce({
@@ -211,6 +244,7 @@ describe("TaskCheckoutIssuer", () => {
           leaseId: "lease_secure01",
           sandboxId: "sb-secure01",
           generation: 0,
+          executionDomainDigest: digest,
         },
       })
       .mockResolvedValueOnce({
@@ -221,6 +255,7 @@ describe("TaskCheckoutIssuer", () => {
           leaseId: "lease_secure02",
           sandboxId: "sb-secure02",
           generation: 1,
+          executionDomainDigest: digest,
         },
       });
     const issuer = new TaskCheckoutIssuer(
@@ -235,7 +270,7 @@ describe("TaskCheckoutIssuer", () => {
         release: vi.fn(async () => undefined),
       }),
     );
-    const first = await issuer.issue(payload());
+    const first = await issuer.issue(payload(), issueOptions(payload()));
     repository.getByRunAttemptId.mockResolvedValueOnce(first.checkout);
     repository.getBySnapshotId.mockResolvedValueOnce(snapshot);
     const replacedCheckout = TaskCheckoutSchema.parse({
@@ -246,12 +281,30 @@ describe("TaskCheckoutIssuer", () => {
     });
     repository.replaceLease.mockResolvedValueOnce(replacedCheckout);
 
-    const resumed = await issuer.issue(payload());
+    await expect(
+      issuer.issue(payload(), issueOptions(payload())),
+    ).rejects.toMatchObject({
+      code: "TASK_CHECKOUT_RESUME_UNAVAILABLE",
+      retryable: false,
+    });
+    expect(repository.replaceLease).not.toHaveBeenCalled();
+    expect(first.checkout.generation).toBe(0);
 
-    expect(resumed.checkout).toEqual(replacedCheckout);
-    expect(resumed.checkout.checkoutId).toBe(first.checkout.checkoutId);
-    expect(resumed.checkout.snapshotId).toBe(first.checkout.snapshotId);
-    expect(resumed.checkout.filesystemRoot).toBe(first.checkout.filesystemRoot);
+    // Only an explicitly unmarked legacy resume may adopt its replacement.
+    repository.getByRunAttemptId.mockResolvedValueOnce(first.checkout);
+    repository.getBySnapshotId.mockResolvedValueOnce(snapshot);
+    acquire.mockResolvedValueOnce({
+      sessionId: "sess_secure001",
+      token: "legacy-replacement-token",
+      expiresAt: Date.now() + 60_000,
+      lease: {
+        leaseId: "lease_secure02",
+        sandboxId: "sb-secure02",
+        generation: 1,
+      },
+    });
+    const legacy = await issuer.issue(payload());
+    expect(legacy.checkout).toEqual(replacedCheckout);
     expect(repository.replaceLease).toHaveBeenCalledWith({
       checkoutId: first.checkout.checkoutId,
       expectedLeaseId: "lease_secure01",
@@ -265,7 +318,7 @@ describe("TaskCheckoutIssuer", () => {
   it("releases only the acquired secure session when atomic issuance fails", async () => {
     const repository = createRepository();
     repository.getByRunAttemptId.mockResolvedValue(null);
-    repository.issueSnapshotCheckout.mockRejectedValueOnce(
+    repository.completeIssuance.mockRejectedValueOnce(
       new Error("database unavailable"),
     );
     const release = vi.fn(async () => undefined);
@@ -273,7 +326,7 @@ describe("TaskCheckoutIssuer", () => {
       {} as Env,
       { capture: vi.fn(async () => snapshot) },
       repository,
-      () => ({
+      ({ executionDomain }) => ({
         acquire: vi.fn(async () => ({
           sessionId: "sess_secure001",
           token: "secret-test-token",
@@ -282,6 +335,7 @@ describe("TaskCheckoutIssuer", () => {
             leaseId: "lease_secure01",
             sandboxId: "sb-secure01",
             generation: 0,
+            executionDomainDigest: await digestFor(executionDomain!),
           },
         })),
         recoverAfterSandboxLoss: vi.fn(async () => {
@@ -292,40 +346,62 @@ describe("TaskCheckoutIssuer", () => {
     );
 
     const failureCleanup = vi.fn();
-    await expect(issuer.issue(payload(), { failureCleanup })).rejects.toThrow(
-      "database unavailable",
-    );
+    await expect(
+      issuer.issue(payload(), { ...issueOptions(payload()), failureCleanup }),
+    ).rejects.toThrow("database unavailable");
     expect(release).toHaveBeenCalledOnce();
     // Neither a void release (including its HTTP404 path) nor checkout
     // absence is the exact physical receipt needed to release admission.
     expect(failureCleanup).not.toHaveBeenCalled();
     failureCleanup.mockClear();
-    await expect(issuer.issue({ ...payload(), input: { ...payload().input, repositoryContext: undefined } }, { failureCleanup })).rejects.toMatchObject({ code: "TASK_CHECKOUT_INPUT_REQUIRED" });
+    await expect(
+      issuer.issue(
+        {
+          ...payload(),
+          input: { ...payload().input, repositoryContext: undefined },
+        },
+        { ...issueOptions(payload()), failureCleanup },
+      ),
+    ).rejects.toMatchObject({ code: "TASK_CHECKOUT_INPUT_REQUIRED" });
     expect(failureCleanup).toHaveBeenCalledTimes(1);
     expect(failureCleanup).toHaveBeenCalledWith({ kind: "no_exposure" });
 
     // A rejected acquire can have reached the remote owner. A successful no-op
     // release after that rejection is not a positive cleanup receipt.
     failureCleanup.mockClear();
-    const ambiguous = new TaskCheckoutIssuer({} as Env, { capture: async () => snapshot }, createRepository(), () => ({
-      acquire: async () => { throw new Error("acquire response lost"); },
-      recoverAfterSandboxLoss: async () => { throw new Error("not expected"); },
-      release: async () => undefined,
-    }));
-    await expect(ambiguous.issue(payload(), { failureCleanup })).rejects.toThrow("acquire response lost");
+    const ambiguous = new TaskCheckoutIssuer(
+      {} as Env,
+      { capture: async () => snapshot },
+      createRepository(),
+      () => ({
+        acquire: async () => {
+          throw new Error("acquire response lost");
+        },
+        recoverAfterSandboxLoss: async () => {
+          throw new Error("not expected");
+        },
+        release: async () => undefined,
+      }),
+    );
+    await expect(
+      ambiguous.issue(payload(), {
+        ...issueOptions(payload()),
+        failureCleanup,
+      }),
+    ).rejects.toThrow("acquire response lost");
     expect(failureCleanup).not.toHaveBeenCalled();
   });
 
   it("surfaces a typed capacity recovery failure when issuance compensation fails", async () => {
     const repository = createRepository();
-    repository.issueSnapshotCheckout.mockRejectedValueOnce(
+    repository.completeIssuance.mockRejectedValueOnce(
       new Error("database unavailable"),
     );
     const issuer = new TaskCheckoutIssuer(
       {} as Env,
       { capture: vi.fn(async () => snapshot) },
       repository,
-      () => ({
+      ({ executionDomain }) => ({
         acquire: vi.fn(async () => ({
           sessionId: "sess_secure001",
           token: "secret-test-token",
@@ -334,6 +410,7 @@ describe("TaskCheckoutIssuer", () => {
             leaseId: "lease_secure01",
             sandboxId: "sb-secure01",
             generation: 0,
+            executionDomainDigest: await digestFor(executionDomain!),
           },
         })),
         recoverAfterSandboxLoss: vi.fn(async () => {
@@ -346,7 +423,9 @@ describe("TaskCheckoutIssuer", () => {
     );
 
     const failureCleanup = vi.fn();
-    await expect(issuer.issue(payload(), { failureCleanup })).rejects.toMatchObject({
+    await expect(
+      issuer.issue(payload(), { ...issueOptions(payload()), failureCleanup }),
+    ).rejects.toMatchObject({
       code: "TASK_CHECKOUT_COMPENSATION_FAILED",
       status: 503,
       retryable: true,
@@ -420,6 +499,7 @@ function payloadFor(index: number, modelId: string): ExecuteRunPayload {
 }
 
 function createRepository() {
+  let domain: PersistedTaskCheckoutExecutionDomain;
   const issueSnapshotCheckout = vi.fn(
     async (issuedSnapshot: WorkspaceSnapshot, checkout: TaskCheckout) => ({
       snapshot: issuedSnapshot,
@@ -428,6 +508,16 @@ function createRepository() {
   );
   return {
     issueSnapshotCheckout,
+    reserveIssuance: vi.fn(async () => undefined),
+    beginIssuanceCallback: vi.fn(async () => undefined),
+    freezeIssuanceDomain: vi.fn(async (_id, _token, value) => {
+      domain = value;
+    }),
+    completeIssuance: vi.fn(
+      async (checkout: TaskCheckout, _token: string) => checkout,
+    ),
+    markIssuanceUnknown: vi.fn(async () => undefined),
+    getCheckoutExecutionDomain: vi.fn(async () => domain),
     createSnapshot: vi.fn(),
     getBySnapshotId: vi.fn(),
     createCheckout: vi.fn(),
@@ -437,5 +527,36 @@ function createRepository() {
     activate: vi.fn(),
     replaceLease: vi.fn(),
     settle: vi.fn(),
-  } satisfies TaskWorkspaceRepository;
+  } satisfies TaskWorkspaceRepository & TaskCheckoutIssuanceRepository;
+}
+
+function domainFor(
+  value: ExecuteRunPayload,
+): Awaited<ReturnType<BeforeTaskCheckoutSessionAcquire>> {
+  const identity = value.identity!;
+  return {
+    version: 1,
+    domain: "legioncode_native",
+    scope: {
+      userId: value.userId!,
+      brainSessionId: value.sessionId,
+      workspaceId: identity.workspaceId,
+      threadId: identity.threadId,
+      turnId: identity.turnId,
+      runId: value.runId,
+      runAttemptId: identity.runAttemptId,
+    },
+  };
+}
+function issueOptions(value: ExecuteRunPayload) {
+  return {
+    beforeSessionAcquire: (async () =>
+      domainFor(value)) satisfies BeforeTaskCheckoutSessionAcquire,
+  };
+}
+
+function digestFor(
+  value: Awaited<ReturnType<BeforeTaskCheckoutSessionAcquire>>,
+): string {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
