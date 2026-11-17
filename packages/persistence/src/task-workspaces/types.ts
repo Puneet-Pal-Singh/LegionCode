@@ -108,6 +108,14 @@ export interface PersistedTaskCheckoutExecutionDomain {
   readonly digest: string;
 }
 
+/** A legacy result requires a positive read of the canonical unmarked row. */
+export type TaskCheckoutExecutionDomainState =
+  | { readonly kind: "legacy" }
+  | {
+      readonly kind: "marked";
+      readonly domain: PersistedTaskCheckoutExecutionDomain;
+    };
+
 export interface TaskCheckoutIssuanceRepository {
   freezeIssuanceOriginalReference?(checkoutId: TaskCheckoutId, issuanceToken: string, reference: JsonValue): Promise<void>;
   getCheckoutOriginalReference?(checkoutId: TaskCheckoutId): Promise<JsonValue>;
@@ -135,4 +143,7 @@ export interface TaskCheckoutIssuanceRepository {
   getCheckoutExecutionDomain(
     checkoutId: TaskCheckoutId,
   ): Promise<PersistedTaskCheckoutExecutionDomain>;
+  getCheckoutExecutionDomainState(
+    checkoutId: TaskCheckoutId,
+  ): Promise<TaskCheckoutExecutionDomainState>;
 }

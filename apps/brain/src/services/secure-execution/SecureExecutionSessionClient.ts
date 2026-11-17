@@ -2,6 +2,12 @@ import { NativeSandboxPhysicalBindingSchema, snapshotNativeSandboxPhysicalBindin
 import { NativeCheckoutBootstrapIntentSchema, NativeCheckoutBootstrapReceiptSchema, parseNativeCheckoutReadyEvidence,
   type NativeCheckoutBootstrapIntent } from "@repo/worker-protocol/private/native-checkout-bootstrap";
 import {
+  ExecutionDomainDigestSchema,
+  executionDomainDigest,
+  snapshotExecutionDomain,
+  type ServerExecutionDomainBinding,
+} from "@repo/worker-protocol/private/execution-domain";
+import {
   LeaseIdSchema,
   TaskCheckoutIdSchema,
   type LeaseId,
@@ -16,7 +22,6 @@ import {
 } from "../../core/security/LogSanitizer";
 import { formatDiagnosticLogLine } from "../../lib/diagnostic-log";
 import { parseNativeCommandClosure, type NativeCommandClosure } from "@repo/shared-types/native-command-closure";
-import { executionDomainDigest, snapshotExecutionDomain, type ServerExecutionDomainBinding } from "@repo/worker-protocol/private/execution-domain";
 
 const DEFAULT_EXECUTION_TIMEOUT_MS = 120_000;
 const LOCAL_DEV_SESSION_RETRY_ATTEMPTS = 10;
@@ -34,7 +39,7 @@ const SecureExecutionSessionResponseSchema = z
         leaseId: LeaseIdSchema,
         sandboxId: z.string().min(1),
         generation: z.number().int().nonnegative(),
-        executionDomainDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+        executionDomainDigest: ExecutionDomainDigestSchema.optional(),
       })
       .passthrough(),
   })
@@ -112,24 +117,35 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
     private readonly nativeCheckoutIntent?: NativeCheckoutBootstrapIntent,
   ) {
     this.nativeCheckoutIntent = nativeCheckoutIntent ? Object.freeze(NativeCheckoutBootstrapIntentSchema.parse(nativeCheckoutIntent)) : undefined;
-    this.reference = persistedReference ? snapshotPersistedSecureExecutionSessionReference(persistedReference) : undefined;
+    this.reference = persistedReference
+      ? snapshotPersistedSecureExecutionSessionReference(persistedReference)
+      : undefined;
     this.workspaceScope = Object.freeze({ ...workspaceScope });
-    this.executionDomain = executionDomain ? snapshotExecutionDomain(executionDomain) : undefined;
-    if (this.executionDomain && this.reference && !this.reference.executionDomainDigest) {
-      throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
-    }
+    this.executionDomain = executionDomain
+      ? snapshotExecutionDomain(executionDomain)
+      : undefined;
     if (this.executionDomain?.domain === "legioncode_native" && this.reference && !this.reference.nativeSandboxBinding)
       throw new Error("NATIVE_SANDBOX_ORIGINAL_BINDING_UNAVAILABLE");
     const scope = this.executionDomain?.scope;
-    if (scope && (scope.brainSessionId !== brainSessionId || scope.runId !== runId || scope.workspaceId !== workspaceScope.workspaceId ||
-      scope.threadId !== workspaceScope.threadId || scope.turnId !== workspaceScope.turnId || scope.runAttemptId !== workspaceScope.runAttemptId)) {
+    if (
+      (this.reference &&
+        !!this.reference.executionDomainDigest !== !!this.executionDomain) ||
+      (scope &&
+        (scope.brainSessionId !== brainSessionId ||
+          scope.runId !== runId ||
+          scope.workspaceId !== workspaceScope.workspaceId ||
+          scope.threadId !== workspaceScope.threadId ||
+          scope.turnId !== workspaceScope.turnId ||
+          scope.runAttemptId !== workspaceScope.runAttemptId ||
+          workspaceScope.runId !== runId))
+    ) {
       throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
     }
   }
 
   async acquire(): Promise<SecureExecutionSessionHandle> {
     if (!this.sessionPromise) {
-      this.sessionPromise = this.create();
+      this.sessionPromise = this.createValidated();
     }
     try {
       const session = await this.sessionPromise;
@@ -157,8 +173,11 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
   private async readOriginal(requireNativeBootstrap = false): Promise<SecureExecutionSessionHandle & { nativeCheckoutReady?: unknown }> {
     const reference = this.reference;
     if (!reference) {
-      throw new Error("Git borrowing requires the persisted checkout lease identity");
+      throw new Error(
+        "Git borrowing requires the persisted checkout lease identity",
+      );
     }
+    await this.validateReferenceDomain();
     const response = await fetchWithTimeout(
       this.env.SECURE_API,
       `http://internal/api/v1/session/${encodeURIComponent(reference.secureSessionId)}/borrow?session=${encodeURIComponent(this.brainSessionId)}`,
@@ -184,7 +203,9 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
       DEFAULT_EXECUTION_TIMEOUT_MS,
     );
     if (!response.ok) {
-      throw new Error("The original secure checkout session is unavailable for Git borrowing");
+      throw new Error(
+        "The original secure checkout session is unavailable for Git borrowing",
+      );
     }
     const body = await parseJsonResponse(response);
     const handle = SecureExecutionSessionResponseSchema.parse(body);
@@ -196,10 +217,20 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
       handle.lease.sandboxId === reference.sandboxId &&
       handle.lease.generation === reference.generation;
     const leaseExpiry = (handle.lease as { expiresAt?: unknown }).expiresAt;
-    if (!exactLease || typeof leaseExpiry !== "number" || leaseExpiry <= Date.now()) {
-      throw new Error("The original secure checkout lease is unavailable for Git borrowing");
+    if (
+      !exactLease ||
+      typeof leaseExpiry !== "number" ||
+      leaseExpiry <= Date.now()
+    ) {
+      throw new Error(
+        "The original secure checkout lease is unavailable for Git borrowing",
+      );
     }
-    return { ...handle, ...(requireNativeBootstrap ? { nativeCheckoutReady } : {}) };
+    return Object.freeze({
+      ...handle,
+      ...(requireNativeBootstrap ? { nativeCheckoutReady } : {}),
+      lease: Object.freeze({ ...handle.lease }),
+    });
   }
 
   async recoverAfterSandboxLoss(): Promise<SecureExecutionSessionHandle> {
@@ -321,30 +352,52 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
       throw new Error("NATIVE_BOOTSTRAP_PROVENANCE_MISMATCH");
   }
 
-  private async validateDomainHandle(session: SecureExecutionSessionHandle): Promise<void> {
+  private async validateReferenceDomain(): Promise<string | undefined> {
+    const expected = this.executionDomain
+      ? await executionDomainDigest(this.executionDomain)
+      : undefined;
+    if (this.reference && this.reference.executionDomainDigest !== expected) {
+      throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
+    }
+    return expected;
+  }
+
+  private async validateDomainHandle(
+    session: SecureExecutionSessionHandle,
+  ): Promise<void> {
     if (this.executionDomain?.domain === "legioncode_native") {
       const selected = snapshotNativeSandboxPhysicalBinding(session.nativeSandboxBinding);
       if (this.reference && JSON.stringify(selected) !== JSON.stringify(this.reference.nativeSandboxBinding))
         throw new Error("NATIVE_SANDBOX_ORIGINAL_BINDING_UNAVAILABLE");
     } else if (session.nativeSandboxBinding) throw new Error("NATIVE_SANDBOX_ORIGINAL_BINDING_UNAVAILABLE");
-    const expected = this.executionDomain ? await executionDomainDigest(this.executionDomain) : undefined;
-    if (session.lease.executionDomainDigest !== expected ||
-      (this.reference?.executionDomainDigest !== undefined && this.reference.executionDomainDigest !== expected)) {
+    if (
+      session.lease.executionDomainDigest !==
+      (await this.validateReferenceDomain())
+    ) {
       throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
     }
   }
 
+  private async createValidated(): Promise<SecureExecutionSessionHandle> {
+    const session = await this.create();
+    await this.validateDomainHandle(session);
+    return Object.freeze({
+      ...session,
+      lease: Object.freeze({ ...session.lease }),
+    });
+  }
+
   private async create(): Promise<SecureExecutionSessionHandle> {
     if (this.reference) {
-      return this.executionDomain ? await this.borrowOriginal() : await this.resume(this.reference);
+      return this.executionDomain
+        ? await this.borrowOriginal()
+        : await this.resume(this.reference);
     }
     const internalSecret = this.requireInternalSecret();
-    const maximumAttempts = this.executionDomain ? 1 : LOCAL_DEV_SESSION_RETRY_ATTEMPTS;
-    for (
-      let attempt = 1;
-      attempt <= maximumAttempts;
-      attempt += 1
-    ) {
+    const maximumAttempts = this.executionDomain
+      ? 1
+      : LOCAL_DEV_SESSION_RETRY_ATTEMPTS;
+    for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
       const response = await fetchWithTimeout(
         this.env.SECURE_API,
         `http://internal/api/v1/session?session=${encodeURIComponent(this.brainSessionId)}`,
@@ -373,10 +426,7 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
 
       const message =
         (await response.text()) || "Failed to create secure execution session";
-      if (
-        attempt < maximumAttempts &&
-        isLocalDevSessionProxyMiss(message)
-      ) {
+      if (attempt < maximumAttempts && isLocalDevSessionProxyMiss(message)) {
         console.log(
           formatDiagnosticLogLine("execution/tool", "session-retry", {
             runId: this.runId,
@@ -420,10 +470,9 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
     );
     if (!response.ok) {
       const responseText = await response.text();
-      const errorBody =
-        SecureExecutionSessionErrorResponseSchema.safeParse(
-          parseJsonText(responseText),
-        );
+      const errorBody = SecureExecutionSessionErrorResponseSchema.safeParse(
+        parseJsonText(responseText),
+      );
       if (
         errorBody.success &&
         errorBody.data.code === "SANDBOX_RECOVERY_EXHAUSTED"
@@ -536,7 +585,9 @@ export function toPersistedReference(
     leaseId: session.lease.leaseId,
     sandboxId: session.lease.sandboxId,
     generation: session.lease.generation,
-    ...(session.lease.executionDomainDigest ? { executionDomainDigest: session.lease.executionDomainDigest } : {}),
+    ...(session.lease.executionDomainDigest
+      ? { executionDomainDigest: session.lease.executionDomainDigest }
+      : {}),
   };
 }
 

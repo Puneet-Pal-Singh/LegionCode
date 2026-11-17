@@ -1,3 +1,8 @@
+import { createHash } from "node:crypto";
+import type {
+  TaskCheckoutIssuanceRepository,
+  PersistedTaskCheckoutExecutionDomain,
+} from "@repo/persistence";
 import { describe, expect, it, vi } from "vitest";
 import type {
   TaskWorkspaceRepository,
@@ -18,6 +23,7 @@ import {
   TaskCheckoutIssuer,
   type SecureExecutionSessionFactory,
   type TaskCheckoutIssueOptions,
+  type BeforeTaskCheckoutSessionAcquire,
 } from "./TaskCheckoutIssuer";
 
 const snapshot = WorkspaceSnapshotSchema.parse({
@@ -69,7 +75,7 @@ describe("TaskCheckoutIssuer", () => {
         ),
       },
       repository,
-      ({ workspaceScope }) => ({
+      ({ workspaceScope, executionDomain }) => ({
         acquire: vi.fn(async () => ({
           sessionId: `sess_${workspaceScope.runAttemptId}`,
           nativeSandboxBinding: {
@@ -82,7 +88,7 @@ describe("TaskCheckoutIssuer", () => {
             leaseId: `lease_${workspaceScope.runAttemptId}`,
             sandboxId: `sb-attempt-${workspaceScope.runAttemptId.at(-1)}`,
             generation: 0,
-            executionDomainDigest: await fixtureDomainDigest(repository, workspaceScope.root),
+            executionDomainDigest: await digestFor(executionDomain!),
           },
         })),
         bootstrapNativeCheckout: vi.fn(async () => undefined),
@@ -132,11 +138,19 @@ describe("TaskCheckoutIssuer", () => {
   it("binds one canonical checkout root to the secure lease and snapshot", async () => {
     const repository = createRepository();
     const release = vi.fn(async () => undefined);
+    const capture = vi.fn(async () => snapshot);
+    let finishLookup!: (value: null) => void;
+    repository.getByRunAttemptId.mockImplementationOnce(
+      () =>
+        new Promise<null>((resolve) => {
+          finishLookup = resolve;
+        }),
+    );
     const issuer = new TaskCheckoutIssuer(
       {} as Env,
-      { capture: vi.fn(async () => snapshot) },
+      { capture },
       repository,
-      ({ workspaceScope }) => ({
+      ({ workspaceScope, executionDomain }) => ({
         acquire: vi.fn(async () => ({
           sessionId: "sess_secure001",
           token: "secret-test-token",
@@ -146,7 +160,7 @@ describe("TaskCheckoutIssuer", () => {
             leaseId: "lease_secure01",
             sandboxId: "sb-secure01",
             generation: 0,
-            executionDomainDigest: await fixtureDomainDigest(repository, workspaceScope.root),
+            executionDomainDigest: await digestFor(executionDomain!),
           },
         })),
         bootstrapNativeCheckout: vi.fn(async () => undefined),
@@ -159,7 +173,40 @@ describe("TaskCheckoutIssuer", () => {
       }),
     );
 
-    const issued = await issuer.issue(payload(), issueOptions());
+    const admitted = payload();
+    const callerPayload = {
+      ...admitted,
+      identity: { ...admitted.identity! },
+      input: {
+        ...admitted.input,
+        repositoryContext: { ...admitted.input.repositoryContext! },
+      },
+    };
+    const options = { ...issueOptions(admitted), failureCleanup: vi.fn() };
+    const originalBeforeAcquire = options.beforeSessionAcquire;
+    const replacedBeforeAcquire = vi.fn(async () => {
+      throw new Error("mutated callback must not run");
+    });
+    const pending = issuer.issue(callerPayload, options);
+    callerPayload.identity.turnId = "trn_mutated1";
+    callerPayload.identity.runAttemptId = "attempt_mutated1";
+    callerPayload.input.repositoryContext.owner = "foreign-owner";
+    callerPayload.runId = "run_mutated1";
+    callerPayload.sessionId = "foreign-session";
+    options.beforeSessionAcquire = replacedBeforeAcquire;
+    options.failureCleanup = vi.fn();
+    finishLookup(null);
+    const issued = await pending;
+    expect(replacedBeforeAcquire).not.toHaveBeenCalled();
+    expect(options.beforeSessionAcquire).not.toBe(originalBeforeAcquire);
+    expect(capture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repository: expect.objectContaining({ owner: "acme" }),
+      }),
+    );
+    expect(issued.checkout.turnId).toBe(admitted.identity!.turnId);
+    expect(issued.checkout.runAttemptId).toBe(admitted.identity!.runAttemptId);
+    expect(issued.workspaceScope.runId).toBe(admitted.runId);
 
     expect(issued.checkout).toMatchObject({
       snapshotId: snapshot.snapshotId,
@@ -175,10 +222,13 @@ describe("TaskCheckoutIssuer", () => {
       `/home/sandbox/checkouts/${issued.checkout.checkoutId}`,
     );
     expect(issued.workspaceScope.root).toBe(issued.checkout.filesystemRoot);
-    expect(repository.issueSnapshotCheckout).toHaveBeenCalledWith(
-      snapshot,
+    expect(repository.completeIssuance).toHaveBeenCalledWith(
       issued.checkout,
+      expect.any(String),
     );
+    expect(
+      repository.freezeIssuanceDomain.mock.invocationCallOrder[0],
+    ).toBeLessThan(repository.completeIssuance.mock.invocationCallOrder[0]!);
     expect(release).not.toHaveBeenCalled();
   });
 
@@ -196,7 +246,7 @@ describe("TaskCheckoutIssuer", () => {
             leaseId: "lease_secure01",
             sandboxId: "sb-secure01",
             generation: 0,
-            executionDomainDigest: await fixtureDomainDigest(repository, input.workspaceScope.root),
+            executionDomainDigest: await digestFor(input.executionDomain!),
           },
         })),
         bootstrapNativeCheckout: vi.fn(async () => undefined),
@@ -214,7 +264,7 @@ describe("TaskCheckoutIssuer", () => {
       repository,
       sessionFactory,
     );
-    const first = await issuer.issue(payload(), issueOptions());
+    const first = await issuer.issue(payload(), issueOptions(payload()));
     repository.getByRunAttemptId.mockResolvedValueOnce(first.checkout);
     repository.getBySnapshotId.mockResolvedValueOnce(snapshot);
 
@@ -222,7 +272,7 @@ describe("TaskCheckoutIssuer", () => {
 
     expect(resumed.checkout).toEqual(first.checkout);
     expect(capture).toHaveBeenCalledOnce();
-    expect(repository.issueSnapshotCheckout).toHaveBeenCalledOnce();
+    expect(repository.completeIssuance).toHaveBeenCalledOnce();
     expect(sessionFactory).toHaveBeenLastCalledWith(
       expect.objectContaining({
         persistedReference: {
@@ -239,10 +289,21 @@ describe("TaskCheckoutIssuer", () => {
         },
       }),
     );
+    repository.getByRunAttemptId.mockResolvedValueOnce(first.checkout);
+    repository.getBySnapshotId.mockResolvedValueOnce(snapshot);
+    repository.getCheckoutExecutionDomainState.mockRejectedValueOnce(
+      new Error("custody unavailable"),
+    );
+    await expect(issuer.issue(payload())).rejects.toThrow(
+      "custody unavailable",
+    );
+    expect(sessionFactory).toHaveBeenCalledTimes(2);
+    expect(repository.replaceLease).not.toHaveBeenCalled();
   });
 
   it("atomically adopts one secure replacement generation without changing checkout provenance", async () => {
     const repository = createRepository();
+    const digest = await digestFor(domainFor(payload()));
     const acquire = vi
       .fn()
       .mockResolvedValueOnce({
@@ -254,6 +315,7 @@ describe("TaskCheckoutIssuer", () => {
           leaseId: "lease_secure01",
           sandboxId: "sb-secure01",
           generation: 0,
+          executionDomainDigest: digest,
         },
       })
       .mockResolvedValueOnce({
@@ -265,6 +327,7 @@ describe("TaskCheckoutIssuer", () => {
           leaseId: "lease_secure02",
           sandboxId: "sb-secure02",
           generation: 1,
+          executionDomainDigest: digest,
         },
       });
     const issuer = new TaskCheckoutIssuer(
@@ -274,8 +337,7 @@ describe("TaskCheckoutIssuer", () => {
       ({ workspaceScope }) => ({
         acquire: async () => {
           const handle = await acquire();
-          const executionDomainDigest = await fixtureDomainDigest(repository, workspaceScope.root);
-          return { ...handle, lease: { ...handle.lease, executionDomainDigest } };
+          return handle;
         },
         bootstrapNativeCheckout: vi.fn(async () => undefined),
         verifyNativeCheckoutReady: vi.fn(async () => undefined),
@@ -285,7 +347,7 @@ describe("TaskCheckoutIssuer", () => {
         release: vi.fn(async () => undefined),
       }),
     );
-    const first = await issuer.issue(payload(), issueOptions());
+    const first = await issuer.issue(payload(), issueOptions(payload()));
     repository.getByRunAttemptId.mockResolvedValueOnce(first.checkout);
     repository.getBySnapshotId.mockResolvedValueOnce(snapshot);
     const replacedCheckout = TaskCheckoutSchema.parse({
@@ -296,21 +358,67 @@ describe("TaskCheckoutIssuer", () => {
     });
     repository.replaceLease.mockResolvedValueOnce(replacedCheckout);
 
-    const resumed = issuer.issue(payload(), issueOptions());
-
-    await expect(resumed).rejects.toMatchObject({
+    await expect(
+      issuer.issue(payload(), issueOptions(payload())),
+    ).rejects.toMatchObject({
       code: "TASK_CHECKOUT_RESUME_UNAVAILABLE",
+      retryable: false,
+    });
+    expect(repository.replaceLease).not.toHaveBeenCalled();
+    expect(first.checkout.generation).toBe(0);
+
+    // Omitting the callback cannot turn this persisted marked checkout legacy.
+    repository.getByRunAttemptId.mockResolvedValueOnce(first.checkout);
+    repository.getBySnapshotId.mockResolvedValueOnce(snapshot);
+    acquire.mockResolvedValueOnce({
+      sessionId: "sess_secure001",
+      token: "legacy-replacement-token",
+      expiresAt: Date.now() + 60_000,
+      lease: {
+        leaseId: "lease_secure02",
+        sandboxId: "sb-secure02",
+        generation: 1,
+      },
+    });
+    await expect(issuer.issue(payload())).rejects.toMatchObject({
+      code: "TASK_CHECKOUT_RESUME_UNAVAILABLE",
+    });
+    expect(repository.replaceLease).not.toHaveBeenCalled();
+    repository.getByRunAttemptId.mockResolvedValueOnce(first.checkout);
+    repository.getBySnapshotId.mockResolvedValueOnce(snapshot);
+    repository.getCheckoutExecutionDomainState.mockResolvedValueOnce({
+      kind: "legacy",
+    });
+    acquire.mockResolvedValueOnce({
+      sessionId: "sess_secure001",
+      token: "legacy-replacement-token",
+      expiresAt: Date.now() + 60_000,
+      lease: {
+        leaseId: "lease_secure02",
+        sandboxId: "sb-secure02",
+        generation: 1,
+      },
+    });
+    const legacy = await issuer.issue(payload());
+    expect(legacy.checkout).toEqual(replacedCheckout);
+    expect(repository.replaceLease).toHaveBeenCalledWith({
+      checkoutId: first.checkout.checkoutId,
+      expectedLeaseId: "lease_secure01",
+      expectedGeneration: 0,
+      nextLeaseId: "lease_secure02",
+      nextSandboxId: "sb-secure02",
+      nextGeneration: 1,
     });
     expect(first.checkout.checkoutId).toBe(replacedCheckout.checkoutId);
     expect(first.checkout.snapshotId).toBe(replacedCheckout.snapshotId);
     expect(first.checkout.filesystemRoot).toBe(replacedCheckout.filesystemRoot);
-    expect(repository.replaceLease).not.toHaveBeenCalled();
+    expect(repository.replaceLease).toHaveBeenCalledOnce();
   });
 
   it("releases only the acquired secure session when atomic issuance fails", async () => {
     const repository = createRepository();
     repository.getByRunAttemptId.mockResolvedValue(null);
-    repository.issueSnapshotCheckout.mockRejectedValueOnce(
+    repository.completeIssuance.mockRejectedValueOnce(
       new Error("database unavailable"),
     );
     const release = vi.fn(async () => undefined);
@@ -318,7 +426,7 @@ describe("TaskCheckoutIssuer", () => {
       {} as Env,
       { capture: vi.fn(async () => snapshot) },
       repository,
-      ({ workspaceScope }) => ({
+      ({ workspaceScope, executionDomain }) => ({
         acquire: vi.fn(async () => ({
           sessionId: "sess_secure001",
           token: "secret-test-token",
@@ -328,7 +436,7 @@ describe("TaskCheckoutIssuer", () => {
             leaseId: "lease_secure01",
             sandboxId: "sb-secure01",
             generation: 0,
-            executionDomainDigest: await fixtureDomainDigest(repository, workspaceScope.root),
+            executionDomainDigest: await digestFor(executionDomain!),
           },
         })),
         bootstrapNativeCheckout: vi.fn(async () => undefined),
@@ -342,7 +450,7 @@ describe("TaskCheckoutIssuer", () => {
 
     const failureCleanup = vi.fn();
     await expect(
-      issuer.issue(payload(), { ...issueOptions(), failureCleanup }),
+      issuer.issue(payload(), { ...issueOptions(payload()), failureCleanup }),
     ).rejects.toThrow("database unavailable");
     expect(release).toHaveBeenCalledOnce();
     // Neither a void release (including its HTTP404 path) nor checkout
@@ -355,7 +463,7 @@ describe("TaskCheckoutIssuer", () => {
           ...payload(),
           input: { ...payload().input, repositoryContext: undefined },
         },
-        { ...issueOptions(), failureCleanup },
+        { ...issueOptions(payload()), failureCleanup },
       ),
     ).rejects.toMatchObject({ code: "TASK_CHECKOUT_INPUT_REQUIRED" });
     expect(failureCleanup).toHaveBeenCalledTimes(1);
@@ -381,21 +489,24 @@ describe("TaskCheckoutIssuer", () => {
       }),
     );
     await expect(
-      ambiguous.issue(payload(), { ...issueOptions(), failureCleanup }),
+      ambiguous.issue(payload(), {
+        ...issueOptions(payload()),
+        failureCleanup,
+      }),
     ).rejects.toThrow("acquire response lost");
     expect(failureCleanup).not.toHaveBeenCalled();
   });
 
   it("surfaces a typed capacity recovery failure when issuance compensation fails", async () => {
     const repository = createRepository();
-    repository.issueSnapshotCheckout.mockRejectedValueOnce(
+    repository.completeIssuance.mockRejectedValueOnce(
       new Error("database unavailable"),
     );
     const issuer = new TaskCheckoutIssuer(
       {} as Env,
       { capture: vi.fn(async () => snapshot) },
       repository,
-      ({ workspaceScope }) => ({
+      ({ workspaceScope, executionDomain }) => ({
         acquire: vi.fn(async () => ({
           sessionId: "sess_secure001",
           token: "secret-test-token",
@@ -405,7 +516,7 @@ describe("TaskCheckoutIssuer", () => {
             leaseId: "lease_secure01",
             sandboxId: "sb-secure01",
             generation: 0,
-            executionDomainDigest: await fixtureDomainDigest(repository, workspaceScope.root),
+            executionDomainDigest: await digestFor(executionDomain!),
           },
         })),
         bootstrapNativeCheckout: vi.fn(async () => undefined),
@@ -421,7 +532,7 @@ describe("TaskCheckoutIssuer", () => {
 
     const failureCleanup = vi.fn();
     await expect(
-      issuer.issue(payload(), { ...issueOptions(), failureCleanup }),
+      issuer.issue(payload(), { ...issueOptions(payload()), failureCleanup }),
     ).rejects.toMatchObject({
       code: "TASK_CHECKOUT_COMPENSATION_FAILED",
       status: 503,
@@ -495,29 +606,6 @@ function payloadFor(index: number, modelId: string): ExecuteRunPayload {
   } as ExecuteRunPayload;
 }
 
-function issueOptions(input = payload()): TaskCheckoutIssueOptions {
-  return {
-    beforeSessionAcquire: async ({ workspaceScope }) => ({
-      version: 1,
-      domain: "legioncode_native",
-      scope: {
-        userId: input.userId!,
-        brainSessionId: input.sessionId,
-        runId: input.runId,
-        workspaceId: workspaceScope.workspaceId,
-        threadId: workspaceScope.threadId,
-        turnId: workspaceScope.turnId,
-        runAttemptId: workspaceScope.runAttemptId,
-      },
-    }),
-  };
-}
-
-async function fixtureDomainDigest(repository: ReturnType<typeof createRepository>, root: string) {
-  const checkoutId = root.slice(root.lastIndexOf("/") + 1);
-  return (await repository.getCheckoutExecutionDomain(checkoutId)).digest;
-}
-
 function createRepository() {
   const reservations = new Map<
     string,
@@ -574,6 +662,9 @@ function createRepository() {
     getCheckoutExecutionDomain: vi.fn(
       async (checkoutId: string) => domains.get(checkoutId)!,
     ),
+    getCheckoutExecutionDomainState: vi.fn(
+      async (checkoutId: string): ReturnType<TaskCheckoutIssuanceRepository["getCheckoutExecutionDomainState"]> => ({ kind: "marked", domain: domains.get(checkoutId)! }),
+    ),
     createSnapshot: vi.fn(),
     getBySnapshotId: vi.fn(),
     createCheckout: vi.fn(),
@@ -584,4 +675,35 @@ function createRepository() {
     replaceLease: vi.fn(),
     settle: vi.fn(),
   } satisfies TaskWorkspaceRepository & TaskCheckoutIssuanceRepository;
+}
+
+function domainFor(
+  value: ExecuteRunPayload,
+): Awaited<ReturnType<BeforeTaskCheckoutSessionAcquire>> {
+  const identity = value.identity!;
+  return {
+    version: 1,
+    domain: "legioncode_native",
+    scope: {
+      userId: value.userId!,
+      brainSessionId: value.sessionId,
+      workspaceId: identity.workspaceId,
+      threadId: identity.threadId,
+      turnId: identity.turnId,
+      runId: value.runId,
+      runAttemptId: identity.runAttemptId,
+    },
+  };
+}
+function issueOptions(value: ExecuteRunPayload = payload()) {
+  return {
+    beforeSessionAcquire: (async () =>
+      domainFor(value)) satisfies BeforeTaskCheckoutSessionAcquire,
+  };
+}
+
+function digestFor(
+  value: Awaited<ReturnType<BeforeTaskCheckoutSessionAcquire>>,
+): string {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }

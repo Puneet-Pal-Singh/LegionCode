@@ -20,6 +20,7 @@ import {
   type TaskCheckoutIssuanceRepository,
   type TaskCheckoutIssuanceReservation,
   type PersistedTaskCheckoutExecutionDomain,
+  type TaskCheckoutExecutionDomainState,
   type ReplaceTaskCheckoutLeaseInput,
   type SettleTaskCheckoutInput,
   type TaskWorkspaceRepository,
@@ -281,6 +282,14 @@ export class PostgresTaskWorkspaceRepository
   async getCheckoutExecutionDomain(
     checkoutId: TaskCheckoutId,
   ): Promise<PersistedTaskCheckoutExecutionDomain> {
+    const state = await this.getCheckoutExecutionDomainState(checkoutId);
+    if (state.kind !== "marked") throw issuanceRecovery(checkoutId);
+    return state.domain;
+  }
+
+  async getCheckoutExecutionDomainState(
+    checkoutId: TaskCheckoutId,
+  ): Promise<TaskCheckoutExecutionDomainState> {
     const result = await this.client.query<TaskCheckoutRow>(
       SELECT_CHECKOUT_BY_ID_SQL,
       [TaskCheckoutIdSchema.parse(checkoutId)],
@@ -288,18 +297,32 @@ export class PostgresTaskWorkspaceRepository
     const row = result.rows[0];
     if (
       !row ||
-      !["ready", "active", "settled"].includes(row.status ?? "") ||
+      !["ready", "active", "settled"].includes(row.status ?? "")
+    )
+      throw issuanceRecovery(checkoutId);
+    if (
+      row.issuance_state === null &&
+      row.issuance_token === null &&
+      row.execution_domain_json === null &&
+      row.execution_domain_digest === null
+    )
+      return { kind: "legacy" };
+    if (
       row.issuance_state !== "ready" ||
+      !row.issuance_token ||
       !row.execution_domain_digest ||
       !row.execution_domain_json
     )
       throw issuanceRecovery(checkoutId);
     return {
-      value: parseJsonColumn(
-        row.execution_domain_json,
-        "execution domain",
-      ) as PersistedTaskCheckoutExecutionDomain["value"],
-      digest: row.execution_domain_digest,
+      kind: "marked",
+      domain: {
+        value: parseJsonColumn(
+          row.execution_domain_json,
+          "execution domain",
+        ) as PersistedTaskCheckoutExecutionDomain["value"],
+        digest: row.execution_domain_digest,
+      },
     };
   }
 
