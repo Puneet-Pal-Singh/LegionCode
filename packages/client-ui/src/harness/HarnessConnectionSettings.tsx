@@ -338,32 +338,47 @@ function AccountQuota({
 }: {
   quota: NonNullable<HarnessInstanceStatus["usage"]>["quota"] | undefined;
 }) {
-  if (!quota || quota.windows === null || quota.windows.length === 0)
-    return <>Unknown</>;
+  const checkedAt = quota?.checkedAt;
 
   return (
-    <ul className="space-y-1">
-      {quota.windows.map((window, index) => (
-        <li key={index}>
-          {window.label ?? "Quota window"}
-          {": "}
-          {window.remaining !== null
-            ? `${window.remaining}${window.limit !== null ? ` of ${window.limit}` : ""} ${window.unit ?? ""} remaining`
-            : window.utilizationPercent !== null
-              ? `${window.utilizationPercent}% used`
-              : "Unknown"}
-          {quota.state === "stale" ? " (stale)" : ""}
-          {window.resetsAt ? (
-            <>
-              {" "}
-              · Resets{" "}
-              <time dateTime={window.resetsAt}>
-                {new Date(window.resetsAt).toLocaleString()}
-              </time>
-            </>
-          ) : null}
-        </li>
-      ))}
-    </ul>
+    <>
+      {quota?.windows?.length ? (
+        <ul className="space-y-1">
+          {quota.windows.map((window, index) => (
+            <li key={index}>
+              {window.label ?? "Quota window"}
+              {": "}
+              {window.remaining !== null
+                ? `${window.remaining}${window.limit !== null ? ` of ${window.limit}` : ""} ${window.unit ?? ""} remaining`
+                : window.utilizationPercent !== null
+                  ? `${window.utilizationPercent}% used`
+                  : "Unknown"}
+              {quota.state === "stale" ? " (stale)" : ""}
+              {window.resetsAt ? (
+                <>
+                  {" "}
+                  · Resets{" "}
+                  <time dateTime={window.resetsAt}>
+                    {new Date(window.resetsAt).toLocaleString()}
+                  </time>
+                </>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p>{quota?.state === "stale" ? "Unknown (stale)" : "Unknown"}</p>
+      )}
+      <p className="mt-1 text-[var(--lc-color-text-secondary)]">
+        Last checked{" "}
+        {checkedAt ? (
+          <time dateTime={checkedAt}>
+            {new Date(checkedAt).toLocaleString()}
+          </time>
+        ) : (
+          "Not reported"
+        )}
+      </p>
+    </>
   );
 }
