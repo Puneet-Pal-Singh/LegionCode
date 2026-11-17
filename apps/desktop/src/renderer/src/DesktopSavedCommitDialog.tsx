@@ -6,7 +6,7 @@ import {
   GitCommitSelectionControl,
   type CommitNextStep,
 } from "@legioncode/client-ui";
-import type { AppServerClient } from "@legioncode/sdk";
+import { AppServerClientError, type AppServerClient } from "@legioncode/sdk";
 import {
   CommitTurnArtifactRequestSchema,
   CommitTurnArtifactResponseSchema,
@@ -36,6 +36,26 @@ export interface DesktopSavedCommitDialogProps {
 type AttemptEvidence =
   | { status: "unconfirmed" }
   | { status: "confirmed"; receipt: CommitTurnArtifactResponse };
+
+function savedCommitRejection(error: unknown): string | null {
+  if (!(error instanceof AppServerClientError) || error.code !== "server_error" ||
+      error.method !== "git/commitTurnArtifact" || !error.serverError ||
+      !("operationCode" in error.serverError)) return null;
+  const { code, statusCode, operationCode } = error.serverError;
+  if (code === "invalid_request" && statusCode === 400) {
+    if (operationCode === "artifact_selection_invalid") return "Choose files from the saved turn changes.";
+    if (operationCode === "commit_identity_required") return "Enter a valid commit author and email.";
+  }
+  if (code === "conflict" && statusCode === 409) {
+    if (operationCode === "artifact_unavailable") return "The saved changes are unavailable. Reopen the turn review.";
+    if (operationCode === "workspace_unavailable") return "The workspace cannot accept this commit. Check workspace access and wait for active work to finish.";
+    if (operationCode === "artifact_conflict" || operationCode === "git_artifact_conflict")
+      return "The saved changes conflict with the current repository. Review the workspace before committing.";
+  }
+  if (code === "server_unavailable" && statusCode === 503 && operationCode === "identity_mismatch")
+    return "The saved changes could not be verified. Reopen the turn review.";
+  return null;
+}
 
 /** Mutation over the selected immutable evidence supplied by the one review owner.
  * Keep this adapter mounted while closed so an uncertain command cannot be retried
@@ -100,6 +120,11 @@ export function DesktopSavedCommitDialog(props: DesktopSavedCommitDialogProps) {
         records.set(identity, { status: "confirmed", receipt });
         refreshEvidence((value) => value + 1);
       }}
+      recordRejection={(record) => {
+        if (records.get(identity) !== record) return;
+        records.delete(identity);
+        refreshEvidence((value) => value + 1);
+      }}
     />
   );
 }
@@ -116,6 +141,7 @@ function SelectedSavedCommit({
   evidence,
   markUnconfirmed,
   confirm,
+  recordRejection,
 }: DesktopSavedCommitDialogProps & {
   selection: DesktopSavedReviewTurn;
   diff: TurnDiffPayload;
@@ -126,6 +152,7 @@ function SelectedSavedCommit({
     record: AttemptEvidence,
     receipt: CommitTurnArtifactResponse,
   ) => void;
+  recordRejection: (record: AttemptEvidence) => void;
 }) {
   const [includeAll, setIncludeAll] = useState(true);
   const [paths, setPaths] = useState(
@@ -226,35 +253,32 @@ function SelectedSavedCommit({
     setBusy(true);
     const delivery = markUnconfirmed();
     setError(null);
+    let receipt: CommitTurnArtifactResponse;
     try {
-      const receipt = CommitTurnArtifactResponseSchema.parse(
+      receipt = CommitTurnArtifactResponseSchema.parse(
         await client.commitTurnArtifact(request.data),
       );
       if (receipt.turnId !== selection.turnId)
         throw new Error("Commit receipt belongs to another turn");
       confirm(delivery, receipt);
-      if (!mounted.current) return;
-      if (
-        active.current.client !== captured.client ||
-        active.current.identity !== captured.identity ||
-        !active.current.available
-      ) {
-        setError(
-          "The commit target changed while delivery was pending. Inspect the repository before another commit.",
-        );
-        return;
-      }
-      onCommitted?.(receipt);
-      onClose();
-    } catch {
+    } catch (failure) {
+      const rejection = savedCommitRejection(failure);
+      if (rejection) recordRejection(delivery);
       if (mounted.current)
         setError(
-          "The commit outcome could not be confirmed. Automatic retry is disabled. Inspect the repository before another commit.",
+          rejection ?? "The commit outcome could not be confirmed. Automatic retry is disabled. Inspect the repository before another commit.",
         );
+      return;
     } finally {
       if (mounted.current) setBusy(false);
       command.current = false;
     }
+    if (
+      mounted.current &&
+      active.current.client === captured.client &&
+      active.current.identity === captured.identity &&
+      active.current.available
+    ) onCommitted?.(receipt);
   };
   if (!isOpen) return null;
   return (

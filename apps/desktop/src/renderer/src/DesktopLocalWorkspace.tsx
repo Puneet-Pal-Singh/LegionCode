@@ -987,10 +987,6 @@ export function DesktopLocalWorkspace({ active = true, onPlacementChange, hosted
       </ClientShell>
       {appServerClient ? (
         <DesktopSavedCommitDialog
-          key={JSON.stringify([
-            workspace?.workspaceId, workspace?.grantedAt,
-            selectedThread?.id, savedReview.selection?.turnId,
-          ])}
           isOpen={active && commitOpen && activeReviewSource === "turn-diff"}
           onClose={() => setCommitOpen(false)}
           client={appServerClient}
