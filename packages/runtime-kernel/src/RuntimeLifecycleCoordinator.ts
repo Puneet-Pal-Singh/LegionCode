@@ -1,4 +1,5 @@
 import { HarnessCommitAckSchema, type HarnessCommitAck, type HarnessObservation } from "@repo/worker-protocol";
+import { createStableEventFingerprint } from "@repo/event-store/fingerprint";
 import type { HarnessObservationCommitPort } from "./harness/DelegatedHarnessPort.js";
 import {
   EventIdSchema,
@@ -47,7 +48,7 @@ import {
   type TurnStatus,
   type TurnTerminalOutcome,
 } from "@repo/platform-protocol/lifecycle";
-import { RuntimeLifecycleSettlementError } from "./errors.js";
+import { RuntimeLifecycleSettlementError, toProtocolError } from "./errors.js";
 import {
   restoreRuntimeLifecycle,
   compactionFailure,
@@ -66,7 +67,7 @@ interface LifecycleIdentity {
 }
 
 export interface RuntimeLifecycleCoordinatorOptions extends LifecycleIdentity {
-  readonly sink: Pick<RuntimeLifecycleEventStore, "appendBatch">;
+  readonly sink: Pick<RuntimeLifecycleEventStore, "appendBatch"> & Partial<Pick<RuntimeLifecycleEventStore, "replay">>;
   readonly producerId: string;
   readonly clock: RuntimeKernelClock;
   readonly initialSequence?: number;
@@ -1432,6 +1433,35 @@ export class RuntimeLifecycleCoordinator {
     if (this.isTerminal) {
       return;
     }
+    const proposed = this.terminalBatch(outcome);
+    this.terminalOutcome = outcome.status;
+    try {
+      await this.appendTerminalBatch(proposed.events, outcome.status);
+    } catch (error) {
+      const original = await this.readTerminalBatch(proposed.events);
+      if (original !== "committed") {
+        if (original !== "absent" || outcome.status !== "completed") throw error;
+
+        // The canonical writer atomically arbitrates both candidates at the
+        // same stream sequences. A late original commit can win this race.
+        const fallback = this.terminalBatch({ status: "failed", failure: toProtocolError(error) });
+        try {
+          await this.appendTerminalBatch(fallback.events, "failed");
+        } catch {
+          // The append receipt cannot distinguish a rejected candidate from a
+          // committed candidate whose transport failed. Read the durable winner.
+        }
+        if (await this.readTerminalBatch(fallback.events) === "committed") {
+          this.applyTerminalBatch(fallback);
+          throw error;
+        }
+        if (await this.readTerminalBatch(proposed.events) !== "committed") throw error;
+      }
+    }
+    this.applyTerminalBatch(proposed);
+  }
+
+  private terminalBatch(outcome: TurnTerminalOutcome) {
     const nextTurn = transitionTurnStatus(this.status, outcome.status);
     const attemptStatus =
       outcome.status === "completed" ? "succeeded" : outcome.status;
@@ -1458,11 +1488,29 @@ export class RuntimeLifecycleCoordinator {
         2,
       ),
     ];
-    this.terminalOutcome = outcome.status;
-    await this.appendTerminalBatch(events, outcome.status);
-    this.sequence += events.length;
-    this.runAttemptStatus = nextAttempt;
-    this.status = nextTurn;
+    return { status: outcome.status, nextTurn, nextAttempt, events };
+  }
+
+  private applyTerminalBatch(batch: ReturnType<RuntimeLifecycleCoordinator["terminalBatch"]>): void {
+    this.terminalOutcome = batch.status;
+    this.sequence += batch.events.length;
+    this.runAttemptStatus = batch.nextAttempt;
+    this.status = batch.nextTurn;
+  }
+
+  private async readTerminalBatch(events: readonly LifecycleEvent[]): Promise<"committed" | "absent" | "unknown"> {
+    try {
+      const replay = await this.options.sink.replay?.({
+        turnId: this.options.turnId,
+        afterSequence: this.sequence,
+        limit: events.length + 1,
+      });
+      if (!replay) return "unknown";
+      if (replay.events.length === 0 && replay.nextSequence === null) return "absent";
+      return replay.nextSequence === events.at(-1)?.sequence && sameTerminalBatch(events, replay.events) ? "committed" : "unknown";
+    } catch {
+      return "unknown";
+    }
   }
 
   /** Focus is a projection of canonical pending membership, never its owner. */
@@ -1511,7 +1559,8 @@ export class RuntimeLifecycleCoordinator {
     let failure: unknown;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        await this.options.sink.appendBatch(events);
+        const appended = await this.options.sink.appendBatch(events);
+        if (!sameTerminalBatch(events, appended)) throw new Error("Canonical terminal append returned different events");
         return;
       } catch (error) {
         failure = error;
@@ -1555,6 +1604,11 @@ export class RuntimeLifecycleCoordinator {
   }
 
   private async emit(fields: EventFields): Promise<void> {
+    if (this.terminalOutcome !== null && !this.isTerminal) {
+      throw new LifecycleTransitionError(
+        "turn", this.status, fields.type, "terminal settlement is pending canonical reconciliation",
+      );
+    }
     assertTurnAcceptsLifecycleEvent(this.status, fields.type);
     const event = this.createEvent(fields, 1);
     await this.options.sink.appendBatch([event]);
@@ -1588,6 +1642,12 @@ export class RuntimeLifecycleCoordinator {
       ...fields,
     });
   }
+}
+
+function sameTerminalBatch(expected: readonly LifecycleEvent[], actual: readonly LifecycleEvent[]): boolean {
+  return expected.length === actual.length && expected.every((event, index) =>
+    createStableEventFingerprint(event) === createStableEventFingerprint(actual[index]),
+  );
 }
 
 function splitLifecycleOutput(output: string): string[] {
