@@ -1038,7 +1038,8 @@ describe("RuntimeKernel canonical lifecycle", () => {
     const sink = createLifecycleSink();
     await (await createKernel(sink)).startTurn({ run, turn, runAttemptId });
 
-    await (await createKernel(sink)).startTurn({ run, turn, runAttemptId });
+    await expect((await createKernel(sink)).startTurn({ run, turn, runAttemptId }))
+      .rejects.toMatchObject({ code: "turn_already_owned" });
 
     expect(terminalEvents(sink)).toHaveLength(1);
     expect(sink.events).toHaveLength(12);
