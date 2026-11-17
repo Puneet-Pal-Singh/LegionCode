@@ -83,3 +83,15 @@ export {
   type FileExplorerEntry,
   type FileExplorerPage,
 } from "./files/FileExplorer.js";
+
+export {
+  HarnessConnectionSettings,
+  type HarnessConnectionSettingsClient,
+  type HarnessConnectionSettingsProps,
+} from "./harness/HarnessConnectionSettings.js";
+export type {
+  HarnessConnectionLoader,
+  HarnessConnectionOption,
+  HarnessConnectionPlacement,
+  HarnessConnectionQuery,
+} from "./harness/HarnessConnectionSetup.js";
