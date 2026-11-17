@@ -11,6 +11,7 @@ import {
   createSandboxLease,
   isLeaseExpired,
   workspaceLeaseKey,
+  sameSandboxExecutionLease,
   type SandboxExecutionLease,
   type SandboxExecutionLeaseRequest,
 } from "../ports/SandboxExecutionLease";
@@ -64,6 +65,8 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
   private readonly activeExecutions = new Map<string, ActiveTaskExecution>();
   private readonly taskTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly leases = new Map<string, SandboxExecutionLease>();
+  // Revocation is sticky on this existing owner; it is not release evidence.
+  private readonly fencedMarkedLeases = new Set<string>();
   private readonly mutationTails = new Map<string, Promise<void>>();
 
   constructor(
@@ -75,8 +78,11 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
   }
 
   registerLease(lease: SandboxExecutionLease): void {
+    if (this.fencedMarkedLeases.has(lease.leaseId)) throw new SandboxLeaseError(
+      "SANDBOX_LEASE_FENCED", "The original marked lease is closed to creators", false, lease.correlationId);
     const existing = this.leases.get(lease.leaseId);
-    if (existing && workspaceLeaseKey(existing) !== workspaceLeaseKey(lease)) {
+    if (existing && (workspaceLeaseKey(existing) !== workspaceLeaseKey(lease) ||
+      ((existing.executionDomainDigest !== undefined || lease.executionDomainDigest !== undefined) && !sameSandboxExecutionLease(existing, lease)))) {
       throw new SandboxLeaseError(
         "SANDBOX_LEASE_COLLISION",
         "A lease id cannot be rebound to a different workspace run-attempt",
@@ -84,7 +90,8 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
         lease.correlationId,
       );
     }
-    this.leases.set(lease.leaseId, lease);
+    this.leases.set(lease.leaseId, lease.executionDomainDigest !== undefined
+      ? Object.freeze({ ...lease, workspaceScope: Object.freeze({ ...lease.workspaceScope }) }) : lease);
   }
 
   async acquireLease(
@@ -122,6 +129,8 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
   }
 
   async cleanup(leaseId: string): Promise<void> {
+    // Synchronous before all closing awaits; queued dispatch checks it again.
+    if (this.leases.get(leaseId)?.executionDomainDigest !== undefined) this.fencedMarkedLeases.add(leaseId);
     for (const [key, active] of this.activeExecutions) {
       if (active.leaseId !== leaseId) continue;
       active.terminationReason = "cancelled";
@@ -138,6 +147,10 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
   ): Promise<LeaseReleaseResult> {
     const lease = this.leases.get(leaseId);
     if (!lease) return { released: false, sandboxReleased: false };
+    if (lease.executionDomainDigest !== undefined) {
+      await this.cleanup(leaseId);
+      return { released: false, sandboxReleased: false };
+    }
     await this.cleanup(leaseId);
     this.leases.delete(leaseId);
     const sandboxReleased = this.leases.size === 0;
@@ -274,9 +287,11 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
   }
 
   private isActiveLease(lease: SandboxExecutionLease): boolean {
+    if (this.fencedMarkedLeases.has(lease.leaseId)) return false;
     const stored = this.leases.get(lease.leaseId);
     return (
       stored !== undefined &&
+      ((stored.executionDomainDigest === undefined && lease.executionDomainDigest === undefined) || sameSandboxExecutionLease(stored, lease)) &&
       stored.owner === lease.owner &&
       stored.correlationId === lease.correlationId &&
       stored.expiresAt === lease.expiresAt &&
