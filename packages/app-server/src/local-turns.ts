@@ -1,3 +1,5 @@
+import type { LocalHarnessOperations } from "./harness/LocalHarnessOperations.js";
+import { LocalHarnessControlPlaneError } from "@repo/event-store";
 import { isDeepStrictEqual } from "node:util";
 import { readLocalThreadHistory } from "./local-thread-history.js";
 import type { LocalTurnAttemptIdentity, LocalTurnAttemptInput } from "@legioncode/execution-engine/runtime/desktop/LocalReadOnlyTurnExecutor";
@@ -76,6 +78,7 @@ export type LocalTurnServiceOptions = {
   workspaces: LocalWorkspaceService;
   threads: LocalThreadService;
   providers: LocalProviderService;
+  harnessSelection?: { environmentId: string; operations: LocalHarnessOperations };
   media?: LocalTurnMediaPort;
   queuedInputs?: Pick<LocalPersistence["threadInputs"], "reserveQueuedStart" | "listAcceptedForTurn">;
   onResourcesReleased?(admission: TurnAdmission): Promise<void>;
@@ -271,6 +274,24 @@ export class LocalTurnService {
         "The local thread is not active in this workspace",
       );
     }
+    const guard = this.options.harnessSelection;
+    if (guard) return guard.operations.withSelection({ workspaceId: thread.workspaceId,
+      threadId: thread.id, sessionId: thread.id, environmentId: guard.environmentId }, async (saved, published) => {
+      // Another identical request may publish while this request waits for the
+      // selection exclusion. Its immutable receipt still wins over today's picker.
+      if (await this.options.persistence.turnAdmissions.findByRequest(thread.id, params.clientRequestId)) {
+        published();
+        return this.startPreparedTurn(params, preparation, queued);
+      }
+      if (saved.selection !== null) throw localHarnessExecutionUnavailable();
+      return this.startNativePreparedTurn(params, preparation, thread, published, queued);
+    });
+    return this.startNativePreparedTurn(params, preparation, thread, () => {}, queued);
+  }
+
+  private async startNativePreparedTurn(params: LocalTurnStartParams, preparation: LocalTurnPreparation,
+    thread: Thread, published: () => void, queued?: Parameters<LocalTurnService["startQueuedTurn"]>[0]): Promise<TurnAdmission> {
+    const images = params.images ?? [];
     const runtime = this.options.runtime;
     if (!runtime)
       throw new AppServerOperationError(
@@ -374,6 +395,7 @@ export class LocalTurnService {
           expectedVersion: queued.command.expectedVersion, expectedRevision: queued.command.expectedThreadRevision,
           explicitStart: queued.explicitStart, expectedPredecessorTurnId: predecessorTurnId, candidate,
           credentialAcquisition: credentialReference }) : this.options.persistence.turnAdmissions.admit(candidate, credentialReference));
+      published();
       if (newlyAdmitted) this.resources.ownExecution(preparation, admission, executor);
       return await this.confirmAdmission(admission, newlyAdmitted ? model : undefined);
     } catch (error) {
@@ -406,10 +428,14 @@ export class LocalTurnService {
               threadId: saved.run.threadId, runId: saved.run.id,
               turnId: saved.turn.id, runAttemptId: saved.runAttemptId,
             }, credentialReference)) {
+          published();
           this.resources.ownExecution(preparation, saved, preparedExecutor);
         }
+        published();
         return await this.confirmAdmission(validated);
       }
+      if (error instanceof LocalHarnessControlPlaneError && error.code === "execution_unavailable")
+        throw localHarnessExecutionUnavailable();
       if (error instanceof EventStoreError && error.code === "idempotency_conflict") {
         throw new AppServerOperationError(409, "conflict", "Local Turn admission conflicts with its current thread state or request content", "local_admission_conflict", false);
       }
@@ -610,4 +636,8 @@ function assertProviderSelection(
       false,
     );
   }
+}
+
+function localHarnessExecutionUnavailable(): AppServerOperationError {
+  return new AppServerOperationError(503, "server_unavailable", "The selected local harness execution is unavailable", "local_harness_execution_unavailable", false);
 }

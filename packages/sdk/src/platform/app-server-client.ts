@@ -1,3 +1,5 @@
+import { HarnessSetupRequestSchema, HarnessStatusRequestSchema, HarnessModelsRequestSchema, HarnessSelectionReadRequestSchema, HarnessSelectRequestSchema,
+  type HarnessSetupRequest, type HarnessSetupResponse, type HarnessStatusRequest, type HarnessStatusResponse, type HarnessModelsRequest, type HarnessModelsResponse, type HarnessSelectionReadRequest, type HarnessSelectionResponse, type HarnessSelectRequest } from "@repo/platform-protocol";
 import { CheckoutListFilesParamsSchema, CheckoutReadParamsSchema } from "@legioncode/app-server/protocol";
 import type { CheckoutListFilesResult, CheckoutReadFileResult } from "@legioncode/app-server/protocol";
 import type { BYOKPreference, BYOKPreferencesUpdateRequest, BYOKResolution, BYOKResolveRequest } from "@repo/shared-types";
@@ -193,6 +195,11 @@ const GitMutationMetadataSchema = z.object({
 }).strict();
 
 export type AppServerClient = {
+  setupHarness(params: HarnessSetupRequest): Promise<HarnessSetupResponse>;
+  getHarnessStatus(params: HarnessStatusRequest): Promise<HarnessStatusResponse>;
+  getHarnessModels(params: HarnessModelsRequest): Promise<HarnessModelsResponse>;
+  readHarnessSelection(params: HarnessSelectionReadRequest): Promise<HarnessSelectionResponse>;
+  selectHarness(params: HarnessSelectRequest): Promise<HarnessSelectionResponse>;
   startTurn(params: LocalTurnStartParams): Promise<TurnAdmission>;
   getTurn(turnId: string): Promise<TurnAdmission>;
   /** latest:true reads a chronological tail with server-measured hasEarlier.
@@ -296,6 +303,11 @@ export function createAppServerClient(
   options: AppServerClientOptions,
 ): AppServerClient {
   return {
+    setupHarness: (params) => request(options, { method: "harness/setup", params: HarnessSetupRequestSchema.parse(params) }, AppServerResultSchemas["harness/setup"]),
+    getHarnessStatus: (params) => request(options, { method: "harness/status", params: HarnessStatusRequestSchema.parse(params) }, AppServerResultSchemas["harness/status"]),
+    getHarnessModels: (params) => request(options, { method: "harness/models", params: HarnessModelsRequestSchema.parse(params) }, AppServerResultSchemas["harness/models"]),
+    readHarnessSelection: (params) => request(options, { method: "harness/selection/read", params: HarnessSelectionReadRequestSchema.parse(params) }, AppServerResultSchemas["harness/selection/read"]),
+    selectHarness: (params) => request(options, { method: "harness/selection/select", params: HarnessSelectRequestSchema.parse(params) }, AppServerResultSchemas["harness/selection/select"]),
     listWorkspaceFileMentions: (params) => request(options, {
       method: "workspace/fileMentions", params: LocalWorkspaceFileMentionsParamsSchema.parse(params),
     }, AppServerResultSchemas["workspace/fileMentions"]),

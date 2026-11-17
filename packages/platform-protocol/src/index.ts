@@ -17,6 +17,7 @@ export {
   AppServerEnvironmentSnapshotSchema,
   AppServerErrorSchema,
   AppServerInitializeRequestSchema,
+  AppServerEnvironmentIdSchema,
   AppServerInitializeResponseSchema,
   AppServerUnavailableCapabilitySchema,
   LOCAL_APP_SERVER_CAPABILITIES,

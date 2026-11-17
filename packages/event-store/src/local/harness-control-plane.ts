@@ -27,7 +27,7 @@ export interface LocalHarnessControlPlanePort {
 export class LocalHarnessControlPlaneError extends Error {
   readonly name = "LocalHarnessControlPlaneError";
   constructor(
-    readonly code: "not_found" | "command_conflict" | "revision_conflict" | "instance_binding_conflict",
+    readonly code: "execution_unavailable" | "not_found" | "command_conflict" | "revision_conflict" | "instance_binding_conflict",
     message: string,
   ) { super(message); }
 }
@@ -108,6 +108,16 @@ export class LocalHarnessControlPlane implements LocalHarnessControlPlanePort {
         .filter((record) => record.grantFingerprint === grantFingerprint)
         .map((record) => this.unavailable(record.instance)) });
     });
+  }
+
+  /** Called synchronously by the sole admission writer, after exact receipt replay. */
+  assertNativeAdmissionWithin(value: HarnessSelectionReadRequest): void {
+    if (!this.database.inTransaction)
+      throw new LocalPersistenceError("unavailable", "Native selection assertion requires the existing SQLite transaction");
+    const input = HarnessSelectionReadRequestSchema.parse(value);
+    const fingerprint = this.authorizeThread(input);
+    if (this.selection(input, fingerprint).selection !== null)
+      fail("execution_unavailable", "The selected local harness execution is unavailable");
   }
 
   async readSelection(value: HarnessSelectionReadRequest): Promise<HarnessSelectionResponse> {

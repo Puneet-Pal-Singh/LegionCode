@@ -30,6 +30,7 @@ export class LocalTurnAdmissions {
     private readonly database: Database.Database,
     private readonly append: (input: AppendEventInput) => PlatformEvent,
     private readonly onAdmitted?: (admission: TurnAdmission) => void,
+    private readonly assertNativeSelection?: (admission: TurnAdmission) => void,
   ) {}
 
   initialize(): void {
@@ -88,12 +89,13 @@ export class LocalTurnAdmissions {
       if (existing.fingerprint !== fingerprint) throw new EventStoreError("idempotency_conflict", "Admission request key has different content or configuration");
       return { admission: this.reconstruct(existing), newlyAdmitted: false };
     }
+    this.assertActiveOwnedThread(candidate);
+    if (!isDelegated(candidate)) this.assertNativeSelection?.(candidate);
     // Retries above retain the original private capture, even when today's
     // credential selection differs. Capture is not part of public request identity.
     const credential = credentialAcquisition == null ? null : RuntimeCredentialReferenceSchema.parse(credentialAcquisition);
     if (credential && (isDelegated(candidate) || credential.providerId !== candidate.run.providerId))
       throw new EventStoreError("idempotency_conflict", "Credential reference does not match the Native admission");
-    this.assertActiveOwnedThread(candidate);
     const prior = this.database.prepare("SELECT * FROM turn_admissions WHERE thread_id = ?").all(candidate.run.threadId) as AdmissionRow[];
     for (const row of prior) {
       const last = this.database.prepare("SELECT event_json FROM events WHERE family = 'lifecycle' AND turn_id = ? ORDER BY sequence DESC LIMIT 1").get(row.turn_id) as { event_json: string } | undefined;
