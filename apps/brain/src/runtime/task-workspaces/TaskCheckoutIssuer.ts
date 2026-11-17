@@ -1,6 +1,15 @@
 import {
+  snapshotExecutionDomain,
+  serializeExecutionDomain,
+  executionDomainDigest,
+  type ServerExecutionDomainBinding,
+} from "@repo/worker-protocol/private/execution-domain";
+import type { JsonValue } from "@repo/shared-types";
+import {
   PostgresTaskWorkspaceRepository,
   type TaskWorkspaceRepository,
+  type TaskCheckoutIssuanceRepository,
+  type TaskCheckoutIssuanceReservation,
 } from "@repo/persistence";
 import {
   TaskCheckoutSchema,
@@ -56,12 +65,35 @@ export type SecureExecutionSessionFactory = (input: {
   readonly runId: string;
   readonly workspaceScope: SecureExecutionWorkspaceScope;
   readonly persistedReference?: PersistedSecureExecutionSessionReference;
+  readonly executionDomain?: ServerExecutionDomainBinding;
 }) => SecureExecutionSessionPort;
 
-interface TaskCheckoutIssueOptions {
+export interface BeforeTaskCheckoutSessionAcquireInput {
+  readonly checkoutId: TaskCheckout["checkoutId"];
+  readonly snapshot: WorkspaceSnapshot;
+  readonly workspaceScope: SecureExecutionWorkspaceScope;
+}
+export type BeforeTaskCheckoutSessionAcquire = (
+  input: BeforeTaskCheckoutSessionAcquireInput,
+) => Promise<ServerExecutionDomainBinding>;
+
+interface TaskCheckoutCommonIssueOptions {
   readonly resumeSnapshot?: ResumeWorkspaceSnapshotRef;
   readonly failureCleanup?: (receipt: NativePreparationCleanupReceipt) => void;
 }
+export interface TaskCheckoutIssueOptions extends TaskCheckoutCommonIssueOptions {
+  readonly beforeSessionAcquire?: never;
+}
+export interface AdmittedTaskCheckoutIssueOptions
+  extends TaskCheckoutCommonIssueOptions {
+  readonly beforeSessionAcquire: BeforeTaskCheckoutSessionAcquire;
+}
+type CheckoutIssuanceMode =
+  | { readonly kind: "legacy" }
+  | {
+      readonly kind: "admitted";
+      readonly beforeSessionAcquire: BeforeTaskCheckoutSessionAcquire | undefined;
+    };
 
 export class TaskCheckoutIssuer {
   constructor(
@@ -70,32 +102,109 @@ export class TaskCheckoutIssuer {
       env,
     ),
     private readonly repositoryOverride?: TaskWorkspaceRepository,
-    private readonly sessionFactory: SecureExecutionSessionFactory = (input) =>
-      new SecureExecutionSessionClient(
+    private readonly sessionFactory: SecureExecutionSessionFactory = (
+      input,
+    ) => {
+      return new SecureExecutionSessionClient(
         env,
         input.sessionId,
         input.runId,
         input.workspaceScope,
         input.persistedReference,
-      ),
+        input.executionDomain,
+      );
+    },
   ) {}
 
-  async issue(
+  /** Established Native construction; never upgrades persisted custody. */
+  issue(
     payload: ExecuteRunPayload,
     options?: TaskCheckoutIssueOptions,
   ): Promise<IssuedTaskCheckout> {
+    return this.issueSelected(payload, options, { kind: "legacy" });
+  }
+
+  /** Explicit opt-in to the existing one-shot, server-admitted issuance owner. */
+  issueAdmitted(
+    payload: ExecuteRunPayload,
+    options: AdmittedTaskCheckoutIssueOptions,
+  ): Promise<IssuedTaskCheckout> {
+    return this.issueSelected(payload, options, {
+      kind: "admitted",
+      beforeSessionAcquire: options?.beforeSessionAcquire,
+    });
+  }
+
+  private async issueSelected(
+    payload: ExecuteRunPayload,
+    options:
+      | TaskCheckoutIssueOptions
+      | AdmittedTaskCheckoutIssueOptions
+      | undefined,
+    mode: CheckoutIssuanceMode,
+  ): Promise<IssuedTaskCheckout> {
+    const failureCleanup = options?.failureCleanup;
     let exposurePossible = false;
     try {
-      return await this.issueOwned(payload, options, () => { exposurePossible = true; }, () => { exposurePossible = false; });
+      if (
+        (mode.kind === "legacy" && options && "beforeSessionAcquire" in options) ||
+        (mode.kind === "admitted" && typeof mode.beforeSessionAcquire !== "function")
+      ) {
+        throw new DomainError(
+          "TASK_CHECKOUT_DOMAIN_REQUIRED",
+          "Marked checkout issuance requires the explicit admitted entry point and its owner callback.",
+          428,
+          false,
+          payload.correlationId,
+        );
+      }
+      // Capture caller-owned identity, selection and continuations synchronously.
+      // The lookup and later restore callback must use this same admitted input.
+      payload = Object.freeze({
+        ...payload,
+        identity: payload.identity
+          ? Object.freeze({ ...payload.identity })
+          : undefined,
+        input: Object.freeze({
+          ...payload.input,
+          repositoryContext: payload.input.repositoryContext
+            ? Object.freeze({ ...payload.input.repositoryContext })
+            : undefined,
+        }),
+      });
+      options = options
+        ? Object.freeze({
+            failureCleanup,
+            resumeSnapshot: options.resumeSnapshot
+              ? Object.freeze(
+                  ResumeWorkspaceSnapshotRefSchema.parse(
+                    options.resumeSnapshot,
+                  ),
+                )
+              : undefined,
+          })
+        : undefined;
+      return await this.issueOwned(
+        payload,
+        options,
+        mode,
+        () => {
+          exposurePossible = true;
+        },
+        () => {
+          exposurePossible = false;
+        },
+      );
     } catch (error) {
-      if (!exposurePossible) options?.failureCleanup?.({ kind: "no_exposure" });
+      if (!exposurePossible) failureCleanup?.({ kind: "no_exposure" });
       throw error;
     }
   }
 
   private async issueOwned(
     payload: ExecuteRunPayload,
-    options: TaskCheckoutIssueOptions | undefined,
+    options: TaskCheckoutCommonIssueOptions | undefined,
+    mode: CheckoutIssuanceMode,
     expose: () => void,
     noExistingOwnership: () => void,
   ): Promise<IssuedTaskCheckout> {
@@ -149,12 +258,13 @@ export class TaskCheckoutIssuer {
         payload,
         existing.checkout,
         existing.snapshot,
+        mode.kind,
         resumeSnapshot,
       );
     }
 
     noExistingOwnership(); // Positive lookup absence, before any new secure acquire.
-    const snapshot = resumeSnapshot
+    const capturedSnapshot = resumeSnapshot
       ? await this.findResumeBaseSnapshot(payload, resumeSnapshot)
       : await this.capture.capture({
           userId: payload.userId,
@@ -167,25 +277,97 @@ export class TaskCheckoutIssuer {
           },
           correlationId: payload.correlationId,
         });
+    const snapshot: WorkspaceSnapshot = Object.freeze({
+      ...capturedSnapshot,
+      repository: Object.freeze({ ...capturedSnapshot.repository }),
+      provenance: Object.freeze({ ...capturedSnapshot.provenance }),
+    });
     const checkoutId = createTaskCheckoutId();
     const filesystemRoot = canonicalTaskCheckoutRoot(checkoutId);
-    const workspaceScope = toSecureExecutionWorkspaceScope({
-      runId: payload.runId,
-      threadId: identity.threadId,
-      turnId: identity.turnId,
-      runAttemptId: identity.runAttemptId,
-      workspaceId: identity.workspaceId,
-      root: filesystemRoot,
-    });
-    expose(); // Fence before any possible acquire dispatch, including constructor failure.
-    const executionSession = this.sessionFactory({
-      sessionId: payload.sessionId,
-      runId: payload.runId,
-      workspaceScope,
-    });
-
+    const workspaceScope = Object.freeze(
+      toSecureExecutionWorkspaceScope({
+        runId: payload.runId,
+        threadId: identity.threadId,
+        turnId: identity.turnId,
+        runAttemptId: identity.runAttemptId,
+        workspaceId: identity.workspaceId,
+        root: filesystemRoot,
+      }),
+    );
+    if (
+      snapshot.workspaceId !== workspaceScope.workspaceId ||
+      snapshot.provenance.kind !== "authorized_repository" ||
+      snapshot.provenance.authorizedByUserId !==
+        userIdFromExternalId(payload.userId)
+    ) {
+      throw new DomainError(
+        "TASK_CHECKOUT_SCOPE_MISMATCH",
+        "The captured snapshot does not belong to this authenticated checkout.",
+        409,
+        false,
+        payload.correlationId,
+      );
+    }
+    const reservation: TaskCheckoutIssuanceReservation | undefined =
+      mode.kind === "admitted"
+        ? {
+            checkoutId,
+            snapshotId: snapshot.snapshotId,
+            workspaceId: snapshot.workspaceId,
+            threadId: identity.threadId,
+            turnId: identity.turnId,
+            runAttemptId: identity.runAttemptId,
+            filesystemRoot,
+            gitDir: `${filesystemRoot}/.git`,
+            indexFile: `${filesystemRoot}/.git/index`,
+            workingBranch: `task/${checkoutId}`,
+            startTreeId: snapshot.authorizedTreeId,
+            createdAt: new Date().toISOString(),
+            issuanceToken: crypto.randomUUID(),
+          }
+        : undefined;
+    // Fence before any reservation, callback or secure acquire can take effect.
+    expose();
+    let executionSession: SecureExecutionSessionPort | undefined;
     try {
+      let executionDomain: ServerExecutionDomainBinding | undefined;
+      let digest: string | undefined;
+      if (reservation && mode.kind === "admitted") {
+        await this.withIssuance((repository) =>
+          repository.reserveIssuance(snapshot, reservation),
+        );
+        await this.withIssuance((repository) =>
+          repository.beginIssuanceCallback(checkoutId, reservation.issuanceToken),
+        );
+        // The durable callback-start fence is one-shot. No catch/reopen path calls it again.
+        executionDomain = this.validateExecutionDomain(
+          await mode.beforeSessionAcquire!({ checkoutId, snapshot, workspaceScope }),
+          payload,
+          snapshot,
+          workspaceScope,
+        );
+        digest = await executionDomainDigest(executionDomain);
+        const frozenDomain = executionDomain;
+        const frozenDigest = digest;
+        await this.withIssuance((repository) =>
+          repository.freezeIssuanceDomain(checkoutId, reservation.issuanceToken, {
+            value: JSON.parse(
+              serializeExecutionDomain(frozenDomain),
+            ) as JsonValue,
+            digest: frozenDigest,
+          }),
+        );
+      }
+      executionSession = this.sessionFactory({
+        sessionId: payload.sessionId,
+        runId: payload.runId,
+        workspaceScope,
+        ...(executionDomain ? { executionDomain } : {}),
+      });
       const session = await executionSession.acquire();
+      if (session.lease.executionDomainDigest !== digest) {
+        throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
+      }
       const checkout = TaskCheckoutSchema.parse({
         kind: "task_checkout",
         checkoutId,
@@ -206,15 +388,25 @@ export class TaskCheckoutIssuer {
         status: "ready",
         settledAt: null,
         failureCode: null,
-        createdAt: new Date().toISOString(),
+        createdAt: reservation?.createdAt ?? new Date().toISOString(),
       });
-      const issued = await withBrainPersistenceRepository(
-        this.env,
-        this.repositoryOverride ?? this.env.AUTH_TASK_WORKSPACE_REPOSITORY,
-        (client) => new PostgresTaskWorkspaceRepository(client),
-        async (taskWorkspaces) =>
-          await taskWorkspaces.issueSnapshotCheckout(snapshot, checkout),
-      );
+      // TaskCheckoutIssuer retains the established unmarked Native producer in
+      // this same owner until the admitted physical path proves actual hosted
+      // bootstrap, tools, review, Stop and recovery through the product. Migrate
+      // its RuntimeExecutionResources caller before deleting this branch.
+      const issued = reservation
+        ? {
+            checkout: await this.withIssuance((repository) =>
+              repository.completeIssuance(checkout, reservation.issuanceToken),
+            ),
+          }
+        : await withBrainPersistenceRepository(
+            this.env,
+            this.repositoryOverride ?? this.env.AUTH_TASK_WORKSPACE_REPOSITORY,
+            (client) => new PostgresTaskWorkspaceRepository(client),
+            (taskWorkspaces) =>
+              taskWorkspaces.issueSnapshotCheckout(snapshot, checkout),
+          );
       const issuedCheckout: IssuedTaskCheckout = {
         checkout: issued.checkout,
         authorizedCommitId: snapshot.authorizedCommitId,
@@ -222,10 +414,7 @@ export class TaskCheckoutIssuer {
         executionSession: new TaskCheckoutBoundExecutionSession(
           executionSession,
           issued.checkout,
-          new TaskCheckoutLeaseCoordinator(
-            this.env,
-            this.repositoryOverride,
-          ),
+          new TaskCheckoutLeaseCoordinator(this.env, this.repositoryOverride),
         ),
       } satisfies IssuedTaskCheckout;
       if (resumeSnapshot) {
@@ -244,8 +433,17 @@ export class TaskCheckoutIssuer {
       }
       return issuedCheckout;
     } catch (error) {
+      if (reservation) {
+        try {
+          await this.withIssuance((repository) =>
+            repository.markIssuanceUnknown(checkoutId, reservation.issuanceToken),
+          );
+        } catch {
+          /* The durable reserved/started/frozen state already prevents replay. */
+        }
+      }
       try {
-        await executionSession.release();
+        await executionSession?.release();
       } catch {
         throw new DomainError(
           "TASK_CHECKOUT_COMPENSATION_FAILED",
@@ -263,6 +461,69 @@ export class TaskCheckoutIssuer {
       // is not an exact physical closure receipt. Keep this exposure unknown.
       throw error;
     }
+  }
+
+  private async withIssuance<T>(
+    operation: (repository: TaskCheckoutIssuanceRepository) => Promise<T>,
+  ): Promise<T> {
+    return await withBrainPersistenceRepository(
+      this.env,
+      this.repositoryOverride ?? this.env.AUTH_TASK_WORKSPACE_REPOSITORY,
+      (client) => new PostgresTaskWorkspaceRepository(client),
+      async (repository) => {
+        const candidate = repository as TaskWorkspaceRepository &
+          Partial<TaskCheckoutIssuanceRepository>;
+        if (
+          typeof candidate.reserveIssuance !== "function" ||
+          typeof candidate.beginIssuanceCallback !== "function" ||
+          typeof candidate.freezeIssuanceDomain !== "function" ||
+          typeof candidate.completeIssuance !== "function" ||
+          typeof candidate.markIssuanceUnknown !== "function" ||
+          typeof candidate.getCheckoutExecutionDomain !== "function" ||
+          typeof candidate.getCheckoutExecutionDomainState !== "function"
+        ) {
+          throw new DomainError(
+            "TASK_CHECKOUT_ISSUANCE_UNAVAILABLE",
+            "Durable checkout issuance is unavailable.",
+            503,
+            false,
+          );
+        }
+        return await operation(candidate as TaskCheckoutIssuanceRepository);
+      },
+    );
+  }
+
+  private validateExecutionDomain(
+    value: unknown,
+    payload: ExecuteRunPayload,
+    snapshot: WorkspaceSnapshot,
+    workspaceScope: SecureExecutionWorkspaceScope,
+  ): ServerExecutionDomainBinding {
+    const binding = snapshotExecutionDomain(value);
+    const scope = binding.scope;
+    if (
+      scope.userId !== payload.userId ||
+      scope.brainSessionId !== payload.sessionId ||
+      scope.runId !== payload.runId ||
+      scope.workspaceId !== workspaceScope.workspaceId ||
+      scope.threadId !== workspaceScope.threadId ||
+      scope.turnId !== workspaceScope.turnId ||
+      scope.runAttemptId !== workspaceScope.runAttemptId ||
+      snapshot.workspaceId !== workspaceScope.workspaceId ||
+      snapshot.provenance.kind !== "authorized_repository" ||
+      snapshot.provenance.authorizedByUserId !==
+        userIdFromExternalId(payload.userId!)
+    ) {
+      throw new DomainError(
+        "TASK_CHECKOUT_DOMAIN_SCOPE_MISMATCH",
+        "The execution domain does not match this authorized checkout.",
+        409,
+        false,
+        payload.correlationId,
+      );
+    }
+    return binding;
   }
 
   private async findResumeBaseSnapshot(
@@ -449,13 +710,10 @@ export class TaskCheckoutIssuer {
   private async findExistingCheckout(
     runAttemptId: string,
     correlationId: string,
-  ): Promise<
-    | {
-        readonly checkout: TaskCheckout;
-        readonly snapshot: WorkspaceSnapshot;
-      }
-    | null
-  > {
+  ): Promise<{
+    readonly checkout: TaskCheckout;
+    readonly snapshot: WorkspaceSnapshot;
+  } | null> {
     return await withBrainPersistenceRepository(
       this.env,
       this.repositoryOverride ?? this.env.AUTH_TASK_WORKSPACE_REPOSITORY,
@@ -486,11 +744,13 @@ export class TaskCheckoutIssuer {
     payload: ExecuteRunPayload,
     checkout: TaskCheckout,
     snapshot: WorkspaceSnapshot,
+    mode: CheckoutIssuanceMode["kind"],
     resumeSnapshot?: ResumeWorkspaceSnapshotRef,
   ): Promise<IssuedTaskCheckout> {
     const identity = payload.identity!;
     if (
-      checkout.workspaceId !== workspaceIdFromExternalId(identity.workspaceId) ||
+      checkout.workspaceId !==
+        workspaceIdFromExternalId(identity.workspaceId) ||
       checkout.threadId !== identity.threadId ||
       checkout.turnId !== identity.turnId ||
       checkout.runAttemptId !== identity.runAttemptId ||
@@ -524,15 +784,64 @@ export class TaskCheckoutIssuer {
       workspaceId: checkout.workspaceId,
       root: checkout.filesystemRoot,
     });
+    // Only the canonical persisted row may authorize legacy behavior. Neither
+    // callback omission nor a failed/partial custody read can select that path.
+    const domainState = await this.withIssuance((repository) =>
+      repository.getCheckoutExecutionDomainState(checkout.checkoutId),
+    );
+    if (domainState.kind !== (mode === "admitted" ? "marked" : "legacy")) {
+      throw new DomainError(
+        "TASK_CHECKOUT_DOMAIN_MODE_MISMATCH",
+        "The persisted checkout belongs to a different issuance owner.",
+        409,
+        false,
+        payload.correlationId,
+      );
+    }
+    const persistedDomain =
+      domainState.kind === "marked" ? domainState.domain : undefined;
+    if (domainState.kind !== "legacy" && !persistedDomain) {
+      throw new DomainError(
+        "TASK_CHECKOUT_DOMAIN_SCOPE_MISMATCH",
+        "The persisted execution domain is unavailable.",
+        409,
+        false,
+        payload.correlationId,
+      );
+    }
+    const executionDomain = persistedDomain
+      ? this.validateExecutionDomain(
+          persistedDomain.value,
+          payload,
+          snapshot,
+          workspaceScope,
+        )
+      : undefined;
+    if (
+      executionDomain &&
+      (await executionDomainDigest(executionDomain)) !== persistedDomain?.digest
+    ) {
+      throw new DomainError(
+        "TASK_CHECKOUT_DOMAIN_SCOPE_MISMATCH",
+        "The persisted execution domain digest is invalid.",
+        409,
+        false,
+        payload.correlationId,
+      );
+    }
     const executionSession = this.sessionFactory({
       sessionId: payload.sessionId,
       runId: payload.runId,
       workspaceScope,
+      executionDomain,
       persistedReference: {
         secureSessionId: checkout.secureSessionId,
         leaseId: checkout.leaseId,
         sandboxId: checkout.sandboxId,
         generation: checkout.generation,
+        ...(persistedDomain
+          ? { executionDomainDigest: persistedDomain.digest }
+          : {}),
       },
     });
     let handle: SecureExecutionSessionHandle;
@@ -547,6 +856,27 @@ export class TaskCheckoutIssuer {
         payload.correlationId,
         { checkoutId: checkout.checkoutId },
       );
+    }
+    if (
+      persistedDomain &&
+      (handle.lease.executionDomainDigest !== persistedDomain.digest ||
+        handle.sessionId !== checkout.secureSessionId ||
+        handle.lease.leaseId !== checkout.leaseId ||
+        handle.lease.sandboxId !== checkout.sandboxId ||
+        handle.lease.generation !== checkout.generation)
+    ) {
+      throw new DomainError(
+        "TASK_CHECKOUT_RESUME_UNAVAILABLE",
+        "Only the original frozen checkout generation may be resumed.",
+        409,
+        false,
+        payload.correlationId,
+      );
+    }
+    // The unmarked response must also remain unmarked; never adopt a marked
+    // response just because a legacy caller omitted the domain expectation.
+    if (!persistedDomain && handle.lease.executionDomainDigest !== undefined) {
+      throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
     }
     const resumedCheckout =
       handle.lease.leaseId === checkout.leaseId &&
@@ -564,10 +894,7 @@ export class TaskCheckoutIssuer {
       executionSession: new TaskCheckoutBoundExecutionSession(
         executionSession,
         resumedCheckout,
-        new TaskCheckoutLeaseCoordinator(
-          this.env,
-          this.repositoryOverride,
-        ),
+        new TaskCheckoutLeaseCoordinator(this.env, this.repositoryOverride),
       ),
     };
     if (resumeSnapshot) {
