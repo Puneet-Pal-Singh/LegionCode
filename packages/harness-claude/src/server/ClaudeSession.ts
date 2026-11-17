@@ -58,6 +58,7 @@ export class ClaudeSession implements HarnessLiveSession {
   private readonly stoppedSignal = new AbortController();
 
   private accountCheck: (() => void) | undefined;
+  private accountFenced = false;
 
   constructor(
     private readonly opening: Opening,
@@ -463,6 +464,8 @@ export class ClaudeSession implements HarnessLiveSession {
 
   private async authorize(signal: AbortSignal): Promise<() => void> {
     try {
+      if (this.stopped || this.finished)
+        throw new HarnessHostError("stale_session");
       const current = await this.account.authorize(signal);
       const assertCurrent = () => {
         try {
@@ -494,6 +497,8 @@ export class ClaudeSession implements HarnessLiveSession {
   }
 
   private fenceAccount(): void {
+    if (this.accountFenced) return;
+    this.accountFenced = true;
     this.observationIntegrityLost = true;
     this.beginStop();
     this.runner?.close();
