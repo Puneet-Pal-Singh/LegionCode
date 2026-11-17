@@ -10,9 +10,9 @@ import {
   LocalWorkspaceFileMentionsParamsSchema,
   type LocalWorkspaceFileMentionsParams,
   type LocalWorkspaceFileMentionsResult,
-  LocalChatImageReadParamsSchema,
-  type LocalChatImageReadParams,
-  type LocalChatImageReadResult,
+  ChatImageReadParamsSchema,
+  type ChatImageReadParams,
+  type ChatImageReadResult,
   LocalProviderPreferenceScopeSchema,
   type LocalProviderPreferenceScope,
   LocalWorkspaceReadFileParamsSchema,
@@ -36,7 +36,6 @@ import {
 } from "@legioncode/app-server/protocol";
 import {
   type TurnAdmission,
-  type LocalWorkspaceProjectsResponse,
   HostedWorkspaceConfigurationReadRequestSchema, HostedWorkspaceConfigurationUpdateRequestSchema,
   type HostedWorkspaceConfiguration, type HostedWorkspaceConfigurationReadRequest, type HostedWorkspaceConfigurationUpdateRequest,
   type HostedWorkspaceListResponse, type HostedWorkspaceSelection, type HostedWorkspaceSelectRequest,
@@ -58,6 +57,8 @@ import {
   RunIdSchema,
   ProviderIdSchema,
   type LocalWorkspaceGrant,
+  type LocalWorkspaceProjectsResponse,
+  type WorkspaceId,
   type AppServerInitializeResponse,
   type ProviderId,
   type Thread,
@@ -266,17 +267,17 @@ export type AppServerClient = {
   getRepositoryContents(params: RepositoryContentsRequest): Promise<RepositoryContentsResult>;
   listWorkspaceFiles(params: LocalWorkspaceListFilesParams): Promise<LocalWorkspaceListFilesResult>;
   listWorkspaceFileMentions(params: LocalWorkspaceFileMentionsParams): Promise<LocalWorkspaceFileMentionsResult>;
-  readLocalChatImageChunk(params: LocalChatImageReadParams): Promise<LocalChatImageReadResult>;
+  readChatImageChunk(params: ChatImageReadParams): Promise<ChatImageReadResult>;
   readWorkspaceFile(params: LocalWorkspaceReadFileParams): Promise<CheckoutReadFileResult>;
-  listLocalWorkspaceProjects(): Promise<LocalWorkspaceProjectsResponse>;
-  forgetLocalWorkspaceProject(workspaceId: LocalWorkspaceGrant["workspaceId"]): Promise<void>;
   getWorkspaceGrant(): Promise<LocalWorkspaceGrant | null>;
+  listLocalWorkspaceProjects(): Promise<LocalWorkspaceProjectsResponse>;
+  forgetLocalWorkspaceProject(workspaceId: WorkspaceId): Promise<void>;
   grantWorkspace(source: WorkspaceGrantSource): Promise<LocalWorkspaceGrant>;
   listWorkspaceGrants(): Promise<LocalWorkspaceGrant[]>;
   selectWorkspaceGrant(workspaceId: LocalWorkspaceGrant["workspaceId"]): Promise<LocalWorkspaceGrant>;
   revokeWorkspace(workspaceId?: LocalWorkspaceGrant["workspaceId"]): Promise<void>;
   listThreads(): Promise<Thread[]>;
-  createThread(title?: string): Promise<Thread>;
+  createThread(title?: string, expectedWorkspace?: Pick<LocalWorkspaceGrant, "workspaceId" | "grantedAt">): Promise<Thread>;
   getThread(threadId: Thread["id"]): Promise<Thread>;
   renameThread(threadId: Thread["id"], title: string): Promise<Thread>;
   pinThread(threadId: Thread["id"]): Promise<Thread>;
@@ -311,8 +312,8 @@ export function createAppServerClient(
     listWorkspaceFileMentions: (params) => request(options, {
       method: "workspace/fileMentions", params: LocalWorkspaceFileMentionsParamsSchema.parse(params),
     }, AppServerResultSchemas["workspace/fileMentions"]),
-    readLocalChatImageChunk: (params) => request(options, {
-      method: "media/readImage", params: LocalChatImageReadParamsSchema.parse(params),
+    readChatImageChunk: (params) => request(options, {
+      method: "media/readImage", params: ChatImageReadParamsSchema.parse(params),
     }, AppServerResultSchemas["media/readImage"]),
     listWorkspaceFiles: (params) => request(options, {
       method: "workspace/listFiles", params: LocalWorkspaceListFilesParamsSchema.parse(params),
@@ -603,7 +604,9 @@ export function createAppServerClient(
     }, AppServerResultSchemas["workspace/grants"])).grants,
     selectWorkspaceGrant: async (workspaceId) => {
       const result = await request(options, { method: "workspace/selectGrant", params: { workspaceId } }, AppServerResultSchemas["workspace/selectGrant"]);
-      if (!result.grant) throw invalidResponse("workspace/selectGrant", "App Server did not return the selected workspace grant");
+      if (!result.grant || result.grant.workspaceId !== workspaceId) {
+        throw invalidResponse("workspace/selectGrant", "App Server did not return the selected workspace grant");
+      }
       return result.grant;
     },
     revokeWorkspace: async (workspaceId) => {
@@ -617,10 +620,10 @@ export function createAppServerClient(
       const result = await request(options, { method: "thread/list", params: {} }, AppServerResultSchemas["thread/list"]);
       return result.threads;
     },
-    createThread: async (title) => {
+    createThread: async (title, expectedWorkspace) => {
       const result = await request(options, {
         method: "thread/create",
-        params: title === undefined ? {} : { title },
+        params: { ...(title === undefined ? {} : { title }), ...(expectedWorkspace ? { expectedWorkspace } : {}) },
       }, AppServerResultSchemas["thread/create"]);
       return result.thread;
     },

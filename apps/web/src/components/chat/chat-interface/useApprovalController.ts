@@ -11,7 +11,7 @@ import {
 } from "react";
 import type { ApprovalDecisionKind, ApprovalRequest } from "@repo/shared-types";
 import { RiskyActionCategorySchema } from "@repo/shared-types";
-import { ApprovalIdSchema } from "@legioncode/sdk";
+import { ApprovalIdSchema, projectApprovalPresentation } from "@legioncode/sdk";
 import { createWebPlatformClient } from "../../../services/api/platformClient";
 import type {
   LifecycleProjection,
@@ -119,6 +119,7 @@ function buildLifecycleApprovalState(
   if (!projection || !approval || approval.decision) {
     return null;
   }
+  const presentation = projectApprovalPresentation(approval);
   return {
     source: "lifecycle",
     approval,
@@ -135,8 +136,10 @@ function buildLifecycleApprovalState(
       category: RiskyActionCategorySchema.catch("shell_command").parse(
         approval.metadata?.category,
       ),
-      title: approval.question,
+      title: presentation.title ?? approval.question,
       reason: approval.question,
+      command: presentation.command,
+      ...(presentation.available ? { cwd: presentation.cwd } : {}),
       actionFingerprint: `${projection.turnId}:${approval.approvalId}`,
       availableDecisions: getCanonicalApprovalDecisions(approval),
       createdAt: approval.requestedAt,

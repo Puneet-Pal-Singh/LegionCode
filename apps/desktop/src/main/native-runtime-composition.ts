@@ -17,6 +17,7 @@ import { ProviderIdSchema } from "@repo/shared-types";
 import type { LocalAppServerStartMessage } from "../shared/desktop-api";
 import type { RuntimeCredentialClient } from "./runtime-credentials";
 import { createWorkspaceFileComposition } from "./workspace-file-composition";
+import { connectDesktopNativeHostBroker } from "./native-host-broker-composition";
 
 /** Trusted host adapters only; runtime owns admission, tools and lifecycle settlement. */
 export async function createDesktopNativeComposition(
@@ -50,6 +51,7 @@ export async function createDesktopNativeComposition(
     trustedFenceDirectory: config.nativeWriterFenceDirectory,
     helperPath: processHelperPath,
   }) : undefined;
+  const hostBroker = leases ? await connectDesktopNativeHostBroker(config.nativeHostBroker) : undefined;
   return {
     ...discovery,
     createWorkspaceGitReadsService: (workspaces) => new LocalWorkspaceGitReads(async (workspaceId) => {
@@ -98,16 +100,17 @@ export async function createDesktopNativeComposition(
         persistence,
         leases,
         reservedLease,
+        hostBroker,
         storageDirectory: config.storageDirectory,
         filesystemHelperPath,
         processHelperPath,
-        createCaptureGitService: (lease, binding) => createCaptureGitService(lease, {
+        createCaptureGitService: (lease, binding, readSignal) => createCaptureGitService(lease, {
           gitExecutable,
           processHelperPath,
           filesystemHelperPath,
           metadataIdentity: binding.metadataIdentity,
           inspectMetadataLayout: binding.inspectMetadataLayout,
-        }),
+        }, readSignal),
       }) : undefined;
       return createLocalNativeRuntime({
         persistence,

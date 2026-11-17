@@ -1,5 +1,6 @@
 import type { CoreTool } from "ai";
 import type { TurnAdmission } from "@repo/platform-protocol/conversation";
+import type { ChatRunMode, LocalTurnConfigurationOptions } from "@repo/platform-protocol";
 import type {
   RuntimeGitSnapshotPort,
   RuntimeTurnArtifactPort,
@@ -43,6 +44,8 @@ export type LocalTurnExecutionCapability<
   | { readonly artifactCapture: "omitted_read_only" }
   | {
       readonly artifactCapture: "required";
+      /** Description from the concrete backend, never inferred from artifact capture. */
+      readonly commandExecution?: NonNullable<LocalTurnConfigurationOptions["commandExecution"]>[ChatRunMode];
       readonly createExecutionPorts: (
         admission: TurnAdmission,
         binding: TBinding,

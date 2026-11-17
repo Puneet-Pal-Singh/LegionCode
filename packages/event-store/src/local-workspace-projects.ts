@@ -8,6 +8,7 @@ import {
   type WorkspaceId,
 } from "@repo/platform-protocol";
 import { z } from "zod";
+import { LocalFilesystemWorkspaceIdentitySchema, type LocalFilesystemWorkspaceIdentity } from "./local-workspace-grant.js";
 
 const PREFIX = "workspace_project_v1:";
 // Retain old private records verbatim; sanitize their navigation projection.
@@ -15,7 +16,7 @@ const StoredProjectSchema = z.discriminatedUnion("association", [
   LocalWorkspaceProjectSchema.options[0].extend({ repositoryIdentity: LocalWorkspaceGrantSchema.shape.repositoryIdentity }),
   LocalWorkspaceProjectSchema.options[1],
 ]);
-const KnownRecordSchema = z.object({
+const GitRecordSchema = z.object({
   version: z.literal(1),
   project: StoredProjectSchema,
   hidden: z.boolean().default(false),
@@ -26,6 +27,15 @@ const KnownRecordSchema = z.object({
     context.addIssue({ code: z.ZodIssueCode.custom, message: "Workspace project association is invalid" });
   }
 });
+const KnownRecordSchema = z.union([
+  GitRecordSchema,
+  z.object({
+    version: z.literal(2),
+    project: LocalWorkspaceProjectSchema.options[0],
+    hidden: z.boolean(),
+    filesystemIdentity: LocalFilesystemWorkspaceIdentitySchema,
+  }).strict(),
+]);
 type RecordValue = z.infer<typeof KnownRecordSchema>;
 
 /** Part of workspaceGrants, inside the same SQLite writer and transaction. No paths. */
@@ -38,25 +48,29 @@ export class LocalWorkspaceProjectRecords {
       (right.lastOpenedAt ?? "").localeCompare(left.lastOpenedAt ?? "") || left.workspaceId.localeCompare(right.workspaceId));
   }
 
-  findWorkspaceId(gitMetadataIdentity: string): WorkspaceId | null {
-    return this.readAll().find((record) => record.gitMetadataIdentity === gitMetadataIdentity)?.project.workspaceId ?? null;
+  findWorkspaceId(identity: string | LocalFilesystemWorkspaceIdentity): WorkspaceId | null {
+    const key = associationKey(identity);
+    return this.readAll().find((record) => recordAssociationKey(record) === key)?.project.workspaceId ?? null;
   }
 
-  rememberValidated(grant: LocalWorkspaceGrant, gitMetadataIdentity: string, restoreHidden = false): void {
+  rememberValidated(grant: LocalWorkspaceGrant, identity: string | LocalFilesystemWorkspaceIdentity, restoreHidden = false): void {
     const existing = this.readAll();
-    const association = existing.find((record) => record.gitMetadataIdentity === gitMetadataIdentity);
+    const key = associationKey(identity);
+    const association = existing.find((record) => recordAssociationKey(record) === key);
     const previous = existing.find((record) => record.project.workspaceId === grant.workspaceId);
     if ((association && association.project.workspaceId !== grant.workspaceId) ||
-        (previous?.gitMetadataIdentity && previous.gitMetadataIdentity !== gitMetadataIdentity)) {
+        (previous && recordAssociationKey(previous) !== null && recordAssociationKey(previous) !== key)) {
       throw new Error("Workspace project identity conflicts with its known association");
     }
-    const next: RecordValue = {
-      version: 1,
-      project: {
+    const project = {
         association: "known", workspaceId: grant.workspaceId, displayName: grant.displayName,
         repositoryIdentity: null, lastOpenedAt: grant.grantedAt,
-      },
-      gitMetadataIdentity,
+    } as const;
+    const next: RecordValue = typeof identity === "string" ? {
+      version: 1, project, gitMetadataIdentity: identity,
+      hidden: restoreHidden ? false : previous?.hidden ?? false,
+    } : {
+      version: 2, project, filesystemIdentity: { ...identity },
       hidden: restoreHidden ? false : previous?.hidden ?? false,
     };
     if (previous && JSON.stringify(previous) === JSON.stringify(next)) return;
@@ -91,9 +105,10 @@ export class LocalWorkspaceProjectRecords {
       if (Buffer.byteLength(row.value) > 32_768) throw new Error("Stored workspace project exceeds its bound");
       const record = KnownRecordSchema.parse(JSON.parse(row.value));
       if (row.key !== `${PREFIX}${record.project.workspaceId}`) throw new Error("Stored workspace project scope is invalid");
-      if (record.gitMetadataIdentity !== null) {
-        if (identities.has(record.gitMetadataIdentity)) throw new Error("Stored workspace project identity is duplicated");
-        identities.add(record.gitMetadataIdentity);
+      const identity = recordAssociationKey(record);
+      if (identity !== null) {
+        if (identities.has(identity)) throw new Error("Stored workspace project identity is duplicated");
+        identities.add(identity);
       }
       return record;
     });
@@ -106,4 +121,12 @@ export class LocalWorkspaceProjectRecords {
     this.database.prepare("INSERT INTO metadata(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
       .run(`${PREFIX}${record.project.workspaceId}`, value);
   }
+}
+
+function associationKey(identity: string | LocalFilesystemWorkspaceIdentity): string {
+  return typeof identity === "string" ? `git:${identity}` : `filesystem:${identity.device}:${identity.inode}:${identity.birthtimeNs}`;
+}
+function recordAssociationKey(record: RecordValue): string | null {
+  return record.version === 2 ? associationKey(record.filesystemIdentity)
+    : record.gitMetadataIdentity === null ? null : associationKey(record.gitMetadataIdentity);
 }

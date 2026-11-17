@@ -282,17 +282,25 @@ describe("ModelPickerPopover", () => {
         toJSON: () => ({}),
       });
 
-      fireEvent.click(triggerButton);
-
-      await waitFor(() => {
-        const popover = screen.getByTestId("model-picker-popover");
-        expect(popover.parentElement).toHaveStyle({ bottom: "88px" });
+      const panelBounds = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+        x: 0, y: 0, width: 304, height: 352,
+        top: 0, right: 304, bottom: 352, left: 0,
+        toJSON: () => ({}),
       });
+      try {
+        fireEvent.click(triggerButton);
 
-      Object.defineProperty(window, "innerHeight", {
-        configurable: true,
-        value: originalInnerHeight,
-      });
+        await waitFor(() => {
+          const popover = screen.getByTestId("model-picker-popover");
+          expect(popover.parentElement).toHaveStyle({ top: "200px", maxHeight: "616px" });
+        });
+      } finally {
+        panelBounds.mockRestore();
+        Object.defineProperty(window, "innerHeight", {
+          configurable: true,
+          value: originalInnerHeight,
+        });
+      }
     });
 
     it("uses right alignment when viewport is narrow on the right", async () => {
@@ -1002,7 +1010,7 @@ describe("ModelPickerPopover", () => {
       });
 
       const outside = screen.getByTestId("outside");
-      fireEvent.mouseDown(outside);
+      fireEvent.pointerDown(outside);
 
       await waitFor(() => {
         expect(

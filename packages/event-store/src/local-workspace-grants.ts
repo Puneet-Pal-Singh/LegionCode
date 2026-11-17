@@ -35,9 +35,15 @@ export class LocalWorkspaceGrantRecords {
       for (const existing of this.list()) {
         if (existing.grant.workspaceId !== parsed.grant.workspaceId && existing.version === 2 && parsed.version === 2 &&
             existing.gitMetadataIdentity === parsed.gitMetadataIdentity) throw corrupt();
+        if (existing.grant.workspaceId !== parsed.grant.workspaceId && existing.version === 3 && parsed.version === 3 &&
+            existing.filesystemIdentity.device === parsed.filesystemIdentity.device &&
+            existing.filesystemIdentity.inode === parsed.filesystemIdentity.inode &&
+            existing.filesystemIdentity.birthtimeNs === parsed.filesystemIdentity.birthtimeNs) throw corrupt();
       }
       if (parsed.version === 2 && parsed.grant.readiness === "ready")
         new LocalWorkspaceProjectRecords(this.database).rememberValidated(parsed.grant, parsed.gitMetadataIdentity, select);
+      if (parsed.version === 3 && parsed.grant.readiness === "ready")
+        new LocalWorkspaceProjectRecords(this.database).rememberValidated(parsed.grant, parsed.filesystemIdentity, select);
       this.database.prepare(`INSERT INTO workspace_grant(workspace_id, value_json) VALUES (?, ?)
         ON CONFLICT(workspace_id) DO UPDATE SET value_json = excluded.value_json`)
         .run(parsed.grant.workspaceId, JSON.stringify(parsed));
@@ -65,9 +71,11 @@ export class LocalWorkspaceGrantRecords {
     const grants = this.list();
     const identities = new Set<string>();
     for (const grant of grants) {
-      if (grant.version !== 2) continue;
-      if (identities.has(grant.gitMetadataIdentity)) throw corrupt();
-      identities.add(grant.gitMetadataIdentity);
+      const identity = grant.version === 2 ? `git:${grant.gitMetadataIdentity}` : grant.version === 3
+        ? `filesystem:${grant.filesystemIdentity.device}:${grant.filesystemIdentity.inode}:${grant.filesystemIdentity.birthtimeNs}` : null;
+      if (identity === null) continue;
+      if (identities.has(identity)) throw corrupt();
+      identities.add(identity);
     }
     this.read();
     new LocalWorkspaceProjectRecords(this.database).list();

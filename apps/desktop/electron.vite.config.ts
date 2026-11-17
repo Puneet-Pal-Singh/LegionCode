@@ -2,8 +2,14 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 
+const hostedTarget = process.env.LEGIONCODE_DESKTOP_HOSTED_TARGET ?? "production";
+if (hostedTarget !== "production" && hostedTarget !== "development") {
+  throw new Error("LEGIONCODE_DESKTOP_HOSTED_TARGET must be production or development");
+}
+
 export default defineConfig({
   main: {
+    define: { __LEGIONCODE_DESKTOP_HOSTED_TARGET__: JSON.stringify(hostedTarget) },
     plugins: [
       externalizeDepsPlugin({
         exclude: [

@@ -23,18 +23,26 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 export const minimumMacOSVersion = "12.0";
-export const nativeHelperSources = [
-  "legioncode-fs-helper",
-  "legioncode-process-helper",
-].map((name) => ({
-  name,
-  sourcePath: fileURLToPath(
-    new URL(
-      `../../../packages/execution-engine/src/runtime/desktop/native/${name}.c`,
-      import.meta.url,
-    ),
+const nativeSourcePath = (name) => fileURLToPath(
+  new URL(
+    `../../../packages/execution-engine/src/runtime/desktop/native/${name}.c`,
+    import.meta.url,
   ),
-}));
+);
+export const nativeHelperSources = [
+  ...["legioncode-fs-helper", "legioncode-process-helper"].map((name) => ({
+    name,
+    sourcePath: nativeSourcePath(name),
+  })),
+  ...(process.platform === "darwin" ? [{
+    name: "legioncode-host-broker",
+    sourcePath: nativeSourcePath("legioncode-host-broker"),
+    additionalSourcePaths: [nativeSourcePath("legioncode-host-writer")],
+  }, {
+    name: "legioncode-native-installer",
+    sourcePath: nativeSourcePath("legioncode-native-installer"),
+  }] : []),
+];
 const compilerEnvironment = {
   PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
   LANG: "C",
@@ -43,7 +51,7 @@ const compilerEnvironment = {
 const execute = promisify(execFile);
 const projectDirectory = fileURLToPath(new URL("../", import.meta.url));
 
-function compilerArguments(platform, architecture) {
+function compilerArguments(platform, architecture, helperName) {
   const args = ["-std=c11", "-O2", "-Wall", "-Wextra", "-Werror"];
   if (platform === "darwin")
     args.push(
@@ -51,6 +59,10 @@ function compilerArguments(platform, architecture) {
       architecture === "x64" ? "x86_64" : "arm64",
       `-mmacosx-version-min=${minimumMacOSVersion}`,
     );
+  if (helperName === "legioncode-host-broker") {
+    if (platform !== "darwin") throw new Error("Host broker requires macOS");
+    args.push("-fblocks");
+  }
   return args;
 }
 
@@ -86,6 +98,7 @@ export async function hashNativeHelperCompilationUnit(
   sourcePath,
   platform,
   architecture,
+  helperName,
 ) {
   assertNativeFileHelperTarget(platform, architecture);
   const source = await realpath(sourcePath),
@@ -94,7 +107,7 @@ export async function hashNativeHelperCompilationUnit(
     const { stdout } = await execute(
       platform === "darwin" ? "/usr/bin/clang" : "/usr/bin/cc",
       [
-        ...compilerArguments(platform, architecture),
+        ...compilerArguments(platform, architecture, helperName),
         "-MM",
         "-MT",
         "native-helper",
@@ -134,6 +147,18 @@ export async function hashNativeHelperCompilationUnit(
   } catch {
     throw new Error("Native helper compilation-unit provenance failed");
   }
+}
+
+/** Reuse each translation unit's actual C/header dependency receipt. */
+async function hashNativeHelperSources(sources, platform, architecture, helperName) {
+  const units = [];
+  for (const source of sources) units.push([
+    basename(source),
+    await hashNativeHelperCompilationUnit(source, platform, architecture, helperName),
+  ]);
+  // Preserve the existing single-unit FS/process provenance exactly.
+  if (units.length === 1) return units[0][1];
+  return createHash("sha256").update(JSON.stringify(units)).digest("hex");
 }
 
 export function assertNativeFileHelperTarget(platform, architecture) {
@@ -252,14 +277,17 @@ export async function buildNativeFileHelper(
   helperName,
 ) {
   assertNativeFileHelperTarget(platform, architecture);
-  if (!nativeHelperSources.some(({ name }) => name === helperName)) {
-    throw new Error("Unsupported native helper build target");
-  }
+  const target = nativeHelperSources.find(({ name }) => name === helperName);
+  if (!target) throw new Error("Unsupported native helper build target");
   const source = await realpath(sourcePath);
-  const sourceSha256 = await hashNativeHelperCompilationUnit(
-    source,
-    platform,
-    architecture,
+  if (["legioncode-host-broker", "legioncode-native-installer"].includes(helperName) && (
+    platform !== "darwin" || source !== await realpath(target.sourcePath)
+  )) throw new Error("Host broker requires its canonical macOS source target");
+  const sources = [source];
+  for (const additional of target.additionalSourcePaths ?? [])
+    sources.push(await realpath(additional));
+  const sourceSha256 = await hashNativeHelperSources(
+    sources, platform, architecture, helperName,
   );
   const outputDirectory = join(projectDirectory, "native-bin");
   await mkdir(outputDirectory, { recursive: true });
@@ -269,8 +297,13 @@ export async function buildNativeFileHelper(
   const temporaryExecutable = join(temporaryDirectory, helperName);
   try {
     const compiler = platform === "darwin" ? "/usr/bin/clang" : "/usr/bin/cc";
-    const args = compilerArguments(platform, architecture);
-    args.push(source, "-o", temporaryExecutable);
+    const args = compilerArguments(platform, architecture, helperName);
+    args.push(...sources);
+    if (["legioncode-host-broker", "legioncode-native-installer"].includes(helperName))
+      args.push("-framework", "CoreFoundation", "-framework", "Security");
+    if (helperName === "legioncode-native-installer")
+      args.push("-framework", "OpenDirectory", "-framework", "JavaScriptCore");
+    args.push("-o", temporaryExecutable);
     try {
       await execute(compiler, args, {
         env: compilerEnvironment,
@@ -288,7 +321,7 @@ export async function buildNativeFileHelper(
     );
     if (
       sourceSha256 !==
-      (await hashNativeHelperCompilationUnit(source, platform, architecture))
+      (await hashNativeHelperSources(sources, platform, architecture, helperName))
     )
       throw new Error("Native source unit changed during compilation");
     await chmod(temporaryExecutable, 0o755);
@@ -297,6 +330,35 @@ export async function buildNativeFileHelper(
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });
   }
+}
+
+const hostWriterCallbacks = Object.freeze([
+  "lc_writer_host_resource_prepare",
+  "lc_writer_host_resource_assert",
+  "lc_writer_host_resource_complete",
+]);
+
+/** Read-only link inspection. Never starts the broker or establishes qualification. */
+export async function verifyBundledHostBroker(executablePath, platform, architecture) {
+  if (platform !== "darwin") throw new Error("Host broker requires macOS");
+  const diagnostics = await inspectNativeFileHelper(executablePath, platform, architecture);
+  let stdout;
+  try {
+    ({ stdout } = await execute("/usr/bin/nm", ["-gU", executablePath], {
+      env: compilerEnvironment, timeout: 5_000, maxBuffer: 256 * 1024,
+    }));
+  } catch {
+    throw new Error("Bundled host broker symbol inspection failed");
+  }
+  const lines = stdout.split(/\r?\n/u);
+  for (const callback of hostWriterCallbacks) {
+    // Darwin -gU includes external definitions only; require a text definition,
+    // never an unresolved weak import or a matching diagnostic/string literal.
+    const symbol = new RegExp(`^[0-9a-fA-F]+\\s+T\\s+_${callback}$`, "u");
+    if (lines.filter((line) => symbol.test(line.trim())).length !== 1)
+      throw new Error("Bundled host broker is missing a defined writer callback");
+  }
+  return { ...diagnostics, definedWriterCallbacks: [...hostWriterCallbacks] };
 }
 
 export async function verifyBundledFileHelper(

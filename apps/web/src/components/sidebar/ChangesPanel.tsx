@@ -13,7 +13,7 @@ import {
 import { ReviewDiffToolbar } from "./ReviewDiffToolbar";
 import { ReviewFileStack } from "./ReviewFileStack";
 import { useChangesPanelViewState } from "./useChangesPanelViewState";
-import { ResizableWorkspaceRail } from "../layout/workspace/ResizableWorkspaceRail";
+import { ReviewPanelLayout } from "@legioncode/client-ui";
 
 interface ChangesPanelProps {
   className?: string;
@@ -51,11 +51,10 @@ export function ChangesPanel({
   const viewState = useChangesPanelViewState();
   const review = useGitReview();
   const files = useMemo(() => review.reviewFiles, [review.reviewFiles]);
-  const isSavedEditMode = review.reviewSource.kind === "prompt_artifact" || review.reviewSource.kind === "unavailable_saved_artifact";
+  const isSavedEditMode =
+    review.reviewSource.kind === "prompt_artifact" ||
+    review.reviewSource.kind === "unavailable_saved_artifact";
   const showStackedReview = layout === "stacked";
-  const showChangesList =
-    showChangesRail &&
-    (!showStackedReview || (mode === "modal" && isChangesOpen));
   const emptyReviewLabel = getEmptyReviewLabel({
     isSavedEditMode,
     reviewScope: review.reviewScope,
@@ -141,96 +140,67 @@ export function ChangesPanel({
   );
 
   return (
-    <div
-      data-testid={
-        review.reviewSource.kind === "turn_diff"
-          ? "canonical-turn-review-sidebar"
-          : undefined
+    <ReviewPanelLayout
+      className={className}
+      mode={mode}
+      layout={layout}
+      isChangesOpen={isChangesOpen}
+      isFilesOpen={isFilesOpen}
+      showChangesRail={showChangesRail}
+      canonicalTurn={review.reviewSource.kind === "turn_diff"}
+      changesList={changesList}
+      filesRail={filesRail}
+      toolbar={
+        mode === "modal" && showToolbar ? (
+          <ReviewDiffToolbar
+            reviewScope={review.reviewScope}
+            onReviewScopeChange={review.setReviewScope}
+            layout={viewState.diffLayout}
+            onLayoutChange={viewState.setDiffLayout}
+            wordWrap={viewState.wordWrap}
+            onWordWrapChange={viewState.setWordWrap}
+            allDiffsCollapsed={viewState.allDiffsCollapsed}
+            onToggleAllDiffs={viewState.toggleAllDiffs}
+            isChangesOpen={isChangesOpen}
+            onToggleChanges={onToggleChanges}
+            branch={branch}
+            reviewCommentCount={reviewCommentCount}
+            onReviewChanges={onReviewChanges}
+            isFilesOpen={isFilesOpen}
+            onToggleFiles={onToggleFiles}
+            canonicalAvailable={review.canonicalReviewAvailable}
+          />
+        ) : null
       }
-      className={`flex h-full min-h-0 flex-col overflow-visible bg-transparent ${
-        mode === "modal"
-          ? "p-0"
-          : showStackedReview
-            ? "gap-4 py-4"
-            : "gap-4 p-4"
-      } ${className}`}
     >
-      {mode === "modal" && showToolbar ? (
-        <ReviewDiffToolbar
-          reviewScope={review.reviewScope}
-          onReviewScopeChange={review.setReviewScope}
-          layout={viewState.diffLayout}
-          onLayoutChange={viewState.setDiffLayout}
-          wordWrap={viewState.wordWrap}
-          onWordWrapChange={viewState.setWordWrap}
-          allDiffsCollapsed={viewState.allDiffsCollapsed}
-          onToggleAllDiffs={viewState.toggleAllDiffs}
-          isChangesOpen={isChangesOpen}
-          onToggleChanges={onToggleChanges}
-          branch={branch}
-          reviewCommentCount={reviewCommentCount}
-          onReviewChanges={onReviewChanges}
-          isFilesOpen={isFilesOpen}
-          onToggleFiles={onToggleFiles}
-          canonicalAvailable={review.canonicalReviewAvailable}
-        />
+      {showStackedReview ? (
+        <ReviewFileStack
+          files={files}
+          selectedFile={review.selectedFile}
+          emptyLabel={emptyReviewLabel}
+          onSelectFile={(file) => {
+            review.selectFile(file);
+            onFileSelect?.(file.path);
+          }}
+          allCollapsed={viewState.allDiffsCollapsed}
+        >
+          <ReviewDiffContent
+            review={review}
+            viewState={viewState}
+            diffMessage={diffMessage}
+            showFileSummary={false}
+          />
+        </ReviewFileStack>
+      ) : mode === "modal" || mode === "sidebar" ? (
+        <div className="ui-surface-section flex flex-1 flex-col overflow-hidden">
+          <ReviewDiffContent
+            review={review}
+            viewState={viewState}
+            diffMessage={diffMessage}
+          />
+        </div>
       ) : null}
-      <div
-        className={`flex min-h-0 flex-1 overflow-hidden ${
-          mode === "sidebar" ||
-          (mode === "modal" && layout === "stacked" && !isChangesOpen)
-            ? isFilesOpen
-              ? ""
-              : "flex-col gap-3"
-            : ""
-        }`}
-      >
-        {mode === "modal" && isFilesOpen ? (
-          <ResizableWorkspaceRail placement="left">
-            {filesRail}
-          </ResizableWorkspaceRail>
-        ) : null}
-        {showChangesList ? (
-          mode === "modal" ? (
-            <ResizableWorkspaceRail placement="left">
-              {changesList}
-            </ResizableWorkspaceRail>
-          ) : (
-            <div className="ui-surface-section flex max-h-56 w-full shrink-0 flex-col overflow-y-auto scrollbar-hide">
-              {changesList}
-            </div>
-          )
-        ) : null}
-
-        {showStackedReview ? (
-          <ReviewFileStack
-            files={files}
-            selectedFile={review.selectedFile}
-            emptyLabel={emptyReviewLabel}
-            onSelectFile={(file) => {
-              review.selectFile(file);
-              onFileSelect?.(file.path);
-            }}
-            allCollapsed={viewState.allDiffsCollapsed}
-          >
-            <ReviewDiffContent
-              review={review}
-              viewState={viewState}
-              diffMessage={diffMessage}
-              showFileSummary={false}
-            />
-          </ReviewFileStack>
-        ) : mode === "modal" || mode === "sidebar" ? (
-          <div className="ui-surface-section flex flex-1 flex-col overflow-hidden">
-            <ReviewDiffContent
-              review={review}
-              viewState={viewState}
-              diffMessage={diffMessage}
-            />
-          </div>
-        ) : null}
-      </div>
-    </div>
+    </ReviewPanelLayout>
   );
 }
 

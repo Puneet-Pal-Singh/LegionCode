@@ -86,6 +86,7 @@ import {
 } from "@repo/shared-types";
 import { z } from "zod";
 
+
 const GitRequestContextSchema = z.object({
   runId: z.string().min(1),
   sessionId: z.string().min(1).optional(),
@@ -165,7 +166,10 @@ const WorkspaceGrantSourceSchema = z.union([
 ]);
 
 export const ThreadCreateParamsSchema = z
-  .object({ title: z.string().trim().min(1).max(80).optional() })
+  .object({
+    title: z.string().trim().min(1).max(80).optional(),
+    expectedWorkspace: LocalWorkspaceGrantSchema.pick({ workspaceId: true, grantedAt: true }).strict().optional(),
+  })
   .strict();
 export const ThreadRenameParamsSchema = z
   .object({ threadId: ThreadIdSchema, title: z.string().trim().min(1).max(80) })
@@ -437,19 +441,29 @@ export type LocalWorkspaceFileMentionsParams = z.infer<typeof LocalWorkspaceFile
 export type LocalWorkspaceFileMentionsResult = z.infer<typeof LocalWorkspaceFileMentionsResultSchema>;
 /** Original image preview bytes are transferred in chunks beneath the existing
  * response-body cap; no filesystem path or durable data URL crosses this port. */
-export const LOCAL_CHAT_IMAGE_CHUNK_MAX_BYTES = 256 * 1024;
-export const LocalChatImageReadParamsSchema = z.object({
-  turnId: TurnIdSchema,
-  attachmentId: ChatImageAttachmentRefSchema.shape.attachmentId,
+export const CHAT_IMAGE_CHUNK_MAX_BYTES = 256 * 1024;
+const ChatImageReadRangeShape = {
   offset: z.number().int().min(0).max(5 * 1024 * 1024),
-  limit: z.number().int().min(1).max(LOCAL_CHAT_IMAGE_CHUNK_MAX_BYTES).optional(),
-}).strict();
-export const LocalChatImageReadResultSchema = z.object({
+  limit: z.number().int().min(1).max(CHAT_IMAGE_CHUNK_MAX_BYTES).optional(),
+};
+export const ChatImageReadParamsSchema = z.union([
+  z.object({
+    turnId: TurnIdSchema,
+    attachmentId: ChatImageAttachmentRefSchema.shape.attachmentId,
+    ...ChatImageReadRangeShape,
+  }).strict(),
+  z.object({
+    sessionId: HostedSessionParamsSchema.shape.sessionId,
+    reference: ChatImageAttachmentRefSchema,
+    ...ChatImageReadRangeShape,
+  }).strict(),
+]);
+export const ChatImageReadResultSchema = z.object({
   reference: ChatImageAttachmentRefSchema,
   sha256: z.string().regex(/^[a-f0-9]{64}$/u),
   offset: z.number().int().min(0).max(5 * 1024 * 1024),
-  byteLength: z.number().int().min(1).max(LOCAL_CHAT_IMAGE_CHUNK_MAX_BYTES),
-  dataBase64: z.string().min(4).max(4 * Math.ceil(LOCAL_CHAT_IMAGE_CHUNK_MAX_BYTES / 3)).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u),
+  byteLength: z.number().int().min(1).max(CHAT_IMAGE_CHUNK_MAX_BYTES),
+  dataBase64: z.string().min(4).max(4 * Math.ceil(CHAT_IMAGE_CHUNK_MAX_BYTES / 3)).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u),
   nextOffset: z.number().int().positive().max(5 * 1024 * 1024).nullable(),
 }).strict().refine((chunk) =>
   chunk.dataBase64.length === 4 * Math.ceil(chunk.byteLength / 3) &&
@@ -457,8 +471,8 @@ export const LocalChatImageReadResultSchema = z.object({
   chunk.nextOffset === (chunk.offset + chunk.byteLength < chunk.reference.byteSize ? chunk.offset + chunk.byteLength : null),
   "Image chunk must preserve its exact byte range and immutable reference",
 );
-export type LocalChatImageReadParams = z.infer<typeof LocalChatImageReadParamsSchema>;
-export type LocalChatImageReadResult = z.infer<typeof LocalChatImageReadResultSchema>;
+export type ChatImageReadParams = z.infer<typeof ChatImageReadParamsSchema>;
+export type ChatImageReadResult = z.infer<typeof ChatImageReadResultSchema>;
 
 
 export const LocalWorkspaceGitStatusParamsSchema = z.object({
@@ -564,9 +578,9 @@ export const AppServerMethodSchema = z.enum([
   "workspace/fileMentions",
   "media/readImage",
   "workspace/readFile",
+  "workspace/current",
   "workspace/localProjects",
   "workspace/forgetLocalProject",
-  "workspace/current",
   "workspace/grant",
   "workspace/grants",
   "workspace/selectGrant",
@@ -666,11 +680,11 @@ export const AppServerRequestSchema = z.discriminatedUnion("method", [
   z.object({ ...AppServerRequestShape, method: z.literal("initialize"), params: z.object({ client: ClientSchema, requestedCapabilities: z.array(z.string().min(1).max(120)).max(100) }).strict() }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/listFiles"), params: LocalWorkspaceListFilesParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/fileMentions"), params: LocalWorkspaceFileMentionsParamsSchema }).strict(),
-  z.object({ ...AppServerRequestShape, method: z.literal("media/readImage"), params: LocalChatImageReadParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("media/readImage"), params: ChatImageReadParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/readFile"), params: LocalWorkspaceReadFileParamsSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("workspace/current"), params: EmptyParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/localProjects"), params: EmptyParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/forgetLocalProject"), params: z.object({ workspaceId: WorkspaceIdSchema }).strict() }).strict(),
-  z.object({ ...AppServerRequestShape, method: z.literal("workspace/current"), params: EmptyParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/grant"), params: WorkspaceGrantSourceSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/grants"), params: EmptyParamsSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/selectGrant"), params: z.object({ workspaceId: WorkspaceIdSchema }).strict() }).strict(),
@@ -766,11 +780,11 @@ export const AppServerResultSchemas = {
   initialize: AppServerInitializeResponseSchema,
   "workspace/listFiles": LocalWorkspaceListFilesResultSchema,
   "workspace/fileMentions": LocalWorkspaceFileMentionsResultSchema,
-  "media/readImage": LocalChatImageReadResultSchema,
+  "media/readImage": ChatImageReadResultSchema,
   "workspace/readFile": LocalWorkspaceReadFileResultSchema,
+  "workspace/current": LocalWorkspaceGrantResponseSchema,
   "workspace/localProjects": LocalWorkspaceProjectsResponseSchema,
   "workspace/forgetLocalProject": z.object({ forgotten: z.literal(true) }).strict(),
-  "workspace/current": LocalWorkspaceGrantResponseSchema,
   "workspace/grant": LocalWorkspaceGrantResponseSchema,
   "workspace/grants": z.object({ grants: z.array(LocalWorkspaceGrantSchema) }).strict(),
   "workspace/selectGrant": LocalWorkspaceGrantResponseSchema,
@@ -868,9 +882,9 @@ export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
   success("workspace/fileMentions", AppServerResultSchemas["workspace/fileMentions"]),
   success("media/readImage", AppServerResultSchemas["media/readImage"]),
   success("workspace/readFile", AppServerResultSchemas["workspace/readFile"]),
+  success("workspace/current", AppServerResultSchemas["workspace/current"]),
   success("workspace/localProjects", AppServerResultSchemas["workspace/localProjects"]),
   success("workspace/forgetLocalProject", AppServerResultSchemas["workspace/forgetLocalProject"]),
-  success("workspace/current", AppServerResultSchemas["workspace/current"]),
   success("workspace/grant", AppServerResultSchemas["workspace/grant"]),
   success("workspace/grants", AppServerResultSchemas["workspace/grants"]),
   success("workspace/selectGrant", AppServerResultSchemas["workspace/selectGrant"]),

@@ -6,8 +6,8 @@ import {
   type TurnAdmission, type TurnId,
 } from "@repo/platform-protocol";
 import {
-  LOCAL_CHAT_IMAGE_CHUNK_MAX_BYTES, LocalChatImageReadParamsSchema,
-  LocalChatImageReadResultSchema, type LocalChatImageReadParams,
+  CHAT_IMAGE_CHUNK_MAX_BYTES, ChatImageReadParamsSchema,
+  ChatImageReadResultSchema, type ChatImageReadParams,
 } from "./protocol.js";
 import { LocalChatMediaError, LOCAL_CHAT_MEDIA_LIMITS } from "./local-chat-media-records.js";
 import type { LocalChatMediaStore } from "./local-chat-media-store.js";
@@ -23,8 +23,11 @@ export class LocalChatMediaReads {
     queuedInputs?: Pick<LocalPersistence["threadInputs"], "listAcceptedForTurn">;
   }) {}
 
-  async readImage(input: LocalChatImageReadParams) {
-    const request = LocalChatImageReadParamsSchema.parse(input);
+  async readImage(input: ChatImageReadParams) {
+    const request = ChatImageReadParamsSchema.parse(input);
+    if (!("turnId" in request)) {
+      throw new AppServerOperationError(400, "invalid_request", "Local conversation images require a turn scope", undefined, false);
+    }
     const admission = TurnAdmissionSchema.parse(await this.options.turns.getTurn(request.turnId));
     const prompt = admission.userMessage;
     if (admission.turn.id !== request.turnId || prompt.type !== "user_message") throw unavailable();
@@ -46,8 +49,8 @@ export class LocalChatMediaReads {
       if (request.offset >= saved.bytes.byteLength) {
         throw new AppServerOperationError(400, "invalid_request", "Image byte range is invalid");
       }
-      const end = Math.min(saved.bytes.byteLength, request.offset + (request.limit ?? LOCAL_CHAT_IMAGE_CHUNK_MAX_BYTES));
-      return LocalChatImageReadResultSchema.parse({
+      const end = Math.min(saved.bytes.byteLength, request.offset + (request.limit ?? CHAT_IMAGE_CHUNK_MAX_BYTES));
+      return ChatImageReadResultSchema.parse({
         reference: saved.reference, sha256: saved.sha256, offset: request.offset,
         byteLength: end - request.offset,
         dataBase64: Buffer.from(saved.bytes.subarray(request.offset, end)).toString("base64"),

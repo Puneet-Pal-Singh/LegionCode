@@ -8,6 +8,7 @@ import {
 } from "@repo/platform-protocol";
 import {
   AppServerRequestSchema,
+  assertLocalAppServerRequestBudget,
   type AppServerRequest,
 } from "@legioncode/app-server/protocol";
 import {
@@ -19,15 +20,7 @@ import {
   createAppServerHttpTransport,
   type AppServerHttpTransportOptions,
 } from "@legioncode/sdk/platform/app-server-http-transport";
-import { LocalAppServerClosure } from "./local-app-server-closure";
-import type {
-  DesktopEnvironmentConnection,
-  DesktopEnvironmentConfig,
-  LocalAppServerMessage,
-  LocalAppServerHostConfig,
-} from "../shared/desktop-api";
-
-import type { ProviderId } from "@repo/shared-types";
+import { type ProviderId } from "@repo/shared-types";
 import {
   RuntimeCredentialRequestSchema,
   RuntimeCredentialResponseSchema,
@@ -38,8 +31,18 @@ import {
   type RuntimeCredentialRequest,
   type RuntimeCredentialLease,
 } from "./runtime-credentials";
+import { LocalAppServerClosure } from "./local-app-server-closure";
+import { NativeHostBrokerConfigurationSchema } from "../shared/native-host-broker-config";
+import type {
+  DesktopEnvironmentConnection,
+  DesktopEnvironmentConfig,
+  LocalAppServerMessage,
+  LocalAppServerHostConfig,
+} from "../shared/desktop-api";
 
-type RequestHeaders = NonNullable<AppServerHttpTransportOptions["requestHeaders"]>;
+type RequestHeaders = NonNullable<
+  AppServerHttpTransportOptions["requestHeaders"]
+>;
 type CredentialRequestOwner = {
   readonly request: RuntimeCredentialRequest;
   readonly timer: ReturnType<typeof setTimeout>;
@@ -76,6 +79,7 @@ export class LocalAppServerSupervisor {
   private readonly credentialRequests = new Map<string, CredentialRequestOwner>();
 
   private child: UtilityProcess | null = null;
+  private handshakeChild: UtilityProcess | null = null;
   private closure: LocalAppServerClosure | null = null;
   private childPid: number | null = null;
   private credential: string | null = null;
@@ -112,20 +116,25 @@ export class LocalAppServerSupervisor {
     if (this.child || this.closure || this.credentialLookups.size > 0) {
       throw new Error("The previous local runtime closure is unconfirmed");
     }
+    const capturedHostConfig = hostConfig ? Object.freeze({
+      protectedHostRoots: Object.freeze([...hostConfig.protectedHostRoots]),
+      nativeWriterFenceDirectory: hostConfig.nativeWriterFenceDirectory,
+      nativeFilesystemHelperPath: hostConfig.nativeFilesystemHelperPath,
+      nativeProcessHelperPath: hostConfig.nativeProcessHelperPath,
+      ...(hostConfig.nativeHostBroker === undefined ? {} : {
+        nativeHostBroker: NativeHostBrokerConfigurationSchema.parse(hostConfig.nativeHostBroker),
+      }),
+    }) : undefined;
     const generation = ++this.generation;
     this.stopping = false;
+    this.handshakeChild = null;
     this.childPid = null;
     this.transport = null;
     this.update(createSnapshot("starting"));
     const credential = randomBytes(32).toString("base64url");
     this.credential = credential;
     this.storageDirectory = storageDirectory;
-    this.hostConfig = hostConfig ? Object.freeze({
-      protectedHostRoots: Object.freeze([...hostConfig.protectedHostRoots]),
-      nativeWriterFenceDirectory: hostConfig.nativeWriterFenceDirectory,
-      nativeFilesystemHelperPath: hostConfig.nativeFilesystemHelperPath,
-      nativeProcessHelperPath: hostConfig.nativeProcessHelperPath,
-    }) : undefined;
+    this.hostConfig = capturedHostConfig;
     const child = utilityProcess.fork(
       fileURLToPath(new URL("./local-app-server.js", import.meta.url)),
       [],
@@ -167,6 +176,9 @@ export class LocalAppServerSupervisor {
         nativeWriterFenceDirectory: this.hostConfig?.nativeWriterFenceDirectory,
         nativeFilesystemHelperPath: this.hostConfig?.nativeFilesystemHelperPath,
         nativeProcessHelperPath: this.hostConfig?.nativeProcessHelperPath,
+        ...(this.hostConfig?.nativeHostBroker === undefined ? {} : {
+          nativeHostBroker: this.hostConfig.nativeHostBroker,
+        }),
       });
     } catch {
       this.requestChildShutdown(child);
@@ -211,9 +223,9 @@ export class LocalAppServerSupervisor {
     }
   }
 
-  async restart(serverVersion: string): Promise<void> {
+  async restart(serverVersion: string, resolveHostConfig?: () => Promise<LocalAppServerHostConfig>): Promise<void> {
     if (this.restartPromise) return await this.restartPromise;
-    const restartPromise = this.restartAfterStop(serverVersion);
+    const restartPromise = this.restartAfterStop(serverVersion, resolveHostConfig);
     this.restartPromise = restartPromise;
     try {
       await restartPromise;
@@ -222,7 +234,7 @@ export class LocalAppServerSupervisor {
     }
   }
 
-  private async restartAfterStop(serverVersion: string): Promise<void> {
+  private async restartAfterStop(serverVersion: string, resolveHostConfig?: () => Promise<LocalAppServerHostConfig>): Promise<void> {
     const stopped = this.stop();
     const stoppedGeneration = this.generation;
     await stopped;
@@ -230,11 +242,14 @@ export class LocalAppServerSupervisor {
     if (!this.storageDirectory) {
       throw new Error("Local App Server storage is not configured");
     }
-    await this.start(serverVersion, this.storageDirectory, this.hostConfig);
+    const hostConfig = resolveHostConfig ? await resolveHostConfig() : this.hostConfig;
+    if (this.generation !== stoppedGeneration) return;
+    await this.start(serverVersion, this.storageDirectory, hostConfig);
   }
 
   async request(envelope: AppServerRequest): Promise<unknown> {
     const request = AppServerRequestSchema.parse(envelope);
+    assertLocalAppServerRequestBudget(request);
     const transport = this.transport;
     const child = this.child;
     const generation = this.generation;
@@ -405,8 +420,9 @@ export class LocalAppServerSupervisor {
     ) {
       return;
     }
+    if (this.handshakeChild === child) return;
+    this.handshakeChild = child;
     const baseUrl = message.baseUrl;
-    this.clearStartupTimer();
     const credential = this.credential;
     if (!isLoopbackBaseUrl(baseUrl) || !credential) {
       this.update(
@@ -430,7 +446,7 @@ export class LocalAppServerSupervisor {
       const handshake = await client.initialize([
         ...LOCAL_APP_SERVER_UNAVAILABLE_CAPABILITIES,
       ]);
-      if (child !== this.child || generation !== this.generation) return;
+      if (child !== this.child || generation !== this.generation || !this.startupTimer) return;
       const snapshot = AppServerEnvironmentSnapshotSchema.parse({
         kind: handshake.environment,
         status: "ready",
@@ -440,15 +456,17 @@ export class LocalAppServerSupervisor {
         unavailableCapabilities: handshake.unavailableCapabilities,
         reason: null,
       });
+      this.clearStartupTimer();
       this.transport = transport;
       this.update({ ...snapshot, connection: { baseUrl, credential } });
     } catch (error) {
-      if (child !== this.child || generation !== this.generation) return;
+      if (child !== this.child || generation !== this.generation || !this.startupTimer) return;
       const reason =
         error instanceof AppServerClientError &&
         error.serverCode === "protocol_incompatible"
           ? "Local App Server protocol is incompatible"
           : "Local App Server handshake failed";
+      this.clearStartupTimer();
       this.update(createSnapshot("degraded", reason));
       this.requestChildShutdown(child);
     }

@@ -24,6 +24,7 @@ const ALLOWED_IMPORT_FILES = new Set([
   "components/layout/workspace/useFileLoader.ts",
   "hooks/useChatCore.ts",
   "hooks/chat/useConversationInputCommands.ts",
+  // Canonical SDK recovery projection and final transport-dispatch guards.
   "hooks/chat/conversationRequestGuard.ts",
   "hooks/chat/useConversationMutationAvailability.ts",
   "hooks/chat/useThreadInputQueue.ts",
@@ -52,6 +53,8 @@ const ALLOWED_IMPORT_FILES = new Set([
   "components/navigation/TopEnvironmentSummary.tsx",
   "services/provider/ProviderStore.ts",
   "services/provider/ProviderSelectionPreferences.ts",
+  // Thin forwarding module for the shared browser-safe inventory implementation.
+  "services/provider/ProviderModelInventoryLoader.ts",
 ]);
 
 describe("Architecture Boundary: Provider SDK import ownership", () => {

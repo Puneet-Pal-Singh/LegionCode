@@ -328,6 +328,10 @@ export {
   type WorkflowRequestAnswer,
 } from "./workflow/turn-workflow-projection.js";
 export {
+  projectApprovalPresentation,
+  type WorkflowApprovalPresentation,
+} from "./workflow/approval-presentation.js";
+export {
   groupToolActivity,
   buildSegmentTitle,
   buildActiveWorkflowTrace,
@@ -429,4 +433,6 @@ export {
   type LocalTurnConfigurationOptions,
   type LocalTurnMediaLimits,
 } from "@repo/platform-protocol";
-export { readLocalChatImage } from "./platform/local-chat-image.js";
+export { readChatImage } from "./platform/chat-image.js";
+
+export { loadCompletePickerInventory, loadManageProviderModelInventory, shouldLoadCompletePickerInventory, includeManagedPickerModels, assertProviderModelDiscoveryAvailable, PROVIDER_MODEL_CACHE_MAX_AGE_MS } from "./providers/model-inventory.js";

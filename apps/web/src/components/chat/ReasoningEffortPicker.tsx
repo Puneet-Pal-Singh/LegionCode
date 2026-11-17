@@ -1,7 +1,8 @@
 import { createPortal } from "react-dom";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import type { ReasoningEffort } from "@repo/shared-types";
+import { useOutsideDismiss, useViewportPopoverPosition } from "@legioncode/client-ui";
 import {
   loadReasoningEffortSelection,
   saveReasoningEffortSelection,
@@ -18,6 +19,7 @@ interface ReasoningEffortPickerProps {
 export function ReasoningEffortPicker(props: ReasoningEffortPickerProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const selectionKey = `${props.providerId}:${props.modelId}`;
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [selection, setSelection] = useState<{
@@ -32,23 +34,18 @@ export function ReasoningEffortPicker(props: ReasoningEffortPickerProps) {
       : "default";
   const open = openKey === selectionKey && !props.disabled;
   const options: ReasoningEffortSelection[] = ["default", ...props.efforts];
-  const [menuStyle, setMenuStyle] = useState<{
-    bottom: number;
-    left: number;
-  }>({ bottom: 16, left: 16 });
-
-  const updateMenuPosition = useCallback(() => {
-    const rect = rootRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const width = Math.min(176, window.innerWidth - 32);
-    setMenuStyle({
-      bottom: Math.max(16, window.innerHeight - rect.top + 8),
-      left: Math.min(
-        Math.max(16, rect.left),
-        Math.max(16, window.innerWidth - width - 16),
-      ),
-    });
-  }, []);
+  const menuStyle = useViewportPopoverPosition(
+    open,
+    triggerRef,
+    menuRef,
+    { align: "start", placement: "above", viewportPadding: 16 },
+  );
+  const close = useCallback(() => setOpenKey(null), []);
+  const dismissRefs = useMemo(() => [menuRef], []);
+  useOutsideDismiss(rootRef, open, close, {
+    additionalRefs: dismissRefs,
+    escapeFocusRef: triggerRef,
+  });
 
   useEffect(() => {
     if (!props.disabled) return;
@@ -56,32 +53,10 @@ export function ReasoningEffortPicker(props: ReasoningEffortPickerProps) {
     return () => cancelAnimationFrame(frame);
   }, [props.disabled]);
 
-  useEffect(() => {
-    if (!open) return;
-    const frame = requestAnimationFrame(updateMenuPosition);
-    const close = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (
-        !rootRef.current?.contains(target) &&
-        !menuRef.current?.contains(target)
-      ) {
-        setOpenKey(null);
-      }
-    };
-    document.addEventListener("pointerdown", close);
-    window.addEventListener("resize", updateMenuPosition);
-    window.addEventListener("scroll", updateMenuPosition, true);
-    return () => {
-      cancelAnimationFrame(frame);
-      document.removeEventListener("pointerdown", close);
-      window.removeEventListener("resize", updateMenuPosition);
-      window.removeEventListener("scroll", updateMenuPosition, true);
-    };
-  }, [open, updateMenuPosition]);
-
   return (
     <div ref={rootRef} className="relative">
       <button
+        ref={triggerRef}
         type="button"
         aria-label="Reasoning effort"
         aria-haspopup="menu"
@@ -98,8 +73,8 @@ export function ReasoningEffortPicker(props: ReasoningEffortPickerProps) {
             <div
               ref={menuRef}
               role="menu"
-              className="ui-surface-popover fixed z-50 min-w-44 overflow-hidden p-2"
-              style={{ bottom: menuStyle.bottom, left: menuStyle.left }}
+              className="ui-surface-popover fixed z-50 min-w-44 max-w-[calc(100vw-32px)] overflow-y-auto p-2"
+              style={menuStyle}
             >
               {options.map((option) => (
                 <button
@@ -109,6 +84,7 @@ export function ReasoningEffortPicker(props: ReasoningEffortPickerProps) {
                   aria-checked={value === option}
                   disabled={props.disabled}
                   onClick={() => {
+                    if (props.disabled) return;
                     setSelection({ key: selectionKey, value: option });
                     saveReasoningEffortSelection(
                       props.providerId,
@@ -116,6 +92,7 @@ export function ReasoningEffortPicker(props: ReasoningEffortPickerProps) {
                       option,
                     );
                     setOpenKey(null);
+                    if (!triggerRef.current?.disabled) triggerRef.current?.focus();
                   }}
                   className="ui-popover-item justify-between"
                 >

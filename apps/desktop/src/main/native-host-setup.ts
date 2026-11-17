@@ -1,0 +1,305 @@
+import { dialog, type BrowserWindow, type MessageBoxOptions } from "electron";
+import { constants } from "node:fs";
+import { open, realpath, lstat, type FileHandle } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import {
+  MacHostBrokerClient,
+  readInstalledMacHostBrokerDescriptor,
+  type MacHostBrokerSetupClient,
+  type MacHostSetupObservation,
+} from "@legioncode/execution-engine/runtime/desktop/MacHostBrokerClient";
+import {
+  NativeHostSetupUnconfirmedError,
+  runNativeHostConfigure,
+  runNativeHostReauthorize,
+  runNativeHostToolchainInspection,
+} from "./native-host-setup-invocation";
+
+const INSTALLED_APPLICATION = "/Library/Application Support/LegionCode/Applications/LegionCode Desktop.app";
+const INSTALLED_APPROVAL = "/Library/Application Support/LegionCode/NativeExecution/approval.plist";
+const INSTALLED_INSTALLER = "/Library/PrivilegedHelperTools/dev.legioncode.desktop.native-host-installer";
+type StartedQualification = {
+  client: MacHostBrokerSetupClient;
+  generation: string;
+  qualificationId: string;
+};
+type NativeHostSetupDependencies = {
+  readonly bundlePath: string;
+  readonly bridgePath: string;
+  readonly inspectorPath: string;
+  readonly namespacePath: string;
+  readonly getWindow: () => BrowserWindow | undefined;
+  readonly canContinue: () => boolean;
+  readonly stopLocalRuntime: () => Promise<void>;
+  readonly refreshLocalRuntime: () => Promise<void>;
+};
+
+/** Owns only explicit setup. Normal startup/health checks never create accounts
+ * or invoke authorization. Qualification stays with the installed C owner. */
+export class DesktopNativeHostSetup {
+  private active: Promise<void> | null = null;
+  private closing = false;
+  private cancelRequested = false;
+  private uncertain = false;
+  private namespace: FileHandle | null = null;
+  private qualification: StartedQualification | null = null;
+
+  constructor(private readonly dependencies: NativeHostSetupDependencies) {}
+
+  get running(): boolean { return this.active !== null; }
+
+  run(): Promise<void> {
+    if (this.closing || !this.dependencies.canContinue())
+      return Promise.reject(new Error("Local execution setup is unavailable during shutdown"));
+    if (this.active) return this.active;
+    this.cancelRequested = false;
+    // Install custody before invoking any dialog, runtime or OS collaborator.
+    const operation = Promise.resolve().then(() => this.configure());
+    this.active = operation;
+    void operation.finally(() => {
+      if (this.active === operation) this.active = null;
+    }).catch(() => undefined);
+    return operation;
+  }
+
+  async close(): Promise<void> {
+    this.closing = true;
+    this.cancelRequested = true;
+    // The original configure/Start may still be returning. Its owner observes
+    // cancellation before the next effect; no replacement Start is dispatched.
+    await this.active?.catch(() => undefined);
+    if (this.uncertain || this.namespace)
+      throw new NativeHostSetupUnconfirmedError();
+  }
+
+  private continueBeforeEffect(): void {
+    if (this.closing || this.cancelRequested || !this.dependencies.canContinue())
+      throw new Error("Local execution setup was cancelled");
+  }
+
+  private async message(options: MessageBoxOptions): Promise<number> {
+    const window = this.dependencies.getWindow();
+    if (!window || window.isDestroyed()) throw new Error("Desktop window is unavailable");
+    return (await dialog.showMessageBox(window, options)).response;
+  }
+
+  private async configure(): Promise<void> {
+    const options = this.dependencies;
+    if (process.platform !== "darwin" || options.bundlePath !== INSTALLED_APPLICATION ||
+        await realpath(options.bundlePath) !== INSTALLED_APPLICATION)
+      throw new Error("Install the Native setup PKG, then open its installed LegionCode app before setting up local execution.");
+    let configured = false;
+    try {
+      const approval = await lstat(INSTALLED_APPROVAL);
+      if (!approval.isFile() || approval.isSymbolicLink() || approval.uid !== 0 ||
+          (approval.mode & 0o7777) !== 0o600) throw new NativeHostSetupUnconfirmedError();
+      configured = true;
+    } catch (error) {
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
+    }
+    // Presence only selects the explicit user flow. The canonical C reader and
+    // deny seal validate configuration and resource truth; Main reads no permit.
+    if (configured) return this.reauthorize();
+    if (this.uncertain) throw new NativeHostSetupUnconfirmedError();
+    const accepted = await this.message({
+      type: "question", title: "Set up local execution", message: "Set up LegionCode Native on this Mac?",
+      detail: "Choose your Node and npm installation. LegionCode will capture these tools and ask macOS to create isolated execution accounts. Current local work will stop before setup begins.",
+      buttons: ["Continue", "Cancel"], defaultId: 0, cancelId: 1,
+    });
+    if (accepted !== 0) return;
+    this.continueBeforeEffect();
+    const node = await dialog.showOpenDialog({ title: "Choose your Node executable", properties: ["openFile", "showHiddenFiles"] });
+    if (node.canceled || !node.filePaths[0]) return;
+    this.continueBeforeEffect();
+    const nodePath = await realpath(node.filePaths[0]);
+    const npm = await dialog.showOpenDialog({
+      title: "Choose the npm package directory", properties: ["openDirectory", "showHiddenFiles"],
+      defaultPath: join(dirname(dirname(nodePath)), "lib", "node_modules", "npm"),
+    });
+    if (npm.canceled || !npm.filePaths[0]) return;
+    const npmDirectory = await realpath(npm.filePaths[0]);
+    this.continueBeforeEffect();
+    await runNativeHostToolchainInspection({ installerPath: options.inspectorPath, nodePath, npmDirectory });
+    this.continueBeforeEffect();
+    await options.stopLocalRuntime();
+    this.continueBeforeEffect();
+    const namespace = await open(options.namespacePath, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    this.namespace = namespace;
+    let effectsMayExist = false;
+    try {
+      const actorUid = await this.assertNamespace(namespace);
+      this.continueBeforeEffect();
+      effectsMayExist = true;
+      const permit = await runNativeHostConfigure({
+        installerPath: INSTALLED_INSTALLER, actorUid, namespacePath: options.namespacePath, nodePath, npmDirectory,
+      });
+      // The positive configure receipt closes that original invocation. No
+      // qualification resource exists until this owner actually dispatches Start.
+      effectsMayExist = false;
+      await this.qualify(namespace, permit.setupPermitId, (value) => { effectsMayExist = value; });
+    } catch (error) {
+      if (effectsMayExist) this.uncertain = true;
+      else if (this.namespace && !this.uncertain) await this.closeNamespace(this.namespace);
+      throw error;
+    }
+  }
+
+  private async reauthorize(): Promise<void> {
+    const options = this.dependencies;
+    const accepted = await this.message({
+      type: "question", title: "Set up local execution", message: "Verify local execution again?",
+      detail: "LegionCode will stop local work, seal the existing execution service, and ask macOS to authorize a fresh verification. Your installed accounts and toolchain stay the same. Unconfirmed cleanup must be recovered before verification can run.",
+      buttons: ["Continue", "Cancel"], defaultId: 0, cancelId: 1,
+    });
+    if (accepted !== 0) return;
+    this.continueBeforeEffect();
+    await options.stopLocalRuntime();
+    this.continueBeforeEffect();
+    const namespace = this.namespace ?? await open(options.namespacePath, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    this.namespace = namespace;
+    let effectsMayExist = false;
+    try {
+      const actorUid = await this.assertNamespace(namespace);
+      const descriptor = await readInstalledMacHostBrokerDescriptor({ trustedReaderPath: options.bridgePath });
+      if (descriptor.state !== "configured" || descriptor.options.bridgePath !== options.bridgePath)
+        throw new NativeHostSetupUnconfirmedError();
+      const client = MacHostBrokerClient.setup(descriptor.options);
+      const identity = { generation: descriptor.generation, configurationSHA256: descriptor.configurationSHA256 };
+      this.continueBeforeEffect();
+      effectsMayExist = true;
+      const deadline = Date.now() + 60_000;
+      let seal = await client.sealForReauthorization(identity);
+      while (seal.state === "pending") {
+        if (Date.now() >= deadline) throw new NativeHostSetupUnconfirmedError();
+        await new Promise<void>((resolve) => setTimeout(resolve, 100));
+        seal = await client.sealForReauthorization(identity);
+      }
+      if (seal.state !== "ready") throw new NativeHostSetupUnconfirmedError();
+      // READY is deny-only. It proves the old C resources are retired; the old
+      // local runtime also stopped above. It grants neither a permit nor tools.
+      effectsMayExist = false;
+      this.uncertain = false;
+      this.qualification = null;
+      if (this.closing || this.cancelRequested || !options.canContinue()) {
+        await this.closeNamespace(namespace);
+        return;
+      }
+      await this.assertNamespace(namespace);
+      this.continueBeforeEffect();
+      effectsMayExist = true;
+      const permit = await runNativeHostReauthorize({
+        installerPath: INSTALLED_INSTALLER, actorUid, namespacePath: options.namespacePath,
+        expectedConfigurationSHA256: descriptor.configurationSHA256,
+      });
+      effectsMayExist = false;
+      await this.qualify(namespace, permit.setupPermitId, (value) => { effectsMayExist = value; }, {
+        configurationSHA256: permit.configurationSHA256, previousGeneration: descriptor.generation,
+      });
+    } catch (error) {
+      if (effectsMayExist) this.uncertain = true;
+      else if (this.namespace && !this.uncertain) await this.closeNamespace(this.namespace);
+      throw error;
+    }
+  }
+
+  private async assertNamespace(namespace: FileHandle): Promise<number> {
+    const path = this.dependencies.namespacePath;
+    const held = await namespace.stat({ bigint: true });
+    const named = await lstat(path, { bigint: true });
+    const actorUid = process.getuid?.();
+    if (this.namespace !== namespace || actorUid === undefined || actorUid < 501 ||
+        !held.isDirectory() || held.uid !== BigInt(actorUid) || (held.mode & 0o7777n) !== 0o700n ||
+        named.isSymbolicLink() || named.dev !== held.dev || named.ino !== held.ino || await realpath(path) !== path)
+      throw new NativeHostSetupUnconfirmedError();
+    return actorUid;
+  }
+
+  private async closeNamespace(namespace: FileHandle): Promise<void> {
+    if (this.namespace !== namespace) throw new NativeHostSetupUnconfirmedError();
+    try { await namespace.close(); }
+    catch { this.uncertain = true; throw new NativeHostSetupUnconfirmedError(); }
+    this.namespace = null;
+  }
+
+  private async qualify(namespace: FileHandle, setupPermitId: string, setEffects: (value: boolean) => void,
+    expected?: { configurationSHA256: string; previousGeneration: string }): Promise<void> {
+    const options = this.dependencies;
+    const progress = new AbortController();
+    let terminal = false;
+    try {
+      // Successful configuration created no qualification resources. A quit
+      // during authorization must never create a new task after that seal.
+      if (this.closing || this.cancelRequested || !options.canContinue()) {
+        await this.closeNamespace(namespace);
+        setEffects(false);
+        return;
+      }
+      const descriptor = await readInstalledMacHostBrokerDescriptor({ trustedReaderPath: options.bridgePath });
+      if (descriptor.state !== "configured" || descriptor.options.bridgePath !== options.bridgePath ||
+          (expected && (descriptor.configurationSHA256 !== expected.configurationSHA256 ||
+            descriptor.generation === expected.previousGeneration)))
+        throw new NativeHostSetupUnconfirmedError();
+      const client = MacHostBrokerClient.setup(descriptor.options);
+      const description = await client.describe();
+      if (description.state !== "available" || description.generation !== descriptor.generation ||
+          description.configurationSHA256 !== descriptor.configurationSHA256)
+        throw new NativeHostSetupUnconfirmedError();
+      // Only this original root-authorized permit and held namespace can Start.
+      this.continueBeforeEffect();
+      setEffects(true);
+      let observation = await client.start({ generation: descriptor.generation, setupPermitId, namespaceDirectory: namespace });
+      if (observation.state === "not_started") throw new NativeHostSetupUnconfirmedError();
+      this.qualification = { client, generation: observation.generation, qualificationId: observation.qualificationId };
+      const window = options.getWindow();
+      if (window && !window.isDestroyed()) {
+        void dialog.showMessageBox(window, {
+          type: "info", title: "Local execution setup", message: "Verifying local execution…",
+          detail: "LegionCode is checking package scripts, sandbox boundaries and process cleanup in a disposable workspace.",
+          buttons: ["Stop setup"], cancelId: 0, signal: progress.signal,
+        }).then(() => { if (!terminal) this.cancelRequested = true; }).catch(() => { this.cancelRequested = true; });
+      }
+      observation = await this.waitForQualification(observation);
+      terminal = true;
+      if (observation.state !== "passed" && observation.state !== "cancelled")
+        throw new NativeHostSetupUnconfirmedError();
+      // Passed/cancelled are the C owner's positive resource-closure outcomes.
+      // Subsequent read-only readiness failure cannot turn them into live work.
+      setEffects(false);
+      if (observation.state === "passed") {
+        if (!observation.receiptSHA256) throw new NativeHostSetupUnconfirmedError();
+        const ready = await MacHostBrokerClient.connect(descriptor.options);
+        if (ready.generation !== descriptor.generation) throw new NativeHostSetupUnconfirmedError();
+      }
+      await this.closeNamespace(namespace);
+      setEffects(false);
+      this.qualification = null;
+      progress.abort();
+      if (!this.closing && options.canContinue()) await options.refreshLocalRuntime();
+      if (!this.closing && options.canContinue()) await this.message({
+        type: "info", title: "Local execution setup",
+        message: observation.state === "passed" ? "Local execution is ready" : "Local execution setup stopped",
+        detail: observation.state === "passed" ? "LegionCode Native can now use the verified local execution boundary." : "The verification task stopped and its resources closed.",
+        buttons: ["OK"],
+      });
+    } finally {
+      terminal = true;
+      progress.abort();
+    }
+  }
+
+  private async waitForQualification(initial: MacHostSetupObservation): Promise<MacHostSetupObservation> {
+    const owner = this.qualification;
+    if (!owner) throw new NativeHostSetupUnconfirmedError();
+    let observation = initial, cancellationSent = false;
+    const deadline = Date.now() + 5 * 60_000;
+    while (observation.state === "running" || observation.state === "awaiting_bridge") {
+      if (!cancellationSent && (this.cancelRequested || this.closing || Date.now() >= deadline)) {
+        cancellationSent = true;
+        observation = await owner.client.cancel(owner);
+      } else observation = await owner.client.status(owner);
+      if (observation.state === "running" || observation.state === "awaiting_bridge")
+        await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    }
+    return observation;
+  }
+}

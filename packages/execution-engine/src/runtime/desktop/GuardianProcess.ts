@@ -50,6 +50,11 @@ export class GuardianProcess {
         "Single-executable no-fork commands require Darwin Seatbelt",
       );
     input.signal.throwIfAborted();
+    if (input.readOnlyProbe !== undefined && input.readOnlyProbe !== true) {
+      throw new SingleProcessMacCapabilityError(
+        "Unsupported read-only Git probe policy",
+      );
+    }
     try {
       if (
         typeof input.processHelperPath !== "string" ||
@@ -88,6 +93,7 @@ export class GuardianProcess {
     const sandbox = buildSingleProcessMacSandbox(
       input.executable,
       input.sandbox,
+      input.readOnlyProbe,
     );
     // The descriptor is the authority. Absolute cwd is made relative only
     // lexically; the C helper walks every component from FD5 without following
@@ -147,6 +153,33 @@ export class GuardianProcess {
     const gitEnvironment: Record<string, string> = {};
     const privateGit =
       input.environment !== undefined || input.stdin !== undefined;
+    if (
+      input.readOnlyProbe &&
+      (!privateGit ||
+        !input.trustedGitContext ||
+        input.environment?.GIT_OPTIONAL_LOCKS !== "0" ||
+        input.environment?.GIT_INDEX_FILE !== undefined ||
+        input.stdin !== undefined)
+    ) {
+      throw new SingleProcessMacCapabilityError(
+        "Read-only probes require canonical Git context without stdin or index selection",
+      );
+    }
+    if (input.readOnlyProbe) {
+      try {
+        if (
+          realpathSync(input.executable) !== input.executable ||
+          !statSync(input.executable).isFile()
+        ) {
+          throw new Error("Noncanonical executable");
+        }
+      } catch (error) {
+        throw new SingleProcessMacCapabilityError(
+          "Read-only Git requires its canonical selected executable",
+          error,
+        );
+      }
+    }
     const maximumDeadline = privateGit ? 30_000 : DEADLINE_MS;
     const deadlineMs = input.timeoutMs ?? maximumDeadline;
     if (

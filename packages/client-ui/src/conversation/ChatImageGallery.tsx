@@ -10,6 +10,8 @@ export interface ChatImagePreview {
   byteSize?: number;
   /** A URL owned by the current client session. Durable messages may omit it. */
   src?: string;
+  /** Opaque client preview key; never a durable file path. */
+  sourceId?: string;
 }
 
 interface ChatImageGalleryProps {
@@ -59,6 +61,7 @@ export function ChatImageGallery({
           return (
             <figure
               key={image.id}
+              data-chat-image-source={image.sourceId ?? image.id}
               className="group relative h-20 w-20 overflow-hidden rounded-xl border border-zinc-700/80 bg-zinc-900 shadow-sm"
             >
               {hasPreview ? (
@@ -102,6 +105,7 @@ export function ChatImageGallery({
       {activeImage?.src ? (
         <div
           role="dialog"
+          data-chat-image-source={activeImage.sourceId ?? activeImage.id}
           aria-modal="true"
           aria-label={`Image preview: ${activeImage.name}`}
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-6 backdrop-blur-sm"

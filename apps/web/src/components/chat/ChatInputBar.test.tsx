@@ -2,11 +2,14 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   act,
   render,
+  renderHook,
   screen,
   fireEvent,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { useState } from "react";
+import { useChatImageAttachmentDraft } from "@legioncode/client-ui";
 import { WebChatInputBar as ChatInputBar } from "./WebChatInputBar.js";
 import * as useProviderStoreModule from "../../hooks/useProviderStore.js";
 import * as providerHelpersModule from "../../lib/provider-helpers.js";
@@ -783,7 +786,7 @@ describe("ChatInputBar", () => {
   it("restores a detached image when submission is rejected", async () => {
     const onSubmit = vi.fn(async () => false);
 
-    render(
+    const view = render(
       <ChatInputBar
         input="Inspect this image"
         onChange={vi.fn()}
@@ -801,6 +804,48 @@ describe("ChatInputBar", () => {
     fireEvent.click(screen.getByLabelText("Send message"));
 
     expect(await screen.findByLabelText("Attached images")).toBeInTheDocument();
+    view.unmount();
+
+    vi.mocked(URL.createObjectURL)
+      .mockReturnValueOnce("blob:scope-a")
+      .mockReturnValueOnce("blob:scope-b");
+    const drafts = renderHook((scope: { ownerKey: string; scopeKey: string }) =>
+      useChatImageAttachmentDraft(true, [], scope), {
+      initialProps: { ownerKey: "account-1", scopeKey: "welcome-a" },
+    });
+    await act(async () => { await drafts.result.current.addFiles([
+      new File(["image-a"], "a.png", { type: "image/png" }),
+    ], "upload"); });
+    const sourceA = drafts.result.current;
+    const imagesA = sourceA.attachments;
+    act(() => { sourceA.detachForSubmit(); });
+    expect(drafts.result.current.attachments).toEqual([]);
+
+    drafts.rerender({ ownerKey: "account-1", scopeKey: "session-b" });
+    await act(async () => { await drafts.result.current.addFiles([
+      new File(["image-b"], "b.png", { type: "image/png" }),
+    ], "upload"); });
+    const imagesB = drafts.result.current.attachments;
+    expect(imagesB.map((image) => image.name)).toEqual(["b.png"]);
+
+    act(() => { sourceA.settleDetached(imagesA, false); });
+    expect(drafts.result.current.attachments).toEqual(imagesB);
+    expect(URL.revokeObjectURL).not.toHaveBeenCalledWith("blob:scope-a");
+    expect(URL.revokeObjectURL).not.toHaveBeenCalledWith("blob:scope-b");
+    drafts.rerender({ ownerKey: "account-1", scopeKey: "welcome-a" });
+    expect(drafts.result.current.attachments).toEqual(imagesA);
+    drafts.rerender({ ownerKey: "account-1", scopeKey: "session-b" });
+    expect(drafts.result.current.attachments).toEqual(imagesB);
+
+    drafts.rerender({ ownerKey: "account-2", scopeKey: "welcome-a" });
+    expect(drafts.result.current.attachments).toEqual([]);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:scope-a");
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:scope-b");
+    act(() => { sourceA.settleDetached(imagesA, false); });
+    expect(drafts.result.current.attachments).toEqual([]);
+    drafts.rerender({ ownerKey: "account-2", scopeKey: "session-b" });
+    expect(drafts.result.current.attachments).toEqual([]);
+    drafts.unmount();
   });
 
   it("accepts pasted and dropped images through the composer", async () => {
@@ -868,23 +913,70 @@ describe("ChatInputBar", () => {
     expect(screen.getByText("Drop files to attach")).toBeInTheDocument();
   });
 
-  it("keeps the composer drop affordance active while dragging over the chat surface", () => {
-    render(
-      <ChatInputBar
-        input=""
-        onChange={vi.fn()}
-        onSubmit={vi.fn()}
-        sessionId="session-1"
-      />,
+  it("keeps the composer drop affordance active while dragging over the chat surface", async () => {
+    const composers = (localHidden: boolean, cloudHidden: boolean,
+      localViewActive: boolean | null = !localHidden, attachmentsAvailable = true) => (
+      <>
+        <section data-testid="local-draft">
+          <ChatInputBar input="" onChange={vi.fn()} onSubmit={vi.fn()}
+            sessionId="local-session" isHidden={localHidden} attachmentsAvailable={attachmentsAvailable}
+            {...(localViewActive === null ? {} : { viewActive: localViewActive })} />
+        </section>
+        <section data-testid="cloud-draft">
+          <ChatInputBar input="" onChange={vi.fn()} onSubmit={vi.fn()}
+            sessionId="cloud-session" isHidden={cloudHidden} viewActive={!cloudHidden} />
+        </section>
+      </>
     );
-
-    fireEvent.dragOver(window, {
+    const { rerender } = render(composers(false, true));
+    const local = within(screen.getByTestId("local-draft"));
+    const cloud = within(screen.getByTestId("cloud-draft"));
+    const drag = () => fireEvent.dragOver(window, {
       dataTransfer: { types: ["Files"], dropEffect: "none" },
     });
+    const drop = (name: string) => fireEvent.drop(window, {
+      dataTransfer: { types: ["Files"], files: [new File([name], name, { type: "image/png" })] },
+    });
 
-    expect(
-      screen.getByTestId("chat-composer-drop-overlay"),
-    ).toBeInTheDocument();
+    expect(drag()).toBe(false);
+    expect(local.getByTestId("chat-composer-drop-overlay")).toBeInTheDocument();
+    drop("local.png");
+    expect(await local.findByAltText(/local\.png/)).toBeInTheDocument();
+
+    rerender(composers(true, true));
+    expect(drag()).toBe(true);
+    expect(drop("inactive.png")).toBe(true);
+    expect(local.queryByAltText(/inactive\.png/)).not.toBeInTheDocument();
+    expect(cloud.queryByAltText(/inactive\.png/)).not.toBeInTheDocument();
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+
+    rerender(composers(true, false));
+    expect(drag()).toBe(false);
+    expect(local.queryByTestId("chat-composer-drop-overlay")).not.toBeInTheDocument();
+    expect(cloud.getByTestId("chat-composer-drop-overlay")).toBeInTheDocument();
+    drop("cloud.png");
+    expect(await cloud.findByAltText(/cloud\.png/)).toBeInTheDocument();
+    expect(local.queryByAltText(/cloud\.png/)).not.toBeInTheDocument();
+    expect(local.getByAltText(/local\.png/)).toBeInTheDocument();
+
+    // Default Web visibility still blocks navigation when images cannot be
+    // accepted, including when an approval hides the composer itself.
+    rerender(composers(false, true, null, false));
+    expect(drag()).toBe(false);
+    expect(drop("unsupported.png")).toBe(false);
+    expect(local.queryByAltText(/unsupported\.png/)).not.toBeInTheDocument();
+    expect(local.queryByTestId("chat-composer-drop-overlay")).not.toBeInTheDocument();
+    rerender(composers(true, true, null));
+    expect(drag()).toBe(false);
+    expect(drop("approval.png")).toBe(false);
+    expect(local.queryByAltText(/approval\.png/)).not.toBeInTheDocument();
+
+    rerender(composers(false, true));
+    expect(drag()).toBe(false);
+    expect(local.getByTestId("chat-composer-drop-overlay")).toBeInTheDocument();
+    expect(cloud.queryByTestId("chat-composer-drop-overlay")).not.toBeInTheDocument();
+    expect(local.getByAltText(/local\.png/)).toBeInTheDocument();
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
   });
 
   it("allows sending selected review comments without freeform text", () => {

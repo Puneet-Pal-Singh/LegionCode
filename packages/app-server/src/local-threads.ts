@@ -84,15 +84,20 @@ export class LocalThreadService {
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 
-  /** Navigation projection only; does not authorize history, files, or mutations. */
+  /** Navigation projection only. Does not authorize history, files, or mutations. */
   async listProjectMetadata(): Promise<Thread[]> {
-    return (await this.rebuildProjections()).filter((thread) => thread.userId === LOCAL_USER_ID)
+    return (await this.rebuildProjections())
+      .filter((thread) => thread.userId === LOCAL_USER_ID)
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 
   async create(input: unknown): Promise<Thread> {
-    const workspace = await this.requireWorkspace();
     const request = ThreadCreateParamsSchema.parse(input ?? {});
+    const workspace = await this.requireWorkspace(request.expectedWorkspace?.workspaceId);
+    if (request.expectedWorkspace && (
+      request.expectedWorkspace.workspaceId !== workspace.workspaceId ||
+      request.expectedWorkspace.grantedAt !== workspace.grantedAt
+    )) throw new Error("The local workspace grant changed before Thread creation");
     const now = new Date().toISOString();
     const thread = ThreadSchema.parse({
       id: createThreadId(),
@@ -112,6 +117,7 @@ export class LocalThreadService {
       updatedAt: now,
       lastEventSequence: 1,
     });
+    await this.assertWorkspaceCurrent(workspace);
     await this.eventStore.append({
       threadId: thread.id,
       workspaceId: thread.workspaceId,

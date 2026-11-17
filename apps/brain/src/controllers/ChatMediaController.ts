@@ -2,7 +2,7 @@ import { z } from "zod";
 import { errorResponse } from "../http/response";
 import type { Env } from "../types/ai";
 import { getAuthenticatedUserSession } from "../services/AuthService";
-import { withTranscriptRepository } from "../services/sessions/TranscriptPersistenceFactory";
+import { ownsChatMediaSession } from "../services/chat/ChatMediaAuthorization";
 import {
   ChatMediaStore,
   isValidChatMediaAttachmentId,
@@ -36,7 +36,7 @@ export class ChatMediaController {
       return errorResponse(request, env, "Attachment not found", 404);
     }
     const sessionId = parsedQuery.data.session;
-    if (!(await ownsSession(env, auth.userId, sessionId))) {
+    if (!(await ownsChatMediaSession(env, auth.userId, sessionId))) {
       return errorResponse(request, env, "Attachment not found", 404);
     }
 
@@ -69,17 +69,4 @@ function decodePathAttachmentId(pathname: string): string | null {
   } catch {
     return null;
   }
-}
-
-async function ownsSession(
-  env: Env,
-  userId: string,
-  sessionId: string,
-): Promise<boolean> {
-  return await withTranscriptRepository(env, async (repository) => {
-    const active = await repository.listSessions(userId);
-    if (active.sessions.some((session) => session.id === sessionId)) return true;
-    const archived = await repository.listArchivedSessions(userId);
-    return archived.some((session) => session.id === sessionId);
-  });
 }

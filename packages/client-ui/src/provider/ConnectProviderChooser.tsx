@@ -96,6 +96,7 @@ export function ConnectProviderChooser({
   const [cloudflareAccountId, setCloudflareAccountId] = useState("");
   const [cloudflareGatewayId, setCloudflareGatewayId] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const credentialsHeadingRef = useRef<HTMLHeadingElement>(null);
 
   const filteredProviders = useMemo((): ProviderOption[] => {
     if (!searchQuery.trim()) {
@@ -210,6 +211,8 @@ export function ConnectProviderChooser({
   useEffect(() => {
     if (view === "providers" && searchInputRef.current) {
       searchInputRef.current.focus();
+    } else if (view === "credentials") {
+      credentialsHeadingRef.current?.focus();
     }
   }, [view]);
 
@@ -234,7 +237,7 @@ export function ConnectProviderChooser({
       )}
 
       {error && errorRecovery && (
-        <div className="rounded-lg border border-red-800 bg-red-950/30 p-3 space-y-1">
+        <div role="alert" className="rounded-lg border border-red-800 bg-red-950/30 p-3 space-y-1">
           <div className="flex items-start gap-2">
             <AlertCircle size={16} className="text-red-400 shrink-0 mt-0.5" />
             <div className="text-sm">
@@ -250,7 +253,7 @@ export function ConnectProviderChooser({
       )}
 
       {success && (
-        <div className="flex items-start gap-2 rounded-lg border border-green-900 bg-green-950/30 p-3">
+        <div role="status" aria-live="polite" className="flex items-start gap-2 rounded-lg border border-green-900 bg-green-950/30 p-3">
           <CheckCircle size={16} className="text-green-400 shrink-0 mt-0.5" />
           <p className="text-sm text-green-200">{success}</p>
         </div>
@@ -339,7 +342,7 @@ export function ConnectProviderChooser({
           </div>
 
           <div>
-            <h4 className="text-xl font-semibold text-neutral-100">
+            <h4 ref={credentialsHeadingRef} tabIndex={-1} className="text-xl font-semibold text-neutral-100">
               Connect {selectedProvider.displayName}
             </h4>
             <p className="mt-3 text-sm text-neutral-400">

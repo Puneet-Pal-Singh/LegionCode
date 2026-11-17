@@ -21,10 +21,24 @@ export class LocalWorkspaceMetadataResolver {
       readonly createInspector?: (
         rootDirectory: FileHandle,
         observeExecution: (execution: NativeFilesystemExecution) => void,
-      ) => Pick<NativeFilesystemBridge, "inspectGitMetadataLayout">;
+      ) => Pick<NativeFilesystemBridge, "inspectGitMetadataLayout"> & Partial<Pick<NativeFilesystemBridge, "hasGitMetadataEntry">>;
     },
   ) {
     this.protectedHostRoots = Object.freeze([...options.protectedHostRoots]);
+  }
+
+  async isFilesystemOnly(input: {
+    readonly rootDirectory: FileHandle;
+    readonly signal: AbortSignal;
+    readonly observeExecution: (execution: NativeFilesystemExecution) => void;
+  }): Promise<boolean> {
+    input.signal.throwIfAborted();
+    const inspector = this.options.createInspector?.(input.rootDirectory, input.observeExecution);
+    if (!inspector?.hasGitMetadataEntry) return false;
+    const present = await inspector.hasGitMetadataEntry({ signal: input.signal });
+    input.signal.throwIfAborted();
+    if (typeof present !== "boolean") throw new Error("Invalid Git entry receipt");
+    return !present;
   }
 
   async inspect(input: {

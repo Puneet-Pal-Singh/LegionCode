@@ -5,7 +5,10 @@
  */
 
 import { getBrainHttpBase } from "../lib/platform-endpoints.js";
-import type { GitCommitIdentityState } from "@repo/shared-types";
+import {
+  GitHubSessionResponseSchema,
+  type GitHubSessionResponse,
+} from "@repo/shared-types";
 import type {
   RepositoryContentsResponse,
   RepositoryReadBranch,
@@ -16,71 +19,11 @@ import {
   listRepositoryBranches as listCachedRepositoryBranches,
 } from "@legioncode/sdk/platform/repository-read-cache";
 import { createHostedAppServerClient } from "./api/appServerClient";
-import { z } from "zod";
 
-export interface GitHubUser {
-  id: string;
-  login: string;
-  avatar: string;
-  email: string | null;
-  name: string | null;
-  githubScopes?: string[];
-  commitIdentity?: GitCommitIdentityState;
-  workspaceId?: string;
-  defaultWorkspaceId?: string;
-  workspaceIds?: string[];
-}
-
-export type GitHubSessionResponse =
-  | { authenticated: true; user: GitHubUser }
-  | { authenticated: false; user?: undefined };
+export type { GitHubUser, GitHubSessionResponse } from "@repo/shared-types";
 
 export type Repository = RepositoryReadRepository;
 export type Branch = RepositoryReadBranch;
-
-const GitCommitIdentitySchema = z.object({
-  authorName: z.string(),
-  authorEmail: z.string(),
-  source: z.enum(["workspace_git_config", "github_profile", "user_input"]),
-  verified: z.boolean(),
-}).passthrough();
-
-const GitCommitIdentityStateSchema = z.discriminatedUnion("state", [
-  z.object({
-    state: z.literal("ready"),
-    identity: GitCommitIdentitySchema,
-  }).passthrough(),
-  z.object({
-    state: z.literal("requires_input"),
-    reason: z.enum(["missing_identity", "missing_name", "missing_email"]),
-    suggestedAuthorName: z.string(),
-    suggestedAuthorEmail: z.string(),
-  }).passthrough(),
-]);
-
-const GitHubUserSchema = z.object({
-  id: z.string(),
-  login: z.string(),
-  avatar: z.string(),
-  email: z.string().nullable(),
-  name: z.string().nullable(),
-  githubScopes: z.array(z.string()).optional(),
-  commitIdentity: GitCommitIdentityStateSchema.optional(),
-  workspaceId: z.string().optional(),
-  defaultWorkspaceId: z.string().optional(),
-  workspaceIds: z.array(z.string()).optional(),
-}).passthrough();
-
-const GitHubSessionResponseSchema = z.discriminatedUnion("authenticated", [
-  z.object({
-    authenticated: z.literal(true),
-    user: GitHubUserSchema,
-  }).passthrough(),
-  z.object({
-    authenticated: z.literal(false),
-    user: z.undefined().optional(),
-  }).passthrough(),
-]);
 
 const BRAIN_API_URL = getBrainHttpBase();
 

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { ReasoningEffortPicker } from "./ReasoningEffortPicker";
+import { loadReasoningEffortSelection } from "../../lib/model-reasoning-preferences";
 
 describe("ReasoningEffortPicker", () => {
   afterEach(() => {
@@ -49,10 +50,13 @@ describe("ReasoningEffortPicker", () => {
       />,
     );
 
+    const picker = screen.getByRole("button", { name: "Reasoning effort" });
+    expect(picker).toBeDisabled();
+    expect(picker).toHaveAttribute("aria-expanded", "false");
     expect(option).not.toBeInTheDocument();
     fireEvent.click(option);
-    expect(screen.getByRole("button", { name: "Reasoning effort" })).toHaveTextContent(
-      "Default",
-    );
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(picker).toHaveTextContent("Default");
+    expect(loadReasoningEffortSelection("openai", "gpt-5.6-luna")).toBe("default");
   });
 });

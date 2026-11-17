@@ -4,11 +4,14 @@ import {
   buildNativeFileHelper,
   minimumMacOSVersion,
   nativeHelperSources,
+  inspectNativeFileHelper,
   verifyPackagedMacOSMinimum,
   verifyBundledFileHelper,
+  verifyBundledHostBroker,
 } from "./scripts/build-file-helper.mjs";
 
 import { verifyBundledProcessHelper } from "./scripts/verify-process-helper.mjs";
+import { sealUnsignedMacApp } from "./scripts/unsigned-mac-app.mjs";
 
 const config: Configuration = {
   appId: "dev.legioncode.desktop",
@@ -84,8 +87,38 @@ const config: Configuration = {
           ...processDiagnostics,
         }),
       );
-    } catch {
-      throw new Error("Packaged native helper verification failed");
+      if (context.electronPlatformName === "darwin") {
+        const brokerDiagnostics = await verifyBundledHostBroker(
+          join(
+            context.appOutDir,
+            `${context.packager.appInfo.productFilename}.app`,
+            "Contents", "Resources", "native", "legioncode-host-broker",
+          ),
+          context.electronPlatformName,
+          Arch[context.arch],
+        );
+        console.info(JSON.stringify({
+          helper: "legioncode-host-broker",
+          stage: "bundled-link-inspected-before-signing",
+          ...brokerDiagnostics,
+        }));
+        await inspectNativeFileHelper(join(
+          context.appOutDir,
+          `${context.packager.appInfo.productFilename}.app`,
+          "Contents", "Resources", "native", "legioncode-native-installer",
+        ), context.electronPlatformName, Arch[context.arch]);
+        // The pinned builder skips PR signing. Seal this owned app before it
+        // creates archives, using the same no-certificate policy as the PKG.
+        if (context.packager.config.electronFuses != null)
+          throw new Error("Unsigned archive sealing must follow any Electron fuse changes");
+        await sealUnsignedMacApp(
+          join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`),
+          { unknownClosure: false }, context.electronPlatformName, Arch[context.arch],
+        );
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Unknown verifier failure";
+      throw new Error(`Packaged native helper verification failed: ${detail}`, { cause: error });
     }
   },
   npmRebuild: true,
@@ -95,6 +128,8 @@ const config: Configuration = {
   },
   files: ["out/**/*", "package.json"],
   mac: {
+    identity: null,
+    icon: "../web/public/assets/legioncode-icon-512.png",
     minimumSystemVersion: minimumMacOSVersion,
     category: "public.app-category.developer-tools",
     target: ["dmg", "zip"],

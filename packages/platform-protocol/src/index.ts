@@ -116,7 +116,10 @@ export {
   HostedChatSubmissionResultSchema,
   type HostedChatSubmissionResult,
 } from "./chat-submission.js";
-export { ChatRunModeSchema, type ChatRunMode } from "./run-mode.js";
+export {
+  ChatRunModeSchema,
+  type ChatRunMode,
+} from "./run-mode.js";
 export {
   WORKFLOW_INTENTS,
   WORKFLOW_ENTRYPOINTS,
@@ -674,6 +677,11 @@ export {
   type CommitTurnArtifactRequest,
   type CommitTurnArtifactResponse,
 } from "./git-artifact-operations.js";
+
+export {
+  ApprovalExecutionPresentationSchema,
+  type ApprovalExecutionPresentation,
+} from "./approval-presentation.js";
 
 export {
   UserInputQuestionSchema,

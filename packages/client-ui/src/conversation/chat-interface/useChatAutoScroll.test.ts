@@ -41,6 +41,7 @@ describe("isChatNearBottom", () => {
     const scrollTo = vi.fn<[ScrollToOptions?], void>();
     Object.defineProperty(element, "scrollTo", { value: scrollTo });
     const scrollRef = { current: element };
+    let historyNavigation: { key: string; intent: "earlier" | "newer" | "latest" } | undefined;
 
     const { rerender } = renderHook(
       ({ latestMessageKey, lifecycleSequence }) =>
@@ -51,6 +52,7 @@ describe("isChatNearBottom", () => {
           placeholderVisible: false,
           scopeKey: "thread:run",
           scrollRef,
+          historyNavigation,
         }),
       {
         initialProps: { latestMessageKey: "message-1:user", lifecycleSequence: 1 },
@@ -65,6 +67,18 @@ describe("isChatNearBottom", () => {
 
     rerender({ latestMessageKey: "message-2:user", lifecycleSequence: 2 });
     expect(scrollTo).toHaveBeenCalledTimes(2);
+    historyNavigation = { key: "older-window", intent: "earlier" };
+    rerender({ latestMessageKey: "older-message:user", lifecycleSequence: 2 });
+    expect(scrollTo).toHaveBeenLastCalledWith({ top: 1_000, behavior: "auto" });
+    expect(scrollTo).toHaveBeenCalledTimes(3);
+    rerender({ latestMessageKey: "older-message:user", lifecycleSequence: 3 });
+    expect(scrollTo).toHaveBeenCalledTimes(3);
+    historyNavigation = { key: "newer-window", intent: "newer" };
+    rerender({ latestMessageKey: "newer-message:user", lifecycleSequence: 3 });
+    expect(scrollTo).toHaveBeenLastCalledWith({ top: 0, behavior: "auto" });
+    historyNavigation = { key: "latest-window", intent: "latest" };
+    rerender({ latestMessageKey: "latest-message:user", lifecycleSequence: 3 });
+    expect(scrollTo).toHaveBeenLastCalledWith({ top: 1_000, behavior: "auto" });
   });
 });
 

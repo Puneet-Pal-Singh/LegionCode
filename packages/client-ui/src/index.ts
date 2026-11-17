@@ -7,8 +7,9 @@ export type { AppServerEnvironmentSnapshot } from "@repo/platform-protocol";
 export { ClientShell } from "./shell/ClientShell.js";
 export { ClientShellLoading } from "./shell/ClientShellLoading.js";
 export { WorkspaceFrame, type WorkspaceFrameProps } from "./workspace/WorkspaceFrame.js";
+export { WorkspaceSummaryLayout } from "./workspace/WorkspaceSummaryLayout.js";
 export { WorkspaceTopBar, type WorkspaceTopBarProps } from "./workspace/WorkspaceTopBar.js";
-export { ThreadSidebar, type ThreadSidebarProps } from "./navigation/ThreadSidebar.js";
+export { ThreadSidebar, SidebarSettingsButton, type ThreadSidebarProps } from "./navigation/ThreadSidebar.js";
 export {
   ConnectProviderChooser,
   type ConnectProviderChooserProps,
@@ -17,6 +18,11 @@ export {
   ProviderIcon,
   type ProviderIconProps,
 } from "./provider/ProviderIcon.js";
+export { ModelPickerPopover, type ModelPickerPopoverProps } from "./provider/ModelPickerPopover.js";
+export { ModelPickerDetailsPanel, type ModelPickerDetailsPanelProps } from "./provider/ModelPickerDetailsPanel.js";
+export type { ModelPickerModel, ModelPickerDiscoveryView, ModelPickerModelsMetadata } from "./provider/modelPickerTypes.js";
+export { formatModelDisplayName } from "./provider/modelDisplayName.js";
+export { isProviderModelAvailable, getProviderModelUnavailableReason } from "./provider/providerModelAvailability.js";
 export { cn } from "./classnames.js";
 export { MessageContent, MarkdownMessageContent } from "./conversation/chat-message/MessageContent.js";
 export { MessageActions } from "./conversation/chat-message/MessageActions.js";
@@ -24,12 +30,13 @@ export type { ChatMessageMetadata } from "./conversation/chat-message/types.js";
 export { stripAssistantChangeCounts } from "./conversation/chat-message/markdownTransforms.js";
 export { ChatImageGallery, type ChatImagePreview } from "./conversation/ChatImageGallery.js";
 export { ChatImageAttachmentStrip } from "./conversation/ChatImageAttachmentStrip.js";
-export { useChatImageAttachmentDraft } from "./conversation/useChatImageAttachmentDraft.js";
+export { useChatImageAttachmentDraft, type ChatImageAttachmentDraftBinding } from "./conversation/useChatImageAttachmentDraft.js";
+export { useChatImagePreviews, type ChatImagePreviewSource, type ChatImageOriginalReader } from "./conversation/useChatImagePreviews.js";
 export {
   CHAT_IMAGE_MIME_TYPES, isChatImageMimeType, validateNextImageAttachment,
-  createChatImageAttachment, toImageParts, toRedactedImageMetadata,
+  createChatImageAttachment, toImageParts, toRedactedImageMetadata, buildChatAppendMessage,
   formatAttachmentSize, type ChatImageMimeType, type ChatImageAttachment,
-  type ChatSubmitAttachments,
+  type ChatSubmitAttachments, type ChatUserContent, type ChatAppendMessage,
 } from "./conversation/chatImageAttachments.js";
 export { ChangedFilesCard } from "./conversation/chat-message/ChangedFilesCard.js";
 export type { ChangedFilesSummary } from "./conversation/chat-message/changed-files-types.js";
@@ -48,6 +55,14 @@ export { PendingWorkflowSurface } from "./conversation/workflow/PendingWorkflowS
 export { ApprovalDock } from "./conversation/approval/ApprovalDock.js";
 export { getDisplayedApprovalDecisions } from "./conversation/approval/approvalDecisions.js";
 export { ChatInputBar, type ChatInputBarProps } from "./conversation/ChatInputBar.js";
+export { useHostedNativeConversation } from "./conversation/hosted/useHostedNativeConversation.js";
+export { captureHostedNativeDraft } from "./conversation/hosted/hostedNativeConversation.js";
+export type {
+  HostedNativeConversationBinding,
+  HostedNativeConversationOptions,
+  HostedNativeDraft,
+} from "./conversation/hosted/hostedNativeConversation.js";
+export { ComposerWorkspaceBar, type ComposerWorkspaceBarProps } from "./conversation/ComposerWorkspaceBar.js";
 export { ChatComposerPlusMenu } from "./conversation/ChatComposerPlusMenu.js";
 export { ChatImageDropOverlay } from "./conversation/ChatImageDropOverlay.js";
 export { PermissionModeControl } from "./conversation/PermissionModeControl.js";
@@ -55,7 +70,12 @@ export { ContextUsageRing } from "./conversation/context/ContextUsageRing.js";
 export { ContextDetailsPanel, type ContextSessionSnapshot } from "./conversation/context/ContextDetailsPanel.js";
 export * from "./conversation/fileMentions.js";
 
-export { buildChatEntries, type ChatInterfaceEntry } from "./conversation/chat-interface/chatEntries.js";
+export {
+  buildChatEntries,
+  type ChatInterfaceEntry,
+  type CanonicalConversationTurnBounds,
+  type CanonicalConversationBounds,
+} from "./conversation/chat-interface/chatEntries.js";
 export * from "./conversation/chat-interface/changedFiles.js";
 export { buildChatMessageMetadata, buildLifecycleMessageMetadata } from "./conversation/chat-interface/messageMetadata.js";
 export { buildLifecycleTerminalViewModel } from "./conversation/chat-interface/LifecycleTerminalViewModel.js";
@@ -69,6 +89,12 @@ export { useConversationTurnLifecycle, type ConversationLifecycleClient } from "
 
 export { ChatErrorNotice, type ChatErrorNoticeProps } from "./conversation/ChatErrorNotice.js";
 export { ThreadInputQueuePanel } from "./conversation/conversation/ThreadInputQueuePanel.js";
+export {
+  useThreadInputQueue,
+  type ThreadInputQueueClient,
+  type ThreadInputQueueScope,
+  type ThreadInputQueueActiveTarget,
+} from "./conversation/conversation/useThreadInputQueue.js";
 export { type ComposerDelivery } from "./conversation/conversation/composer-keyboard.js";
 export { resumeUnavailableMessage } from "./conversation/chat-interface/workspace-snapshot-status.js";
 
@@ -83,3 +109,81 @@ export {
   type FileExplorerEntry,
   type FileExplorerPage,
 } from "./files/FileExplorer.js";
+
+export { useOutsideDismiss } from "./hooks/useOutsideDismiss.js";
+export { useModalFocus } from "./hooks/modal-focus.js";
+export { useViewportPopoverPosition } from "./hooks/useViewportPopoverPosition.js";
+export { FileChangesIcon } from "./workspace/FileChangesIcon.js";
+export { FilesToggleButton } from "./workspace/FilesToggleButton.js";
+export { Resizer } from "./workspace/Resizer.js";
+export { ResizableWorkspaceRail } from "./workspace/ResizableWorkspaceRail.js";
+
+export { WorkspaceAddMenu } from "./workspace/WorkspaceAddMenu.js";
+export { WorkspaceTabStrip, type WorkspaceContentTab } from "./workspace/WorkspaceTabStrip.js";
+export { WorkspaceSurfaceHeader } from "./workspace/WorkspaceSurfaceHeader.js";
+export { WorkspaceSidebarHeader } from "./workspace/WorkspaceSidebarHeader.js";
+
+export { useChangesPanelViewState, type DiffLayout } from "./review/useChangesPanelViewState.js";
+export { ReviewDiffToolbar } from "./review/ReviewDiffToolbar.js";
+export { ReviewFileStack } from "./review/ReviewFileStack.js";
+export { ReviewPanelLayout } from "./review/ReviewPanelLayout.js";
+
+export { ArtifactView } from "./files/ArtifactView.js";
+export { FileBreadcrumbs } from "./workspace/FileBreadcrumbs.js";
+export { FileOptionsMenu } from "./workspace/FileOptionsMenu.js";
+export { WorkspaceFileNavigationBar } from "./workspace/WorkspaceFileNavigationBar.js";
+export { WorkspaceContentView } from "./workspace/WorkspaceContentView.js";
+export { WorkspaceTreeDrawer } from "./workspace/WorkspaceTreeDrawer.js";
+
+export { PickerModal } from "./workspace/PickerModal.js";
+export { HeroComposer as ConversationHero } from "./conversation/chat-interface/ChatInterfaceView.js";
+
+export { getInitialRightSidebarWidth, clampRightSidebarWidth } from "./workspace/rightPanelSizing.js";
+
+export { EnvironmentSummaryMenu, type EnvironmentSummaryMenuProps, type EnvironmentSavedSources } from "./workspace/EnvironmentSummaryMenu.js";
+
+export { WorkspaceReviewControls } from "./workspace/WorkspaceReviewControls.js";
+
+export { readComposerPreferences, updateComposerPreferences, useComposerPreferences, type ComposerPreferences } from "./conversation/composerPreferences.js";
+
+export type { ProviderSettingsPort, ProviderSettingsCredential, ProviderSettingsModel } from "./provider/ProviderSettingsPort.js";
+export { SettingsSwitch } from "./settings/Switch.js";
+
+export { ManageModelsDialog, type ManageModelsDialogProps } from "./provider/ManageModelsDialog.js";
+
+export { SharedProviderDialog, type ProviderDialogProps, type SharedProviderDialogProps } from "./provider/ProviderDialog.js";
+
+export { ComposerSettingsSection, type ComposerSettingsPreferences } from "./settings/ComposerSettingsSection.js";
+
+export { ArchivedChatsSettingsView, type ArchivedSettingsItem } from "./settings/ArchivedChatsSettings.js";
+
+export { HooksSettingsView } from "./settings/HooksSettingsView.js";
+
+export { SharedSettingsDialog, SettingsGeneralPanel, type SharedSettingsDialogProps, type SettingsSection } from "./settings/SettingsDialog.js";
+
+export { ReviewDialogFrame, ReviewDialogCloseButton } from "./workspace/ReviewDialogFrame.js";
+
+export { GitCommitDialogView, GitCommitSelectionControl } from "./workspace/GitCommitDialogView.js";
+export type { GitCommitDialogViewProps, CommitNextStep, GitFlowSuccessState, GitCommitStepOption } from "./workspace/GitCommitDialogView.js";
+
+export { ConversationContinuationNotice, type ConversationContinuationNoticeProps } from "./conversation/chat-interface/ConversationContinuationNotice.js";
+
+export { usePendingTitleProjectionRefresh, type PendingTitleProjection, type PendingTitleProjectionRefreshInput } from "./titles/usePendingTitleProjectionRefresh.js";
+export { shouldRetainCurrentTitleProjection, type TitleProjectionVersion } from "./titles/titleProjectionVersion.js";
+
+export { LocalExecutionDetails } from "./environment/LocalExecutionDetails.js";
+
+export { WorkspaceDialogFrame } from "./workspace/WorkspaceDialogFrame.js";
+export { WorkspaceBranchField } from "./workspace/WorkspaceBranchField.js";
+export {
+  AuthorizedRepositoryPicker,
+  sortBranchesForRepoPicker,
+  type AuthorizedRepositoryPickerProps,
+  type AuthorizedRepositoryReadPort,
+} from "./workspace/AuthorizedRepositoryPicker.js";
+export {
+  HostedWorkspaceConfigurationEditor,
+  type HostedWorkspaceConfigurationEditorProps,
+} from "./workspace/HostedWorkspaceConfigurationEditor.js";
+
+export { convertConversationHistoryMessages } from "./conversation/history/conversationHistoryMessages.js";

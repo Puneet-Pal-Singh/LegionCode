@@ -1,5 +1,5 @@
 import { createPortal } from "react-dom";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -11,9 +11,13 @@ import {
 import { PRODUCT_MODES, type ProductMode } from "@repo/shared-types";
 import { cn } from "../classnames.js";
 import { FullAccessConfirmation } from "./FullAccessConfirmation.js";
+import { useOutsideDismiss } from "../hooks/useOutsideDismiss.js";
+import { useViewportPopoverPosition } from "../hooks/useViewportPopoverPosition.js";
 
 interface PermissionModeControlProps {
   value: ProductMode;
+  availableModes?: readonly ProductMode[];
+  environmentKind?: "hosted" | "local";
   onChange: (mode: ProductMode) => void;
   disabled?: boolean;
   appearance?: "pill" | "ghost";
@@ -62,6 +66,8 @@ const PERMISSION_MODE_OPTIONS: PermissionModeOption[] = [
 
 export function PermissionModeControl({
   value,
+  availableModes,
+  environmentKind = "hosted",
   onChange,
   disabled = false,
   appearance = "pill",
@@ -80,56 +86,20 @@ export function PermissionModeControl({
   const SelectedIcon = selectedOption.Icon;
   const isMenuOpen = isOpen && !disabled;
   const isFullAccess = selectedOption.value === PRODUCT_MODES.FULL_AGENT;
-  const isConfirmationVisible = isConfirmationOpen && !disabled;
-  const [menuStyle, setMenuStyle] = useState<{
-    top: number | null;
-    bottom: number | null;
-    left: number;
-  }>({ top: null, bottom: 16, left: 16 });
-
-  const updateMenuPosition = useCallback(() => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const width = Math.min(304, window.innerWidth - 32);
-    const left = Math.min(
-      Math.max(16, rect.left),
-      Math.max(16, window.innerWidth - width - 16),
-    );
-    setMenuStyle(
-      menuPlacement === "below"
-        ? { top: rect.bottom + 8, bottom: null, left }
-        : {
-            top: null,
-            bottom: Math.max(16, window.innerHeight - rect.top + 8),
-            left,
-          },
-    );
-  }, [menuPlacement]);
-
-  useEffect(() => {
-    const frame = isMenuOpen
-      ? requestAnimationFrame(updateMenuPosition)
-      : undefined;
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (
-        !containerRef.current?.contains(target) &&
-        !menuRef.current?.contains(target)
-      ) {
-        setIsOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    window.addEventListener("resize", updateMenuPosition);
-    window.addEventListener("scroll", updateMenuPosition, true);
-    return () => {
-      if (frame !== undefined) cancelAnimationFrame(frame);
-      document.removeEventListener("mousedown", handleClickOutside);
-      window.removeEventListener("resize", updateMenuPosition);
-      window.removeEventListener("scroll", updateMenuPosition, true);
-    };
-  }, [isMenuOpen, updateMenuPosition]);
+  const fullAccessAvailable = !availableModes || availableModes.includes(PRODUCT_MODES.FULL_AGENT);
+  const isConfirmationVisible = isConfirmationOpen && !disabled && fullAccessAvailable;
+  const menuStyle = useViewportPopoverPosition(
+    isMenuOpen,
+    controlButtonRef,
+    menuRef,
+    { align: "start", placement: menuPlacement, viewportPadding: 16 },
+  );
+  const closeMenu = useCallback(() => setIsOpen(false), []);
+  const dismissRefs = useMemo(() => [menuRef], []);
+  useOutsideDismiss(containerRef, isMenuOpen, closeMenu, {
+    additionalRefs: dismissRefs,
+    escapeFocusRef: controlButtonRef,
+  });
 
   useEffect(() => {
     if (
@@ -143,11 +113,11 @@ export function PermissionModeControl({
   }, [isConfirmationVisible, disabled]);
 
   useEffect(() => {
-    if (disabled && isConfirmationOpen) {
+    if ((disabled || !fullAccessAvailable) && isConfirmationOpen) {
       setIsConfirmationOpen(false);
       setModeAtConfirmationOpen(null);
     }
-  }, [disabled, isConfirmationOpen]);
+  }, [disabled, fullAccessAvailable, isConfirmationOpen]);
 
   const closeConfirmation = () => {
     setIsConfirmationOpen(false);
@@ -157,6 +127,7 @@ export function PermissionModeControl({
   const confirmFullAccess = () => {
     if (
       disabled ||
+      !fullAccessAvailable ||
       modeAtConfirmationOpen === null ||
       modeAtConfirmationOpen !== value
     ) {
@@ -217,17 +188,14 @@ export function PermissionModeControl({
             <div
               ref={menuRef}
               role="menu"
-              className="ui-surface-popover fixed z-50 w-[19rem] p-1.5"
-              style={{
-                top: menuStyle.top ?? undefined,
-                bottom: menuStyle.bottom ?? undefined,
-                left: menuStyle.left,
-              }}
+              className="ui-surface-popover fixed z-50 w-[19rem] max-w-[calc(100vw-32px)] overflow-y-auto p-1.5"
+              style={menuStyle}
               data-testid="permission-mode-menu"
             >
               {PERMISSION_MODE_OPTIONS.map((option) => {
                 const OptionIcon = option.Icon;
                 const isSelected = option.value === selectedOption.value;
+                const available = !availableModes || availableModes.includes(option.value);
                 return (
                   <button
                     key={option.value}
@@ -235,7 +203,7 @@ export function PermissionModeControl({
                     role="menuitemradio"
                     aria-checked={isSelected}
                     onClick={() => {
-                      if (disabled) {
+                      if (disabled || !available) {
                         return;
                       }
                       setIsOpen(false);
@@ -245,10 +213,14 @@ export function PermissionModeControl({
                         return;
                       }
                       onChange(option.value);
+                      if (!controlButtonRef.current?.disabled) {
+                        controlButtonRef.current?.focus();
+                      }
                     }}
-                    disabled={disabled}
+                    disabled={disabled || !available}
+                    title={available ? undefined : "Unavailable in this environment"}
                     className={cn(
-                      "flex min-h-12 w-full items-start justify-between rounded-md px-2.5 py-2 text-left transition",
+                      "flex min-h-12 w-full items-start justify-between rounded-md px-2.5 py-2 text-left transition disabled:cursor-not-allowed disabled:opacity-50",
                       isSelected
                         ? "bg-zinc-800/70 text-zinc-100"
                         : "text-zinc-200 hover:bg-zinc-800/50",
@@ -264,7 +236,7 @@ export function PermissionModeControl({
                           {option.label}
                         </span>
                         <span className="block text-xs leading-4 text-zinc-400">
-                          {option.description}
+                          {option.value === PRODUCT_MODES.FULL_AGENT && environmentKind === "local" ? "Run local tools without individual approvals." : option.description}
                         </span>
                       </span>
                     </span>
@@ -284,6 +256,7 @@ export function PermissionModeControl({
 
       {isConfirmationVisible ? (
         <FullAccessConfirmation
+          environmentKind={environmentKind}
           onCancel={closeConfirmation}
           onConfirm={confirmFullAccess}
         />

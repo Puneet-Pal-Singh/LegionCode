@@ -35,15 +35,81 @@ function remaining(deadline: number): number {
 export function createCaptureGitService(
   lease: LocalWorkspaceWriterLease,
   options: LocalCaptureGitOptions,
+  readSignal?: AbortSignal,
 ): Pick<
   DefaultGitService,
-  "captureSnapshot" | "getSnapshotDiff" | "probeRepository"
+  | "captureSnapshot"
+  | "getSnapshotDiff"
+  | "probeRepository"
+  | "getStatus"
+  | "getDiff"
 > & {
   retainSnapshot(
     input: Omit<GitSnapshotRetentionInput, "assertStorageReady">,
   ): Promise<GitSnapshotRetentionResult>;
 } {
   const binding = createNativeGitBinding(options);
+  const readBinding = createNativeGitBinding(options, "read_only");
+  const withActiveRead = <T>(
+    filesystemRoot: string,
+    runId: string | undefined,
+    read: (git: DefaultGitService) => Promise<T>,
+  ): Promise<T> =>
+    lease.withMutationAuthority(
+      lease.attempt.workspaceId,
+      async (authority) => {
+        if (
+          filesystemRoot !== authority.filesystemRoot ||
+          runId !== authority.attempt.runId
+        )
+          throw unavailable("Git read belongs to another retained attempt");
+        const signal = AbortSignal.any([
+          authority.signal,
+          authority.settlementSignal,
+          ...(readSignal ? [readSignal] : []),
+        ]);
+        const assertActive = async () => {
+          signal.throwIfAborted();
+          await authority.assertCurrent();
+          await authority.assertSettlementCurrent();
+          signal.throwIfAborted();
+        };
+        // Cancellation can reject delivery, but must not revoke the original
+        // retained authority that proves process closure and final capture.
+        const driver = readBinding(authority);
+        await assertActive();
+        const result = await read(
+          new DefaultGitService({
+            async execute(input) {
+              if (
+                input.cwd !== filesystemRoot ||
+                input.runId !== runId ||
+                input.environment !== undefined ||
+                input.indexTransaction !== undefined
+              )
+                throw unavailable(
+                  "Git read rejected another root, run, index or environment selector",
+                );
+              await assertActive();
+              const result = await driver.execute({ ...input, signal });
+              await assertActive();
+              if (
+                result.exitCode === 0 &&
+                input.args[1] === "status" &&
+                (!result.stdout || !result.stdout.endsWith("\0"))
+              )
+                throw new GitServiceError(
+                  "malformed_status_output",
+                  "Native Git status framing is invalid",
+                );
+              return result;
+            },
+          }),
+        );
+        await assertActive();
+        return result;
+      },
+    );
   const executor = (
     driver: ReturnType<typeof binding>,
     snapshot?: { expectedPath: string; privatePath: string },
@@ -82,6 +148,22 @@ export function createCaptureGitService(
     },
   });
   return {
+    getStatus: (input) =>
+      withActiveRead(input.workspaceRoot, input.runId, async (git) => {
+        const result = await git.getStatus(input);
+        if (result.branch.oid === null || result.branch.head === null)
+          throw new GitServiceError(
+            "malformed_status_output",
+            "Native Git status omitted its branch identity",
+          );
+        return result;
+      }),
+    getDiff: (input) =>
+      withActiveRead(
+        input.workspace.filesystemRoot,
+        input.workspace.runId,
+        (git) => git.getDiff(input),
+      ),
     captureSnapshot: (input) =>
       lease.withSettlementAuthority(async (authority) => {
         if (

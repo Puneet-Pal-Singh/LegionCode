@@ -1,6 +1,5 @@
 import { motion } from "framer-motion";
-import { FileDiff, PanelRight } from "lucide-react";
-import { WorkspaceTopBar } from "@legioncode/client-ui";
+import { WorkspaceReviewControls, WorkspaceTopBar } from "@legioncode/client-ui";
 import { OpenDropdown } from "../navigation/OpenDropdown";
 import { GitHubLoginButton } from "../auth/GitHubLoginButton";
 import { ChatHeaderMenu } from "../chat/ChatHeaderMenu";
@@ -10,7 +9,6 @@ import type { TopEnvironmentSummaryProps } from "../navigation/TopEnvironmentSum
 
 interface TopNavBarProps {
   onOpenIde?: (ide: string) => void;
-  onReview?: () => void;
   isRightSidebarOpen?: boolean;
   onToggleRightSidebar?: () => void;
   threadTitle?: string;
@@ -76,7 +74,6 @@ function TopNavSessionActions({
 
 function TopNavActions({
   onOpenIde,
-  onReview,
   isRightSidebarOpen = false,
   onToggleRightSidebar,
   isAuthenticated = false,
@@ -86,7 +83,6 @@ function TopNavActions({
 }: Pick<
   TopNavBarProps,
   | "onOpenIde"
-  | "onReview"
   | "isRightSidebarOpen"
   | "onToggleRightSidebar"
   | "isAuthenticated"
@@ -109,50 +105,14 @@ function TopNavActions({
       {!isMobile ? (
         <OpenDropdown onSelect={onOpenIde} disabled={!onOpenIde} />
       ) : null}
+      {environmentSummary ? (
+        <TopEnvironmentSummary {...environmentSummary} />
+      ) : null}
       {!isRightSidebarOpen ? (
-        <ReviewControls
-          onReview={onReview}
+        <WorkspaceReviewControls
           onToggleRightSidebar={onToggleRightSidebar}
         />
       ) : null}
-      {environmentSummary && !isRightSidebarOpen ? (
-        <TopEnvironmentSummary {...environmentSummary} />
-      ) : null}
-    </div>
-  );
-}
-
-function ReviewControls({
-  onReview,
-  onToggleRightSidebar,
-}: {
-  onReview?: () => void;
-  onToggleRightSidebar?: () => void;
-}) {
-  return (
-    <div className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5">
-      <motion.button
-        onClick={onReview}
-        whileHover={{ scale: 1.02 }}
-        whileTap={{ scale: 0.98 }}
-        disabled={!onReview}
-        aria-label="Review"
-        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-zinc-400 transition-all hover:bg-zinc-900 hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600 disabled:hover:bg-transparent"
-        title={onReview ? "Open review panel" : "Review is not available yet"}
-      >
-        <FileDiff size={15} />
-      </motion.button>
-      <motion.button
-        onClick={onToggleRightSidebar}
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        disabled={!onToggleRightSidebar}
-        aria-label="Toggle right sidebar"
-        className="rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-zinc-900 hover:text-zinc-200 disabled:cursor-not-allowed disabled:text-zinc-600 disabled:hover:bg-transparent"
-        title="Toggle right sidebar"
-      >
-        <PanelRight size={17} />
-      </motion.button>
     </div>
   );
 }

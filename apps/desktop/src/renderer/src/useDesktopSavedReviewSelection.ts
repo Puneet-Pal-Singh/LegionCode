@@ -3,9 +3,10 @@ import type {
   LocalWorkspaceGrant,
   ThreadId,
   TurnId,
+  TurnDiffPayload,
   WorkspaceId,
 } from "@repo/platform-protocol";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 type ReviewClient = Pick<AppServerClient, "getTurnDiff">;
 
@@ -23,6 +24,12 @@ export interface DesktopSavedReviewTurn {
   readonly turnId: TurnId;
   readonly terminalState: NonNullable<LifecycleProjection["terminal"]>["state"];
 }
+
+export type DesktopSavedReviewRead =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "ready"; diff: TurnDiffPayload | null };
 
 type SelectedReview = {
   readonly scope: DesktopSavedReviewScope;
@@ -48,6 +55,7 @@ function matchesScope(
 /** User selection only; terminal identity must come from the actual SDK replay. */
 export function useDesktopSavedReviewSelection(
   scope: DesktopSavedReviewScope | null,
+  available = true,
 ) {
   const [selected, setSelected] = useState<SelectedReview | null>(null);
   const current =
@@ -79,28 +87,37 @@ export function useDesktopSavedReviewSelection(
     [scope],
   );
 
-  const client = useMemo<ReviewClient>(() => {
-    const captured = current;
-    const assertCurrent = (turnId: TurnId): SelectedReview => {
-      if (
-        !captured ||
-        active.current.selected !== captured ||
-        !matchesScope(captured.scope, active.current.scope) ||
-        captured.turn.turnId !== turnId
-      ) {
-        throw new DOMException("Saved review scope changed.", "AbortError");
-      }
-      return captured;
-    };
-    return {
-      getTurnDiff: async (params) => {
-        const selectedScope = assertCurrent(params.turnId);
-        const result = await selectedScope.scope.client.getTurnDiff(params);
-        assertCurrent(params.turnId);
-        return result;
-      },
-    };
-  }, [current]);
+  const [revision, setRevision] = useState(0);
+  const [read, setRead] = useState<{
+    selected: SelectedReview;
+    result: DesktopSavedReviewRead;
+  } | null>(null);
+  useEffect(() => {
+    if (!current || !available) return;
+    let active = true;
+    setRead({ selected: current, result: { status: "loading" } });
+    void current.scope.client.getTurnDiff({ turnId: current.turn.turnId })
+      .then(({ diff }) => {
+        if (!active) return;
+        if (diff && diff.turnId !== current.turn.turnId)
+          throw new Error("Saved diff belongs to another turn.");
+        setRead({ selected: current, result: { status: "ready", diff } });
+      })
+      .catch(() => {
+        if (active) setRead({ selected: current, result: { status: "error" } });
+      });
+    return () => { active = false; };
+  }, [current, available, revision]);
 
-  return { selection: current?.turn ?? null, select, client };
+  const result: DesktopSavedReviewRead = !current || !available
+    ? { status: "idle" }
+    : read?.selected === current
+      ? read.result
+      : { status: "loading" };
+  return {
+    selection: current?.turn ?? null,
+    select,
+    read: result,
+    retry: () => setRevision((value) => value + 1),
+  };
 }

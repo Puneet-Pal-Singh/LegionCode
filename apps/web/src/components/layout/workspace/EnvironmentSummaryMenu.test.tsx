@@ -85,7 +85,7 @@ describe("EnvironmentSummaryMenu", () => {
     expect(screen.queryByText("Outputs")).not.toBeInTheDocument();
     expect(screen.queryByText("Subagents")).not.toBeInTheDocument();
     expect(screen.queryByText("Background processes")).not.toBeInTheDocument();
-    expect(screen.queryByText("Changes")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Changes/ })).toBeEnabled();
     expect(screen.queryByText("Commit or push")).not.toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: "Escape" });

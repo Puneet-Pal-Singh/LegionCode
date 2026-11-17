@@ -112,11 +112,12 @@ export class ChatMediaStore {
     };
   }
 
-  async getProviderImage(input: {
+  /** Reads the same validated durable originals used for provider normalization. */
+  async getOriginalImage(input: {
     userId: string;
     sessionId: string;
     ref: ChatImageAttachmentRef;
-  }): Promise<{ type: "image"; image: string; mimeType: ChatMediaImageType }> {
+  }): Promise<Uint8Array<ArrayBuffer>> {
     const ref = ChatImageAttachmentRefSchema.parse(input.ref);
     const object = await this.bucket.get(
       ChatMediaStore.key(input.userId, input.sessionId, ref.attachmentId),
@@ -152,6 +153,16 @@ export class ChatMediaStore {
         false,
       );
     }
+    return bytes;
+  }
+
+  async getProviderImage(input: {
+    userId: string;
+    sessionId: string;
+    ref: ChatImageAttachmentRef;
+  }): Promise<{ type: "image"; image: string; mimeType: ChatMediaImageType }> {
+    const ref = ChatImageAttachmentRefSchema.parse(input.ref);
+    const bytes = await this.getOriginalImage({ ...input, ref });
     const normalized = normalizeChatImage(bytes, ref.mediaType, this.settings);
     return encodeProviderImage(normalized);
   }

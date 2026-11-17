@@ -1,14 +1,18 @@
 import {
   cloneElement,
+  useCallback,
+  useEffect,
   useId,
   useMemo,
   useRef,
   useState,
   type ReactElement,
   type ButtonHTMLAttributes,
+  type RefAttributes,
 } from "react";
+import { createPortal } from "react-dom";
 import { Check, Folder, MessageSquare, Plus, Search } from "lucide-react";
-import { useOutsideDismiss } from "../../hooks/useOutsideDismiss";
+import { useOutsideDismiss, useViewportPopoverPosition } from "@legioncode/client-ui";
 
 interface ProjectChooserProps {
   currentProject?: string;
@@ -16,7 +20,7 @@ interface ProjectChooserProps {
   onSelect: (project: string) => void;
   onNewProject: () => void;
   onNoProject: () => void;
-  children: ReactElement<ButtonHTMLAttributes<HTMLButtonElement>>;
+  children: ReactElement<ButtonHTMLAttributes<HTMLButtonElement> & RefAttributes<HTMLButtonElement>>;
 }
 
 export function ProjectChooser({
@@ -31,7 +35,26 @@ export function ProjectChooser({
   const dialogId = useId();
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
-  useOutsideDismiss(rootRef, isOpen, () => setIsOpen(false));
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const close = useCallback(() => setIsOpen(false), []);
+  const insideRefs = useMemo(() => [panelRef], []);
+  const panelStyle = useViewportPopoverPosition(isOpen, triggerRef, panelRef, {
+    align: "auto", placement: "auto", preferredWidth: 288,
+  });
+  // The shared dismissal owner also guards Escape during IME composition and
+  // restores the trigger without reclaiming focus after an outside click.
+  useOutsideDismiss(rootRef, isOpen, close, {
+    additionalRefs: insideRefs,
+    escapeFocusRef: triggerRef,
+  });
+  useEffect(() => {
+    if (!isOpen || panelStyle.visibility !== "visible") return;
+    const firstControl = searchRef.current ??
+      panelRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)");
+    (firstControl ?? panelRef.current)?.focus({ preventScroll: true });
+  }, [isOpen, panelStyle.visibility]);
   const visibleProjects = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return projects
@@ -41,45 +64,46 @@ export function ProjectChooser({
   const currentProjectName = currentProject?.split("/").filter(Boolean).at(-1);
 
   const choose = (action: () => void) => {
-    action();
     setQuery("");
-    setIsOpen(false);
+    close();
+    if (triggerRef.current?.isConnected && !triggerRef.current.disabled)
+      triggerRef.current.focus({ preventScroll: true });
+    // Restore before dispatch: a newly opened repository dialog owns its focus.
+    action();
   };
 
   return (
     <div
       ref={rootRef}
-      className="relative inline-flex"
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          event.stopPropagation();
-          setIsOpen(false);
-          rootRef.current?.querySelector("button")?.focus();
-        }
-      }}
+      className="relative inline-flex min-w-0 max-w-full"
     >
       {cloneElement(children, {
+        ref: triggerRef,
         "aria-haspopup": "dialog",
         "aria-expanded": isOpen,
         "aria-controls": isOpen ? dialogId : undefined,
         onClick: (event) => {
           children.props.onClick?.(event);
+          if (event.defaultPrevented || children.props.disabled) return;
           setQuery("");
           setIsOpen((current) => !current);
         },
       })}
-      {isOpen ? (
+      {isOpen && typeof document !== "undefined" ? createPortal(
         <div
+          ref={panelRef}
           id={dialogId}
           role="dialog"
           aria-label="Choose project"
-          className="ui-surface-popover absolute bottom-full left-0 z-50 mb-2 w-72 max-w-[calc(100vw-2rem)] overflow-hidden p-2"
+          tabIndex={-1}
+          className="ui-surface-popover fixed z-50 overflow-y-auto p-2"
+          style={panelStyle}
         >
           {projects.length > 0 ? (
             <label className="flex h-10 items-center gap-2 border-b border-zinc-800 px-2 text-zinc-400">
               <Search size={16} aria-hidden="true" />
               <input
-                autoFocus
+                ref={searchRef}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search projects"
@@ -130,7 +154,7 @@ export function ProjectChooser({
               {!currentProject ? <Check size={16} className="ml-auto" /> : null}
             </button>
           </div>
-        </div>
+        </div>, document.body,
       ) : null}
     </div>
   );

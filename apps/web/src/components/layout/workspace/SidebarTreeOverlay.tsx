@@ -1,7 +1,6 @@
 import type { CheckoutTurnIdentity } from "../../../services/api/checkoutReads";
-import { AnimatePresence, motion } from "framer-motion";
 import { useState, type RefObject } from "react";
-import { Resizer } from "../../ui/Resizer";
+import { WorkspaceTreeDrawer } from "@legioncode/client-ui";
 import { FileExplorer, type FileExplorerHandle } from "../../FileExplorer";
 import { ChangesList } from "@legioncode/client-ui";
 import { RepoFileTree } from "../../github/RepoFileTree";
@@ -30,48 +29,21 @@ interface SidebarTreeOverlayProps {
 }
 
 export function SidebarTreeOverlay(props: SidebarTreeOverlayProps) {
-  const isOpen = props.activeTab === "changes" || props.activeTab === "files";
-  const [drawerWidth, setDrawerWidth] = useState<number | null>(null);
-  const resizeDrawer = (delta: number) => {
-    setDrawerWidth((currentWidth) => {
-      const drawer = document.querySelector<HTMLElement>(
-        "[data-sidebar-tree-drawer]",
-      );
-      const parentWidth = drawer?.parentElement?.clientWidth ?? 0;
-      const nextWidth = Math.min(
-        parentWidth,
-        (currentWidth ?? drawer?.offsetWidth ?? 0) + delta,
-      );
-      if (nextWidth <= 80) {
-        props.onClose();
-        return null;
-      }
-      return nextWidth;
-    });
-  };
-
   return (
-    <AnimatePresence>
-      {isOpen ? (
-        <motion.aside
-          key={props.activeTab}
-          initial={{ x: "100%", opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          exit={{ x: "100%", opacity: 0 }}
-          transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
-          data-sidebar-tree-drawer
-          className="absolute bottom-0 right-0 top-[60px] z-30 flex min-w-0 max-w-full flex-col overflow-hidden border-l border-zinc-800 bg-black shadow-[-18px_0_36px_rgba(0,0,0,0.35)]"
-          style={{ width: drawerWidth ?? "50%" }}
-        >
-          <Resizer side="right" onResize={resizeDrawer} />
-          {props.activeTab === "changes" ? (
-            <ChangedFilesTree onFileSelect={props.onChangedFileSelect} />
-          ) : (
-            <WorkspaceFilesTree {...props} />
-          )}
-        </motion.aside>
-      ) : null}
-    </AnimatePresence>
+    <WorkspaceTreeDrawer
+      kind={
+        props.activeTab === "changes" || props.activeTab === "files"
+          ? props.activeTab
+          : null
+      }
+      onClose={props.onClose}
+    >
+      {props.activeTab === "changes" ? (
+        <ChangedFilesTree onFileSelect={props.onChangedFileSelect} />
+      ) : (
+        <WorkspaceFilesTree {...props} />
+      )}
+    </WorkspaceTreeDrawer>
   );
 }
 
@@ -132,42 +104,87 @@ export function WorkspaceFilesTree({
   const [query, setQuery] = useState("");
   const hasOwnedTurn = checkoutTurn !== undefined;
 
-  const scope = JSON.stringify([sandboxId, runId, checkoutTurn?.turnId, checkoutTurn?.runAttemptId, repo?.full_name, branch]);
-  const [choice, setChoice] = useState<{ scope: string; source: "checkout" | "repository" } | null>(null);
-  const source = choice?.scope === scope ? choice.source : hasOwnedTurn ? "checkout" : repo ? "repository" : "checkout";
-  const tree = source === "repository" && repo ? (
-    <RepoFileTree
-      owner={repo.owner.login}
-      repo={repo.name}
-      branch={branch}
-      tree={repoTree}
-      isLoading={isLoadingTree || !isGitHubLoaded}
-      loadError={repoTreeError}
-      onRetry={retryRepoTree}
-      filterQuery={query}
-      onFileSelect={onGitHubFileSelect}
-    />
-  ) : hasOwnedTurn ? (
-    <FileExplorer
-      ref={explorerRef}
-      sessionId={sandboxId}
-      runId={runId}
-      checkoutTurn={checkoutTurn}
-      filterQuery={query}
-      onFileClick={onLocalFileSelect}
-    />
-  ) : <p className="px-4 py-3 text-xs text-zinc-400">Start a task to browse its checkout.</p>;
+  const scope = JSON.stringify([
+    sandboxId,
+    runId,
+    checkoutTurn?.turnId,
+    checkoutTurn?.runAttemptId,
+    repo?.full_name,
+    branch,
+  ]);
+  const [choice, setChoice] = useState<{
+    scope: string;
+    source: "checkout" | "repository";
+  } | null>(null);
+  const source =
+    choice?.scope === scope
+      ? choice.source
+      : hasOwnedTurn
+        ? "checkout"
+        : repo
+          ? "repository"
+          : "checkout";
+  const tree =
+    source === "repository" && repo ? (
+      <RepoFileTree
+        owner={repo.owner.login}
+        repo={repo.name}
+        branch={branch}
+        tree={repoTree}
+        isLoading={isLoadingTree || !isGitHubLoaded}
+        loadError={repoTreeError}
+        onRetry={retryRepoTree}
+        filterQuery={query}
+        onFileSelect={onGitHubFileSelect}
+      />
+    ) : hasOwnedTurn ? (
+      <FileExplorer
+        ref={explorerRef}
+        sessionId={sandboxId}
+        runId={runId}
+        checkoutTurn={checkoutTurn}
+        filterQuery={query}
+        onFileClick={onLocalFileSelect}
+      />
+    ) : (
+      <p className="px-4 py-3 text-xs text-zinc-400">
+        Start a task to browse its checkout.
+      </p>
+    );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {repo ? <div className="flex gap-1 border-b border-zinc-800 p-2" role="group" aria-label="File source">
-        <button type="button" aria-pressed={source === "checkout"} disabled={!hasOwnedTurn}
-          className="rounded px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800 aria-pressed:bg-zinc-800 disabled:opacity-40"
-          onClick={() => { setChoice({ scope, source: "checkout" }); setQuery(""); }}>Task checkout</button>
-        <button type="button" aria-pressed={source === "repository"}
-          className="rounded px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800 aria-pressed:bg-zinc-800"
-          onClick={() => { setChoice({ scope, source: "repository" }); setQuery(""); }}>Repository</button>
-      </div> : null}
+      {repo ? (
+        <div
+          className="flex gap-1 border-b border-zinc-800 p-2"
+          role="group"
+          aria-label="File source"
+        >
+          <button
+            type="button"
+            aria-pressed={source === "checkout"}
+            disabled={!hasOwnedTurn}
+            className="rounded px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800 aria-pressed:bg-zinc-800 disabled:opacity-40"
+            onClick={() => {
+              setChoice({ scope, source: "checkout" });
+              setQuery("");
+            }}
+          >
+            Task checkout
+          </button>
+          <button
+            type="button"
+            aria-pressed={source === "repository"}
+            className="rounded px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800 aria-pressed:bg-zinc-800"
+            onClick={() => {
+              setChoice({ scope, source: "repository" });
+              setQuery("");
+            }}
+          >
+            Repository
+          </button>
+        </div>
+      ) : null}
       <TreeFilter value={query} onChange={setQuery} />
       <div className="min-h-0 flex-1 overflow-y-auto">{tree}</div>
     </div>

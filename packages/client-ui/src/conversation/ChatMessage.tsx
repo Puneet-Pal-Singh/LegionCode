@@ -180,6 +180,7 @@ function readMessageImagePreviews(
             byteSize:
               typeof record.byteSize === "number" ? record.byteSize : undefined,
             src,
+            sourceId: typeof record.src === "string" && resolveHydratedImageSource ? record.src : undefined,
           },
         ];
       })

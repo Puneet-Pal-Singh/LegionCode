@@ -3,6 +3,9 @@ import { BYOKConnectRequestSchema, ProviderIdSchema } from "@repo/shared-types";
 import type { AppServerRequest } from "@legioncode/app-server/protocol";
 import type { LocalAppServerMessage } from "@legioncode/app-server/local-process";
 import type { AppServerEnvironmentSnapshot } from "@repo/platform-protocol";
+import type { HostedAccountCommand, HostedAccountSnapshot } from "./hosted-account";
+import type { HostedRequest, HostedRequestResult, HostedResponseMetadata } from "./hosted-request";
+import type { NativeHostBrokerConfiguration } from "./native-host-broker-config";
 
 export const APP_SERVER_REQUEST_CHANNEL = "desktop:app-server-request";
 export const BUILD_INFO_CHANNEL = "desktop:get-build-info";
@@ -10,6 +13,7 @@ export const ENVIRONMENT_SNAPSHOT_CHANNEL = "desktop:get-environment";
 export const ENVIRONMENT_STATUS_CHANNEL = "desktop:environment-status";
 export const ENVIRONMENT_RESTART_CHANNEL = "desktop:restart-environment";
 export const WORKSPACE_PICK_CHANNEL = "desktop:pick-workspace";
+export const WORKSPACE_OPEN_REQUESTED_CHANNEL = "desktop:open-workspace-requested";
 export const CREDENTIAL_COMMAND_CHANNEL = "desktop:credential-command";
 
 export const DesktopCredentialStatusSchema = z.object({
@@ -55,8 +59,11 @@ export type DesktopApi = {
     listener: (snapshot: AppServerEnvironmentSnapshot) => void,
   ): () => void;
   restartEnvironment(): Promise<void>;
+  onOpenWorkspaceRequested(listener: () => void): () => void;
   pickWorkspace(): Promise<WorkspaceSelection | null>;
   credential(command: DesktopCredentialCommand): Promise<DesktopCredentialResult>;
+  hostedAccount(command: HostedAccountCommand): Promise<HostedAccountSnapshot>;
+  hostedRequest(request: HostedRequest, onResponse?: (metadata: HostedResponseMetadata) => void): Promise<HostedRequestResult>;
 };
 
 export type DesktopEnvironmentConfig = AppServerEnvironmentSnapshot;
@@ -79,6 +86,7 @@ export type LocalAppServerHostConfig = {
   nativeWriterFenceDirectory?: string;
   nativeFilesystemHelperPath?: string;
   nativeProcessHelperPath?: string;
+  nativeHostBroker?: NativeHostBrokerConfiguration;
 };
 
 export type LocalAppServerStartMessage = {
@@ -90,4 +98,5 @@ export type LocalAppServerStartMessage = {
   nativeWriterFenceDirectory?: string;
   nativeFilesystemHelperPath?: string;
   nativeProcessHelperPath?: string;
+  nativeHostBroker?: NativeHostBrokerConfiguration;
 };

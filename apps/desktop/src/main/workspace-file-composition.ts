@@ -23,11 +23,13 @@ export function createWorkspaceFileComposition(
     }),
     createWorkspaceFilesService: (workspaces) => new LocalWorkspaceFilesService({
       withWorkspace: async (workspaceId, operation) => {
-        const binding = await workspaces.bindForExecution(workspaceId);
+        const binding = await workspaces.bindForFilesystem(workspaceId);
         try {
           binding.assertCurrent();
           const reader = new NativeFilesystemBridge({
-            helperPath: filesystemHelperPath, rootDirectory: binding.rootDirectory,
+            helperPath: filesystemHelperPath,
+            rootDirectory: binding.rootDirectory,
+            observeExecution: binding.observeNativeExecution,
           });
           // The native R/D bridge awaits child and pipe closure on both result and error paths.
           const result = await operation(reader, binding.signal);
