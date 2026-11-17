@@ -376,7 +376,8 @@ export class RuntimeKernel {
       const result = prepared.delegated
         ? { status: "completed" as const, ...await prepared.delegated.execute() }
         : await this.executeNativePreparedTurn(prepared);
-      if (prepared.executionSignal.aborted || lifecycle.isTerminal) {
+      prepared.executionSignal.throwIfAborted();
+      if (lifecycle.isTerminal) {
         throw new LifecycleTransitionError(
           "turn",
           "interrupted",
@@ -391,7 +392,7 @@ export class RuntimeKernel {
       await this.settleArtifacts(turn.id, lifecycle, artifacts);
       // Snapshot capture awaits filesystem/Git work. Stop may have been accepted
       // during that await; revalidate before entering terminal arbitration.
-      if (prepared.executionSignal.aborted) throw new RuntimeKernelError("turn_cancelled", "Turn stopped during artifact capture");
+      prepared.executionSignal.throwIfAborted();
       if (prepared.delegated) await prepared.delegated.requireQuiescence();
       await lifecycle.complete(result.output, result.finalItemId, () => !prepared.executionSignal.aborted);
       return {
@@ -443,6 +444,10 @@ export class RuntimeKernel {
           await this.recoverFailedTurn(lifecycle, error);
         }
       }
+      if (lifecycle.terminalStatus === "interrupted" &&
+        error instanceof LifecycleTransitionError && error.subject === "turn" &&
+        error.from === "interrupted" && error.to === "completed"
+      ) prepared.executionSignal.throwIfAborted();
       throw error;
     } finally {
       this.activeContexts.delete(turn.id);
