@@ -284,6 +284,8 @@ export class CodexAuthentication {
       timer = setTimeout(() => this.cancel(), 30_000);
       timer.unref();
     });
+    // Custody can fail before Promise.all starts observing the login pair.
+    void notifications.catch(() => undefined);
     // No retry after a lost response. Raw transport errors never include params.
     try {
       assertCurrent();
