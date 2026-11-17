@@ -172,6 +172,10 @@ export interface Env {
   Sandbox: DurableObjectNamespace<Sandbox>;
   NativeSandbox?: DurableObjectNamespace<NativeSandbox>;
   CF_VERSION_METADATA?: WorkerVersionMetadata;
+  /** Server-only account-scoped Workers Containers Read credential/config. */
+  NATIVE_PLACEMENT_READ_TOKEN?: string;
+  NATIVE_PLACEMENT_ACCOUNT_ID?: string;
+  NATIVE_PLACEMENT_APPLICATION_ID?: string;
   ARTIFACTS: R2Bucket;
   CORS_ALLOWED_ORIGINS?: string;
   CORS_ALLOW_DEV_ORIGINS?: "true" | "false";

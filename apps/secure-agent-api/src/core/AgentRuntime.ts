@@ -1,3 +1,4 @@
+import { NativeContainerPlacementReader } from "./NativeContainerPlacementReader";
 import { snapshotNativeSandboxPhysicalBinding, type NativeSandboxPhysicalBinding } from "@repo/worker-protocol/private/native-sandbox-binding";
 import { selectNativeSandboxBinding, resolveNativeSandbox } from "./OriginalSandboxResolver";
 import { CloudflareArtifactStoreAdapter } from "../adapters/CloudflareArtifactStoreAdapter";
@@ -285,6 +286,9 @@ export class AgentRuntime extends DurableObject<Env> {
 
   async bootstrapNativeCheckout(sessionId: string, lease: SandboxExecutionLease, gitToken?: string) {
     this.assertProductPlane();
+    // Validate protected server configuration before any composition, physical
+    // bootstrap or Git effect. This reader supplies observations, never Ready.
+    const placementReader = new NativeContainerPlacementReader(this.env);
     const runtime = await this.ctx.blockConcurrencyWhile(async () => {
       const row = await this.ctx.storage.get<PhysicalExecutionSessionRecord>(this.getExecutionSessionKey(sessionId));
       if (!row || isQualificationRecord(row) || isRetiredExecutionSession(row) || row.cleanupInProgress ||
@@ -307,6 +311,7 @@ export class AgentRuntime extends DurableObject<Env> {
       const settlement = original.bootstrapTransportSettlement();
       if (!settlement || settlement.receipt !== receipt) throw new Error("NATIVE_BOOTSTRAP_TRANSPORT_UNKNOWN");
       await original.produceNativeRuntimeObservation();
+      await original.observeNativeContainerPlacement(placementReader);
       await original.drainOriginalOperations();
       if (!await original.awaitClosure()) throw new Error("NATIVE_RUNTIME_CLOSURE_UNKNOWN");
       // inspect().image is only a provider START reference. The actual resource,
