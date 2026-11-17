@@ -39,6 +39,7 @@ import type {
   WorkerProtocolPort,
 } from "./ports.js";
 import { RuntimeLifecycleCoordinator } from "./RuntimeLifecycleCoordinator.js";
+import { readCompletedTurnReplay } from "./RuntimeTerminalReplay.js";
 import type { AcceptedThreadInput, StartTurnInput, StartTurnResult, ToolResult } from "./types.js";
 import { ToolExecutionCoordinator } from "./ToolExecutionCoordinator.js";
 import { reconcileProviderContextBudget } from "./ProviderContextBudget.js";
@@ -167,7 +168,8 @@ export class RuntimeKernel {
 
   async startTurn(input: StartTurnInput): Promise<StartTurnResult> {
     // Rejection must not enter the preparation-failure lifecycle appender.
-    await this.assertLifecycleStartAllowed(input);
+    const replayed = await this.readLifecycleStart(input);
+    if (replayed) return replayed;
     let prepared: PreparedTurn;
     try {
       prepared = await this.prepareTurn(input);
@@ -225,7 +227,7 @@ export class RuntimeKernel {
     }
   }
 
-  private async assertLifecycleStartAllowed(input: StartTurnInput): Promise<void> {
+  private async readLifecycleStart(input: StartTurnInput): Promise<StartTurnResult | undefined> {
     const run = RunSchema.parse(input.run);
     const turn = TurnSchema.parse(input.turn);
     const attempt = RunAttemptIdSchema.parse(input.runAttemptId);
@@ -255,10 +257,15 @@ export class RuntimeKernel {
       (replay.nextSequence !== null && replay.nextSequence !== first.sequence)
     )
       throw new RuntimeKernelError("invalid_turn_identity", "Canonical lifecycle preflight has a different identity or sequence");
-    if (!recovery)
+    if (recovery) return;
+    if (input.execution?.kind === "delegated" || run.harnessSelection?.selection != null)
       throw new RuntimeKernelError("turn_already_owned", "Canonical lifecycle history requires explicit supported recovery");
-    // Only the existing delegated strategy may continue to its full persisted
-    // session/generation, frozen binding and committed start-snapshot checks.
+    const result = await readCompletedTurnReplay(
+      this.dependencies.lifecycleEvents, { ...input, run, turn, runAttemptId: attempt },
+      this.dependencies.producerId, first,
+    );
+    this.assertTurnAvailable(turn);
+    return result;
   }
 
   private async prepareTurn(input: StartTurnInput): Promise<PreparedTurn> {
