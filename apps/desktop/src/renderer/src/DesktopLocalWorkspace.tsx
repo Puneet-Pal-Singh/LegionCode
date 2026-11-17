@@ -12,7 +12,7 @@ import {
 import { AppServerClientError, createAppServerClient } from "@legioncode/sdk";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppServerEnvironmentSnapshot } from "@repo/platform-protocol";
-import type { LocalWorkspaceGrant, Thread } from "@repo/platform-protocol";
+import type { Thread } from "@repo/platform-protocol";
 
 import type {
   DesktopBuildInfo,
@@ -103,6 +103,7 @@ export function DesktopLocalWorkspace({ active = true, onPlacementChange, hosted
 
   const {
     sdkReady,
+    initialization,
     configurationOptions: turnConfigurationOptions,
     workspace,
     state: workspaceBootstrapState,
@@ -1012,6 +1013,18 @@ export function DesktopLocalWorkspace({ active = true, onPlacementChange, hosted
         }}
         client={appServerClient}
         ready={sdkReady}
+        harnessScope={
+          sdkReady && initialization?.client === appServerClient &&
+          environment?.status === "ready" && environment.kind === "local" &&
+          workspace?.readiness === "ready"
+            ? {
+                client: initialization.client,
+                environmentId: initialization.environmentId,
+                workspaceId: workspace.workspaceId,
+                grantedAt: workspace.grantedAt,
+              }
+            : null
+        }
         build={build}
       />
     </>

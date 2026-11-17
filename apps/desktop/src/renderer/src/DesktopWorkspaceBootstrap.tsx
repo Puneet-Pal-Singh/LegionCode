@@ -4,10 +4,10 @@ import {
   ConversationHero,
 } from "@legioncode/client-ui";
 import type { AppServerClient, LocalTurnConfigurationOptions } from "@legioncode/sdk";
-import type { LocalWorkspaceGrant } from "@repo/platform-protocol";
+import type { AppServerInitializeResponse, LocalWorkspaceGrant } from "@repo/platform-protocol";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
-type BootstrapClient = Pick<AppServerClient, "initialize" | "getWorkspaceGrant">;
+type BootstrapClient = AppServerClient;
 
 export type DesktopWorkspaceBootstrapState =
   | { status: "idle" | "connecting" | "loading" | "ready" }
@@ -41,6 +41,10 @@ export function useDesktopWorkspaceBootstrap(options: BootstrapOptions) {
     ready: false,
   });
   const [sdkReady, setSdkReady] = useState(false);
+  const [initialization, setInitialization] = useState<{
+    client: AppServerClient;
+    environmentId: NonNullable<AppServerInitializeResponse["environmentId"]>;
+  } | null>(null);
   const [configurationOptions, setConfigurationOptions] = useState<LocalTurnConfigurationOptions | null>(null);
   const [workspace, setWorkspace] = useState<LocalWorkspaceGrant | null>(null);
   const [state, setState] = useState<DesktopWorkspaceBootstrapState>({ status: "idle" });
@@ -87,6 +91,7 @@ export function useDesktopWorkspaceBootstrap(options: BootstrapOptions) {
     activeRead.current = null;
     context.current = { client: current.client, ready: current.environmentReady };
     setSdkReady(false);
+    setInitialization(null);
     setConfigurationOptions(null);
     setWorkspace(null);
     current.onScopeReset();
@@ -99,6 +104,9 @@ export function useDesktopWorkspaceBootstrap(options: BootstrapOptions) {
     publish({ status: "connecting" });
     void request.client.initialize().then((initialized) => {
       if (!isCurrent(request)) return;
+      setInitialization(initialized.environment === "local" && initialized.environmentId
+        ? { client: request.client, environmentId: initialized.environmentId }
+        : null);
       setConfigurationOptions(initialized.localTurnConfiguration ?? null);
       setSdkReady(true);
       void readWorkspace(request);
@@ -146,6 +154,9 @@ export function useDesktopWorkspaceBootstrap(options: BootstrapOptions) {
     : { status: options.client && options.environmentReady ? "connecting" : "idle" };
   return {
     sdkReady: contextMatches && sdkReady,
+    initialization: contextMatches && sdkReady && initialization?.client === options.client
+      ? initialization
+      : null,
     configurationOptions: contextMatches ? configurationOptions : null,
     workspace: contextMatches ? workspace : null,
     state: visibleState,
