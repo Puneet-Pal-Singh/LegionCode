@@ -1,4 +1,4 @@
-import { HarnessSetupRequestSchema, HarnessSetupResponseSchema, HarnessStatusRequestSchema, HarnessStatusResponseSchema, HarnessModelsRequestSchema, HarnessModelsResponseSchema, HarnessSelectionReadRequestSchema, HarnessSelectionResponseSchema, HarnessSelectRequestSchema,
+import { HarnessSetupRequestSchema, HarnessStatusRequestSchema, HarnessModelsRequestSchema, HarnessSelectionReadRequestSchema, HarnessSelectRequestSchema,
   type HarnessSetupRequest, type HarnessSetupResponse, type HarnessStatusRequest, type HarnessStatusResponse, type HarnessModelsRequest, type HarnessModelsResponse, type HarnessSelectionReadRequest, type HarnessSelectionResponse, type HarnessSelectRequest } from "@repo/platform-protocol";
 import { CheckoutListFilesParamsSchema, CheckoutReadParamsSchema } from "@legioncode/app-server/protocol";
 import type { CheckoutListFilesResult, CheckoutReadFileResult } from "@legioncode/app-server/protocol";
