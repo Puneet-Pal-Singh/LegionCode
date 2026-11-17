@@ -8,7 +8,7 @@
 #include "legioncode-host-record.h"
 
 typedef struct {
-  bool used, sealed, released, owner_disconnected, retirement_unknown, launch_closed, stdout_closed, stderr_closed, access_ready;
+  bool used, sealed, released, owner_disconnected, retirement_unknown, launch_closed, stdout_closed, stderr_closed, access_ready, access_epoch_active;
   lc_host_scope_record record;
   const lc_host_approval *approval; int state_directory;
   char capability[65], command_id[257], command_digest[65], name[80];
@@ -140,12 +140,14 @@ static inline bool lc_host_scope_open(int state, const lc_host_approval *approva
       lc_host_beneath(scope->record.root_path, scope->record.work_path) ||
       lc_host_beneath(scope->record.work_path, scope->record.root_path)) { lc_host_scope_unknown(state, scope); return false; }
   char journal[96]; snprintf(journal, sizeof(journal), "%s.access", scope->name);
-  scope->journal = openat(state, journal, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+  scope->journal = openat(state, journal, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
   struct passwd actor, *found = NULL; char user[16384];
   if (scope->journal < 0 || getpwuid_r(approval->actor, &actor, user, sizeof(user), &found) || !found ||
       !lc_host_scope_save(state, scope)) { lc_host_scope_unknown(state, scope); return false; }
   scope->access.actor = approval->actor; scope->access.actor_gid = actor.pw_gid;
   scope->access.principal = scope->record.principal; scope->access.journal = scope->journal;
+  scope->access.binding = &scope->record.binding; scope->access.boot = scope->record.boot;
+  scope->access.generation = scope->record.origin_generation; scope->access.command_ids = scope->record.command_ids;
   scope->access.root_path = scope->record.root_path; scope->access.executables = approval->executables;
   scope->access.root_device = scope->record.binding.root.device;
   scope->access.metadata = &scope->record.metadata; scope->access.metadata_pins = &scope->metadata_pins;
@@ -156,36 +158,53 @@ unused:
   scope->root = scope->fence = scope->namespace = -1; return false;
 }
 
-static inline bool lc_host_prepare_command_internal(int state, const lc_host_approval *approval,
-    lc_host_scope *scope, xpc_object_t request, lc_host_resource_purpose purpose) {
+typedef enum { LC_HOST_COMMAND_REJECTED, LC_HOST_COMMAND_PREPARED, LC_HOST_COMMAND_BUSY } lc_host_command_preparation;
+typedef struct { char id[257], digest[65]; } lc_host_requested_command;
+/* Existing scope entries are the only epoch owner. Two distinct roots may share
+ * an actor-private ancestor, so exact ACL baselines cannot overlap there. Idle
+ * captured scopes retain their original writer/UID resource without this gate. */
+static inline bool lc_host_actor_access_busy(const lc_host_scope *scopes, const lc_host_scope *selected) {
+  if (!scopes || !selected) return true;
+  for (size_t i = 0; i < LC_HOST_MAX_SCOPES; i++)
+    if (&scopes[i] != selected && scopes[i].used && scopes[i].record.binding.actor_uid == selected->record.binding.actor_uid &&
+        scopes[i].access_epoch_active) return true;
+  return false;
+}
+static inline lc_host_command_preparation lc_host_prepare_command_internal(int state, const lc_host_approval *approval,
+    lc_host_scope *scope, xpc_object_t request, lc_host_resource_purpose purpose, lc_host_scope *scopes,
+    lc_host_requested_command *requested) {
   static const char *const fields[] = { "version", "operation", "generation", "capability", "commandId", "command", "cwd", LC_HOST_METADATA_FIELDS };
-  char id[257], command[501], cwd[512]; lc_host_metadata metadata;
-  if (scope->record.purpose != purpose ||
+  char id[257], command[501], cwd[512], path[sizeof(scope->bootstrap.path)]; lc_host_metadata metadata;
+  bool member = false;
+  if (scopes) for (size_t i = 0; i < LC_HOST_MAX_SCOPES; i++) if (&scopes[i] == scope) member = true;
+  if (!member || !requested || scope->record.purpose != purpose ||
       (purpose != LC_HOST_RESOURCE_NATIVE && purpose != LC_HOST_RESOURCE_SETUP_QUALIFICATION) ||
-      !lc_host_fields(request, fields, sizeof(fields) / sizeof(fields[0])) || scope->sealed ||
+      !lc_host_fields(request, fields, sizeof(fields) / sizeof(fields[0])) || scope->sealed || scope->access_epoch_active ||
       scope->record.phase != LC_HOST_IDLE || scope->record.command_count >= 256 || !lc_host_scope_current(scope) || !lc_host_scope_path_current(scope) ||
       !lc_host_uid_zero(scope->record.principal.uid) || !lc_host_get(request, "commandId", id, sizeof(id)) ||
       lc_host_command_seen(scope, id) || !lc_host_get(request, "command", command, sizeof(command)) ||
       !lc_host_get(request, "cwd", cwd, sizeof(cwd)) || !lc_host_metadata_read(request, &metadata) ||
       memcmp(metadata.digest, scope->record.metadata.digest, 32) ||
       !lc_host_metadata_current(&scope->record.metadata, &scope->metadata_pins) ||
-      !lc_host_metadata_receipt_matches(&scope->record.metadata, &scope->metadata_pins, scope->root)) return false;
-  /* Validate disjoint protected namespaces and the actual policy before the
-   * first ACE is changed, not only immediately before target execution. */
+      !lc_host_metadata_receipt_matches(&scope->record.metadata, &scope->metadata_pins, scope->root)) return LC_HOST_COMMAND_REJECTED;
   lc_host_policy_buffer policy;
-  if (!lc_host_build_policy(approval, scope->record.root_path, scope->record.work_path, &scope->record.metadata, &policy)) return false;
+  if (!lc_host_build_policy(approval, scope->record.root_path, scope->record.work_path, &scope->record.metadata, &policy) ||
+      !lc_host_command_path(approval, path, sizeof(path))) return LC_HOST_COMMAND_REJECTED;
+  CC_SHA256_CTX digest; unsigned char hash[32]; CC_SHA256_Init(&digest);
+  CC_SHA256_Update(&digest, command, (CC_LONG)strlen(command) + 1); CC_SHA256_Update(&digest, cwd, (CC_LONG)strlen(cwd) + 1);
+  CC_SHA256_Final(hash, &digest); strcpy(requested->id, id); lc_host_hex(hash, sizeof(hash), requested->digest, sizeof(requested->digest));
+  /* Fully validated positive busy: no selected scope identity, ordinal, record,
+   * journal, ACE or creator changes. The one broker queue makes check+claim
+   * atomic with every other command producer, including private qualification. */
+  if (lc_host_actor_access_busy(scopes, scope)) return LC_HOST_COMMAND_BUSY;
+  scope->access_epoch_active = true;
   lc_host_bootstrap *bootstrap = &scope->bootstrap; memset(bootstrap, 0, sizeof(*bootstrap));
   bootstrap->magic = LC_HOST_BOOTSTRAP_MAGIC; bootstrap->uid = scope->record.principal.uid;
   bootstrap->gid = scope->record.principal.gid; bootstrap->root = scope->record.binding.root; bootstrap->fence = scope->record.binding.fence;
   strcpy(bootstrap->command, command); strcpy(bootstrap->cwd, cwd); strcpy(bootstrap->work, scope->record.work_path);
-  /* Capture ONLY the protected approved Node/npm/env/bash role directories.
-   * The launcher environment below is private to sandbox-exec; target commands
-   * receive this exact path after sandbox, credential drop and descriptor close. */
-  if (!lc_host_command_path(approval, bootstrap->path, sizeof(bootstrap->path))) return false;
-  CC_SHA256_CTX digest; unsigned char hash[32]; CC_SHA256_Init(&digest);
-  CC_SHA256_Update(&digest, command, (CC_LONG)strlen(command) + 1); CC_SHA256_Update(&digest, cwd, (CC_LONG)strlen(cwd) + 1);
-  CC_SHA256_Final(hash, &digest); lc_host_hex(hash, sizeof(hash), scope->command_digest, sizeof(scope->command_digest));
-  strcpy(scope->command_id, id); CC_SHA256(id, (CC_LONG)strlen(id), scope->record.command_ids[scope->record.command_count++]);
+  strcpy(bootstrap->path, path);
+  strcpy(scope->command_digest, requested->digest); strcpy(scope->command_id, id);
+  CC_SHA256(id, (CC_LONG)strlen(id), scope->record.command_ids[scope->record.command_count++]);
   scope->record.bootstrap_release_prepared = 0;
   scope->record.bootstrap_pid = scope->record.bootstrap_uniqueid = 0;
   memset(scope->record.bootstrap_command_id, 0, 32);
@@ -194,20 +213,18 @@ static inline bool lc_host_prepare_command_internal(int state, const lc_host_app
   scope->record.phase = LC_HOST_PREPARED;
   scope->child = 0; scope->reaped = false; scope->stdout_closed = scope->stderr_closed = true;
   scope->stdout_size = scope->stderr_size = 0; scope->timed_out = scope->truncated = false;
-  if (!lc_host_scope_save(state, scope)) { lc_host_scope_unknown(state, scope); return false; }
+  if (!lc_host_scope_save(state, scope)) { lc_host_scope_unknown(state, scope); return LC_HOST_COMMAND_REJECTED; }
   scope->access_ready = false;
-  if (!lc_host_access_prepare(&scope->access, scope->root, scope->record.root_path)) {
-    /* Some ACEs may already exist; keep the writer until exact restoration. */
-    (void)lc_host_scope_seal(state, scope); return false;
+  if (!lc_host_access_prepare(&scope->access, scope->root, scope->record.root_path, scope->record.command_count, hash)) {
+    /* An uncertain epoch retains actor exclusion along with its original pins. */
+    (void)lc_host_scope_seal(state, scope); return LC_HOST_COMMAND_REJECTED;
   }
-  scope->access_ready = true; return true;
+  scope->access_ready = true; return LC_HOST_COMMAND_PREPARED;
 }
 
-/* External requests retain Native-only admission. The private setup runner may
- * call the same implementation ONLY with its fixed internal recipe objects. */
-static inline bool lc_host_prepare_command(int state, const lc_host_approval *approval,
-    lc_host_scope *scope, xpc_object_t request) {
-  return lc_host_prepare_command_internal(state, approval, scope, request, LC_HOST_RESOURCE_NATIVE);
+static inline lc_host_command_preparation lc_host_prepare_command(int state, const lc_host_approval *approval,
+    lc_host_scope *scope, xpc_object_t request, lc_host_scope *scopes, lc_host_requested_command *requested) {
+  return lc_host_prepare_command_internal(state, approval, scope, request, LC_HOST_RESOURCE_NATIVE, scopes, requested);
 }
 
 static inline bool lc_host_pipe(int pair[2]) {
@@ -363,7 +380,7 @@ static inline void lc_host_scope_tick(int state, lc_host_scope *scope) {
   }
   if ((scope->stdout_fd >= 0 && !lc_host_drain(&scope->stdout_fd, scope->stdout_bytes, &scope->stdout_size, &scope->stdout_closed, &scope->truncated)) ||
       (scope->stderr_fd >= 0 && !lc_host_drain(&scope->stderr_fd, scope->stderr_bytes, &scope->stderr_size, &scope->stderr_closed, &scope->truncated))) lc_host_scope_unknown(state, scope);
-  if (scope->record.phase == LC_HOST_RUNNING && now >= scope->deadline) { scope->timed_out = true; (void)lc_host_scope_seal(state, scope); }
+  if (scope->record.phase == LC_HOST_RUNNING && !scope->access.cleanup_started && now >= scope->deadline) { scope->timed_out = true; (void)lc_host_scope_seal(state, scope); }
   bool cleanup = scope->sealed || (scope->child && scope->reaped);
   if (!cleanup) return;
   /* A pre-drop bootstrap is not yet represented by the UID census. Its exact
@@ -379,11 +396,20 @@ static inline void lc_host_scope_tick(int state, lc_host_scope *scope) {
   if (scope->record.phase == LC_HOST_UNKNOWN) return;
   if ((scope->child && !scope->launch_closed) || scope->access.unknown) { lc_host_scope_unknown(state, scope); return; }
   /* No UID member remains and no command can be released during restoration. */
-  if (scope->access.count && !lc_host_access_restore(&scope->access, scope->root)) { lc_host_scope_unknown(state, scope); return; }
+  lc_host_access_validation journal = lc_host_access_validate(&scope->access);
+  if (journal == LC_HOST_ACCESS_PENDING) return;
+  if (journal != LC_HOST_ACCESS_VALID) { lc_host_scope_unknown(state, scope); return; }
+  if (scope->access.count) {
+    if (!lc_host_access_restore(&scope->access, scope->root)) lc_host_scope_unknown(state, scope);
+    /* Revalidate the closed epoch before work-owner restore or IDLE. Journal
+     * cleanup time is not more target execution time; creators remain fenced. */
+    return;
+  }
   scope->access_ready = false;
   if (!scope->sealed) {
     scope->record.phase = LC_HOST_IDLE;
     if (!lc_host_scope_save(state, scope)) lc_host_scope_unknown(state, scope);
+    else scope->access_epoch_active = false;
     return;
   }
   size_t count = 0;
@@ -415,6 +441,6 @@ static inline void lc_host_scope_tick(int state, lc_host_scope *scope) {
   scope->record.cleanup_closed = 1;
   arc4random_buf(scope->record.cleanup_receipt, sizeof(scope->record.cleanup_receipt));
   if (!lc_host_scope_save(state, scope)) { lc_host_scope_unknown(state, scope); return; }
-  scope->released = true;
+  scope->released = true; scope->access_epoch_active = false;
 }
 #endif
