@@ -500,7 +500,14 @@ export class MacHostCommandAttempt implements MacHostCommandResource {
         let end = Math.min(offset + 16 * 1024, bytes.length);
         while (end < bytes.length && (bytes[end]! & 0xc0) === 0x80) end--;
         try { await onOutput(bytes.subarray(offset, end).toString("utf8")); }
-        catch (error) { outputFailed = true; outputFailure = error; return; }
+        catch (error) {
+          outputFailed = true; outputFailure = error;
+          // Seal the SAME scope immediately, but never await it here: seal
+          // itself awaits this original command. Keep polling original status
+          // while its bridge/FD/ACL/descendant closure remains independently owned.
+          void this.seal().catch(sealError => this.markUnknown(sealError));
+          return;
+        }
         offset = end;
       }
     };

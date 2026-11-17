@@ -121,7 +121,7 @@ export class LocalHostCommandWorker implements WorkerProtocolPort {
           if (displayCapped) return;
           const bytes = Buffer.from(delta, "utf8");
           const remaining = 20000 - displayBytes;
-          const admitted = new TextDecoder().decode(bytes.subarray(0, remaining), { stream: true });
+          const admitted = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true }).decode(bytes.subarray(0, remaining), { stream: true });
           if (bytes.length > remaining) displayCapped = true;
           if (!admitted) return;
           display += admitted;

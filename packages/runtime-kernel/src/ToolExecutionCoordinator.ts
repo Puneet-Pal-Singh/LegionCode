@@ -170,6 +170,7 @@ export class ToolExecutionCoordinator {
       authorization.toolCall,
       result,
       liveOutput.persistedPrefix(),
+      liveOutput.remainingBytes(),
     );
     await this.lifecycle.completeToolCall(toolCall.toolCallId, result.output);
     return { toolCallId: toolCall.toolCallId, output: result.output };
@@ -301,6 +302,7 @@ export class ToolExecutionCoordinator {
     toolCall: ToolCallItemContent,
     result: Extract<WorkerToolResult, { kind: "completed" }>,
     persistedPrefix: string,
+    remainingBytes: number,
   ): Promise<void> {
     const projection = mapWorkerResultEvents(
       run,
@@ -317,11 +319,30 @@ export class ToolExecutionCoordinator {
       matched += count;
       if (matched === persistedPrefix.length) break;
     }
-    let skip = matched === persistedPrefix.length ? matched : 0;
-    for (const delta of projection.outputDeltas) {
-      const count = Math.min(skip, delta.length);
-      skip -= count;
-      await appendOutputChunks(this.lifecycle, toolCall.toolCallId, delta.slice(count));
+    if (persistedPrefix.length === 0) {
+      // Preserve legacy display behavior: ONE append per mapped delta, with
+      // the existing lifecycle owner's 4,000-UTF-16 cap. Never expand it here.
+      for (const delta of projection.outputDeltas) {
+        await this.lifecycle.appendToolOutput(toolCall.toolCallId, delta);
+      }
+    } else {
+      let skip = matched === persistedPrefix.length ? matched : 0;
+      const finalParts: string[] = [];
+      for (const delta of projection.outputDeltas) {
+        if (remainingBytes <= 0) break;
+        const count = Math.min(skip, delta.length);
+        skip -= count;
+        const part = boundedUtf8Prefix(delta.slice(count), remainingBytes);
+        if (part.text) finalParts.push(part.text);
+        remainingBytes -= part.bytes;
+        // Reaching a partial code point at the cap seals the display prefix;
+        // later deltas must not fill that space after dropping earlier text.
+        if (part.text.length < delta.length - count) break;
+      }
+      // The combined streamed display is <=64 KiB. Joining the bounded tail
+      // before splitting limits this final sequence to at most 17 append events.
+      // Only the display is capped: model output and all artifacts stay intact.
+      await appendOutputChunks(this.lifecycle, toolCall.toolCallId, finalParts.join(""));
     }
     for (const artifact of projection.artifacts) {
       await this.lifecycle.createArtifact(itemId, artifact);
@@ -334,6 +355,7 @@ interface LiveToolOutput {
   drain(): Promise<void>;
   seal(): void;
   persistedPrefix(): string;
+  remainingBytes(): number;
 }
 function rejectedOutput(message: string): Promise<void> {
   const rejected = Promise.reject(new RuntimeKernelError("worker_failed", message));
@@ -367,6 +389,8 @@ function createLiveToolOutput(
     async drain() { await tail; if (admissionFailure) throw admissionFailure; },
     seal() { sealed = true; },
     persistedPrefix() { return persisted; },
+    // Count the admitted deltas, not a re-encoding of their concatenation.
+    remainingBytes() { return 64 * 1024 - admittedBytes; },
   };
 }
 async function appendOutputChunks(
@@ -383,4 +407,18 @@ async function appendOutputChunks(
     persisted?.(part);
     offset = end;
   }
+}
+
+/** Return an exact code-point-safe prefix without encoding/allocating an
+ * unbounded final legacy value. UTF-8 replacement cost for lone surrogates is 3. */
+function boundedUtf8Prefix(value: string, maximumBytes: number): { text: string; bytes: number } {
+  let end = 0, bytes = 0;
+  for (const point of value) {
+    const code = point.codePointAt(0)!;
+    const size = code <= 0x7f ? 1 : code <= 0x7ff ? 2 : code <= 0xffff ? 3 : 4;
+    if (bytes + size > maximumBytes) break;
+    bytes += size;
+    end += point.length;
+  }
+  return { text: value.slice(0, end), bytes };
 }
