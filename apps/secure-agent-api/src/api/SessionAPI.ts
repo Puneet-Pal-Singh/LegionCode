@@ -984,9 +984,9 @@ export async function handleExecuteTask(
         409,
       );
     }
-    // Native uses the retained physical owner, whose Ready evidence check still
-    // gates execution. Delegated markers cannot enter ordinary Native plugins.
-    if (hasExecutionDomain(auth.session) && auth.session.executionDomain?.domain !== "legioncode_native") {
+    // No marked domain may activate ordinary dispatch until its qualified owner
+    // is complete. Schema/artifact evidence cannot lift deployment restrictions.
+    if (hasExecutionDomain(auth.session)) {
       return errorResponse(
         "Marked execution requires its actual runtime owner",
         "EXECUTION_DOMAIN_NOT_READY",

@@ -1,3 +1,4 @@
+import { executionDomainDigest, snapshotExecutionDomain } from "@repo/worker-protocol/private/execution-domain";
 /**
  * Tests for CloudflareSandboxExecutionAdapter.
  *
@@ -862,44 +863,50 @@ describe("CloudflareSandboxExecutionAdapter", () => {
     });
 
     it("does not cancel a sibling lease during cleanup", async () => {
-      const markedLease = { ...TEST_LEASE, leaseId: "lease:marked:attempt-1", executionDomainDigest: "a".repeat(64) };
-      adapter.registerLease(markedLease);
       const dispatched = vi.spyOn(mockPlugin, "execute");
-      const siblingLease = {
-        ...TEST_LEASE,
-        leaseId: "lease:workspace-2:attempt-1",
-        workspaceScope: {
-          runId: TEST_RUN_ID,
-          threadId: "thread-2",
-          turnId: "turn-2",
-          runAttemptId: "attempt-1",
-          workspaceId: "workspace-2",
-          root: "/workspace-2",
-        },
-        sandboxId: "workspace:workspace-2:attempt:attempt-1",
-      };
-      adapter.registerLease(siblingLease);
-      const first = adapter.executeTask(markedLease.leaseId, {
-        taskId: "first-task",
-        action: "MockPlugin.execute",
-        params: { action: "run", delay: 25, runId: TEST_RUN_ID },
-        lease: markedLease,
-      });
-      const second = adapter.executeTask(siblingLease.leaseId, {
-        taskId: "second-task",
-        action: "MockPlugin.execute",
-        params: { action: "run", delay: 5, runId: TEST_RUN_ID },
-        lease: siblingLease,
-      });
+      for (const marker of ["legioncode_native", "delegated_harness"] as const) {
+        const markedLease = { ...TEST_LEASE, leaseId: `lease:${marker}:attempt-1`, executionDomainDigest: await executionDomainDigest(snapshotExecutionDomain({ version: 1, domain: marker,
+          ...(marker === "delegated_harness" ? { delegatedRouteDigest: "a".repeat(64) } : {}),
+          scope: { userId: "test-user", brainSessionId: TEST_LEASE.owner, workspaceId: TEST_LEASE.workspaceScope.workspaceId,
+            runId: TEST_RUN_ID, threadId: TEST_LEASE.workspaceScope.threadId, turnId: TEST_LEASE.workspaceScope.turnId, runAttemptId: TEST_LEASE.workspaceScope.runAttemptId } })) };
+        adapter.registerLease(markedLease);
+        dispatched.mockClear();
+        const siblingLease = {
+          ...TEST_LEASE,
+          leaseId: `lease:workspace-2:${marker}:attempt-1`,
+          workspaceScope: {
+            runId: TEST_RUN_ID,
+            threadId: "thread-2",
+            turnId: "turn-2",
+            runAttemptId: "attempt-1",
+            workspaceId: "workspace-2",
+            root: "/workspace-2",
+          },
+          sandboxId: "workspace:workspace-2:attempt:attempt-1",
+        };
+        adapter.registerLease(siblingLease);
+        const first = adapter.executeTask(markedLease.leaseId, {
+          taskId: "first-task",
+          action: "MockPlugin.execute",
+          params: { action: "run", delay: 25, runId: TEST_RUN_ID },
+          lease: markedLease,
+        });
+        const second = adapter.executeTask(siblingLease.leaseId, {
+          taskId: "second-task",
+          action: "MockPlugin.execute",
+          params: { action: "run", delay: 5, runId: TEST_RUN_ID },
+          lease: siblingLease,
+        });
 
-      await adapter.cleanup(markedLease.leaseId);
-      const [firstResult, secondResult] = await Promise.all([first, second]);
+        await adapter.cleanup(markedLease.leaseId);
+        const [firstResult, secondResult] = await Promise.all([first, second]);
 
-      expect(firstResult.taskId).toBe("first-task");
-      expect(secondResult.status).toBe("success");
-      expect(firstResult.status).toBe("sandbox_unavailable");
-      expect(dispatched).toHaveBeenCalledOnce();
-      expect(() => adapter.registerLease(markedLease)).toThrow();
+        expect(firstResult.taskId).toBe("first-task");
+        expect(secondResult.status).toBe("success");
+        expect(firstResult.status).toBe("sandbox_unavailable");
+        expect(dispatched).toHaveBeenCalledOnce();
+        expect(() => adapter.registerLease(markedLease)).toThrow();
+      }
 
     });
   });

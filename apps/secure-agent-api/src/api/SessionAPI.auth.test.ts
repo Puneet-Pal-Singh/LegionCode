@@ -369,19 +369,34 @@ describe("session auth hardening", () => {
     expect(JSON.stringify((await runtime.getExecutionSession(sessionId))!.lease)).toBe(storedLease);
     expect((await runtime.getExecutionSession(sessionId))!.expiresAt).toBe(expiresAt);
     const ordinaryExecution = vi.spyOn(runtime.executionPort, "executeTask");
-    const domain = snapshotExecutionDomain({ version: 1, domain: "delegated_harness", delegatedRouteDigest: "a".repeat(64),
-      scope: { userId: "user-auth-1", brainSessionId: "brain-auth-1", workspaceId: saved!.workspaceScope.workspaceId,
-        threadId: saved!.workspaceScope.threadId, turnId: saved!.workspaceScope.turnId,
-        runId: saved!.runId, runAttemptId: saved!.workspaceScope.runAttemptId } });
-    await runtime.storeExecutionSession(sessionId, { ...saved!, executionDomain: domain,
-      lease: { ...saved!.lease, executionDomainDigest: await executionDomainDigest(domain) } });
-    const markedRequest = createExecuteRequest(sessionId, `Bearer ${token}`);
-    const markedUrl = new URL(markedRequest.url);
-    markedUrl.searchParams.set("session", domain.scope.brainSessionId);
-    const marked = await handleExecuteTask(new Request(markedUrl, markedRequest), runtime);
-    expect(marked.status).toBe(503);
-    expect(await marked.json()).toMatchObject({ code: "EXECUTION_DOMAIN_NOT_READY" });
-    expect(ordinaryExecution).not.toHaveBeenCalled();
+    const readiness = vi.fn(async () => { throw new Error("Ready getter must not activate ordinary execution"); });
+    runtime.getNativeCheckoutReadyEvidence = readiness;
+    for (const marker of ["legioncode_native", "delegated_harness"] as const) {
+      const domain = snapshotExecutionDomain({ version: 1, domain: marker, ...(marker === "delegated_harness" ? { delegatedRouteDigest: "a".repeat(64) } : {}),
+        scope: { userId: "user-auth-1", brainSessionId: "brain-auth-1", workspaceId: saved!.workspaceScope.workspaceId,
+          threadId: saved!.workspaceScope.threadId, turnId: saved!.workspaceScope.turnId,
+          runId: saved!.runId, runAttemptId: saved!.workspaceScope.runAttemptId } });
+      await runtime.storeExecutionSession(sessionId, { ...saved!, executionDomain: domain,
+        lease: { ...saved!.lease, executionDomainDigest: await executionDomainDigest(domain) } });
+      for (const borrowed of [false, true]) {
+        const markedRequest = createExecuteRequest(sessionId, `Bearer ${token}`);
+        const markedUrl = new URL(markedRequest.url);
+        markedUrl.searchParams.set("session", domain.scope.brainSessionId);
+        const body = await markedRequest.json() as { params: Record<string, unknown> };
+        const marked = await handleExecuteTask(new Request(markedUrl, {
+          method: "POST", headers: markedRequest.headers,
+          body: JSON.stringify({ ...body, ...(borrowed ? {
+            action: "filesystem.execute", params: { ...body.params, action: "read_file", path: "README.md" },
+            borrowedLease: { leaseId: saved!.lease.leaseId, sandboxId: saved!.lease.sandboxId, generation: saved!.lease.generation },
+          } : {}) }),
+        }), runtime);
+        expect(marked.status).toBe(503);
+        expect(await marked.json()).toMatchObject({ code: "EXECUTION_DOMAIN_NOT_READY" });
+        expect(ordinaryExecution).not.toHaveBeenCalled();
+        expect(readiness).not.toHaveBeenCalled();
+      }
+    }
+
 
   });
 

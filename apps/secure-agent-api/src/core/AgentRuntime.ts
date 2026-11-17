@@ -449,14 +449,15 @@ export class AgentRuntime extends DurableObject<Env> {
       ) {
         return null;
       }
+      // Keep the actual runtime fail-closed independently of the HTTP adapter.
+      // Readonly Ready evidence cannot activate an incomplete qualified owner.
+      if (hasExecutionDomain(persisted)) return null;
       const domain = await validExecutionDomain(persisted);
-      if (hasExecutionDomain(persisted) && !domain) return null;
       nativeDomain = domain?.domain === "legioncode_native";
       if (nativeDomain) {
         try { await this.getNativeCheckoutReadyEvidence(sessionId, input.lease); }
         catch { return null; }
       }
-      if (hasExecutionDomain(persisted) && !nativeDomain) return null;
       return await this.ensureWorkspaceRuntime(
         input.lease,
         !input.borrowedLease,
