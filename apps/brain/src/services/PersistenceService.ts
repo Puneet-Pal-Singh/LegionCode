@@ -23,9 +23,7 @@ import {
 } from "./chat/ImageMessageRedactor";
 import { persistChatMessageImages } from "./chat/ChatMessageImagePersistence";
 import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
-import { PostgresTurnAdmissionRepository } from "@repo/persistence";
-import { withBrainPersistenceRepository } from "./persistence/BrainPersistenceRepositoryFactory";
-import { createNativeProviderAdmissionCapture } from "./providers/NativeProviderAdmissionCapture";
+import { assertHostedNativeRootAdmissionAllowed, withTurnAdmissionRepository } from "./turn-admissions/TurnAdmissionPersistenceFactory";
 
 interface PersistMessageContext {
   userId?: string;
@@ -212,6 +210,21 @@ export class PersistenceService {
     }
   }
 
+  async assertNativeRootAdmissionAllowed(input: {
+    readonly sessionId: string; readonly runId: string; readonly userId: string;
+    readonly workspaceId: string; readonly identity: TurnScopeBootstrap; readonly message: CoreMessage;
+  }): Promise<void> {
+    const clientMessageId = readClientMessageId(input.message);
+    if (!clientMessageId) throw new ValidationError(
+      "A stable client message id is required before turn admission.", "CLIENT_MESSAGE_ID_REQUIRED",
+    );
+    await assertHostedNativeRootAdmissionAllowed(this.env, {
+      userId: input.userId, workspaceId: input.workspaceId, sessionId: input.sessionId,
+      threadId: input.identity.threadId, clientMessageId, runId: input.runId,
+      turnId: input.identity.turnId, runAttemptId: input.identity.runAttemptId,
+    });
+  }
+
   async admitUserTurn(input: {
     sessionId: string;
     runId: string;
@@ -232,6 +245,7 @@ export class PersistenceService {
         "CLIENT_MESSAGE_ID_REQUIRED",
       );
     }
+    await this.assertNativeRootAdmissionAllowed(input);
     const content = buildPersistenceDedupeContent(input.message);
     const dedupeKey = await this.generateMessageIdempotencyKey(
       input.sessionId,
@@ -253,10 +267,8 @@ export class PersistenceService {
       `${content}:${JSON.stringify(input.message)}`,
     );
 
-    return await withBrainPersistenceRepository(
+    return await withTurnAdmissionRepository(
       this.env,
-      this.env.AUTH_TURN_ADMISSION_REPOSITORY,
-      (client) => new PostgresTurnAdmissionRepository(client, createNativeProviderAdmissionCapture(this.env)),
       async (repository) => {
         const result = await repository.admitWithPrompt({
           executionRoute: "native",

@@ -17,7 +17,7 @@ import {
   settleUnclaimedStartupFailure,
 } from "./AdmittedTurnExecutionService";
 import { createThreadInputCommandIdentity } from "./ThreadInputCommandIdentity";
-import { withTurnAdmissionRepository } from "../turn-admissions/TurnAdmissionPersistenceFactory";
+import { assertHostedNativeRootAdmissionAllowed, withTurnAdmissionRepository } from "../turn-admissions/TurnAdmissionPersistenceFactory";
 import { withThreadInputRepository } from "./ThreadInputPersistenceFactory";
 import { withTranscriptRepository } from "../sessions/TranscriptPersistenceFactory";
 import { assertChatImageModelSupport } from "../chat/ChatImageModelPolicy";
@@ -342,6 +342,9 @@ export class ThreadInputCommandService {
         return storedReceipt;
       }
     }
+    await assertHostedNativeRootAdmissionAllowed(this.env, {
+      ...scope, ...identities, clientMessageId: `thread-input:${item.itemId}`,
+    });
     const admissionService = new RunAdmissionService(this.env);
     const grant = await admissionService.enforce(
       {
