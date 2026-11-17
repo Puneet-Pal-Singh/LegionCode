@@ -13,7 +13,7 @@ on:
       - ".github/workflows/desktop-package.yml"
   push:
     branches: [dev]
-    tags: ["v*-desktop-preview.*", "v*-native-mac-preview.*"]
+    tags: ["v*-preview.*"]
     paths:
       - "apps/desktop/**"
       # Desktop bundles shared workspace source, including transitive dependencies.
@@ -106,12 +106,16 @@ jobs:
       - name: Prepare complete preview release
         env:
           PREVIEW_DIRECTORY: ${{ runner.temp }}/desktop-preview
-          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v0.1.0-desktop-preview.check.{0}', github.run_id) }}
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
         run: |
           mkdir "$PREVIEW_DIRECTORY"
           cp apps/desktop/release/*.dmg apps/desktop/release/*.zip \
             apps/desktop/release/LegionCode-Native-Setup-Candidate-*.pkg \
             apps/desktop/release/native-setup-candidate.json "$PREVIEW_DIRECTORY/"
+          if [[ -z "$RELEASE_TAG" ]]; then
+            preview_version="$(node -p 'require("./apps/desktop/package.json").version')"
+            RELEASE_TAG="v$preview_version-preview.$GITHUB_RUN_NUMBER"
+          fi
           node apps/desktop/scripts/prepare-preview-release.mjs "$PREVIEW_DIRECTORY" "$RELEASE_TAG"
 
       - uses: actions/upload-artifact@v4
@@ -123,7 +127,7 @@ jobs:
 
   publish-preview:
     name: Publish unsigned Mac preview
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && (contains(github.ref_name, '-desktop-preview.') || contains(github.ref_name, '-native-mac-preview.'))
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-preview.')
     needs: package
     runs-on: ubuntu-latest
     permissions:
@@ -149,7 +153,7 @@ jobs:
           cd "$PREVIEW_DIRECTORY"
           sha256sum --strict --check SHA256SUMS
           gh release create "$RELEASE_TAG" --verify-tag --target "$GITHUB_SHA" \
-            --title "LegionCode Desktop — unsigned Mac preview" \
+            --title "$(cat "$PREVIEW_DIRECTORY/release-title.txt")" \
             --prerelease --latest=false --notes-file "$PREVIEW_DIRECTORY/release-notes.md" \
             "$PREVIEW_DIRECTORY/"*.dmg "$PREVIEW_DIRECTORY/"*.zip "$PREVIEW_DIRECTORY/"*.pkg \
             "$PREVIEW_DIRECTORY/native-setup.json" "$PREVIEW_DIRECTORY/SHA256SUMS"

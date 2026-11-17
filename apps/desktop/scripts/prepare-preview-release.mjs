@@ -8,7 +8,8 @@ const [directory, tag] = process.argv.slice(2);
 const revision = process.env.GITHUB_SHA;
 const repository = process.env.GITHUB_REPOSITORY;
 const runId = process.env.GITHUB_RUN_ID;
-if (!directory || !/^v[\d.]+-(?:desktop|native-mac)-preview\.[\w.-]+$/u.test(tag ?? "") ||
+const preview = /^v(\d+\.\d+\.\d+)-preview\.([1-9]\d*)(?![\s\S])/u.exec(tag ?? "");
+if (!directory || !preview ||
     !/^[a-f0-9]{40}$/u.test(revision ?? "") ||
     !/^[\w.-]+\/[\w.-]+$/u.test(repository ?? "") || !/^\d+$/u.test(runId ?? "")) {
   throw new Error("An exact source revision, preview tag and GitHub run are required");
@@ -16,6 +17,8 @@ if (!directory || !/^v[\d.]+-(?:desktop|native-mac)-preview\.[\w.-]+$/u.test(tag
 const root = resolve(directory);
 const files = (await readdir(root)).sort();
 const receipt = await readNativePreviewReceipt(root);
+if (preview[1] !== receipt.version) throw new Error("Preview tag and packaged version differ");
+const title = `LegionCode ${receipt.version} Preview ${preview[2]}`;
 const identity = `${receipt.version}-${receipt.architecture}`;
 const pkg = `LegionCode-Native-Setup-Candidate-${receipt.architecture}.pkg`;
 const expected = ["native-setup-candidate.json", pkg, `LegionCode Desktop-${identity}.dmg`, `LegionCode Desktop-${identity}.zip`];
@@ -45,14 +48,27 @@ await writeFile(join(root, "native-setup.json"), metadata, { flag: "wx" });
 checksums.push(`${createHash("sha256").update(metadata).digest("hex")}  native-setup.json`);
 await unlink(join(root, "native-setup-candidate.json"));
 await writeFile(join(root, "SHA256SUMS"), `${checksums.join("\n")}\n`, { flag: "wx" });
-await writeFile(join(root, "release-notes.md"), `Unsigned Mac preview for manual evaluation.
+await writeFile(join(root, "release-title.txt"), `${title}\n`, { flag: "wx" });
+await writeFile(join(root, "release-notes.md"), `**[Download for Mac — ${receipt.architecture === "arm64" ? "Apple Silicon (M1 or newer)" : "Intel"}](https://github.com/${repository}/releases/download/${tag}/LegionCode.Native.Setup-${identity}.pkg)**
+
+1. Download and open the PKG installer.
+2. Open LegionCode Desktop from Applications.
+3. Choose File → Set Up Local Execution to select Node/npm and authorize local setup.
+
+This is an unsigned preview for early evaluation. Native Local and Native Cloud are still being completed. Local execution does not require Docker.
+
+The PKG installs the protected Native application and execution service. DMG and ZIP downloads contain the standalone app preview. GitHub's automatic Source code archives are for developers, not Mac installers.
+
+<details>
+<summary>Installation limits and technical details</summary>
+
+Initial installation only: existing or partial Native installations are rejected. Upgrade/rollback and recovery remain unqualified. Preserve existing profiles and credentials and use a disposable profile for verification. Older previews cannot read profiles after a non-Git folder grant has been saved.
+
+This app is unsigned and unnotarized. OS-authorized Native qualification, actual sandbox/subprocess cleanup, both installed Native workflows and hosted reconnect/Stop remain separate acceptance gates. The existing restricted backend stays until its replacement is proven.
 
 Source: [${revision}](https://github.com/${repository}/commit/${revision}).
 Package checks: [GitHub Actions run ${runId}](https://github.com/${repository}/actions/runs/${runId}).
+SHA256SUMS covers the uploaded files and Native setup metadata.
 
-Download the PKG for the protected Native application and execution service. The DMG and ZIP contain the standalone app preview. Match the architecture to your Mac. SHA256SUMS covers the exact uploaded files and native setup metadata.
-
-The PKG is an initial-install candidate. Existing or partial Native installations are rejected; upgrades and rollback remain unqualified. After installation, open LegionCode Desktop and choose File → Set Up Local Execution to select Node/npm and run separate OS-authorized qualification. Docker is not required. Preserve existing profiles and credentials; use a disposable profile for verification. Older previews cannot read profiles after a non-Git folder grant has been saved.
-
-This preview is unsigned and is not notarized. Updates are manual. It is not a completed beta or proof of the full Native Local or Native Cloud workflow. Host sandbox/subprocess qualification, complete hosted recovery/Stop, and installed end-to-end acceptance remain separate release gates. The existing restricted command backend remains until its replacement is proven.
+</details>
 `, { flag: "wx" });
