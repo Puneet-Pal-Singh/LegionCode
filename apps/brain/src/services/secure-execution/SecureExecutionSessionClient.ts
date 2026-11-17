@@ -657,3 +657,21 @@ export function snapshotPersistedSecureExecutionSessionReference(value: unknown)
     nativeSandboxBinding: NativeSandboxPhysicalBindingSchema.optional() }).strict().parse(value);
   return Object.freeze({ ...parsed, ...(parsed.nativeSandboxBinding ? { nativeSandboxBinding: snapshotNativeSandboxPhysicalBinding(parsed.nativeSandboxBinding) } : {}) });
 }
+
+/** Validate PG original-reference custody against the canonical checkout tuple.
+ * Parsing alone cannot establish this association or derive a physical binding. */
+export function validateNativeOriginalSessionReference(
+  value: unknown,
+  expected: Pick<PersistedSecureExecutionSessionReference, "secureSessionId" | "leaseId" | "sandboxId" | "generation"> & {
+    readonly executionDomainDigest: string;
+  },
+): PersistedSecureExecutionSessionReference {
+  const original = snapshotPersistedSecureExecutionSessionReference(value);
+  if (!original.nativeSandboxBinding || original.secureSessionId !== expected.secureSessionId ||
+    original.leaseId !== expected.leaseId || original.sandboxId !== expected.sandboxId ||
+    original.generation !== expected.generation || original.executionDomainDigest === undefined ||
+    original.executionDomainDigest !== expected.executionDomainDigest) {
+    throw new Error("NATIVE_SANDBOX_ORIGINAL_BINDING_UNAVAILABLE");
+  }
+  return original;
+}

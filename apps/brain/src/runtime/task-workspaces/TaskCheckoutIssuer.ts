@@ -1,4 +1,4 @@
-import { toPersistedReference, snapshotPersistedSecureExecutionSessionReference } from "../../services/secure-execution/SecureExecutionSessionClient";
+import { toPersistedReference, validateNativeOriginalSessionReference } from "../../services/secure-execution/SecureExecutionSessionClient";
 import { nativeCheckoutBootstrapIntent, bootstrapNativeCheckoutBeforeReady } from "./NativeCheckoutBootstrap";
 import type { NativeCheckoutBootstrapIntent } from "@repo/worker-protocol/private/native-checkout-bootstrap";
 import {
@@ -848,13 +848,12 @@ export class TaskCheckoutIssuer {
       );
     }
     const originalReference = executionDomain?.domain === "legioncode_native"
-      ? snapshotPersistedSecureExecutionSessionReference(await this.withIssuance(repository => {
+      ? validateNativeOriginalSessionReference(await this.withIssuance(repository => {
         if (!repository.getCheckoutOriginalReference) throw new Error("NATIVE_ORIGINAL_REFERENCE_OWNER_REQUIRED");
         return repository.getCheckoutOriginalReference(checkout.checkoutId);
-      })) : undefined;
-    if (originalReference && (!originalReference.nativeSandboxBinding || originalReference.secureSessionId !== checkout.secureSessionId ||
-      originalReference.leaseId !== checkout.leaseId || originalReference.sandboxId !== checkout.sandboxId || originalReference.generation !== checkout.generation ||
-      originalReference.executionDomainDigest !== persistedDomain?.digest)) throw new Error("NATIVE_SANDBOX_ORIGINAL_BINDING_UNAVAILABLE");
+      }), { secureSessionId: checkout.secureSessionId, leaseId: checkout.leaseId,
+        sandboxId: checkout.sandboxId, generation: checkout.generation, executionDomainDigest: persistedDomain!.digest })
+      : undefined;
     const executionSession = this.sessionFactory({
       sessionId: payload.sessionId,
       runId: payload.runId,
