@@ -141,7 +141,17 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
           throw new TurnAdmissionConflictError("Admission identity does not match", "identity_conflict");
         if (saved.harnessSelection?.selection)
           throw new TurnAdmissionConflictError("The frozen hosted harness execution is unavailable", "hosted_harness_execution_unavailable");
-        if (saved.state === "admitted" || saved.continuationOfTurnId !== null) return;
+        if (saved.state === "admitted") return;
+        if (saved.continuationOfTurnId !== null) {
+          const parentRow = (await tx.query<AdmissionRow>(READ_BY_TURN_SQL, [saved.continuationOfTurnId])).rows[0];
+          const parent = parentRow ? mapAdmission(parentRow) : null;
+          if (!parent || parent.state !== "admitted" || parent.userId !== input.userId || parent.sessionId !== input.sessionId ||
+              parent.workspaceId !== input.workspaceId || parent.threadId !== input.threadId)
+            throw new TurnAdmissionConflictError("Frozen continuation parent does not match", "continuation_target_conflict");
+          if (parent.harnessSelection?.selection)
+            throw new TurnAdmissionConflictError("The frozen hosted harness execution is unavailable", "hosted_harness_execution_unavailable");
+          return;
+        }
       }
       await this.assertNativeRootSelectionWithin(tx, input);
     });
@@ -514,6 +524,9 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
         if (!run) throw new TurnAdmissionConflictError("Admitted run projection is missing", "run_projection_missing");
         return { admission: existing, run };
       }
+      if (input.executionRoute === "native" && continuation.rows[0].harness_admission_receipt_json != null &&
+          parseHarnessAdmissionReceipt(continuation.rows[0].harness_admission_receipt_json).capture.selection !== null)
+        throw new TurnAdmissionConflictError("The frozen hosted harness execution is unavailable", "hosted_harness_execution_unavailable");
       return this.withProviderBinding(tx, admissionBindingScope(existing), input, async (tx, binding) => {
         const orderResult = await tx.query<AdmissionRow>(ALLOCATE_ADMISSION_ORDER_SQL, [input.sessionId]);
         const admissionOrder = numberValue(orderResult.rows[0]?.admission_order, "admission_order");
@@ -551,10 +564,13 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
     ]);
     const row = result.rows[0];
     if (!row) return null;
+    const admission = mapAdmission(row);
+    if (admission.harnessSelection?.selection)
+      throw new TurnAdmissionConflictError("The frozen hosted harness execution is unavailable", "hosted_harness_execution_unavailable");
     const run = await new PostgresRunRepository(this.client).getRun(requiredString(row.source_run_id, "source_run_id"), input.userId);
     if (!run) return null;
     return {
-      admission: mapAdmission(row),
+      admission,
       originalPromptId: requiredString(row.canonical_prompt_id, "canonical_prompt_id"),
       prompt: { text: requiredPossiblyEmptyString(row.prompt_text, "prompt_text"), parts: parseJsonArray(row.prompt_parts) as InterruptedTurnTarget["prompt"]["parts"] },
       run,
@@ -972,7 +988,7 @@ const READ_SESSION_CLIENT_SQL = `SELECT a.*, s.user_id AS owner_user_id FROM can
 const READ_REVISION_TURN_SQL = `SELECT a.turn_id, terminal.turn_id AS terminal_turn_id FROM canonical_turn_admissions a JOIN sessions s ON s.id = a.session_id LEFT JOIN LATERAL (SELECT turn_id FROM canonical_lifecycle_events e WHERE e.turn_id = a.turn_id AND e.event_type IN ('turn.completed','turn.failed','turn.interrupted') ORDER BY e.sequence DESC LIMIT 1) terminal ON TRUE WHERE a.session_id = $1 AND a.turn_id = $2 AND a.admission_state = 'admitted' AND s.current_turn_id = a.turn_id AND NOT EXISTS (SELECT 1 FROM canonical_turn_admissions child WHERE child.session_id = a.session_id AND child.revision_of_turn_id = a.turn_id AND child.admission_state = 'admitted')`;
 const INSERT_RESERVED_SQL = `INSERT INTO canonical_turn_admissions (session_id, client_message_id, thread_id, turn_id, run_attempt_id, run_id, workspace_id, revision_of_turn_id, continuation_of_turn_id, original_prompt_id, continuation_terminal_sequence, admission_state) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'reserved') RETURNING *, (SELECT user_id FROM sessions WHERE id = $1) AS owner_user_id`;
 const READ_CONTINUATION_TARGET_SQL = `SELECT a.turn_id FROM canonical_turn_admissions a JOIN sessions s ON s.id = a.session_id JOIN canonical_lifecycle_events terminal ON terminal.turn_id = a.turn_id AND terminal.event_type = 'turn.interrupted' AND terminal.sequence = $3 LEFT JOIN LATERAL (SELECT COALESCE(m.client_message_id, m.id::text) AS prompt_id FROM messages m WHERE m.session_id = a.session_id AND m.canonical_turn_id = a.turn_id AND m.role = 'user' ORDER BY m.created_at ASC, m.id ASC LIMIT 1) prompt ON a.original_prompt_id IS NULL WHERE a.session_id = $1 AND a.turn_id = $2 AND a.admission_state = 'admitted' AND s.current_turn_id = a.turn_id AND COALESCE(a.original_prompt_id, prompt.prompt_id) = $4 AND NOT EXISTS (SELECT 1 FROM canonical_turn_admissions child WHERE child.session_id = a.session_id AND child.continuation_of_turn_id = a.turn_id AND child.admission_state = 'admitted')`;
-const READ_CONTINUATION_TARGET_FOR_COMMAND_SQL = `SELECT a.turn_id FROM canonical_turn_admissions a JOIN sessions s ON s.id = a.session_id JOIN canonical_lifecycle_events terminal ON terminal.turn_id = a.turn_id AND terminal.run_attempt_id = a.run_attempt_id AND terminal.event_type = 'turn.interrupted' AND terminal.sequence = $3 LEFT JOIN LATERAL (SELECT COALESCE(m.client_message_id, m.id::text) AS prompt_id FROM messages m WHERE m.session_id = a.session_id AND m.canonical_turn_id = a.turn_id AND m.role = 'user' ORDER BY m.created_at ASC, m.id ASC LIMIT 1) prompt ON a.original_prompt_id IS NULL WHERE a.session_id = $1 AND a.turn_id = $2 AND a.admission_state = 'admitted' AND COALESCE(a.original_prompt_id, prompt.prompt_id) = $4 AND ((s.current_turn_id = a.turn_id AND s.active_run_id IS NULL AND NOT EXISTS (SELECT 1 FROM canonical_turn_admissions child WHERE child.session_id = a.session_id AND child.continuation_of_turn_id = a.turn_id AND child.admission_state = 'admitted')) OR EXISTS (SELECT 1 FROM canonical_turn_admissions child WHERE child.session_id = a.session_id AND child.continuation_of_turn_id = a.turn_id AND child.client_message_id = $5 AND child.original_prompt_id = $4 AND child.continuation_terminal_sequence = $3 AND child.admission_state = 'admitted'))`;
+const READ_CONTINUATION_TARGET_FOR_COMMAND_SQL = `SELECT a.turn_id, a.harness_admission_receipt_json FROM canonical_turn_admissions a JOIN sessions s ON s.id = a.session_id JOIN canonical_lifecycle_events terminal ON terminal.turn_id = a.turn_id AND terminal.run_attempt_id = a.run_attempt_id AND terminal.event_type = 'turn.interrupted' AND terminal.sequence = $3 LEFT JOIN LATERAL (SELECT COALESCE(m.client_message_id, m.id::text) AS prompt_id FROM messages m WHERE m.session_id = a.session_id AND m.canonical_turn_id = a.turn_id AND m.role = 'user' ORDER BY m.created_at ASC, m.id ASC LIMIT 1) prompt ON a.original_prompt_id IS NULL WHERE a.session_id = $1 AND a.turn_id = $2 AND a.admission_state = 'admitted' AND COALESCE(a.original_prompt_id, prompt.prompt_id) = $4 AND ((s.current_turn_id = a.turn_id AND s.active_run_id IS NULL AND NOT EXISTS (SELECT 1 FROM canonical_turn_admissions child WHERE child.session_id = a.session_id AND child.continuation_of_turn_id = a.turn_id AND child.admission_state = 'admitted')) OR EXISTS (SELECT 1 FROM canonical_turn_admissions child WHERE child.session_id = a.session_id AND child.continuation_of_turn_id = a.turn_id AND child.client_message_id = $5 AND child.original_prompt_id = $4 AND child.continuation_terminal_sequence = $3 AND child.admission_state = 'admitted'))`;
 const LOCK_THREAD_INPUT_STATE_SQL = `SELECT revision, paused FROM thread_input_state WHERE session_id = $1 AND thread_id = $2 AND workspace_id = $3 FOR UPDATE`;
 const READ_THREAD_INPUT_REVISION_SQL = `SELECT revision FROM thread_input_state WHERE session_id = $1`;
 const READ_CURRENT_COMPLETED_TURN_SQL = `SELECT 1 FROM sessions s JOIN LATERAL (SELECT event_type FROM canonical_lifecycle_events WHERE turn_id = s.current_turn_id ORDER BY sequence DESC LIMIT 1) terminal ON terminal.event_type = 'turn.completed' WHERE s.id = $1`;
