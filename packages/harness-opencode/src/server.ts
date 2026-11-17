@@ -5,6 +5,12 @@ export {
   createOpenCodeServerPassword,
   openCodeServerEnvironment,
 } from "./server/OpenCodeAuthentication.js";
+export type {
+  OpenCodePayerInspection,
+  OpenCodePayerLease,
+  OpenCodePayerTarget,
+  OpenCodeSelectedPayerBinding,
+} from "./server/OpenCodeAuthentication.js";
 export {
   OPENCODE_VERSION,
   OPENCODE_TRANSPORT,

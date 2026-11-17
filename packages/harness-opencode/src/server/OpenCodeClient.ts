@@ -1,3 +1,9 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+import {
+  inspectOpenCodePayer,
+  type OpenCodePayerTarget,
+  type OpenCodePayerInspection,
+} from "./OpenCodeAuthentication.js";
 import {
   readOpenCodeEvents,
   OpenCodeStreamEnded,
@@ -34,6 +40,7 @@ export class OpenCodeClient {
     activity: () => void,
   ) => AsyncIterable<OpenCodeEvent>;
   private readonly stream = new AbortController();
+  private readonly replyDispatch = new AsyncLocalStorage<() => void>();
   private verified = false;
   private observationSealed = false;
   private observationLost = false;
@@ -161,6 +168,8 @@ export class OpenCodeClient {
   ): Promise<T> {
     if (this.state !== "ready")
       throw new OpenCodeTransportError(operation, true);
+    if (operation === "permission.reply" || operation === "form.reply")
+      this.replyDispatch.getStore()?.();
     try {
       const result = await action(
         this.native,
@@ -172,6 +181,48 @@ export class OpenCodeClient {
     } catch {
       this.fail();
       throw new OpenCodeTransportError(operation, true);
+    }
+  }
+
+  /** Carry the check across the pending request's canonical commit waits. */
+  withReplyDispatch<T>(
+    check: () => void,
+    action: () => Promise<T>,
+  ): Promise<T> {
+    return this.replyDispatch.run(check, action);
+  }
+
+  /** Secret-bearing credential rows never leave the private projection. */
+  async inspectPayer(
+    target: OpenCodePayerTarget,
+    signal: AbortSignal,
+  ): Promise<OpenCodePayerInspection> {
+    if (!this.verified || (this.state !== "new" && this.state !== "ready"))
+      throw new OpenCodeTransportError("native payer inspection", true);
+    try {
+      const location = { directory: target.directory };
+      const options = {
+        signal: AbortSignal.any([
+          signal,
+          this.stream.signal,
+          AbortSignal.timeout(5000),
+        ]),
+      };
+      const [provider, integration, credentials] = await Promise.all([
+        this.native.provider.get(
+          { providerID: target.providerID, location },
+          options,
+        ),
+        this.native.integration.get(
+          { integrationID: target.integrationID, location },
+          options,
+        ),
+        this.native.credential.list(options),
+      ]);
+      options.signal.throwIfAborted();
+      return inspectOpenCodePayer(target, provider, integration, credentials);
+    } catch {
+      throw new OpenCodeTransportError("native payer inspection", true);
     }
   }
 

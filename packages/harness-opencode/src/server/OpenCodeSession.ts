@@ -8,6 +8,7 @@ import { SessionInbox } from "@opencode/schema/session-inbox";
 import { Location } from "@opencode/schema/location";
 import type {
   OpenCodeEvent,
+  ModelRef,
   FormCreated,
   SessionCreateInput,
   SessionInfo,
@@ -29,15 +30,21 @@ export class OpenCodeSession {
   private promptSent = false;
   private stopping = false;
   private root: SessionInfo | undefined;
+  private readonly selectedModel: Readonly<ModelRef>;
 
-  private constructor(private readonly transport: OpenCodeClient) {
+  private constructor(
+    private readonly transport: OpenCodeClient,
+    model: ModelRef,
+  ) {
     this.requests = new OpenCodePendingRequests(transport);
+    this.selectedModel = Object.freeze({ ...model });
   }
 
   static async create(
     transport: OpenCodeClient,
     input: SessionCreateInput,
     commit: (event: OpenCodeEvent, withdrawal?: OpenCodeNativeRequestWithdrawal) => Promise<void>,
+    authorizeCreate?: () => Promise<() => void>,
   ): Promise<OpenCodeSession> {
     if (
       !input.model?.id ||
@@ -52,7 +59,7 @@ export class OpenCodeSession {
       );
     }
     const captured = structuredClone(input);
-    const session = new OpenCodeSession(transport);
+    const session = new OpenCodeSession(transport, input.model);
     // Know the native identity before dispatch: session.created can precede its HTTP receipt.
     const rootID = Session.ID.create();
     session.sessions.add(rootID);
@@ -76,6 +83,7 @@ export class OpenCodeSession {
       if (
         event.type === "session.created" &&
         (event.data.location.directory !== captured.location!.directory ||
+          !session.matchesModel(event.data.model) ||
           !sameNativePermissions(captured.permissions!, event.data.permissions))
       )
         return transport.invalidate("native child policy or workspace changed");
@@ -101,6 +109,10 @@ export class OpenCodeSession {
         return transport.invalidate("input outside admitted prompt binding");
       await session.requests.observe(event, (withdrawal) => commit(event, withdrawal));
     });
+    if (authorizeCreate) {
+      const beforeCreate = await authorizeCreate();
+      beforeCreate();
+    }
     session.root = await transport.mutate("session.create", (api, signal) =>
       api.session.create({ ...captured, id: rootID }, { signal }),
     );
@@ -109,6 +121,7 @@ export class OpenCodeSession {
       session.root.id !== rootID ||
       session.root.parentID !== undefined ||
       session.root.location.directory !== captured.location!.directory ||
+      !session.matchesModel(session.root.model) ||
       !sameNativePermissions(captured.permissions!, session.root.permissions)
     )
       return transport.invalidate("session validation");
@@ -123,16 +136,22 @@ export class OpenCodeSession {
   /** Session overrides are necessary but not sufficient: the host separately attests agent/saved/hook policy. */
   async assertPermissions(
     expected: NonNullable<SessionCreateInput["permissions"]>,
+    sessionID = this.id,
   ): Promise<void> {
+    if (!this.sessions.has(sessionID))
+      return this.transport.invalidate("session policy scope changed");
     const actual = await this.transport.inspect(
       "session policy",
-      (api, signal) => api.session.get({ sessionID: this.id }, { signal }),
+      (api, signal) => api.session.get({ sessionID }, { signal }),
     );
     if (
       !validSession(actual) ||
-      actual.id !== this.id ||
-      actual.parentID !== undefined ||
+      actual.id !== sessionID ||
+      (sessionID === this.id
+        ? actual.parentID !== undefined
+        : !actual.parentID || !this.sessions.has(actual.parentID)) ||
       actual.location.directory !== this.root?.location.directory ||
+      !this.matchesModel(actual.model) ||
       !sameNativePermissions(expected, actual.permissions)
     ) {
       return this.transport.invalidate("native session policy changed");
@@ -177,8 +196,12 @@ export class OpenCodeSession {
   replyPermission(
     requestID: string,
     decision: "once" | "reject",
+    beforeDispatch?: () => void,
   ): Promise<void> {
-    return this.requests.replyPermission(requestID, decision);
+    const reply = () => this.requests.replyPermission(requestID, decision);
+    return beforeDispatch
+      ? this.transport.withReplyDispatch(beforeDispatch, reply)
+      : reply();
   }
 
   pendingForm(formID: string): FormCreated["data"]["form"] | undefined {
@@ -188,8 +211,12 @@ export class OpenCodeSession {
   replyForm(
     formID: string,
     answer: SessionFormReplyInput["answer"],
+    beforeDispatch?: () => void,
   ): Promise<void> {
-    return this.requests.replyForm(formID, answer);
+    const reply = () => this.requests.replyForm(formID, answer);
+    return beforeDispatch
+      ? this.transport.withReplyDispatch(beforeDispatch, reply)
+      : reply();
   }
 
   cancelForm(formID: string): Promise<void> {
@@ -359,6 +386,14 @@ export class OpenCodeSession {
           return this.transport.invalidate("session hierarchy bound");
       } while (cursor);
     }
+  }
+
+  private matchesModel(model: ModelRef | undefined): boolean {
+    return (
+      model?.id === this.selectedModel.id &&
+      model.providerID === this.selectedModel.providerID &&
+      model.variant === this.selectedModel.variant
+    );
   }
 }
 
