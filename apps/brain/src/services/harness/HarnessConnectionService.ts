@@ -111,17 +111,10 @@ export class HarnessConnectionService {
 }
 
 /** Pre-selection setup only. This is metadata, not admission or key delivery. */
-export interface HarnessConnectionMetadataAuthority {
-  authorizeMetadataScopeWithin(
-    transaction: SqlClient,
-    input: {
-      readonly scope: Readonly<
-        import("@repo/persistence").HarnessControlPlaneScope
-      >;
-      readonly expectedEnvironmentId: string;
-    },
-  ): Promise<void>;
-}
+export type HarnessConnectionMetadataAuthority = Pick<
+  PostgresHarnessControlPlaneRepository,
+  "authorizeMetadataScopeWithin"
+>;
 
 export const HarnessConnectionMetadataRequestSchema = z
   .object({
