@@ -52,9 +52,10 @@ export class OpenCodeServerOwner {
         await boundedOutput(process, signal, true),
       );
       transport = new OpenCodeClient(url, password);
-      if (!process.child.pid)
+      const nativePid = process.nativePid;
+      if (!nativePid)
         throw new OpenCodeTransportError("process identity", false);
-      await transport.verify(process.child.pid);
+      await transport.verify(nativePid);
       signal.throwIfAborted();
       return new OpenCodeServerOwner(transport, process);
     } catch {
@@ -163,7 +164,7 @@ function boundedOutput(
     const abort = () => finish();
     const timeout = setTimeout(abort, announcement ? 15000 : 5000);
     signal.addEventListener("abort", abort, { once: true });
-    process.child.stdout.on("data", (chunk: Buffer) => {
+    process.stdout.on("data", (chunk: Buffer) => {
       if (settled) return;
       buffer += chunk.toString("utf8");
       if (buffer.length > 4096) {
@@ -190,7 +191,7 @@ function boundedOutput(
       // cancellation active until both natural EOF and a successful exit.
       if (outputEnded && cleanExit) finish(buffer);
     };
-    process.child.stdout.once("end", () => {
+    process.stdout.once("end", () => {
       if (announcement) {
         finish();
         return;
@@ -198,7 +199,7 @@ function boundedOutput(
       outputEnded = true;
       finishProbe();
     });
-    process.child.stdout.once("error", abort);
+    process.stdout.once("error", abort);
     void process.exited.then((exit) => {
       if (
         announcement ||

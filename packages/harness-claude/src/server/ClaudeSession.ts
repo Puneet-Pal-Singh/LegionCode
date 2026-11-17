@@ -153,7 +153,7 @@ export class ClaudeSession implements HarnessLiveSession {
             });
             await supervised.ready;
             assertCurrent();
-            return supervised.child;
+            return supervised;
           }, this.opening.host.environment),
         });
         observer = this.runner.observe(async (message) => {

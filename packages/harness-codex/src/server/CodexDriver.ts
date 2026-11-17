@@ -492,8 +492,8 @@ export class CodexDriver implements HarnessDriver {
       });
     };
     const transport = new CodexStdioTransport({
-      input: child.child.stdin,
-      output: child.child.stdout,
+      input: child.stdin,
+      output: child.stdout,
       onNotification: notification,
       onRequest: request,
       onClose: (error) => {

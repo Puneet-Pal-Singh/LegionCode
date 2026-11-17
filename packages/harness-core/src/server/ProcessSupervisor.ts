@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
 import { isAbsolute } from "node:path";
+import type { Readable, Writable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import { HarnessHostError } from "./errors.js";
 
@@ -56,7 +57,11 @@ export type ProcessOutputClosure =
 
 export interface SupervisedProcess {
   readonly processGeneration: string;
-  readonly child: ChildProcessWithoutNullStreams;
+  readonly stdin: Writable;
+  readonly stdout: Readable;
+  readonly stderr: Readable;
+  /** PID measured from the native vendor process, when one was spawned. */
+  readonly nativePid: number | undefined;
   readonly ready: Promise<void>;
   readonly exited: Promise<ProcessExit>;
   /** Non-destructive wait for natural stdout AND stderr EOF. No resume/destroy
@@ -210,7 +215,12 @@ export class ProcessSupervisor {
     let termination: Promise<ProcessGroupSettlement> | undefined;
     const supervised: SupervisedProcess = {
       processGeneration,
-      child,
+      stdin: child.stdin,
+      stdout: child.stdout,
+      stderr: child.stderr,
+      get nativePid() {
+        return child.pid;
+      },
       ready,
       exited,
       awaitOutputClosure: async ({ timeoutMs }) => {
