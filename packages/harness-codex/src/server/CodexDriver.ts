@@ -34,16 +34,18 @@ import { codexPermission } from "./CodexPermissionMapper.js";
 import {
   CodexAuthentication,
   type CodexAppManagedSubscriptionBinding,
+  type CodexApiKeyBinding,
 } from "./CodexAuthentication.js";
 
 type CodexAccountBinding =
   | Readonly<{
-      kind?: "api_key" | "cli_managed_chatgpt";
+      kind: "cli_managed_chatgpt";
       instanceId: string;
       connectionId: string;
       authOwnerGeneration: number;
       identityFingerprint: string;
     }>
+  | CodexApiKeyBinding
   | CodexAppManagedSubscriptionBinding;
 
 type CodexDriverOptions = Readonly<{
@@ -81,7 +83,8 @@ export class CodexDriver implements HarnessDriver {
       ...(binding
         ? {
             accountBinding: Object.freeze(
-              binding.kind === "app_managed_chatgpt"
+              binding.kind === "app_managed_chatgpt" ||
+                binding.kind === "api_key"
                 ? {
                     ...binding,
                     scope: Object.freeze({ ...binding.scope }),
@@ -114,7 +117,9 @@ export class CodexDriver implements HarnessDriver {
     const processGeneration = host.processGeneration;
     const binding = this.options.accountBinding;
     const scope =
-      binding?.kind === "app_managed_chatgpt" ? binding.scope : binding;
+      binding?.kind === "app_managed_chatgpt" || binding?.kind === "api_key"
+        ? binding.scope
+        : binding;
     const runtimePin = codexRuntimePin(process.platform, process.arch);
     if (
       !binding ||
@@ -147,10 +152,12 @@ export class CodexDriver implements HarnessDriver {
       throw new Error("Codex selected payer route is unsupported");
     const expectedKind =
       selection.billingSource === "api_key" ? "api_key" : "cli_managed_chatgpt";
-    if (binding.kind === "app_managed_chatgpt") {
+    if (binding.kind === "app_managed_chatgpt" || binding.kind === "api_key") {
       const reference = binding.credentialReference;
       if (
-        selection.billingSource !== "subscription" ||
+        (binding.kind === "app_managed_chatgpt" &&
+          selection.billingSource !== "subscription") ||
+        (binding.kind === "api_key" && selection.billingSource !== "api_key") ||
         instanceScopeFields.some(
           (field) => binding.scope[field] !== selection[field],
         ) ||
@@ -160,22 +167,23 @@ export class CodexDriver implements HarnessDriver {
         reference.ownerGeneration !== selection.authOwnerGeneration ||
         typeof binding.assertCurrent !== "function"
       )
-        throw new Error("Codex app-managed subscription binding unavailable");
+        throw new Error("Codex selected custody binding unavailable");
       // There is no compatible cross-process turn recovery receipt in this port.
-      if (command.mode !== "start" || command.resumeSession)
+      if (
+        binding.kind === "app_managed_chatgpt" &&
+        (command.mode !== "start" || command.resumeSession)
+      )
         throw new Error(
           "Codex app-managed recovery requires compatible session evidence",
         );
-    } else if (binding.kind !== undefined && binding.kind !== expectedKind) {
+    } else if (
+      binding.kind !== "cli_managed_chatgpt" ||
+      expectedKind !== "cli_managed_chatgpt"
+    ) {
       throw new Error("Codex authentication route differs from selected payer");
     }
     const authentication = new CodexAuthentication(
-      binding.kind === "app_managed_chatgpt"
-        ? binding
-        : {
-            kind: expectedKind,
-            identityFingerprint: binding.identityFingerprint,
-          },
+      binding,
       host.environment,
       this.options.modelProvider ?? "openai",
     );
@@ -184,7 +192,7 @@ export class CodexDriver implements HarnessDriver {
       .digest("hex");
     if (digest !== runtimePin.binarySha256)
       throw new Error("Codex executable pin mismatch");
-    const launchLease = authentication.appManaged
+    const launchLease = authentication.requiresCustody
       ? await authentication.assertCurrent({
           selection,
           processGeneration,
@@ -192,7 +200,8 @@ export class CodexDriver implements HarnessDriver {
         })
       : undefined;
     authentication.assertUsable(signal, launchLease);
-    if (signal.aborted) throw new Error("Codex opening interrupted");
+    if (signal.aborted || host.processGeneration !== processGeneration)
+      throw new Error("Codex opening interrupted");
     const child = await host.launch({
       executable: this.executable,
       args: authentication.launchArgs(),
@@ -498,20 +507,43 @@ export class CodexDriver implements HarnessDriver {
       authentication.appManaged ? "app_managed_chatgpt" : expectedKind,
     );
     const verifyPayer = async (payerSignal: AbortSignal) => {
-      await authentication.verify(accountReader);
-      const lease = authentication.appManaged
+      const lease = authentication.requiresCustody
         ? await authentication.assertCurrent({
             selection,
             processGeneration,
             signal: payerSignal,
           })
         : undefined;
+      authentication.assertUsable(payerSignal, lease);
+      if (
+        stopped ||
+        signal.aborted ||
+        payerSignal.aborted ||
+        host.processGeneration !== processGeneration
+      )
+        throw new Error("Codex payer binding fenced");
+      await authentication.verify(accountReader);
+      authentication.assertUsable(payerSignal, lease);
+      if (
+        stopped ||
+        signal.aborted ||
+        payerSignal.aborted ||
+        host.processGeneration !== processGeneration
+      )
+        throw new Error("Codex payer binding fenced");
       accountVerified = true;
       return lease;
     };
     const assertContinuable = () => {
-      if (stopped || continuationFenced || signal.aborted)
+      if (
+        stopped ||
+        continuationFenced ||
+        signal.aborted ||
+        host.processGeneration !== processGeneration
+      ) {
+        if (!stopped && !continuationFenced) fail();
         throw new Error("Codex continuation fenced");
+      }
     };
     const interrupt = async () => {
       continuationFenced = true;
@@ -521,10 +553,13 @@ export class CodexDriver implements HarnessDriver {
       else fail();
     };
     const deliverReply = async <Reply extends Pick<HarnessReply, "replyTo">>(
-      pending: Map<string, {
-        payload: { replyTo: Reply["replyTo"] };
-        reply: (value: Reply) => void;
-      }>,
+      pending: Map<
+        string,
+        {
+          payload: { replyTo: Reply["replyTo"] };
+          reply: (value: Reply) => void;
+        }
+      >,
       reply: Reply,
     ) => {
       const { requestId } = reply.replyTo;
@@ -534,7 +569,7 @@ export class CodexDriver implements HarnessDriver {
         JSON.stringify(handle.payload.replyTo) !== JSON.stringify(reply.replyTo)
       )
         throw new Error("Codex reply unavailable");
-      if (authentication.appManaged) {
+      if (authentication.requiresCustody) {
         assertContinuable();
         try {
           const lease = await authentication.assertCurrent({
@@ -600,7 +635,12 @@ export class CodexDriver implements HarnessDriver {
     try {
       await child.ready;
       authentication.assertUsable(signal, launchLease);
-      if (stopped) throw new Error("Codex opening interrupted");
+      if (
+        stopped ||
+        signal.aborted ||
+        host.processGeneration !== processGeneration
+      )
+        throw new Error("Codex opening interrupted");
       const initialized = await initializeCodex(
         transport,
         "0.0.0",
@@ -608,10 +648,34 @@ export class CodexDriver implements HarnessDriver {
       );
       if (initialized.codexHome !== host.instanceDirectory)
         throw new Error("Codex instance home mismatch");
-      await authentication.establish(transport);
+      const loginLease = await authentication.assertCurrent({
+        selection,
+        processGeneration,
+        signal,
+      });
+      authentication.assertUsable(signal, loginLease);
+      if (
+        stopped ||
+        signal.aborted ||
+        host.processGeneration !== processGeneration
+      )
+        throw new Error("Codex account binding fenced");
+      await authentication.establish(transport, () => {
+        authentication.assertUsable(signal, loginLease);
+        if (
+          stopped ||
+          signal.aborted ||
+          host.processGeneration !== processGeneration
+        )
+          throw new Error("Codex account binding fenced");
+      });
       const openLease = await verifyPayer(signal);
       authentication.assertUsable(signal, openLease);
-      if (stopped || signal.aborted)
+      if (
+        stopped ||
+        signal.aborted ||
+        host.processGeneration !== processGeneration
+      )
         throw new Error("Codex account binding fenced");
       const common = {
         cwd: host.workspaceRoot,
@@ -636,6 +700,13 @@ export class CodexDriver implements HarnessDriver {
             excludeTurns: true,
           })
         : await native.open({ ...common, ephemeral: false });
+      authentication.assertUsable(signal, openLease);
+      if (
+        stopped ||
+        signal.aborted ||
+        host.processGeneration !== processGeneration
+      )
+        throw new Error("Codex thread binding fenced");
       session = HarnessSessionSchema.parse({
         runAttemptId: selection.runAttemptId,
         instanceId: selection.instanceId,
@@ -661,7 +732,7 @@ export class CodexDriver implements HarnessDriver {
           try {
             const promptLease = await verifyPayer(execution.signal);
             authentication.assertUsable(execution.signal, promptLease);
-            if (authentication.appManaged) assertContinuable();
+            if (authentication.requiresCustody) assertContinuable();
             if (stopped || signal.aborted || execution.signal.aborted)
               throw new Error("Codex payer binding fenced");
             externalTurnId = await native.start({
@@ -739,7 +810,7 @@ export class CodexDriver implements HarnessDriver {
             if (!externalTurnId || (terminal && control.kind === "steer"))
               throw new Error("Codex turn unavailable");
             if (control.kind === "steer") {
-              if (authentication.appManaged) {
+              if (authentication.requiresCustody) {
                 try {
                   const steerLease = await verifyPayer(signal);
                   authentication.assertUsable(signal, steerLease);

@@ -80,7 +80,7 @@ export function codexApiKeyIdentityFingerprint(apiKey: string): string {
     apiKey.length > 65_536 ||
     apiKey.trim() !== apiKey ||
     // This route accepts a key, never a serialized OAuth/vault record.
-    /[\s\0{}\[\]"]/u.test(apiKey)
+    /[\s\0{}[\]"]/u.test(apiKey)
   )
     throw new Error("Invalid selected Codex API key");
   return createHash("sha256")
