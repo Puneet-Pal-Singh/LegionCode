@@ -30,7 +30,7 @@ import type { Env } from "../types/ai";
 import { withWorkspaceRepository } from "./workspaces/WorkspacePersistenceFactory";
 
 const SESSION_COOKIE_NAME = "legioncode_session";
-const AUTH_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
+export const AUTH_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 const AUTH_SESSION_TTL_MS = AUTH_SESSION_TTL_SECONDS * 1000;
 const SESSION_TOKEN_BYTES = 32;
 
@@ -261,7 +261,7 @@ async function readSessionRecord(
   }
 }
 
-async function withIdentitySessionRepository<T>(
+export async function withIdentitySessionRepository<T>(
   env: Env,
   callback: (repository: IdentitySessionRepository) => Promise<T>,
 ): Promise<T> {
@@ -306,7 +306,7 @@ async function runAutomaticMigrations(
   await runner.runPending(persistenceMigrations);
 }
 
-function generateOpaqueSessionToken(): string {
+export function generateOpaqueSessionToken(): string {
   const bytes = new Uint8Array(SESSION_TOKEN_BYTES);
   crypto.getRandomValues(bytes);
   return bytesToHex(bytes);
