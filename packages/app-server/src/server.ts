@@ -1,3 +1,5 @@
+import type { HarnessOperations } from "./harness/HarnessOperations.js";
+export type { HarnessOperations } from "./harness/HarnessOperations.js";
 import type { LocalProviderPreferenceScope } from "./protocol.js";
 import { APP_SERVER_DEFAULT_MAX_RESPONSE_BYTES, appServerJsonByteLength } from "@repo/platform-protocol";
 import type { LocalWorkspaceListFilesParams, LocalWorkspaceListFilesResult, LocalWorkspaceReadFileParams } from "./protocol.js";
@@ -61,6 +63,7 @@ import type { LocalProviderService, ProviderConfiguration } from "./local-provid
 import type { EditArtifactDiffResponse, PromptArtifactReviewSource } from "@repo/shared-types";
 
 export type AppServerComposition = {
+  harnessOperations?: HarnessOperations;
   environment: "local" | "hosted";
   serverId: string;
   serverVersion: string;
@@ -362,6 +365,26 @@ async function dispatch(
   composition: AppServerComposition,
 ): Promise<unknown> {
   switch (request.method) {
+    case "harness/setup": {
+      if (!composition.harnessOperations) throw new AppServerOperationError(503, "server_unavailable", "Harness metadata operations are unavailable", undefined, false);
+      return composition.harnessOperations.setup(request.params);
+    }
+    case "harness/status": {
+      if (!composition.harnessOperations) throw new AppServerOperationError(503, "server_unavailable", "Harness metadata operations are unavailable", undefined, false);
+      return composition.harnessOperations.status(request.params);
+    }
+    case "harness/models": {
+      if (!composition.harnessOperations) throw new AppServerOperationError(503, "server_unavailable", "Harness metadata operations are unavailable", undefined, false);
+      return composition.harnessOperations.models(request.params);
+    }
+    case "harness/selection/read": {
+      if (!composition.harnessOperations) throw new AppServerOperationError(503, "server_unavailable", "Harness metadata operations are unavailable", undefined, false);
+      return composition.harnessOperations.readSelection(request.params);
+    }
+    case "harness/selection/select": {
+      if (!composition.harnessOperations) throw new AppServerOperationError(503, "server_unavailable", "Harness metadata operations are unavailable", undefined, false);
+      return composition.harnessOperations.select(request.params);
+    }
     case "repository/list": {
       if (!composition.hostedRepositoryReadService) throw new Error("unsupported");
       return composition.hostedRepositoryReadService.list(request.params);
