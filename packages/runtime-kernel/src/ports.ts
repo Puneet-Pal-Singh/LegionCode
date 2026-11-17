@@ -80,6 +80,9 @@ export interface WorkerProtocolPort {
     toolCall: ToolCallItemContent;
     approval: ApprovalResolution | null;
     signal?: AbortSignal;
+    /** Data only; runtime binds the active tool/attempt. UTF-8 admission is
+     * limited to 16 KiB per delta and 64 KiB per tool; resolves after persistence. */
+    onOutput?: (delta: string) => Promise<void>;
   }): Promise<WorkerToolResult>;
 }
 

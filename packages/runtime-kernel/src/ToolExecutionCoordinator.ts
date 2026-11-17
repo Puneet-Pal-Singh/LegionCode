@@ -125,16 +125,18 @@ export class ToolExecutionCoordinator {
             signal,
           )
         : null;
-    const result = await this.executeToCompletion(
-      run,
-      runAttemptId,
-      turn,
-      workspace,
-      itemId,
-      authorization.toolCall,
-      approval,
-      signal,
-    );
+    const liveOutput = createLiveToolOutput(this.lifecycle, toolCall.toolCallId, signal);
+    let result: Extract<WorkerToolResult, { kind: "completed" | "failed" }>;
+    try {
+      result = await this.executeToCompletion(
+        run, runAttemptId, turn, workspace, itemId, authorization.toolCall, approval, liveOutput, signal,
+      );
+    } finally {
+      liveOutput.seal();
+      // The original worker must settle AND every synchronously admitted append
+      // must drain before either success or error reaches terminal handling.
+      await liveOutput.drain();
+    }
     if (result.kind === "failed") {
       const failure = toPublicProtocolError(result.failure);
       if (result.disposition === "terminal") {
@@ -167,6 +169,7 @@ export class ToolExecutionCoordinator {
       itemId,
       authorization.toolCall,
       result,
+      liveOutput.persistedPrefix(),
     );
     await this.lifecycle.completeToolCall(toolCall.toolCallId, result.output);
     return { toolCallId: toolCall.toolCallId, output: result.output };
@@ -180,6 +183,7 @@ export class ToolExecutionCoordinator {
     itemId: ItemId,
     toolCall: ToolCallItemContent,
     approval: ApprovalResolution | null,
+    liveOutput: LiveToolOutput,
     signal?: AbortSignal,
   ): Promise<Extract<WorkerToolResult, { kind: "completed" | "failed" }>> {
     const initial = await this.callWorker(
@@ -189,6 +193,7 @@ export class ToolExecutionCoordinator {
       workspace,
       toolCall,
       approval,
+      liveOutput,
       signal,
     );
     if (initial.kind === "completed") {
@@ -221,6 +226,7 @@ export class ToolExecutionCoordinator {
       workspace,
       toolCall,
       workerApproval,
+      liveOutput,
       signal,
     );
   }
@@ -232,6 +238,7 @@ export class ToolExecutionCoordinator {
     workspace: WorkspaceManifest,
     toolCall: ToolCallItemContent,
     approval: ApprovalResolution,
+    liveOutput: LiveToolOutput,
     signal?: AbortSignal,
   ): Promise<Extract<WorkerToolResult, { kind: "completed" | "failed" }>> {
     const result = await this.callWorker(
@@ -241,6 +248,7 @@ export class ToolExecutionCoordinator {
       workspace,
       toolCall,
       approval,
+      liveOutput,
       signal,
     );
     if (result.kind === "approval_required") {
@@ -265,18 +273,22 @@ export class ToolExecutionCoordinator {
     workspace: WorkspaceManifest,
     toolCall: ToolCallItemContent,
     approval: ApprovalResolution | null,
+    liveOutput: LiveToolOutput,
     signal?: AbortSignal,
   ): Promise<WorkerToolResult> {
     if (signal?.aborted) throw new RuntimeKernelError("turn_cancelled", "Turn stopped before worker dispatch");
-    return await this.worker.executeTool({
-      runId: run.id,
-      runAttemptId,
-      turnId: turn.id,
-      workspace,
-      toolCall,
-      approval,
-      signal,
-    });
+    let dispatchOpen = true;
+    try {
+      return await this.worker.executeTool({
+        runId: run.id, runAttemptId, turnId: turn.id, workspace, toolCall, approval, signal,
+        onOutput: (delta) => dispatchOpen
+          ? liveOutput.onOutput(delta)
+          : rejectedOutput("Tool output arrived after its original dispatch settled"),
+      });
+    } finally {
+      dispatchOpen = false;
+      await liveOutput.drain();
+    }
   }
 
   private workerFailure(failure: ProtocolError): RuntimeKernelError {
@@ -288,6 +300,7 @@ export class ToolExecutionCoordinator {
     itemId: ItemId,
     toolCall: ToolCallItemContent,
     result: Extract<WorkerToolResult, { kind: "completed" }>,
+    persistedPrefix: string,
   ): Promise<void> {
     const projection = mapWorkerResultEvents(
       run,
@@ -295,11 +308,79 @@ export class ToolExecutionCoordinator {
       result.output,
       result.events,
     );
+    // Match the ENTIRE persisted prefix across mapped delta boundaries before
+    // removing anything. A partial match must not erase nonduplicate final text.
+    let matched = 0;
     for (const delta of projection.outputDeltas) {
-      await this.lifecycle.appendToolOutput(toolCall.toolCallId, delta);
+      const count = Math.min(delta.length, persistedPrefix.length - matched);
+      if (delta.slice(0, count) !== persistedPrefix.slice(matched, matched + count)) { matched = -1; break; }
+      matched += count;
+      if (matched === persistedPrefix.length) break;
+    }
+    let skip = matched === persistedPrefix.length ? matched : 0;
+    for (const delta of projection.outputDeltas) {
+      const count = Math.min(skip, delta.length);
+      skip -= count;
+      await appendOutputChunks(this.lifecycle, toolCall.toolCallId, delta.slice(count));
     }
     for (const artifact of projection.artifacts) {
       await this.lifecycle.createArtifact(itemId, artifact);
     }
+  }
+}
+
+interface LiveToolOutput {
+  onOutput(delta: string): Promise<void>;
+  drain(): Promise<void>;
+  seal(): void;
+  persistedPrefix(): string;
+}
+function rejectedOutput(message: string): Promise<void> {
+  const rejected = Promise.reject(new RuntimeKernelError("worker_failed", message));
+  void rejected.catch(() => undefined);
+  return rejected;
+}
+function createLiveToolOutput(
+  lifecycle: RuntimeLifecycleCoordinator, toolCallId: ToolCallItemContent["toolCallId"], signal?: AbortSignal,
+): LiveToolOutput {
+  let sealed = false, admittedBytes = 0, persisted = "";
+  let admissionFailure: RuntimeKernelError | undefined;
+  let tail: Promise<void> = Promise.resolve();
+  return {
+    onOutput(delta) {
+      if (sealed || signal?.aborted || lifecycle.isTerminal) return rejectedOutput("Tool output admission is sealed");
+      const bytes = typeof delta === "string" ? new TextEncoder().encode(delta).byteLength : -1;
+      if (bytes < 0 || bytes > 16 * 1024 || admittedBytes + bytes > 64 * 1024) {
+        admissionFailure = new RuntimeKernelError("worker_failed", "Tool output exceeds its UTF-8 admission limit");
+        sealed = true;
+        return rejectedOutput(admissionFailure.message);
+      }
+      if (bytes === 0) return Promise.resolve();
+      admittedBytes += bytes;
+      // Register synchronously, before persistence can yield. Rejected tails
+      // reject all queued successors; no later append can skip a failed prefix.
+      const original = tail.then(() => appendOutputChunks(lifecycle, toolCallId, delta, part => { persisted += part; }));
+      tail = original;
+      void original.catch(() => { sealed = true; });
+      return original;
+    },
+    async drain() { await tail; if (admissionFailure) throw admissionFailure; },
+    seal() { sealed = true; },
+    persistedPrefix() { return persisted; },
+  };
+}
+async function appendOutputChunks(
+  lifecycle: RuntimeLifecycleCoordinator, toolCallId: ToolCallItemContent["toolCallId"], delta: string,
+  persisted?: (part: string) => void,
+): Promise<void> {
+  // Existing lifecycle owner caps each event at 4,000 UTF-16 code units. Split
+  // without bisecting a surrogate pair; each part also fits the 16 KiB byte cap.
+  for (let offset = 0; offset < delta.length;) {
+    let end = Math.min(offset + 4000, delta.length);
+    if (end < delta.length && /[\uD800-\uDBFF]/u.test(delta[end - 1]!) && /[\uDC00-\uDFFF]/u.test(delta[end]!)) end--;
+    const part = delta.slice(offset, end);
+    await lifecycle.appendToolOutput(toolCallId, part);
+    persisted?.(part);
+    offset = end;
   }
 }
