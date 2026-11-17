@@ -1,3 +1,4 @@
+import { HarnessConnectionMetadataService, HarnessConnectionMetadataSchema, type HarnessConnectionMetadataAuthority } from "../../harness/HarnessConnectionService";
 import {
   DatabaseConfigurationError,
   persistenceMigrations,
@@ -140,4 +141,28 @@ export function createPostgresHarnessConnectionService(
       return provenance;
     },
   }, expectedEnvironmentId);
+}
+
+/** Explicit user-owned metadata for pre-selection setup. No decryption,
+ * provider-default lookup, credential lock or independent transaction. */
+export function createPostgresHarnessConnectionMetadataService(
+  env: Env,
+  userId: string,
+  workspaceId: string,
+  authority: HarnessConnectionMetadataAuthority,
+  expectedEnvironmentId: string,
+): HarnessConnectionMetadataService {
+  const encryption = getProviderEncryptionConfig(env as unknown as Record<string, unknown>);
+  return new HarnessConnectionMetadataService(authority, {
+    async readConnectionMetadataWithin(transaction, connectionId) {
+      const credentials = new PostgresCredentialStore(transaction, userId, workspaceId,
+        encryption.masterKey, encryption.keyVersion, encryption.previousMasterKey);
+      const record = await credentials.getConnection(connectionId);
+      if (!record || record.status !== "connected" || record.deletedAt !== null || record.refreshClaimId !== null) return null;
+      if (record.userId !== userId || record.credentialId !== connectionId) throw unavailable();
+      return HarnessConnectionMetadataSchema.parse({ connectionId: record.credentialId,
+        providerId: record.providerId, credentialKind: record.credentialKind,
+        ownerGeneration: record.authOwnerGeneration, tokenMaterialVersion: record.tokenMaterialVersion });
+    },
+  }, userId, workspaceId, expectedEnvironmentId);
 }
