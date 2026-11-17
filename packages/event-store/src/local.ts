@@ -5,8 +5,8 @@ import { ThreadInputConflictError } from "./thread-inputs/errors.js";
 import type { ThreadInputRepository } from "./thread-inputs/types.js";
 import { LocalWorkspaceProjectRecords } from "./local-workspace-projects.js";
 import { LocalWorkspaceGrantRecords } from "./local-workspace-grants.js";
-import { parseStoredGrant, type StoredLocalWorkspaceGrant } from "./local-workspace-grant.js";
-export type { StoredLocalWorkspaceGrant } from "./local-workspace-grant.js";
+import { parseStoredGrant, type LocalFilesystemWorkspaceIdentity, type StoredLocalWorkspaceGrant } from "./local-workspace-grant.js";
+export type { LocalFilesystemWorkspaceIdentity, StoredLocalWorkspaceGrant } from "./local-workspace-grant.js";
 import type { LocalThreadRuntimeScope, LocalThreadRuntimeSummary } from "./local-thread-runtime-summary.js";
 import { LocalHarnessControlPlane, type LocalHarnessControlPlanePort } from "./local/harness-control-plane.js";
 import { LocalHarnessObservationCommitPort } from "./local/harness-observation-port.js";
@@ -138,8 +138,8 @@ export class LocalPersistence {
     select(workspaceId: WorkspaceId): Promise<void>;
     clear(workspaceId?: WorkspaceId): Promise<void>;
     listProjects(): Promise<LocalWorkspaceProject[]>;
-    findKnownWorkspaceId(gitMetadataIdentity: string): Promise<WorkspaceId | null>;
-    rememberValidatedCurrent(value: Extract<StoredLocalWorkspaceGrant, { version: 2 }>): Promise<void>;
+    findKnownWorkspaceId(identity: string | LocalFilesystemWorkspaceIdentity): Promise<WorkspaceId | null>;
+    rememberValidatedCurrent(value: Extract<StoredLocalWorkspaceGrant, { version: 2 | 3 }>): Promise<void>;
     rememberUnlinked(workspaceIds: readonly WorkspaceId[]): Promise<void>;
     hideProject(workspaceId: WorkspaceId): Promise<void>;
   };
@@ -286,10 +286,16 @@ export class LocalPersistence {
       findKnownWorkspaceId: async (identity) => this.guardStorage(() => new LocalWorkspaceProjectRecords(this.database).findWorkspaceId(identity)),
       rememberValidatedCurrent: async (value) => this.guardStorage(() => this.database.transaction(() => {
         const current = new LocalWorkspaceGrantRecords(this.database).read(value.grant.workspaceId);
-        if (current?.version !== 2 || current.grant.readiness !== "ready" || current.path !== value.path ||
-            current.gitMetadataIdentity !== value.gitMetadataIdentity || current.grant.grantedAt !== value.grant.grantedAt)
+        const sameIdentity = current?.version === 2 && value.version === 2
+          ? current.gitMetadataIdentity === value.gitMetadataIdentity
+          : current?.version === 3 && value.version === 3 &&
+            current.filesystemIdentity.device === value.filesystemIdentity.device && current.filesystemIdentity.inode === value.filesystemIdentity.inode &&
+            current.filesystemIdentity.birthtimeNs === value.filesystemIdentity.birthtimeNs;
+        if (!current || !sameIdentity || current.grant.readiness !== "ready" || current.path !== value.path ||
+            current.grant.grantedAt !== value.grant.grantedAt)
           throw new Error("Workspace grant changed before project association was retained");
-        new LocalWorkspaceProjectRecords(this.database).rememberValidated(value.grant, value.gitMetadataIdentity);
+        new LocalWorkspaceProjectRecords(this.database).rememberValidated(value.grant,
+          value.version === 2 ? value.gitMetadataIdentity : value.filesystemIdentity);
       }).immediate()),
       rememberUnlinked: async (workspaceIds) => this.guardStorage(() => this.database.transaction(() => {
         new LocalWorkspaceProjectRecords(this.database).rememberUnlinked(workspaceIds);
