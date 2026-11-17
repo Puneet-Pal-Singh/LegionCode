@@ -5,6 +5,7 @@ import {
   type NativeProviderBinding, type NativeProviderBindingScope,
 } from "./native-provider-binding.js";
 import type { SqlClient, SqlRow } from "../sql.js";
+import { PostgresHarnessControlPlaneRepository, parseHarnessAdmissionReceipt } from "../harness/PostgresHarnessControlPlaneRepository.js";
 import { PostgresRunRepository } from "../runs/PostgresRunRepository.js";
 import { PostgresTranscriptRepository } from "../sessions/PostgresTranscriptRepository.js";
 import type {
@@ -19,12 +20,14 @@ import type {
   TurnAdmissionRepository,
 } from "./types.js";
 import {
-  ThreadInputQueueItemSchema,
+  ThreadInputQueueItemSchema, HarnessAdmissionSelectionSchema,
   userIdFromExternalId,
+  workspaceIdFromExternalId,
 } from "@repo/platform-protocol";
 
 interface AdmissionRow extends SqlRow {
   native_provider_binding_json?: unknown;
+  harness_admission_receipt_json?: unknown;
   task_id?: string | null;
   task_user_id?: string | null;
   task_workspace_id?: string | null;
@@ -238,6 +241,7 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
 
   async reserveQueuedStart(input: ReserveQueuedStartInput): Promise<ReserveQueuedStartResult> {
     input = structuredClone(input);
+    validateHarnessCapture(input);
     return await this.client.transaction(async (tx) => {
       const clientMessageId = `thread-input:${input.itemId}`;
       const dedupeKey = clientMessageId;
@@ -267,6 +271,7 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
         if (admission.state !== "admitted" || admission.requestFingerprint !== input.requestFingerprint) {
           throw new TurnAdmissionConflictError("Queued input admission is incomplete or has a different fingerprint", "fingerprint_conflict");
         }
+        await this.captureHarnessSelection(tx, input, admission);
         const itemResult = await tx.query<AdmissionRow>(READ_QUEUED_START_SQL, [
           input.sessionId, input.userId, input.threadId, input.workspaceId, input.itemId,
         ]);
@@ -357,6 +362,7 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
           null,
           null,
         ]);
+        await this.captureHarnessSelection(tx, input, mapAdmission(requiredRow(inserted.rows[0])));
         const orderResult = await tx.query<AdmissionRow>(ALLOCATE_ADMISSION_ORDER_SQL, [input.sessionId]);
         const admissionOrder = numberValue(orderResult.rows[0]?.admission_order, "admission_order");
         const run = await new PostgresRunRepository(tx).ensureRun({
@@ -407,6 +413,7 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
 
   async admitContinuation(input: AdmitContinuationInput): Promise<{ admission: TurnAdmissionRecord; run: import("../runs/types.js").RunRecord }> {
     input = structuredClone(input);
+    validateHarnessCapture(input);
     return await this.client.transaction(async (tx) => {
       const sessionResult = await tx.query<AdmissionRow>(LOCK_OWNED_SESSION_SQL, [input.sessionId, input.userId, input.runId]);
       const session = sessionResult.rows[0];
@@ -453,6 +460,7 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
         existing.continuationOfTurnId !== input.continuationOfTurnId || existing.originalPromptId !== input.originalPromptId ||
         existing.continuationTerminalSequence !== input.continuationTerminalSequence
       ) throw new TurnAdmissionConflictError("Continuation admission identity does not match", "identity_conflict");
+      await this.captureHarnessSelection(tx, input, existing);
       if (existing.state === "admitted") {
         if (existing.requestFingerprint !== input.requestFingerprint) throw new TurnAdmissionConflictError("Admitted continuation fingerprint does not match", "fingerprint_conflict");
         const run = await new PostgresRunRepository(tx).getRun(input.runId, input.userId);
@@ -513,6 +521,7 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
     input: AdmitTurnWithPromptInput,
   ): Promise<{ admission: TurnAdmissionRecord; promptMessageId: string; run: import("../runs/types.js").RunRecord }> {
     input = structuredClone(input);
+    validateHarnessCapture(input);
     return await this.client.transaction(async (tx) => {
       const sessionResult = await tx.query<AdmissionRow>(LOCK_OWNED_SESSION_SQL, [
         input.sessionId,
@@ -542,6 +551,7 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
       ) {
         throw new TurnAdmissionConflictError("Turn admission identity does not match", "identity_conflict");
       }
+      await this.captureHarnessSelection(tx, input, existing);
       if (existing.state === "admitted") {
         if (existing.requestFingerprint !== input.requestFingerprint) {
           throw new TurnAdmissionConflictError("Admitted prompt fingerprint does not match", "fingerprint_conflict");
@@ -616,6 +626,28 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
         ]);
         return { admission: mapAdmission(requiredRow(updated.rows[0])), promptMessageId: prompt.id, run };
       });
+    });
+  }
+
+  private async captureHarnessSelection(
+    tx: SqlClient,
+    input: Pick<AdmitTurnWithPromptInput, "executionRoute" | "harnessSelection" | "harnessEnvironmentId" |
+      "userId" | "sessionId" | "requestFingerprint"> & { readonly workspaceId: string | null },
+    admission: TurnAdmissionRecord,
+  ): Promise<void> {
+    const requested = validateHarnessCapture(input);
+    if (requested === null) {
+      if (admission.harnessSelection != null)
+        throw new TurnAdmissionConflictError("Frozen harness selection cannot be omitted", "harness_selection_conflict");
+      return;
+    }
+    const { capture, environmentId } = requested;
+    if (admission.state === "admitted" && admission.requestFingerprint !== input.requestFingerprint)
+      throw new TurnAdmissionConflictError("Admitted request fingerprint does not match", "fingerprint_conflict");
+    await new PostgresHarnessControlPlaneRepository(tx).captureAdmissionSelection(tx, {
+      scope: { userId: input.userId, workspaceId: requested.workspaceId, environmentId },
+      sessionId: input.sessionId, threadId: admission.threadId, turnId: admission.turnId,
+      capture, expectedEnvironmentId: environmentId, requestFingerprint: input.requestFingerprint, admitted: admission.state === "admitted",
     });
   }
 
@@ -765,7 +797,32 @@ function mapAdmission(row: AdmissionRow): TurnAdmissionRecord {
       jsonValue(row.native_provider_binding_json), admissionBindingScope(admission),
     );
   }
+  if (row.harness_admission_receipt_json !== null && row.harness_admission_receipt_json !== undefined) {
+    const receipt = parseHarnessAdmissionReceipt(row.harness_admission_receipt_json);
+    if (receipt.requestFingerprint !== admission.requestFingerprint ||
+        (receipt.capture.selection !== null && admission.nativeProviderBinding !== null))
+      throw new TurnAdmissionConflictError("Stored harness receipt differs from its admission", "harness_selection_conflict");
+    const binding = receipt.binding;
+    if (binding && (admission.workspaceId === null || binding.userId !== userIdFromExternalId(admission.userId) ||
+        binding.workspaceId !== workspaceIdFromExternalId(admission.workspaceId) || binding.threadId !== admission.threadId ||
+        binding.runId !== admission.runId || binding.turnId !== admission.turnId || binding.runAttemptId !== admission.runAttemptId))
+      throw new TurnAdmissionConflictError("Stored harness binding differs from its admission scope", "harness_selection_conflict");
+    admission.harnessSelection = receipt.capture;
+    admission.harnessAdmissionReceipt = receipt;
+  }
   return admission;
+}
+
+function validateHarnessCapture(input: Pick<AdmitTurnWithPromptInput,
+  "executionRoute" | "harnessSelection" | "harnessEnvironmentId"> & { readonly workspaceId: string | null }) {
+  if (input.harnessSelection === undefined) return null;
+  const capture = HarnessAdmissionSelectionSchema.parse(input.harnessSelection);
+  const route = NativeProviderAdmissionRouteSchema.safeParse(input.executionRoute);
+  if (!route.success || (route.data === "native") !== (capture.selection === null))
+    throw new TurnAdmissionConflictError("Harness capture does not match the explicit execution route", "harness_selection_conflict");
+  if (!input.workspaceId || !input.harnessEnvironmentId || capture.environmentId !== input.harnessEnvironmentId)
+    throw new TurnAdmissionConflictError("Harness capture does not match trusted placement", "harness_selection_conflict");
+  return { capture, environmentId: input.harnessEnvironmentId, workspaceId: input.workspaceId };
 }
 
 function admissionBindingScope(admission: TurnAdmissionRecord): NativeProviderBindingScope {
