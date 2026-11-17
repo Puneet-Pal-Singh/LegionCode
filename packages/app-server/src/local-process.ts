@@ -1,3 +1,4 @@
+import { LocalHarnessOperations } from "./harness/LocalHarnessOperations.js";
 import { createLocalThreadInputOperations, readQueuedInputMediaOwnership } from "./local-thread-inputs.js";
 import type { LocalQueuedInputMediaPort } from "./local-queued-input-media.js";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -17,7 +18,7 @@ import { LocalWorkspaceService, type LocalWorkspaceServiceOptions } from "./loca
 import { DefaultGitService } from "@repo/git-service";
 import { createNodeGitExecutor } from "./local-node-git-executor.js";
 import type { VerifiedMacGitExecution, VerifiedMacGitOptions } from "./local-mac-git-execution.js";
-import { LocalThreadService } from "./local-threads.js";
+import { LOCAL_USER_ID, LocalThreadService } from "./local-threads.js";
 import { LocalProviderService, ProviderConfigurationSchema } from "./local-providers.js";
 import type { LocalProviderModelCatalog } from "./local-provider-model-catalog.js";
 import { LocalTurnService, type LocalTurnRuntime } from "./local-turns.js";
@@ -98,6 +99,10 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
         : workspaceService.getAuthorized(workspaceId),
       readRuntimeSummary: persistence.turnAdmissions.readThreadSummary,
     });
+    const harnessOperations = new LocalHarnessOperations({
+      environmentId: persistence.environmentId, workspaceService, threadService,
+      controlPlane: persistence.createHarnessControlPlane(LOCAL_USER_ID),
+    });
     const providerService = new LocalProviderService({
       selectionStore: persistence.providerSelection,
       modelCatalog: options?.providerModelCatalog,
@@ -124,6 +129,7 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
       workspaces: workspaceService,
       threads: threadService,
       providers: providerService,
+      harnessSelection: { environmentId: persistence.environmentId, operations: harnessOperations },
       runtime,
       media,
       queuedInputs: persistence.threadInputs,
@@ -145,7 +151,7 @@ export async function createLocalAppServer(config: LocalAppServerStartConfig, op
     }) : undefined;
     const requests = createLocalHttpRequestDrain();
     const server = createServer((request, response) => {
-      void requests.track(() => handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, workspaceGitReads, turnService, providerPreferences, artifactReads, imageReads, artifactCommits, threadInputs, () => requests.stopping));
+      void requests.track(() => handleRequest(request, response, config, workspaceService, threadService, providerService, persistence, workspaceFilesService, workspaceGitReads, turnService, providerPreferences, artifactReads, imageReads, artifactCommits, threadInputs, harnessOperations, () => requests.stopping));
     });
     const owner = attachLocalServerShutdown(
       server, persistence, combineLocalShutdownOwners(turnService, artifactCommits, workspaceGitReads, requests),
@@ -253,6 +259,7 @@ async function handleRequest(
   imageReads?: LocalChatMediaReads,
   artifactCommits?: AppServerComposition["localTurnArtifactCommitService"],
   threadInputs?: AppServerComposition["hostedThreadInputOperationsService"],
+  harnessOperations?: LocalHarnessOperations,
   isShuttingDown: () => boolean = () => false,
 ): Promise<void> {
   const baseInput = {
@@ -272,6 +279,8 @@ async function handleRequest(
     localWorkspaceFilesService: workspaceFilesService,
     localWorkspaceGitReadsService: workspaceGitReads,
     localTurnService: turnService,
+    harnessOperations,
+    environmentId: persistence.environmentId,
     localProviderPreferenceService: providerPreferences,
     localTurnArtifactReadsService: artifactReads,
     localChatMediaService: imageReads,
