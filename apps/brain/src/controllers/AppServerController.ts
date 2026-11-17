@@ -1,3 +1,5 @@
+import { AppServerEnvironmentIdSchema } from "@repo/platform-protocol";
+import { composeHostedHarnessOperations } from "../integration/app-server/HostedHarnessOperations";
 import { composeHostedCheckoutReads } from "../integration/app-server/HostedCheckoutReads";
 import { composeHostedProviderPreferences } from "../integration/app-server/HostedProviderPreferences";
 import { composeHostedProviderCredentials } from "../integration/app-server/HostedProviderCredentials";
@@ -93,6 +95,9 @@ export const AppServerController = {
     }
     // Initialize remains a public handshake. Resource services are composed only
     // after an HttpOnly cookie resolves to a server-verified principal.
+    const placement = AppServerEnvironmentIdSchema.safeParse(env.APP_SERVER_ENVIRONMENT_ID);
+    const environmentId = placement.success ? placement.data : null;
+    let harnessOperations: ReturnType<typeof composeHostedHarnessOperations> | undefined;
     let hostedProviderCredentialService: ReturnType<typeof composeHostedProviderCredentials> | undefined;
     let hostedProviderPreferenceService: ReturnType<typeof composeHostedProviderPreferences> | undefined;
     let hostedProviderDiscoveryService: ReturnType<typeof composeHostedProviderDiscovery> | undefined;
@@ -126,6 +131,7 @@ export const AppServerController = {
           protocolVersion: parsed.data.protocolVersion, method: parsed.data.method,
           ok: false, error: { code: "unauthorized", message: "Unauthorized", ...threadInputAuthFailureDetails(parsed.data.method, 401), ...turnAuthFailureDetails(parsed.data.method, 401) },
         });
+        harnessOperations = composeHostedHarnessOperations(request, env, auth.userId, environmentId);
         hostedProviderCredentialService = composeHostedProviderCredentials(request, env, auth.userId);
         hostedProviderPreferenceService = composeHostedProviderPreferences(request, env, auth.userId);
         hostedProviderDiscoveryService = composeHostedProviderDiscovery(request, env, auth.userId);
@@ -217,6 +223,8 @@ export const AppServerController = {
       },
       {
         environment: "hosted",
+        environmentId,
+        harnessOperations,
         serverId: "legioncode-hosted",
         serverVersion: "0.1.0",
         hostedWorkspaceService,

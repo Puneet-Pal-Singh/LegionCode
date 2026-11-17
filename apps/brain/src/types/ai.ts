@@ -29,6 +29,8 @@ export interface HyperdriveBinding {
 }
 
 export interface Env {
+  /** Trusted placement identity; never supplied by a chat or harness capture. */
+  APP_SERVER_ENVIRONMENT_ID?: string;
   // Existing bindings
   AI: Ai;
   SECURE_API: Fetcher;
