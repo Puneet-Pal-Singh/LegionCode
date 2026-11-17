@@ -187,3 +187,15 @@ export {
 } from "./workspace/HostedWorkspaceConfigurationEditor.js";
 
 export { convertConversationHistoryMessages } from "./conversation/history/conversationHistoryMessages.js";
+
+export {
+  HarnessConnectionSettings,
+  type HarnessConnectionSettingsClient,
+  type HarnessConnectionSettingsProps,
+} from "./harness/HarnessConnectionSettings.js";
+export type {
+  HarnessConnectionLoader,
+  HarnessConnectionOption,
+  HarnessConnectionPlacement,
+  HarnessConnectionQuery,
+} from "./harness/HarnessConnectionSetup.js";
