@@ -202,11 +202,28 @@ export class RuntimeLifecycleCoordinator {
   get requiresHarnessRecovery(): boolean { return this.harnessFenced; }
 
   async restoreHarnessHistory(history: readonly LifecycleEvent[]): Promise<void> {
+    await this.restoreHistory(history);
+  }
+
+  async restoreCompletedNativeHistory(history: readonly LifecycleEvent[]): Promise<void> {
+    if (this.options.executionCapability !== "conversation") {
+      throw new Error("Completed Native replay requires conversation execution");
+    }
+    await this.restoreHistory(history, "completed");
+  }
+
+  private async restoreHistory(
+    history: readonly LifecycleEvent[],
+    expectedTerminal?: "completed",
+  ): Promise<void> {
     const events = history.map((event) => LifecycleEventSchema.parse(event));
     // Recovery is the one explicit operation allowed to replace fenced state.
     const recovery = this.operationQueue.then(async () => {
       const restored = new RuntimeLifecycleCoordinator({ ...this.options, initialSequence: 0 });
       restored.restoreApprovalWaitState(events, false);
+      if (expectedTerminal !== undefined && restored.terminalStatus !== expectedTerminal) {
+        throw new Error("Canonical replay does not prove the required terminal status");
+      }
       this.copyStateFrom(restored);
     });
     this.operationQueue = recovery.catch(() => undefined);

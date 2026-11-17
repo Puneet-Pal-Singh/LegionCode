@@ -260,12 +260,15 @@ export class RuntimeKernel {
     if (recovery) return;
     if (input.execution?.kind === "delegated" || run.harnessSelection?.selection != null)
       throw new RuntimeKernelError("turn_already_owned", "Canonical lifecycle history requires explicit supported recovery");
-    const result = await readCompletedTurnReplay(
+    const replayed = await readCompletedTurnReplay(
       this.dependencies.lifecycleEvents, { ...input, run, turn, runAttemptId: attempt },
       this.dependencies.producerId, first,
     );
+    const lifecycle = this.instantiateLifecycle(run, turn, attempt, input);
+    await lifecycle.restoreCompletedNativeHistory(replayed.history);
     this.assertTurnAvailable(turn);
-    return result;
+    this.lifecycles.set(turn.id, lifecycle);
+    return replayed.result;
   }
 
   private async prepareTurn(input: StartTurnInput): Promise<PreparedTurn> {
@@ -1047,8 +1050,19 @@ export class RuntimeKernel {
     runAttemptId: StartTurnInput["runAttemptId"],
     input: StartTurnInput,
   ): RuntimeLifecycleCoordinator {
+    const lifecycle = this.instantiateLifecycle(run, turn, runAttemptId, input);
+    this.lifecycles.set(turn.id, lifecycle);
+    return lifecycle;
+  }
+
+  private instantiateLifecycle(
+    run: Run,
+    turn: Turn,
+    runAttemptId: StartTurnInput["runAttemptId"],
+    input: StartTurnInput,
+  ): RuntimeLifecycleCoordinator {
     this.assertTurnAvailable(turn);
-    const lifecycle = new RuntimeLifecycleCoordinator({
+    return new RuntimeLifecycleCoordinator({
       sink: this.dependencies.lifecycleEvents,
       producerId: this.dependencies.producerId,
       executionCapability: run.executionCapability,
@@ -1062,8 +1076,6 @@ export class RuntimeKernel {
       continuationOfTurnId: input.continuationOfTurnId,
       originalPromptId: input.originalPromptId,
     });
-    this.lifecycles.set(turn.id, lifecycle);
-    return lifecycle;
   }
 
   private async recoverFailedTurn(

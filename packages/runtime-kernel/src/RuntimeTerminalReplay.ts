@@ -14,7 +14,10 @@ export async function readCompletedTurnReplay(
   input: StartTurnInput,
   producerId: string,
   first: LifecycleEvent,
-): Promise<StartTurnResult> {
+): Promise<{
+  readonly history: readonly LifecycleEvent[];
+  readonly result: StartTurnResult;
+}> {
   // Repository results include the executable manifest captured for that attempt.
   // This replay port cannot recover it from immutable evidence.
   if (input.run.executionCapability !== "conversation") {
@@ -80,10 +83,13 @@ export async function readCompletedTurnReplay(
     opened.payload.kind !== "assistant_message" ||
     fragments.reverse().join("") !== item.payload.result.output) throw invalidHistory();
   return {
-    status: "completed",
-    output: item.payload.result.output,
-    toolCallCount: events.filter((event) => event.type === "tool_call.started").length,
-    workspace: null,
+    history: events,
+    result: {
+      status: "completed",
+      output: item.payload.result.output,
+      toolCallCount: events.filter((event) => event.type === "tool_call.started").length,
+      workspace: null,
+    },
   };
 }
 
