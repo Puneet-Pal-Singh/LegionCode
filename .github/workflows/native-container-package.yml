@@ -129,20 +129,35 @@ jobs:
               assert key in legacy_defaults, f'Unsupported Docker configuration field: {key}'
               assert value is None or value == legacy_defaults[key], f'Nondefault Docker-only configuration: {key}'
           assert len(manifest['layers']) == len(config['rootfs']['diff_ids'])
-          for layer, expected in zip(manifest['layers'], config['rootfs']['diff_ids']):
+          expanded_ceiling_bytes = 1_600_000_000
+          total_expanded_bytes = 0
+          for layer_index, (layer, expected) in enumerate(zip(manifest['layers'], config['rootfs']['diff_ids'])):
               blob(layer)
               algorithm, value = layer['digest'].split(':')
               path = layout / 'blobs' / algorithm / value
               kind = layer['mediaType']
               assert kind in ['application/vnd.oci.image.layer.v1.tar', 'application/vnd.oci.image.layer.v1.tar+gzip']
               checksum = hashlib.sha256()
+              layer_expanded_bytes = 0
               with (gzip.open(path, 'rb') if kind.endswith('+gzip') else path.open('rb')) as stream:
                   for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                      layer_expanded_bytes += len(chunk)
+                      total_expanded_bytes += len(chunk)
+                      assert total_expanded_bytes <= expanded_ceiling_bytes, 'OCI_PRODUCER_LAYER_EXPANSION_LIMIT'
                       checksum.update(chunk)
               assert 'sha256:' + checksum.hexdigest() == expected
+              print(json.dumps({'diagnostic': 'nonqualifying_raw_layer_tar_bytes',
+                  'layerIndex': layer_index, 'layerCount': len(manifest['layers']),
+                  'layerDigest': layer['digest'], 'layerBlobBytes': layer['size'],
+                  'layerExpandedBytes': layer_expanded_bytes,
+                  'totalExpandedBytes': total_expanded_bytes}, sort_keys=True), flush=True)
           inspected, = json.loads((root / 'docker-inspect.json').read_text())
           assert inspected['Id'] == os.environ['CHECKED_IMAGE_ID']
           assert 0 < inspected['Size'] <= 1_350_000_000
+          print(json.dumps({'diagnostic': 'nonqualifying_raw_layer_tar_comparison',
+              'dockerInspectBytes': inspected['Size'], 'totalExpandedBytes': total_expanded_bytes,
+              'expansionCeilingBytes': expanded_ceiling_bytes,
+              'imageAdmissionLimitBytes': 1_350_000_000}, sort_keys=True), flush=True)
           sbom = json.loads((root / 'sbom.spdx.json').read_text())
           assert sbom['spdxVersion'].startswith('SPDX-') and sbom['packages']
           paths = subprocess.check_output(['git', 'ls-files', '--',
