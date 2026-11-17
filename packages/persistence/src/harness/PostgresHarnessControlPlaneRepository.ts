@@ -18,6 +18,7 @@ import {
 import { createStableEventFingerprint } from "@repo/event-store";
 import type { SqlClient, SqlRow } from "../sql.js";
 import type { HarnessAdmissionReceipt } from "../turn-admissions/types.js";
+import { ProviderIdSchema, type ProviderId, type CredentialSecret } from "@repo/shared-types";
 export interface HarnessControlPlaneScope {
   userId: string;
   workspaceId: string;
@@ -30,6 +31,34 @@ export interface StoredHarnessInstance extends HarnessControlPlaneScope {
   authOwnerGeneration: number;
   createdAt: string;
 }
+export interface ResolveHarnessAdmissionSelectionInput {
+  readonly scope: Readonly<HarnessControlPlaneScope>;
+  readonly sessionId: string;
+  readonly threadId: string;
+  readonly capture: HarnessAdmissionSelection;
+  /** Trusted server placement, not copied from the submitted capture. */
+  readonly expectedEnvironmentId: string;
+}
+export interface HarnessAdmissionCredentialMetadata {
+  readonly connectionId: string;
+  readonly providerId: ProviderId;
+  readonly credentialKind: CredentialSecret["type"];
+  readonly authOwnerGeneration: number;
+  readonly tokenMaterialVersion: number;
+}
+export type ResolvedHarnessAdmissionSelection = Readonly<{
+  scope: Readonly<HarnessControlPlaneScope>;
+  sessionId: string;
+  threadId: HarnessSelectionReadRequest["threadId"];
+  revision: number;
+}> & (
+  | Readonly<{ selection: null; instance: null; credential: null }>
+  | Readonly<{
+      selection: Readonly<NonNullable<HarnessAdmissionSelection["selection"]>>;
+      instance: Readonly<StoredHarnessInstance>;
+      credential: Readonly<HarnessAdmissionCredentialMetadata>;
+    }>
+);
 export interface FreezeHarnessAdmissionInput {
   scope: HarnessControlPlaneScope;
   sessionId: string;
@@ -308,6 +337,65 @@ export class PostgresHarnessControlPlaneRepository {
       return response;
     });
   }
+  /** Caller owns this transaction. Resolve BEFORE custody/decryption: session,
+   * workspace, selection, instance, then credential UPDATE lock. There is no
+   * SHARE-to-UPDATE credential upgrade and no independent transaction here.
+   * Returned metadata is not account/host verification or a launch capability. */
+  async resolveAdmissionSelectionWithin(
+    tx: SqlClient,
+    input: ResolveHarnessAdmissionSelectionInput,
+  ): Promise<ResolvedHarnessAdmissionSelection> {
+    input = structuredClone(input);
+    const scope = Object.freeze({ ...input.scope });
+    const capture = HarnessAdmissionSelectionSchema.parse(input.capture);
+    if (!input.expectedEnvironmentId || scope.environmentId !== input.expectedEnvironmentId ||
+        capture.environmentId !== input.expectedEnvironmentId)
+      fail("admission_conflict", "Capture environment mismatch");
+    const params = HarnessSelectionReadRequestSchema.parse({
+      workspaceId: scope.workspaceId, environmentId: scope.environmentId,
+      sessionId: input.sessionId, threadId: input.threadId,
+    });
+    assertScope(scope, params);
+    await ownedConversation(tx, scope, params, true, true);
+    await ownedWorkspace(tx, scope, true);
+    const row = await selectionRow(tx, scope, params, true);
+    if (!row) fail("not_found", "Owned harness selection is not persisted");
+    databaseVersion(row.revision, 0);
+    const selected = selectionResponse(params, row);
+    if (selected.revision !== capture.selectionRevision ||
+        createStableEventFingerprint(selected.selection) !== createStableEventFingerprint(capture.selection))
+      fail("revision_conflict", "Harness selection changed before canonical admission");
+    const common = { scope, sessionId: params.sessionId, threadId: params.threadId, revision: selected.revision };
+    if (selected.selection === null)
+      return Object.freeze({ ...common, selection: null, instance: null, credential: null });
+    const selection = Object.freeze(selected.selection);
+    const stored = await readInstance(tx, scope, selection.instanceId, true);
+    if (!stored || stored.harness !== selection.harness || stored.connectionId !== selection.connectionId)
+      fail("instance_binding_conflict", "Selected configured instance changed");
+    databaseVersion(stored.authOwnerGeneration, 1);
+    const result = await tx.query<SqlRow>(
+      `SELECT id::text AS connection_id,provider_id,credential_kind,auth_owner_generation,token_material_version
+       FROM provider_credentials WHERE id::text=$1 AND user_id::text=$2 AND workspace_id::text=$3
+       AND auth_owner_generation=$4 AND status='connected' AND deleted_at IS NULL AND refresh_claim_id IS NULL FOR UPDATE`,
+      [selection.connectionId, scope.userId, scope.workspaceId, stored.authOwnerGeneration],
+    );
+    const credential = result.rows[0];
+    if (!credential || credential.connection_id !== selection.connectionId)
+      fail("connection_unavailable", "Selected connection is unavailable");
+    const kind = credential.credential_kind;
+    if (kind !== "api_key" && kind !== "oauth" && kind !== "external_reference")
+      fail("connection_unavailable", "Selected credential kind is invalid");
+    const provider = ProviderIdSchema.safeParse(credential.provider_id);
+    if (!provider.success) fail("connection_unavailable", "Selected credential provider is invalid");
+    const authOwnerGeneration = databaseVersion(credential.auth_owner_generation, 1);
+    if (authOwnerGeneration !== stored.authOwnerGeneration)
+      fail("connection_unavailable", "Selected credential generation changed");
+    return Object.freeze({ ...common, selection, instance: Object.freeze(stored),
+      credential: Object.freeze({ connectionId: selection.connectionId, providerId: provider.data,
+        credentialKind: kind, authOwnerGeneration,
+        tokenMaterialVersion: databaseVersion(credential.token_material_version, 1) }) });
+  }
+
   /** Uses the canonical admission caller's already-locked session/admission transaction. */
   async captureAdmissionSelection(
     tx: SqlClient,
@@ -317,13 +405,14 @@ export class PostgresHarnessControlPlaneRepository {
       threadId: string;
       turnId: string;
       capture: HarnessAdmissionSelection;
+      expectedEnvironmentId: string;
       requestFingerprint: string;
       admitted: boolean;
     },
   ): Promise<void> {
     input = structuredClone(input);
     const capture = HarnessAdmissionSelectionSchema.parse(input.capture);
-    if (capture.environmentId !== input.scope.environmentId)
+    if (capture.environmentId !== input.scope.environmentId || capture.environmentId !== input.expectedEnvironmentId)
       fail("admission_conflict", "Capture environment mismatch");
     const r = await tx.query<{ harness_admission_receipt_json: unknown }>(
       "SELECT harness_admission_receipt_json FROM canonical_turn_admissions WHERE turn_id=$1 FOR UPDATE",
@@ -346,49 +435,11 @@ export class PostgresHarnessControlPlaneRepository {
         "admission_conflict",
         "Admitted harness receipt missing; recovery required",
       );
-    const selected = selectionResponse(
-      {
-        workspaceId: input.scope.workspaceId,
-        environmentId: input.scope.environmentId,
-        sessionId: input.sessionId,
-        threadId: input.threadId as HarnessSelectionReadRequest["threadId"],
-      },
-      await selectionRow(tx, input.scope, input, true),
-    );
-    if (
-      selected.revision !== capture.selectionRevision ||
-      createStableEventFingerprint(selected.selection) !==
-        createStableEventFingerprint(capture.selection)
-    )
-      fail(
-        "revision_conflict",
-        "Harness selection changed before canonical admission",
-      );
-    let authOwnerGeneration: number | null = null;
-    if (capture.selection) {
-      const instance = await readInstance(
-        tx,
-        input.scope,
-        capture.selection.instanceId,
-        true,
-      );
-      if (
-        !instance ||
-        instance.harness !== capture.selection.harness ||
-        instance.connectionId !== capture.selection.connectionId
-      )
-        fail(
-          "instance_binding_conflict",
-          "Selected configured instance changed",
-        );
-      await activeConnection(
-        tx,
-        input.scope,
-        instance.connectionId,
-        instance.authOwnerGeneration,
-      );
-      authOwnerGeneration = instance.authOwnerGeneration;
-    }
+    const resolved = await this.resolveAdmissionSelectionWithin(tx, {
+      scope: input.scope, sessionId: input.sessionId, threadId: input.threadId,
+      capture, expectedEnvironmentId: input.expectedEnvironmentId,
+    });
+    const authOwnerGeneration = resolved.credential?.authOwnerGeneration ?? null;
     await tx.query(
       "UPDATE canonical_turn_admissions SET harness_admission_receipt_json=$2::jsonb WHERE turn_id=$1",
       [
@@ -447,9 +498,10 @@ function assertScope(
 async function ownedWorkspace(
   tx: SqlClient,
   scope: HarnessControlPlaneScope,
+  activeAndLocked = false,
 ): Promise<void> {
   const r = await tx.query(
-    "SELECT id FROM workspaces WHERE id::text=$1 AND user_id::text=$2",
+    `SELECT id FROM workspaces WHERE id::text=$1 AND user_id::text=$2${activeAndLocked ? " AND status='active' FOR SHARE" : ""}`,
     [scope.workspaceId, scope.userId],
   );
   if (!r.rows[0]) fail("not_found", "Owned workspace was not found");
@@ -459,9 +511,10 @@ async function ownedConversation(
   scope: HarnessControlPlaneScope,
   p: { sessionId: string; threadId: string },
   exclusive: boolean,
+  active = false,
 ): Promise<void> {
   const r = await tx.query(
-    `SELECT id FROM sessions WHERE id::text=$1 AND user_id::text=$2 AND workspace_id::text=$3 AND thread_id=$4${exclusive ? " FOR UPDATE" : ""}`,
+    `SELECT id FROM sessions WHERE id::text=$1 AND user_id::text=$2 AND workspace_id::text=$3 AND thread_id=$4${active ? " AND archived_at IS NULL" : ""}${exclusive ? " FOR UPDATE" : ""}`,
     [p.sessionId, scope.userId, scope.workspaceId, p.threadId],
   );
   if (!r.rows[0])
@@ -616,4 +669,13 @@ function fail(
   message: string,
 ): never {
   throw new HarnessControlPlaneConflictError(code, message);
+}
+
+function databaseVersion(value: unknown, minimum: number): number {
+  if (typeof value !== "number" && (typeof value !== "string" || !/^(0|[1-9][0-9]*)$/.test(value)))
+    fail("connection_unavailable", "Stored selection or credential version is invalid");
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < minimum)
+    fail("connection_unavailable", "Stored selection or credential version is invalid");
+  return parsed;
 }

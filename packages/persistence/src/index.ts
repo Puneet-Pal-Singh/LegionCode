@@ -72,7 +72,10 @@ export type {
   LegacyHistoryImportResult,
 } from "./sessions/types.js";
 export { PostgresHarnessControlPlaneRepository, HarnessControlPlaneConflictError } from "./harness/PostgresHarnessControlPlaneRepository.js";
-export type { HarnessControlPlaneScope, StoredHarnessInstance } from "./harness/PostgresHarnessControlPlaneRepository.js";
+export type {
+  HarnessControlPlaneScope, StoredHarnessInstance, ResolveHarnessAdmissionSelectionInput,
+  ResolvedHarnessAdmissionSelection, HarnessAdmissionCredentialMetadata,
+} from "./harness/PostgresHarnessControlPlaneRepository.js";
 export { PostgresTurnAdmissionRepository, TurnAdmissionConflictError } from "./turn-admissions/PostgresTurnAdmissionRepository.js";
 export {
   NativeProviderBindingScopeSchema,

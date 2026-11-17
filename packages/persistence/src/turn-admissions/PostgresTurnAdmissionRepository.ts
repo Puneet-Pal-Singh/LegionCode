@@ -647,7 +647,7 @@ export class PostgresTurnAdmissionRepository implements TurnAdmissionRepository 
     await new PostgresHarnessControlPlaneRepository(tx).captureAdmissionSelection(tx, {
       scope: { userId: input.userId, workspaceId: requested.workspaceId, environmentId },
       sessionId: input.sessionId, threadId: admission.threadId, turnId: admission.turnId,
-      capture, requestFingerprint: input.requestFingerprint, admitted: admission.state === "admitted",
+      capture, expectedEnvironmentId: environmentId, requestFingerprint: input.requestFingerprint, admitted: admission.state === "admitted",
     });
   }
 
