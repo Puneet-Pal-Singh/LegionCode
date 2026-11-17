@@ -68,6 +68,9 @@ export const APP_PRIVATE_IMPORT_POLICY = {
       "apps/brain/src/runtime/task-workspaces/TaskCheckoutIssuer.ts",
       "apps/brain/src/services/secure-execution/SecureExecutionSessionClient.ts",
     ],
+    "@repo/worker-protocol/private/native-sandbox-binding": [
+      "apps/brain/src/services/secure-execution/SecureExecutionSessionClient.ts",
+    ],
   },
 };
 
