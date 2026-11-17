@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
-import type { HarnessHost, HarnessInstanceScope } from "@repo/harness-core/server";
-import { RuntimeCredentialReferenceSchema, type RuntimeCredentialReference } from "@repo/platform-protocol/private/runtime-credential-reference";
+import type {
+  HarnessHost,
+  HarnessInstanceScope,
+} from "@repo/harness-core/server";
+import {
+  RuntimeCredentialReferenceSchema,
+  type RuntimeCredentialReference,
+} from "@repo/platform-protocol/private/runtime-credential-reference";
 import type { HarnessStartCommand } from "@repo/worker-protocol";
 import { CLAUDE_AGENT_SDK_VERSION } from "../settings.js";
 import { isAbsolute, normalize, relative, sep } from "node:path";
@@ -100,6 +106,8 @@ export interface ClaudeSelectedAccountBinding {
   /** SHA-256 of exact selected key bytes, distinct from a custody identity fingerprint. */
   readonly fingerprint: string;
   readonly expiresAt: number | null;
+  /** Revalidate the exact token material version. The host must also fence its
+   * physical launch/process boundary when custody invalidates this lease. */
   readonly assertCurrent: (input: {
     readonly selection: HarnessStartCommand["selection"];
     readonly credentialReference: Readonly<RuntimeCredentialReference>;
@@ -111,40 +119,56 @@ export interface ClaudeSelectedAccountBinding {
 }
 
 const accountScopeFields = [
-  "userId", "workspaceId", "environmentId", "workspaceGrantId", "harness",
-  "instanceId", "connectionId", "authOwnerGeneration", "runtimeVersion",
-  "protocolVersion", "transport",
+  "userId",
+  "workspaceId",
+  "environmentId",
+  "workspaceGrantId",
+  "harness",
+  "instanceId",
+  "connectionId",
+  "authOwnerGeneration",
+  "runtimeVersion",
+  "protocolVersion",
+  "transport",
 ] as const satisfies readonly (keyof HarnessInstanceScope)[];
 
 /** Checks custody at each native continuation boundary; owns no credential store. */
 export class ClaudeSelectedAccountGuard {
   private readonly binding: ClaudeSelectedAccountBinding;
   private readonly processGeneration: string;
+  private readonly selection: HarnessStartCommand["selection"];
 
   constructor(
     binding: ClaudeSelectedAccountBinding,
-    private readonly command: HarnessStartCommand,
+    command: HarnessStartCommand,
     private readonly host: HarnessHost,
     private readonly openingSignal: AbortSignal,
   ) {
-    const reference = RuntimeCredentialReferenceSchema.parse(binding?.credentialReference);
+    const reference = RuntimeCredentialReferenceSchema.parse(
+      binding?.credentialReference,
+    );
     if (
       command.selection.billingSource !== "api_key" ||
       command.selection.harness !== "claude" ||
       !binding.scope ||
-      accountScopeFields.some((field) => binding.scope[field] !== command.selection[field]) ||
+      accountScopeFields.some(
+        (field) => binding.scope[field] !== command.selection[field],
+      ) ||
       reference.connectionId !== command.selection.connectionId ||
       reference.providerId !== "anthropic" ||
       reference.ownerGeneration !== command.selection.authOwnerGeneration ||
       !/^[a-f0-9]{64}$/.test(binding.fingerprint) ||
-      (binding.expiresAt !== null && !Number.isSafeInteger(binding.expiresAt)) ||
+      (binding.expiresAt !== null &&
+        !Number.isSafeInteger(binding.expiresAt)) ||
       typeof binding.assertCurrent !== "function"
-    ) throw new Error("Claude selected account binding unavailable");
+    )
+      throw new Error("Claude selected account binding unavailable");
     this.binding = Object.freeze({
       ...binding,
       scope: Object.freeze({ ...binding.scope }),
       credentialReference: Object.freeze(reference),
     });
+    this.selection = Object.freeze({ ...command.selection });
     this.processGeneration = host.processGeneration;
     this.assertScope(openingSignal);
   }
@@ -152,17 +176,23 @@ export class ClaudeSelectedAccountGuard {
   async authorize(signal: AbortSignal): Promise<() => void> {
     this.assertScope(signal);
     const { binding } = this;
-    const lease = await binding.assertCurrent(Object.freeze({
-      selection: this.command.selection,
-      credentialReference: binding.credentialReference,
-      fingerprint: binding.fingerprint,
-      expiresAt: binding.expiresAt,
-      processGeneration: this.processGeneration,
-      signal,
-    }));
+    const lease = await binding.assertCurrent(
+      Object.freeze({
+        selection: this.selection,
+        credentialReference: binding.credentialReference,
+        fingerprint: binding.fingerprint,
+        expiresAt: binding.expiresAt,
+        processGeneration: this.processGeneration,
+        signal,
+      }),
+    );
     const assertDeliverable = () => {
       this.assertScope(signal);
-      if (!lease || typeof lease.canDeliver !== "function" || lease.canDeliver() !== true)
+      if (
+        !lease ||
+        typeof lease.canDeliver !== "function" ||
+        lease.canDeliver() !== true
+      )
         throw new Error("Claude selected account lease fenced");
     };
     assertDeliverable();
@@ -172,11 +202,17 @@ export class ClaudeSelectedAccountGuard {
   private assertScope(signal: AbortSignal): void {
     const key = this.host.environment.ANTHROPIC_API_KEY;
     if (
-      this.openingSignal.aborted || signal.aborted ||
+      this.openingSignal.aborted ||
+      signal.aborted ||
       this.host.processGeneration !== this.processGeneration ||
-      (this.binding.expiresAt !== null && Date.now() >= this.binding.expiresAt) ||
-      !key || key.length > 65_536 || /[\s\0]/u.test(key) ||
-      createHash("sha256").update(key).digest("hex") !== this.binding.fingerprint
-    ) throw new Error("Claude selected account authority unavailable");
+      (this.binding.expiresAt !== null &&
+        Date.now() >= this.binding.expiresAt) ||
+      !key ||
+      key.length > 65_536 ||
+      /[\s\0]/u.test(key) ||
+      createHash("sha256").update(key).digest("hex") !==
+        this.binding.fingerprint
+    )
+      throw new Error("Claude selected account authority unavailable");
   }
 }

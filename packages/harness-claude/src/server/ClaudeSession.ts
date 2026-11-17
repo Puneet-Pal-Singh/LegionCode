@@ -1,3 +1,4 @@
+import type { ClaudeSelectedAccountGuard } from "./ClaudeAuthentication.js";
 import { randomUUID } from "node:crypto";
 import {
   HarnessHostError,
@@ -56,7 +57,12 @@ export class ClaudeSession implements HarnessLiveSession {
   private foregroundTerminalStarted = false;
   private readonly stoppedSignal = new AbortController();
 
-  constructor(private readonly opening: Opening) {
+  private accountCheck: (() => void) | undefined;
+
+  constructor(
+    private readonly opening: Opening,
+    private readonly account: ClaudeSelectedAccountGuard,
+  ) {
     this.session = HarnessSessionSchema.parse({
       runAttemptId: opening.command.selection.runAttemptId,
       instanceId: opening.command.selection.instanceId,
@@ -70,7 +76,7 @@ export class ClaudeSession implements HarnessLiveSession {
     this.questions = new ClaudeQuestionRequests({
       session: this.session,
       authOwnerGeneration: opening.command.selection.authOwnerGeneration,
-      active: () => !this.stopped && !this.finished,
+      active: () => this.accountActive(),
       observe: (payload) => this.emit(payload),
     });
     this.fingerprint = JSON.stringify(opening.command);
@@ -117,6 +123,7 @@ export class ClaudeSession implements HarnessLiveSession {
           journalDirectory: this.opening.host.journalDirectory,
           env: this.opening.host.environment,
           model: this.opening.command.selection.modelId,
+          authorize: (signal) => this.authorize(signal),
           sessionId: this.session.externalSessionId,
           // Mandatory policy lives in PreToolUse, including calls the SDK would auto-allow.
           beforeTool: this.beforeTool,
@@ -137,11 +144,14 @@ export class ClaudeSession implements HarnessLiveSession {
               options.cwd !== this.opening.host.workspaceRoot
             )
               throw new HarnessHostError("stale_session");
+            const assertCurrent = await this.authorize(options.signal);
+            assertCurrent();
             const supervised = await this.opening.host.launch({
               executable: options.command,
               args: options.args,
             });
             await supervised.ready;
+            assertCurrent();
             return supervised.child;
           }, this.opening.host.environment),
         });
@@ -180,6 +190,8 @@ export class ClaudeSession implements HarnessLiveSession {
       await this.runner!.initialize();
       if (this.stopped || signal.aborted)
         throw new HarnessHostError("stale_session");
+      const assertCurrent = await this.authorize(signal);
+      assertCurrent();
       this.runner!.submit({
         type: "user",
         message: { role: "user", content: this.opening.command.prompt },
@@ -270,12 +282,14 @@ export class ClaudeSession implements HarnessLiveSession {
       context.signal.aborted
     )
       return { continue: false, decision: "block" };
+    const assertCurrent = await this.authorize(context.signal);
     for (const payload of this.mapper.toolStarted(
       input.tool_use_id,
       input.tool_name,
       input.tool_input,
     ))
       await this.emit(payload);
+    assertCurrent();
     if (input.tool_name === "AskUserQuestion")
       return {
         hookSpecificOutput: {
@@ -294,6 +308,7 @@ export class ClaudeSession implements HarnessLiveSession {
     const approved = await this.interact(context.signal, () =>
       this.ask(replyTo, input.tool_name, context.signal),
     );
+    assertCurrent();
     return {
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
@@ -325,7 +340,7 @@ export class ClaudeSession implements HarnessLiveSession {
         async (value) => {
           resolve(value);
         },
-        () => !this.stopped && !this.finished && !signal.aborted,
+        () => this.accountActive() && !signal.aborted,
       );
       const cancel = () => {
         reply.fence();
@@ -369,8 +384,11 @@ export class ClaudeSession implements HarnessLiveSession {
       return { accepted: true };
     }
     if (command.kind === "steer") return { accepted: false };
+    const assertCurrent = await this.authorize(this.opening.signal);
+    assertCurrent();
     if (command.kind === "user_input_reply") {
       await this.questions.respond(command.reply);
+      assertCurrent();
       return { accepted: true };
     }
     const origin = command.reply.replyTo;
@@ -385,6 +403,7 @@ export class ClaudeSession implements HarnessLiveSession {
     const request = this.permissions.get(origin.requestId);
     if (!request) throw new HarnessHostError("request_unavailable");
     await request.committed;
+    assertCurrent();
     await request.reply.reply({
       requestId: origin.requestId,
       origin: origin.origin,
@@ -392,6 +411,7 @@ export class ClaudeSession implements HarnessLiveSession {
       authOwnerGeneration: origin.authOwnerGeneration,
       value: command.reply.decision === "approved",
     });
+    assertCurrent();
     return { accepted: true };
   }
 
@@ -439,6 +459,47 @@ export class ClaudeSession implements HarnessLiveSession {
     // cannot attest escaped descendants or reconstruct output after process death.
     // Keep artifact release/resume gated on the canonical full-boundary owner.
     return { status: "unknown", session: this.session, reason: "unsupported" };
+  }
+
+  private async authorize(signal: AbortSignal): Promise<() => void> {
+    try {
+      const current = await this.account.authorize(signal);
+      const assertCurrent = () => {
+        try {
+          if (this.stopped || this.finished)
+            throw new HarnessHostError("stale_session");
+          current();
+        } catch {
+          this.fenceAccount();
+          throw new HarnessHostError("stale_session");
+        }
+      };
+      assertCurrent();
+      this.accountCheck = assertCurrent;
+      return assertCurrent;
+    } catch {
+      this.fenceAccount();
+      throw new HarnessHostError("stale_session");
+    }
+  }
+
+  private accountActive(): boolean {
+    if (this.stopped || this.finished || !this.accountCheck) return false;
+    try {
+      this.accountCheck();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private fenceAccount(): void {
+    this.observationIntegrityLost = true;
+    this.beginStop();
+    this.runner?.close();
+    void this.opening.host
+      .terminateProcesses({ graceMs: 1000, killWaitMs: 1000 })
+      .catch(() => undefined);
   }
 
   private beginStop(): void {

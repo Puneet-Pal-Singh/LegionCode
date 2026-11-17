@@ -11,12 +11,28 @@ import {
   CLAUDE_CODE_VERSION,
   CLAUDE_TRANSPORT_FAMILY,
 } from "../settings.js";
-import { frozenClaudeLaunchEnvironment } from "./ClaudeAuthentication.js";
+import {
+  ClaudeSelectedAccountGuard,
+  type ClaudeSelectedAccountBinding,
+  frozenClaudeLaunchEnvironment,
+} from "./ClaudeAuthentication.js";
 import { ClaudeSession } from "./ClaudeSession.js";
 
 /** Same thin driver is composed by local App Server and the cloud Node host. */
 export class ClaudeDriver implements HarnessDriver {
   readonly kind = "claude" as const;
+
+  private readonly selectedAccount: ClaudeSelectedAccountBinding;
+
+  constructor(selectedAccount: ClaudeSelectedAccountBinding) {
+    this.selectedAccount = Object.freeze({
+      ...selectedAccount,
+      scope: Object.freeze({ ...selectedAccount.scope }),
+      credentialReference: Object.freeze({
+        ...selectedAccount.credentialReference,
+      }),
+    });
+  }
 
   async open(
     input: Parameters<HarnessDriver["open"]>[0],
@@ -37,6 +53,13 @@ export class ClaudeDriver implements HarnessDriver {
       throw new HarnessHostError("request_unavailable");
     if (command.filesystemRoot !== input.host.workspaceRoot)
       throw new HarnessHostError("invalid_launch");
+    const account = new ClaudeSelectedAccountGuard(
+      this.selectedAccount,
+      command,
+      input.host,
+      input.signal,
+    );
+    const assertCurrent = await account.authorize(input.signal);
     const environment = frozenClaudeLaunchEnvironment(input.host.environment);
     // Host.launch uses its frozen env, not SDK SpawnOptions.env. Require exact agreement.
     const keys = new Set([
@@ -55,7 +78,7 @@ export class ClaudeDriver implements HarnessDriver {
       fromInstance.startsWith(`..${sep}`)
     )
       throw new HarnessHostError("invalid_launch");
-    if (input.signal.aborted) throw new HarnessHostError("stale_session");
-    return new ClaudeSession({ ...input, command });
+    assertCurrent();
+    return new ClaudeSession({ ...input, command }, account);
   }
 }
