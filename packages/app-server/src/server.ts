@@ -67,6 +67,7 @@ export type AppServerComposition = {
   environment: "local" | "hosted";
   serverId: string;
   serverVersion: string;
+  environmentId?: string | null;
   workspaceService?: LocalWorkspaceService;
   localWorkspaceFilesService?: {
     fileMentions?(params: LocalWorkspaceFileMentionsParams): Promise<LocalWorkspaceFileMentionsResult>;
@@ -632,6 +633,7 @@ async function dispatch(
           environment: composition.environment,
           serverId: composition.serverId,
           serverVersion: composition.serverVersion,
+          environmentId: composition.environmentId,
           localWorkspaceFilesAvailable: Boolean(composition.localWorkspaceFilesService),
           localWorkspaceGitReadsAvailable: Boolean(composition.localWorkspaceGitReadsService),
           localTurnExecutionAvailable: Boolean(composition.localTurnService),
