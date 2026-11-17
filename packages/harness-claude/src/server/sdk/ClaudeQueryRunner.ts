@@ -18,6 +18,8 @@ class ClaudeInput implements AsyncIterable<SDKUserMessage> {
   private wake: (() => void) | undefined;
   private closed = false;
 
+  constructor(private readonly authorize: () => Promise<() => void>) {}
+
   push(message: SDKUserMessage): void {
     if (this.closed || this.pending)
       throw new Error("Claude input is unavailable");
@@ -40,6 +42,9 @@ class ClaudeInput implements AsyncIterable<SDKUserMessage> {
       if (this.pending) {
         const message = this.pending;
         this.pending = undefined;
+        const assertCurrent = await this.authorize();
+        if (this.closed) throw new Error("Claude input closed before delivery");
+        assertCurrent();
         yield message;
       } else {
         await new Promise<void>((resolve) => {
@@ -59,13 +64,14 @@ type RunnerOptions = Required<
 > &
   Pick<Options, "resume" | "sessionId"> & {
     readonly beforeTool: HookCallback;
+    readonly authorize: (signal: AbortSignal) => Promise<() => void>;
     readonly instanceDirectory: string;
     readonly journalDirectory: string;
   };
 
 /** Private SDK plumbing. Host owns binding, process tree and durable observation delivery. */
 export class ClaudeQueryRunner {
-  private readonly input = new ClaudeInput();
+  private readonly input: ClaudeInput;
   private readonly permissions = new AbortController();
   private readonly abort = new AbortController();
   private readonly sdk: Query;
@@ -87,9 +93,19 @@ export class ClaudeQueryRunner {
   }>();
 
   constructor(options: RunnerOptions) {
-    const { beforeTool, instanceDirectory, journalDirectory, ...sdkOptions } =
-      options;
+    const {
+      beforeTool,
+      authorize,
+      instanceDirectory,
+      journalDirectory,
+      ...sdkOptions
+    } = options;
+    this.input = new ClaudeInput(() => authorize(this.abort.signal));
     const launchEnvironment = frozenClaudeLaunchEnvironment(options.env);
+    const permission = fencedClaudePermission(
+      options.canUseTool,
+      this.permissions.signal,
+    );
     this.selectedModel = options.model;
     this.sdk = query({
       prompt: this.input,
@@ -110,10 +126,19 @@ export class ClaudeQueryRunner {
             env: launchEnvironment,
           }),
         abortController: this.abort,
-        canUseTool: fencedClaudePermission(
-          options.canUseTool,
-          this.permissions.signal,
-        ),
+        canUseTool: async (name, input, origin) => {
+          const assertCurrent = await authorize(origin.signal);
+          const decision = await permission(name, input, origin);
+          // A decline also resumes the native agent loop.
+          assertCurrent();
+          if (
+            this.closed ||
+            this.permissions.signal.aborted ||
+            origin.signal.aborted
+          )
+            throw new Error("Claude permission continuation fenced");
+          return decision;
+        },
         hooks: {
           PreToolUse: [
             {
@@ -129,7 +154,9 @@ export class ClaudeQueryRunner {
                       reason: "Claude session stopped",
                     };
                   }
+                  const assertCurrent = await authorize(context.signal);
                   const result = await beforeTool(input, toolUseId, context);
+                  assertCurrent();
                   if (
                     this.permissions.signal.aborted ||
                     context.signal.aborted
