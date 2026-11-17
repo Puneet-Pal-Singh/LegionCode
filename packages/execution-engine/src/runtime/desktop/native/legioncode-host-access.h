@@ -386,8 +386,11 @@ static inline bool lc_host_access_validate_frame(lc_host_access *access) {
     }
     if (frame.command_ordinal != access->validation_command || frame.pin_ordinal != ++access->validation_pins ||
         access->validation_pins > LC_HOST_MAX_ACCESS_PINS || memcmp(frame.command_sha256, access->validation_command_sha256, 32)) return false;
-    if (frame.command_ordinal == access->command_ordinal) {
-      if (frame.pin_ordinal > access->count || memcmp(frame.command_sha256, access->command_sha256, 32)) return false;
+    if (frame.command_ordinal == access->command_ordinal && memcmp(frame.command_sha256, access->command_sha256, 32)) return false;
+    /* Closed epochs retain their complete frame/footer proof, not live pins.
+     * Original-pin comparison applies only while this epoch still owns pins. */
+    if (access->count && frame.command_ordinal == access->command_ordinal) {
+      if (frame.pin_ordinal > access->count) return false;
       const lc_host_access_pin *pin = &access->pins[frame.pin_ordinal - 1]; unsigned char path_sha256[32];
       CC_SHA256(payload, frame.path_bytes, path_sha256);
       if (memcmp(&frame, &pin->frame, sizeof(frame)) || memcmp(digest, pin->digest, 32) ||
