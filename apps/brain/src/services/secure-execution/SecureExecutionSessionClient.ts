@@ -1,3 +1,4 @@
+import { NativeSandboxPhysicalBindingSchema, snapshotNativeSandboxPhysicalBinding, type NativeSandboxPhysicalBinding } from "@repo/worker-protocol/private/native-sandbox-binding";
 import { NativeCheckoutBootstrapIntentSchema, NativeCheckoutBootstrapReceiptSchema, parseNativeCheckoutReadyEvidence,
   type NativeCheckoutBootstrapIntent } from "@repo/worker-protocol/private/native-checkout-bootstrap";
 import {
@@ -24,6 +25,7 @@ const EXECUTION_SESSION_REPO_PATH = ".";
 
 const SecureExecutionSessionResponseSchema = z
   .object({
+    nativeSandboxBinding: NativeSandboxPhysicalBindingSchema.optional(),
     sessionId: z.string().min(1),
     token: z.string().min(1),
     expiresAt: z.number().int().positive(),
@@ -56,6 +58,7 @@ export class SecureExecutionSessionRecoveryError extends Error {
 }
 
 export interface SecureExecutionSessionHandle {
+  readonly nativeSandboxBinding?: NativeSandboxPhysicalBinding;
   readonly sessionId: string;
   readonly token: string;
   readonly expiresAt: number;
@@ -79,6 +82,7 @@ export interface SecureExecutionSessionPort {
 }
 
 export interface PersistedSecureExecutionSessionReference {
+  readonly nativeSandboxBinding?: NativeSandboxPhysicalBinding;
   readonly secureSessionId: string;
   readonly leaseId: LeaseId;
   readonly sandboxId: string;
@@ -108,12 +112,14 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
     private readonly nativeCheckoutIntent?: NativeCheckoutBootstrapIntent,
   ) {
     this.nativeCheckoutIntent = nativeCheckoutIntent ? Object.freeze(NativeCheckoutBootstrapIntentSchema.parse(nativeCheckoutIntent)) : undefined;
-    this.reference = persistedReference ? Object.freeze({ ...persistedReference }) : undefined;
+    this.reference = persistedReference ? snapshotPersistedSecureExecutionSessionReference(persistedReference) : undefined;
     this.workspaceScope = Object.freeze({ ...workspaceScope });
     this.executionDomain = executionDomain ? snapshotExecutionDomain(executionDomain) : undefined;
     if (this.executionDomain && this.reference && !this.reference.executionDomainDigest) {
       throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
     }
+    if (this.executionDomain?.domain === "legioncode_native" && this.reference && !this.reference.nativeSandboxBinding)
+      throw new Error("NATIVE_SANDBOX_ORIGINAL_BINDING_UNAVAILABLE");
     const scope = this.executionDomain?.scope;
     if (scope && (scope.brainSessionId !== brainSessionId || scope.runId !== runId || scope.workspaceId !== workspaceScope.workspaceId ||
       scope.threadId !== workspaceScope.threadId || scope.turnId !== workspaceScope.turnId || scope.runAttemptId !== workspaceScope.runAttemptId)) {
@@ -166,6 +172,7 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
           runId: this.runId,
           ...(requireNativeBootstrap ? { requireNativeBootstrap: true } : {}),
           workspaceScope: this.workspaceScope,
+          ...(reference.nativeSandboxBinding ? { nativeSandboxBinding: reference.nativeSandboxBinding } : {}),
           ...(this.executionDomain ? { executionDomain: this.executionDomain } : {}),
           lease: {
             leaseId: reference.leaseId,
@@ -295,7 +302,7 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
     const body = JSON.parse(text) as { receipt?: unknown };
     const receipt = NativeCheckoutBootstrapReceiptSchema.parse(body.receipt);
     const binding = receipt.observation.binding;
-    if (JSON.stringify(receipt.intent) !== JSON.stringify(this.nativeCheckoutIntent) || binding.sessionId !== session.sessionId ||
+    if (JSON.stringify(receipt.physicalBinding) !== JSON.stringify(session.nativeSandboxBinding) || JSON.stringify(receipt.intent) !== JSON.stringify(this.nativeCheckoutIntent) || binding.sessionId !== session.sessionId ||
       binding.leaseId !== session.lease.leaseId || binding.sandboxId !== session.lease.sandboxId || binding.generation !== session.lease.generation ||
       binding.executionDomainDigest !== await executionDomainDigest(this.executionDomain)) throw new Error("NATIVE_BOOTSTRAP_RECEIPT_MISMATCH");
   }
@@ -306,7 +313,7 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
     const original = await this.readOriginal(true);
     const evidence = parseNativeCheckoutReadyEvidence(original.nativeCheckoutReady);
     const binding = evidence.bootstrap.observation.binding;
-    if (JSON.stringify(evidence.bootstrap.intent) !== JSON.stringify(NativeCheckoutBootstrapIntentSchema.parse(intent)) ||
+    if (JSON.stringify(evidence.bootstrap.physicalBinding) !== JSON.stringify(original.nativeSandboxBinding) || JSON.stringify(evidence.bootstrap.intent) !== JSON.stringify(NativeCheckoutBootstrapIntentSchema.parse(intent)) ||
       binding.sessionId !== original.sessionId || binding.leaseId !== original.lease.leaseId || binding.sandboxId !== original.lease.sandboxId ||
       binding.generation !== original.lease.generation || binding.executionDomainDigest !== await executionDomainDigest(this.executionDomain) ||
       binding.workspaceId !== this.workspaceScope.workspaceId || binding.runId !== this.runId || binding.threadId !== this.workspaceScope.threadId ||
@@ -315,6 +322,11 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
   }
 
   private async validateDomainHandle(session: SecureExecutionSessionHandle): Promise<void> {
+    if (this.executionDomain?.domain === "legioncode_native") {
+      const selected = snapshotNativeSandboxPhysicalBinding(session.nativeSandboxBinding);
+      if (this.reference && JSON.stringify(selected) !== JSON.stringify(this.reference.nativeSandboxBinding))
+        throw new Error("NATIVE_SANDBOX_ORIGINAL_BINDING_UNAVAILABLE");
+    } else if (session.nativeSandboxBinding) throw new Error("NATIVE_SANDBOX_ORIGINAL_BINDING_UNAVAILABLE");
     const expected = this.executionDomain ? await executionDomainDigest(this.executionDomain) : undefined;
     if (session.lease.executionDomainDigest !== expected ||
       (this.reference?.executionDomainDigest !== undefined && this.reference.executionDomainDigest !== expected)) {
@@ -395,6 +407,7 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
         },
         body: JSON.stringify({
           workspaceScope: this.workspaceScope,
+          ...(reference.nativeSandboxBinding ? { nativeSandboxBinding: reference.nativeSandboxBinding } : {}),
           ...(this.executionDomain ? { executionDomain: this.executionDomain } : {}),
           lease: {
             leaseId: reference.leaseId,
@@ -514,10 +527,11 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
   }
 }
 
-function toPersistedReference(
+export function toPersistedReference(
   session: SecureExecutionSessionHandle,
 ): PersistedSecureExecutionSessionReference {
   return {
+    ...(session.nativeSandboxBinding ? { nativeSandboxBinding: snapshotNativeSandboxPhysicalBinding(session.nativeSandboxBinding) } : {}),
     secureSessionId: session.sessionId,
     leaseId: session.lease.leaseId,
     sandboxId: session.lease.sandboxId,
@@ -584,4 +598,11 @@ function parseJsonText(text: string): unknown {
 
 async function sleep(durationMs: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, durationMs));
+}
+
+export function snapshotPersistedSecureExecutionSessionReference(value: unknown): PersistedSecureExecutionSessionReference {
+  const parsed = z.object({ secureSessionId: z.string().min(1), leaseId: LeaseIdSchema, sandboxId: z.string().min(1),
+    generation: z.number().int().nonnegative().safe(), executionDomainDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    nativeSandboxBinding: NativeSandboxPhysicalBindingSchema.optional() }).strict().parse(value);
+  return Object.freeze({ ...parsed, ...(parsed.nativeSandboxBinding ? { nativeSandboxBinding: snapshotNativeSandboxPhysicalBinding(parsed.nativeSandboxBinding) } : {}) });
 }

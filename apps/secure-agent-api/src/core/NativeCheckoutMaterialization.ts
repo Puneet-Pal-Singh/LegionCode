@@ -1,14 +1,15 @@
+import type { NativeSandboxPhysicalBinding } from "@repo/worker-protocol/private/native-sandbox-binding";
 import { DefaultGitService, type GitCommandExecutor, type GitRepositoryMetadataPaths } from "@repo/git-service";
 import { clonePinnedWorkspace } from "@repo/git-service/pinned-checkout";
-import { NativeBootstrapObservationSchema, NativeCheckoutBootstrapReceiptSchema,
+import { NativeBootstrapObservationSchema, NativeBootstrapWitnessSchema, NativeCheckoutBootstrapReceiptSchema,
   type NativeCheckoutBootstrapIntent, type NativeCheckoutBootstrapReceipt } from "@repo/worker-protocol/private/native-checkout-bootstrap";
-import { NativeWorkspacePreparationSchema, NativeWorkspaceWriteReceiptSchema, sameNativeBinding,
+import { NativeWorkspacePreparationSchema, sameNativeBinding,
   type NativeCommandBinding, type NativeCommandOriginal } from "../toolbox/contracts/OwnedSandboxCommand";
 
 /** Fixed materialization policy; transport, Git auth, physical leases and intent
  * remain with their existing owners. No repository-supplied script is executed. */
 export async function materializeNativeCheckout(input: {
-  intent: NativeCheckoutBootstrapIntent; binding: NativeCommandBinding;
+  intent: NativeCheckoutBootstrapIntent; binding: NativeCommandBinding; physicalBinding: NativeSandboxPhysicalBinding;
   authEnvironment?: Readonly<Record<string, string>>;
   original(argv: string[], body: unknown): Promise<NativeCommandOriginal>;
   git: GitCommandExecutor;
@@ -40,20 +41,23 @@ export async function materializeNativeCheckout(input: {
   const workspace = NativeWorkspacePreparationSchema.parse(await fixed("--prepare-workspace", { binding, root: intent.root, metadataPaths }));
   if (!sameNativeBinding(workspace.binding, binding) || workspace.root.device !== observation.root.device ||
     workspace.root.inode !== observation.root.inode || workspace.sandboxBootId !== observation.sandboxBootId) throw unavailable();
-  const path = ".legioncode/native-bootstrap.json";
-  const content = JSON.stringify({ version: 1, intent, observation, metadataIdentity: workspace.metadata.identity, head, tree, branch: actualBranch });
-  const encoded = new TextEncoder().encode(content);
-  const sha256 = [...new Uint8Array(await crypto.subtle.digest("SHA-256", encoded))].map(byte => byte.toString(16).padStart(2, "0")).join("");
-  const file = NativeWorkspaceWriteReceiptSchema.parse(await fixed("--write-workspace-file", {
+  // Physical witness custody is outside canonical Git/snapshot/resume contents.
+  const materialization = JSON.stringify({ version: 2, physicalBinding: input.physicalBinding, intent, observation, metadataIdentity: workspace.metadata.identity, head, tree, branch: actualBranch });
+  const hash = async (value: string) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)))].map(byte => byte.toString(16).padStart(2, "0")).join("");
+  const materializationSha256 = await hash(materialization);
+  const witness = NativeBootstrapWitnessSchema.parse(await fixed("--write-bootstrap-witness", {
     binding, root: intent.root, expectedRoot: workspace.root, expectedBootId: workspace.sandboxBootId,
-    metadata: workspace.metadata, path, content, exclusive: true,
+    metadata: workspace.metadata, materializationSha256,
   }));
-  if (!sameNativeBinding(file.binding, binding) || file.root.device !== observation.root.device || file.root.inode !== observation.root.inode ||
-    file.sandboxBootId !== observation.sandboxBootId || file.metadataIdentity !== workspace.metadata.identity ||
-    file.path !== path || file.bytes !== encoded.byteLength || file.sha256 !== sha256) throw unavailable();
-  const receipt = NativeCheckoutBootstrapReceiptSchema.parse({ version: 1, intent, observation, metadataIdentity: workspace.metadata.identity,
-    head, tree, branch: actualBranch, file: { path, file: file.file, bytes: file.bytes, sha256: file.sha256 },
-    git: input.gitReceipts, originalTransportSettled: true });
+  const expectedBody = JSON.stringify({ binding, workspaceRoot: observation.root, sandboxBootId: observation.sandboxBootId,
+    metadataIdentity: workspace.metadata.identity, materializationSha256 });
+  if (!sameNativeBinding(witness.binding, binding) || witness.key !== `bootstrap-${binding.nonce}.json` ||
+    witness.workspaceRoot.device !== observation.root.device || witness.workspaceRoot.inode !== observation.root.inode ||
+    witness.sandboxBootId !== observation.sandboxBootId || witness.metadataIdentity !== workspace.metadata.identity ||
+    witness.materializationSha256 !== materializationSha256 || witness.bytes !== new TextEncoder().encode(expectedBody).byteLength ||
+    witness.sha256 !== await hash(expectedBody)) throw unavailable();
+  const receipt = NativeCheckoutBootstrapReceiptSchema.parse({ version: 2, physicalBinding: input.physicalBinding, intent, observation, metadataIdentity: workspace.metadata.identity,
+    head, tree, branch: actualBranch, witness, git: input.gitReceipts, originalTransportSettled: true });
   return { receipt, workspace };
 }
 function unavailable(): Error { return new Error("NATIVE_CHECKOUT_MATERIALIZATION_UNAVAILABLE"); }

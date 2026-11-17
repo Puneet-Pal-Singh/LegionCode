@@ -1,3 +1,4 @@
+import { toPersistedReference, snapshotPersistedSecureExecutionSessionReference } from "../../services/secure-execution/SecureExecutionSessionClient";
 import { nativeCheckoutBootstrapIntent, bootstrapNativeCheckoutBeforeReady } from "./NativeCheckoutBootstrap";
 import type { NativeCheckoutBootstrapIntent } from "@repo/worker-protocol/private/native-checkout-bootstrap";
 import {
@@ -295,6 +296,14 @@ export class TaskCheckoutIssuer {
         executionDomain,
       });
       const session = await executionSession.acquire();
+      if (bootstrapIntent) {
+        const original = toPersistedReference(session);
+        if (!original.nativeSandboxBinding) throw new Error("NATIVE_SANDBOX_ORIGINAL_BINDING_UNAVAILABLE");
+        await this.withIssuance(repository => {
+          if (!repository.freezeIssuanceOriginalReference) throw new Error("NATIVE_ORIGINAL_REFERENCE_OWNER_REQUIRED");
+          return repository.freezeIssuanceOriginalReference(checkoutId, reservation.issuanceToken, JSON.parse(JSON.stringify(original)));
+        });
+      }
       if (bootstrapIntent) await bootstrapNativeCheckoutBeforeReady(this.env, payload, workspaceScope, executionSession, bootstrapIntent);
       const checkout = TaskCheckoutSchema.parse({
         kind: "task_checkout",
@@ -716,12 +725,20 @@ export class TaskCheckoutIssuer {
         payload.correlationId,
       );
     }
+    const originalReference = executionDomain.domain === "legioncode_native"
+      ? snapshotPersistedSecureExecutionSessionReference(await this.withIssuance(repository => {
+        if (!repository.getCheckoutOriginalReference) throw new Error("NATIVE_ORIGINAL_REFERENCE_OWNER_REQUIRED");
+        return repository.getCheckoutOriginalReference(checkout.checkoutId);
+      })) : undefined;
+    if (originalReference && (!originalReference.nativeSandboxBinding || originalReference.secureSessionId !== checkout.secureSessionId ||
+      originalReference.leaseId !== checkout.leaseId || originalReference.sandboxId !== checkout.sandboxId || originalReference.generation !== checkout.generation ||
+      originalReference.executionDomainDigest !== persistedDomain.digest)) throw new Error("NATIVE_SANDBOX_ORIGINAL_BINDING_UNAVAILABLE");
     const executionSession = this.sessionFactory({
       sessionId: payload.sessionId,
       runId: payload.runId,
       workspaceScope,
       executionDomain,
-      persistedReference: {
+      persistedReference: originalReference ?? {
         secureSessionId: checkout.secureSessionId,
         leaseId: checkout.leaseId,
         sandboxId: checkout.sandboxId,

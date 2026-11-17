@@ -1,10 +1,11 @@
+import { snapshotNativeSandboxPhysicalBinding, type NativeSandboxPhysicalBinding } from "@repo/worker-protocol/private/native-sandbox-binding";
 import {
   executionDomainDigest, sameExecutionDomain, snapshotExecutionDomain,
   type ServerExecutionDomainBinding,
 } from "@repo/worker-protocol/private/execution-domain";
 import type { SandboxExecutionLease, WorkspaceScope } from "../ports/SandboxExecutionLease";
 
-export interface ExecutionDomainSessionFields { executionDomain?: ServerExecutionDomainBinding }
+export interface ExecutionDomainSessionFields { executionDomain?: ServerExecutionDomainBinding; nativeSandboxBinding?: NativeSandboxPhysicalBinding }
 export interface DomainSession extends ExecutionDomainSessionFields {
   workspaceScope: WorkspaceScope;
   lease: SandboxExecutionLease;
@@ -18,6 +19,7 @@ export interface RetiredExecutionSessionRecord {
   physicalAttempt: { workspaceId: string; runAttemptId: string };
   executionDomain: ServerExecutionDomainBinding | null;
   executionDomainDigest: string | null;
+  nativeSandboxBinding?: NativeSandboxPhysicalBinding;
 }
 export function isRetiredExecutionSession(value: DomainSession | RetiredExecutionSessionRecord): value is RetiredExecutionSessionRecord {
   return "kind" in value && value.kind === "retired_execution_binding";
@@ -59,6 +61,7 @@ export function retiredExecutionBinding(session: DomainSession): RetiredExecutio
     physicalAttempt: { workspaceId: session.workspaceScope.workspaceId, runAttemptId: session.workspaceScope.runAttemptId },
     executionDomain: session.executionDomain ? snapshotExecutionDomain(session.executionDomain) : null,
     executionDomainDigest: session.lease.executionDomainDigest ?? null,
+    ...(session.executionDomain?.domain === "legioncode_native" ? { nativeSandboxBinding: snapshotNativeSandboxPhysicalBinding(session.nativeSandboxBinding) } : {}),
   };
 }
 function denied(): Error { return new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE"); }

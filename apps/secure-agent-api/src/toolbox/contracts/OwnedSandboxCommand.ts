@@ -1,5 +1,7 @@
+import type { NativeSandboxPhysicalBinding } from "@repo/worker-protocol/private/native-sandbox-binding";
 import type { NativeCheckoutBootstrapIntent, NativeCheckoutBootstrapReceipt } from "@repo/worker-protocol/private/native-checkout-bootstrap";
 import { z } from "zod";
+import type { NativeRuntimePreparation } from "../../qualification/contracts";
 import { NativePhysicalIdentitySchema, NativePhysicalIntegerSchema, type NativeCommandClosure } from "@repo/shared-types/native-command-closure";
 import type { ToolboxCommandResult } from "./ToolboxSession";
 import type { GitRepositoryMetadataPaths } from "@repo/git-service";
@@ -97,8 +99,9 @@ export interface NativeCommandOriginal {
 }
 export interface OwnedNativeSandboxPort {
   sealNativeBootstrap?(binding: NativeCommandBinding): Promise<void>;
-  materializeNativeCheckout?(input: { physicalOwnerId: string; binding: NativeCommandBinding; intent: NativeCheckoutBootstrapIntent;
-    authEnvironment?: Readonly<Record<string, string>> }): Promise<{ receipt: NativeCheckoutBootstrapReceipt; workspace: NativeWorkspaceState }>;
+  verifyNativeRuntimeOriginal?(binding: NativeCommandBinding, preparation: unknown): Promise<void>;
+  materializeNativeCheckout?(input: { physicalOwnerId: string; physicalBinding: NativeSandboxPhysicalBinding; binding: NativeCommandBinding; intent: NativeCheckoutBootstrapIntent;
+    authEnvironment?: Readonly<Record<string, string>> }): Promise<{ receipt: NativeCheckoutBootstrapReceipt; workspace: NativeWorkspaceState; runtimePreparation: NativeRuntimePreparation }>;
   executeNativeCommand(request: NativeCommandRequest): Promise<NativeCommandOriginal>;
   controlNativeCommand(request: {
     binding: NativeCommandBinding; controlToken: string;

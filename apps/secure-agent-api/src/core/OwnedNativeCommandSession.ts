@@ -1,6 +1,9 @@
+import { snapshotNativeSandboxPhysicalBinding } from "@repo/worker-protocol/private/native-sandbox-binding";
 import { NativeCheckoutBootstrapIntentSchema, NativeCheckoutBootstrapReceiptSchema, freezeBootstrap,
-  type NativeCheckoutBootstrapIntent, type NativeCheckoutBootstrapReceipt, type NativeCheckoutReadyEvidence } from "@repo/worker-protocol/private/native-checkout-bootstrap";
+  NativeRuntimeObservationSchema, type NativeRuntimeObservation, type NativeCheckoutBootstrapIntent, type NativeCheckoutBootstrapReceipt, type NativeCheckoutReadyEvidence } from "@repo/worker-protocol/private/native-checkout-bootstrap";
 import path from "node:path";
+import { z } from "zod";
+import { NativeRuntimePreparationSchema, type NativeRuntimePreparation } from "../qualification/contracts";
 import type { ArtifactStorePort } from "../ports/ArtifactStorePort";
 import type { SandboxExecutionLease } from "../ports/SandboxExecutionLease";
 import type { GitRepositoryMetadataPaths } from "@repo/git-service";
@@ -36,6 +39,9 @@ export interface NativeCheckoutState {
   receipt?: NativeCheckoutBootstrapReceipt;
   artifact?: { id: string; sha256: string; size: number };
   runtime?: NativeCheckoutReadyEvidence["runtime"];
+  runtimePreparation?: NativeRuntimePreparation;
+  runtimeCommandReceipt?: NativeCommandReceipt;
+  runtimeObservation?: { evidence: NativeRuntimeObservation; artifact: { id: string; sha256: string } };
   rawStarted?: true;
 }
 export interface NativeSessionFields {
@@ -94,13 +100,16 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
       });
       try {
         if (this.stopped || (await this.read()).nativeCommand?.stopRequested) throw unavailable();
-        const original = materialize.call(this.input.sandbox, { binding: command.binding, intent, authEnvironment, physicalOwnerId: this.input.state.id.toString() });
+        const original = materialize.call(this.input.sandbox, { binding: command.binding, physicalBinding: snapshotNativeSandboxPhysicalBinding(session.nativeSandboxBinding), intent, authEnvironment, physicalOwnerId: this.input.state.id.toString() });
         this.original = original;
         const completed = await original;
         if (this.stopped || (await this.read()).nativeCommand?.stopRequested) throw unavailable();
         const receipt = freezeBootstrap(NativeCheckoutBootstrapReceiptSchema.parse(completed.receipt));
         const workspace = NativeWorkspaceStateSchema.parse(completed.workspace);
-        if (!sameNativeBinding(receipt.observation.binding, command.binding) || JSON.stringify(receipt.intent) !== JSON.stringify(intent) ||
+        const runtimePreparation = NativeRuntimePreparationSchema.parse(completed.runtimePreparation);
+        if (JSON.stringify(receipt.physicalBinding) !== JSON.stringify(session.nativeSandboxBinding) ||
+          JSON.stringify(runtimePreparation.physicalBinding) !== JSON.stringify(session.nativeSandboxBinding) ||
+          !sameNativeBinding(receipt.observation.binding, command.binding) || JSON.stringify(receipt.intent) !== JSON.stringify(intent) ||
           workspace.root.device !== receipt.observation.root.device || workspace.root.inode !== receipt.observation.root.inode ||
           workspace.sandboxBootId !== receipt.observation.sandboxBootId || workspace.metadata.identity !== receipt.metadataIdentity) throw unavailable();
         const bytes = new TextEncoder().encode(JSON.stringify(receipt)), sha256 = await digest(bytes);
@@ -116,7 +125,7 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
             JSON.stringify(current.nativeCheckout.intent) !== JSON.stringify(intent) ||
             current.expiresAt === undefined || current.expiresAt <= Date.now() || current.lease.expiresAt <= Date.now()) throw unavailable();
           return { ...current, nativeWorkspace: workspace,
-            nativeCheckout: { ...current.nativeCheckout, phase: "materialized", receipt, artifact },
+            nativeCheckout: { ...current.nativeCheckout, phase: "materialized", receipt, artifact, runtimePreparation },
             nativeCommand: { ...current.nativeCommand, phase: "settled", originalTransportSettled: true } };
         });
         this.settledBootstrap = freezeBootstrap({ kind: "bootstrap_transport", receipt, artifact });
@@ -152,6 +161,64 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
       await this.markUnknown(intent.binding.nonce);
       throw unavailable();
     }
+  }
+
+  produceNativeRuntimeObservation() {
+    return this.track(async () => {
+      const before = await this.read();
+      const checkout = before.nativeCheckout;
+      if (!checkout?.receipt || !checkout.artifact || checkout.phase !== "materialized" || checkout.runtime || checkout.runtimeObservation) throw unavailable();
+      const preparation = NativeRuntimePreparationSchema.parse(checkout.runtimePreparation);
+      if (!sameNativeBinding(preparation.observation.binding.native, checkout.receipt.observation.binding) ||
+        preparation.observation.sandboxBootId !== checkout.receipt.observation.sandboxBootId ||
+        preparation.observation.helperSha256 !== checkout.receipt.observation.helperSha256) throw unavailable();
+      const result = await this.executeOwned({ argv: ["/usr/local/libexec/legioncode-command-supervisor", "--native-runtime-payload"], timeoutMs: 30_000 });
+      if (result.exitCode !== 0 || result.stderr !== "") throw unavailable();
+      const policy = z.object({ policy: z.object({ profile: z.literal("linux-pid-namespace-cgroup-v2-512m-v1"), uid: z.literal(1), gid: z.literal(1),
+        observed: z.object({ CapInh: z.literal("0000000000000000"), CapPrm: z.literal("0000000000000000"), CapEff: z.literal("0000000000000000"),
+          CapBnd: z.literal("0000000000000000"), CapAmb: z.literal("0000000000000000"), NoNewPrivs: z.literal("1"), Seccomp: z.literal("2") }).strict() }).strict(),
+        policySha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict().parse(JSON.parse(result.stdout));
+      // Go's struct field order and sorted map keys are part of this measured
+      // policy wire representation, not an expected qualification pin.
+      const policyBytes = new TextEncoder().encode(JSON.stringify({ ...policy.policy,
+        observed: Object.fromEntries(Object.entries(policy.policy.observed).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) }));
+      if (await digest(policyBytes) !== policy.policySha256) throw unavailable();
+      const current = await this.read();
+      const command = current.nativeCommand;
+      if (!this.settledOriginal || command?.phase !== "settled" || !command.identity || !command.receiptArtifact) throw unavailable();
+      const commandBytes = await this.input.artifacts.download(command.receiptArtifact.id, this.input.sessionId);
+      if (!commandBytes || commandBytes.byteLength !== command.receiptArtifact.size || await digest(commandBytes) !== command.receiptArtifact.sha256) throw unavailable();
+      const commandReceipt = NativeCommandReceiptSchema.parse(JSON.parse(new TextDecoder().decode(commandBytes)));
+      if (commandReceipt.state !== "closed" || !commandReceipt.admission || commandReceipt.exitCode !== 0 || !commandReceipt.gateClosed || commandReceipt.outputLimited ||
+        !commandReceipt.identity || !sameNativeBinding(commandReceipt.binding, command.binding) || !sameNativeIdentity(commandReceipt.identity, command.identity)) throw unavailable();
+      const uploadVerified = async (value: unknown) => {
+        const bytes = new TextEncoder().encode(JSON.stringify(value)), sha256 = await digest(bytes);
+        const uploaded = await this.input.artifacts.upload({ sessionId: this.input.sessionId, contentType: "application/json", data: bytes });
+        const readback = await this.input.artifacts.download(uploaded.id, this.input.sessionId);
+        if (!readback || readback.byteLength !== bytes.byteLength || await digest(readback) !== sha256) throw unavailable();
+        return { id: uploaded.id, sha256 };
+      };
+      const resourceArtifact = await uploadVerified(preparation);
+      const identity = command.identity, binding = checkout.receipt.observation.binding;
+      const proof = { physicalBinding: preparation.physicalBinding, providerImageReference: preparation.imageReference, providerImageDigestReference: preparation.imageDigest, helperSha256: preparation.observation.helperSha256,
+        observedPolicySha256: policy.policySha256, sandboxObjectId: preparation.sandboxObjectId,
+        binding, commandBinding: command.binding, resourceArtifactId: resourceArtifact.id, resourceSha256: resourceArtifact.sha256,
+        commandArtifactId: command.receiptArtifact.id, commandSha256: command.receiptArtifact.sha256,
+        sandboxBootId: identity.bootId, kernelRelease: checkout.receipt.observation.kernelRelease,
+        executionDomainDigest: binding.executionDomainDigest, sessionId: binding.sessionId, leaseId: binding.leaseId, sandboxId: binding.sandboxId,
+        generation: binding.generation, root: identity.root, metadataIdentity: identity.metadataIdentity,
+        namespace: { device: identity.namespaceDevice, inode: identity.namespaceInode, initHostPid: identity.initHostPid },
+        cgroup: identity.cgroup, limits: identity.limits };
+      const evidence = freezeBootstrap(NativeRuntimeObservationSchema.parse(proof));
+      const runtimeArtifact = await uploadVerified(evidence);
+      await this.update(command.binding.nonce, row => {
+        if (this.stopped || row.cleanupInProgress || row.nativeCommand?.stopRequested || row.expiresAt === undefined ||
+          row.expiresAt <= Date.now() || row.lease.expiresAt <= Date.now() || row.nativeCommand?.phase !== "settled" ||
+          row.nativeCheckout?.phase !== "materialized" || row.nativeCheckout.runtime) throw unavailable();
+        return { ...row, nativeCheckout: { ...row.nativeCheckout, runtimeObservation: { evidence, artifact: runtimeArtifact }, runtimeCommandReceipt: commandReceipt } };
+      });
+      return evidence;
+    });
   }
 
   execute(spec: NativeCommandSpec) { return this.track(() => this.executeOwned(spec)); }
@@ -194,7 +261,8 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
           await this.patch(intent.binding.nonce, { identity: intent.identity, phase: "prepared" });
         }
         if (intent.identity && (!receipt.identity || !sameNativeIdentity(intent.identity, receipt.identity))) throw unavailable();
-        if (this.stopped || (await this.read(true)).cleanupInProgress || (await this.read(true)).nativeCommand?.stopRequested) {
+        if (this.stopped || (await this.read(true)).cleanupInProgress || (await this.read(true)).nativeCommand?.stopRequested ||
+          this.input.lease.expiresAt <= Date.now()) {
           await this.control(intent, "stop");
         } else if (receipt.state === "prepared") {
           // Do not retry this request if its response is lost. Persisted intent
@@ -302,18 +370,22 @@ export class OwnedNativeCommandSession implements NativeCommandCapability {
     if (!intent || intent.phase === "settled") return true;
     if (intent.binding.taskId !== this.input.taskId) return false;
     await this.patch(intent.binding.nonce, { stopRequested: true });
-    if (session.nativeCheckout?.phase === "dispatching" || session.nativeCheckout?.phase === "unknown") {
+    let bootstrapSeal: Promise<boolean> | undefined;
+    if (session.nativeCheckout) {
       if (!this.input.sandbox.sealNativeBootstrap) return false;
-      try { await this.input.sandbox.sealNativeBootstrap(intent.binding); } catch { return false; }
+      // Start physical sealing before control; do not wait for an original
+      // supervisor whose settlement still needs this SAME Stop/ACK path.
+      bootstrapSeal = this.input.sandbox.sealNativeBootstrap(intent.binding).then(() => true, () => false);
     }
     if (intent.kind === "command") {
       try { await this.control(intent, "stop"); } catch { return false; }
     }
+    if (bootstrapSeal && !await bootstrapSeal) return false;
     return await this.awaitClosure();
   }
 
   bootstrapTransportSettlement(): NativeBootstrapTransportSettlement | undefined {
-    if (this.stopped && !this.original && this.operations.size === 0) return this.settledBootstrap;
+    if (!this.original && this.operations.size === 0) return this.settledBootstrap;
     return undefined;
   }
 

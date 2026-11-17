@@ -207,3 +207,144 @@ func writableWorkspaceEntry(fd int, path string, input workspaceWriteRequest, di
 	}
 	return nil
 }
+
+// No caller path or content enters private witness custody. This is physical
+// evidence under the existing protected supervisor area, not a state registry.
+func writeBootstrapWitness() error {
+	var output bytes.Buffer
+	if err := writeBootstrapWitnessOwned(&output); err != nil {
+		return err
+	}
+	_, err := os.Stdout.Write(output.Bytes())
+	return err
+}
+func writeBootstrapWitnessOwned(output io.Writer) (failure error) {
+	if requireToolIdentity() != nil {
+		return errors.New("protected_owner_required")
+	}
+	var input struct {
+		Binding               binding            `json:"binding"`
+		Root                  string             `json:"root"`
+		ExpectedRoot          rootIdentity       `json:"expectedRoot"`
+		ExpectedBootID        string             `json:"expectedBootId"`
+		Metadata              metadataProtection `json:"metadata"`
+		MaterializationSHA256 string             `json:"materializationSha256"`
+	}
+	if decodeBounded(os.Stdin, maxRequestBytes, &input) != nil || validateProductBinding(input.Binding) != nil || !hexadecimal.MatchString(input.MaterializationSHA256) ||
+		!strings.HasPrefix(input.Root, "/home/sandbox/checkouts/") || filepath.Clean(input.Root) != input.Root || strings.Count(input.Root, "/") != 4 || input.Metadata.Paths.WorkspaceRoot != input.Root {
+		return errors.New("invalid_bootstrap_witness")
+	}
+	boot, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil || strings.TrimSpace(string(boot)) != input.ExpectedBootID {
+		return errors.New("sandbox_generation_changed")
+	}
+	root, err := openHeldWorkspace(input.Root, input.ExpectedRoot)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if root.Close() != nil {
+			failure = errors.New("workspace_close_unconfirmed")
+		}
+	}()
+	metadata, err := pinMetadata(input.Metadata, root)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		for _, file := range metadata {
+			if file.Close() != nil {
+				failure = errors.New("metadata_close_unconfirmed")
+			}
+		}
+	}()
+	fd, err := syscall.Open("/", syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return errors.New("witness_owner_unavailable")
+	}
+	defer func() {
+		if syscall.Close(fd) != nil {
+			failure = errors.New("witness_directory_close_unconfirmed")
+		}
+	}()
+	for _, component := range []string{"run", "legioncode", "native-commands"} {
+		next, openErr := syscall.Openat(fd, component, syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+		if openErr != nil {
+			return errors.New("witness_owner_unavailable")
+		}
+		closeErr := syscall.Close(fd)
+		fd = next
+		var stat syscall.Stat_t
+		if closeErr != nil || syscall.Fstat(fd, &stat) != nil || stat.Uid != 0 || stat.Gid != 0 || stat.Mode&0022 != 0 ||
+			(component == "native-commands" && stat.Mode&0777 != 0700) {
+			return errors.New("witness_owner_not_protected")
+		}
+	}
+	var directory syscall.Stat_t
+	if syscall.Fstat(fd, &directory) != nil {
+		return errors.New("witness_owner_unavailable")
+	}
+	body, err := json.Marshal(struct {
+		Binding               binding      `json:"binding"`
+		WorkspaceRoot         rootIdentity `json:"workspaceRoot"`
+		SandboxBootID         string       `json:"sandboxBootId"`
+		MetadataIdentity      string       `json:"metadataIdentity"`
+		MaterializationSHA256 string       `json:"materializationSha256"`
+	}{input.Binding, input.ExpectedRoot, input.ExpectedBootID, input.Metadata.Identity, input.MaterializationSHA256})
+	if err != nil {
+		return errors.New("witness_body_unavailable")
+	}
+	key := "bootstrap-" + input.Binding.Nonce + ".json"
+	witnessFD, err := syscall.Openat(fd, key, syscall.O_RDWR|syscall.O_CREAT|syscall.O_EXCL|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0600)
+	if err != nil {
+		return errors.New("witness_not_absent")
+	}
+	witness := os.NewFile(uintptr(witnessFD), "bootstrap-witness")
+	defer func() {
+		if witness.Close() != nil {
+			failure = errors.New("witness_close_unconfirmed")
+		}
+	}()
+	if count, err := witness.Write(body); err != nil || count != len(body) || witness.Sync() != nil || syscall.Fsync(fd) != nil {
+		return errors.New("witness_write_unsettled")
+	}
+	var stat syscall.Stat_t
+	if syscall.Fstat(witnessFD, &stat) != nil || stat.Uid != 0 || stat.Gid != 0 || stat.Mode&0777 != 0600 || stat.Nlink != 1 {
+		return errors.New("witness_identity_unavailable")
+	}
+	readFD, err := syscall.Openat(fd, key, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return errors.New("witness_readback_unavailable")
+	}
+	readback := os.NewFile(uintptr(readFD), "bootstrap-witness-readback")
+	defer func() {
+		if readback.Close() != nil {
+			failure = errors.New("witness_readback_close_unconfirmed")
+		}
+	}()
+	var reopened syscall.Stat_t
+	actual, readErr := io.ReadAll(io.LimitReader(readback, 200001))
+	if syscall.Fstat(readFD, &reopened) != nil || reopened.Dev != stat.Dev || reopened.Ino != stat.Ino || readErr != nil || !bytes.Equal(actual, body) {
+		return errors.New("witness_readback_changed")
+	}
+	finalBoot, bootErr := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	var finalRoot syscall.Stat_t
+	if bootErr != nil || strings.TrimSpace(string(finalBoot)) != input.ExpectedBootID || syscall.Fstat(int(root.Fd()), &finalRoot) != nil ||
+		uint64(finalRoot.Dev) != input.ExpectedRoot.Device || finalRoot.Ino != input.ExpectedRoot.Inode {
+		return errors.New("witness_scope_changed")
+	}
+	sum := sha256.Sum256(actual)
+	return json.NewEncoder(output).Encode(struct {
+		Version               int          `json:"version"`
+		Binding               binding      `json:"binding"`
+		WorkspaceRoot         rootIdentity `json:"workspaceRoot"`
+		SandboxBootID         string       `json:"sandboxBootId"`
+		MetadataIdentity      string       `json:"metadataIdentity"`
+		StorageRoot           rootIdentity `json:"storageRoot"`
+		Key                   string       `json:"key"`
+		File                  rootIdentity `json:"file"`
+		Bytes                 int          `json:"bytes"`
+		SHA256                string       `json:"sha256"`
+		MaterializationSHA256 string       `json:"materializationSha256"`
+	}{2, input.Binding, input.ExpectedRoot, input.ExpectedBootID, input.Metadata.Identity, rootIdentity{uint64(directory.Dev), directory.Ino}, key, rootIdentity{uint64(stat.Dev), stat.Ino}, len(actual), hex.EncodeToString(sum[:]), input.MaterializationSHA256})
+}
