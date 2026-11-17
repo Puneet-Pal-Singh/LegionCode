@@ -959,9 +959,9 @@ export async function handleExecuteTask(
         409,
       );
     }
-    if (auth.session.executionDomain?.domain === "legioncode_native") {
+    if (hasExecutionDomain(auth.session)) {
       return errorResponse(
-        "Native execution requires its qualified runtime owner",
+        "Marked execution requires its actual runtime owner",
         "EXECUTION_DOMAIN_NOT_READY",
         503,
       );

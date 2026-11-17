@@ -1,5 +1,8 @@
 import {
   assertExecutionDomainAdmission,
+  isRetiredExecutionSession,
+  retiredExecutionBinding,
+  type RetiredExecutionSessionRecord,
   hasExecutionDomain,
   validExecutionDomain,
   type ExecutionDomainSessionFields,
@@ -149,6 +152,13 @@ export class AgentRuntime extends DurableObject {
       !sameSandboxExecutionLease(entry.lease, lease)
     )
       throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
+    if (lease.executionDomainDigest !== undefined) {
+      const original = await this.ctx.storage.get<RuntimeSessionRecord | RetiredExecutionSessionRecord>(this.getExecutionSessionKey(lease.owner));
+      if (!original || isRetiredExecutionSession(original) || original.cleanupInProgress || !this.matchesLease(original.lease, lease)) {
+        await entry.composed.executionPort.cleanup(lease.leaseId);
+        throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
+      }
+    }
     entry.composed.executionPort.registerLease(lease);
     if (initializePlugins) await this.ensurePluginsBooted(workspaceKey, entry);
     return entry;
@@ -238,27 +248,21 @@ export class AgentRuntime extends DurableObject {
       };
     }
     const runtime = await this.ctx.blockConcurrencyWhile(async () => {
-      const persisted = await this.ctx.storage.get<RuntimeSessionRecord>(
+      const persisted = await this.ctx.storage.get<RuntimeSessionRecord | RetiredExecutionSessionRecord>(
         this.getExecutionSessionKey(sessionId),
       );
       if (
         !persisted ||
+        isRetiredExecutionSession(persisted) ||
         persisted.cleanupInProgress ||
         persisted.lease.owner !== sessionId ||
         !this.matchesLease(persisted.lease, input.lease)
       ) {
         return null;
       }
-      if (hasExecutionDomain(persisted)) {
-        const domain = await validExecutionDomain(persisted);
-        if (
-          !domain ||
-          domain.domain === "legioncode_native" ||
-          persisted.expiresAt <= Date.now() ||
-          input.lease.expiresAt <= Date.now()
-        )
-          return null;
-      }
+      // No request boolean can activate marked plugins or a Sandbox backend.
+      // This packet provides source-only admission until the real owner joins.
+      if (hasExecutionDomain(persisted)) return null;
       return await this.ensureWorkspaceRuntime(
         input.lease,
         !input.borrowedLease,
@@ -295,7 +299,7 @@ export class AgentRuntime extends DurableObject {
     for (const [, session] of owned) {
       if (hasExecutionDomain(session)) {
         const domain = await validExecutionDomain(session);
-        if (!domain || domain.domain === "legioncode_native") return false;
+        if (!domain) return false;
       }
     }
     for (const [workspaceKey, runtime] of this.workspaceRuntimes) {
@@ -396,21 +400,21 @@ export class AgentRuntime extends DurableObject {
   ): Promise<void> {
     await this.ctx.blockConcurrencyWhile(async () => {
       const key = this.getExecutionSessionKey(sessionId);
-      const existing = await this.ctx.storage.get<RuntimeSessionRecord>(key);
-      if (!existing || !this.matchesLease(existing.lease, expectedLease)) {
+      const existing = await this.ctx.storage.get<RuntimeSessionRecord | RetiredExecutionSessionRecord>(key);
+      if (!existing || isRetiredExecutionSession(existing) || !this.matchesLease(existing.lease, expectedLease)) {
         return;
       }
 
       await this.releaseLeaseInLock(expectedLease.leaseId);
 
-      const current = await this.ctx.storage.get<RuntimeSessionRecord>(key);
-      if (!current || !this.matchesLease(current.lease, expectedLease)) {
+      const current = await this.ctx.storage.get<RuntimeSessionRecord | RetiredExecutionSessionRecord>(key);
+      if (!current || isRetiredExecutionSession(current) || !this.matchesLease(current.lease, expectedLease)) {
         return;
       }
       if (current.cleanupInProgress) {
         throw new Error("Sandbox cleanup is pending for this session");
       }
-      await this.deleteExecutionSessionRecord(sessionId);
+      await this.retireExecutionSessionRecord(sessionId, current);
       await this.scheduleExecutionSessionAlarm();
     });
   }
@@ -465,8 +469,9 @@ export class AgentRuntime extends DurableObject {
       throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
     await this.ctx.blockConcurrencyWhile(async () => {
       const sessions = await this.listExecutionSessions();
+      const bindings = await this.ctx.storage.list<RuntimeSessionRecord | RetiredExecutionSessionRecord>({ prefix: EXECUTION_SESSION_KEY_PREFIX });
       await assertExecutionDomainAdmission(
-        sessions,
+        [...bindings],
         this.getExecutionSessionKey(sessionId),
         session,
       );
@@ -536,10 +541,10 @@ export class AgentRuntime extends DurableObject {
   async getExecutionSession(
     sessionId: string,
   ): Promise<RuntimeSessionRecord | null> {
-    const session = await this.ctx.storage.get<RuntimeSessionRecord>(
+    const session = await this.ctx.storage.get<RuntimeSessionRecord | RetiredExecutionSessionRecord>(
       this.getExecutionSessionKey(sessionId),
     );
-    return session && !session.cleanupInProgress ? session : null;
+    return session && !isRetiredExecutionSession(session) && !session.cleanupInProgress ? session : null;
   }
 
   async appendExecutionLog(
@@ -573,10 +578,10 @@ export class AgentRuntime extends DurableObject {
   private async listExecutionSessions(): Promise<
     Array<[string, RuntimeSessionRecord]>
   > {
-    const sessions = await this.ctx.storage.list<RuntimeSessionRecord>({
+    const sessions = await this.ctx.storage.list<RuntimeSessionRecord | RetiredExecutionSessionRecord>({
       prefix: EXECUTION_SESSION_KEY_PREFIX,
     });
-    return Array.from(sessions.entries());
+    return Array.from(sessions.entries()).filter((entry): entry is [string, RuntimeSessionRecord] => !isRetiredExecutionSession(entry[1]));
   }
 
   private async scheduleExecutionSessionAlarm(): Promise<void> {
@@ -639,15 +644,21 @@ export class AgentRuntime extends DurableObject {
   private async markSandboxCleanupInProgress(
     group: Array<[string, RuntimeSessionRecord]>,
   ): Promise<void> {
+    // Invoke existing marked fences synchronously before the first closing
+    // await. Cancellation observers never become release/closure evidence.
+    const fences = group.filter(([, session]) => hasExecutionDomain(session)).flatMap(([, session]) =>
+      [...this.workspaceRuntimes.values()].map(runtime => runtime.composed.executionPort.cleanup(session.lease.leaseId)));
+    const fenced = Promise.allSettled(fences);
     for (const [key] of group) {
-      const session = await this.ctx.storage.get<RuntimeSessionRecord>(key);
-      if (!session) continue;
+      const session = await this.ctx.storage.get<RuntimeSessionRecord | RetiredExecutionSessionRecord>(key);
+      if (!session || isRetiredExecutionSession(session)) continue;
       await this.ctx.storage.put(key, {
         ...session,
         ...(hasExecutionDomain(session) ? { token: "" } : {}),
         cleanupInProgress: true,
       });
     }
+    if ((await fenced).some(result => result.status === "rejected")) throw new Error("MARKED_EXECUTION_CLEANUP_UNAVAILABLE");
   }
 
   private async persistSandboxCleanupRetry(
@@ -655,8 +666,8 @@ export class AgentRuntime extends DurableObject {
     now: number,
   ): Promise<void> {
     for (const [key] of group) {
-      const session = await this.ctx.storage.get<RuntimeSessionRecord>(key);
-      if (!session) continue;
+      const session = await this.ctx.storage.get<RuntimeSessionRecord | RetiredExecutionSessionRecord>(key);
+      if (!session || isRetiredExecutionSession(session)) continue;
       const attempts = (session.cleanupAttempts ?? 0) + 1;
       const delay = Math.min(
         CLEANUP_RETRY_BASE_MS * 2 ** (attempts - 1),
@@ -690,9 +701,9 @@ export class AgentRuntime extends DurableObject {
       for (const [, session] of group) {
         this.workspaceRuntimes.delete(workspaceLeaseKey(session.lease));
       }
-      for (const [key] of group) {
+      for (const [key, session] of group) {
         const sessionId = key.slice(EXECUTION_SESSION_KEY_PREFIX.length);
-        await this.deleteExecutionSessionRecord(sessionId);
+        await this.retireExecutionSessionRecord(sessionId, session);
       }
       return true;
     } catch {
@@ -701,12 +712,17 @@ export class AgentRuntime extends DurableObject {
     }
   }
 
-  private async deleteExecutionSessionRecord(sessionId: string): Promise<void> {
+  private async retireExecutionSessionRecord(sessionId: string, session: RuntimeSessionRecord): Promise<void> {
+    // Marked unknown originals cannot be retired by this prerequisite. Their
+    // complete closing rows remain counted until the physical owner proves
+    // settlement. Legacy cleanup retains its classification on the SAME key.
+    if (hasExecutionDomain(session)) throw new Error("MARKED_EXECUTION_CLEANUP_UNAVAILABLE");
+    await this.ctx.storage.put(this.getExecutionSessionKey(sessionId), retiredExecutionBinding(session));
     const logs = await this.ctx.storage.list({
       prefix: this.getExecutionLogPrefix(sessionId),
     });
     const logKeys = Array.from(logs.keys());
-    const keysToDelete = [this.getExecutionSessionKey(sessionId), ...logKeys];
+    const keysToDelete = logKeys;
     for (let i = 0; i < keysToDelete.length; i += 128) {
       await this.ctx.storage.delete(keysToDelete.slice(i, i + 128));
     }

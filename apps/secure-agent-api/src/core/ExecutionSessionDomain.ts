@@ -19,6 +19,22 @@ export interface DomainSession extends ExecutionDomainSessionFields {
   lease: SandboxExecutionLease;
   cleanupInProgress?: boolean;
 }
+/** Same-row classification history only. This record is never a closure,
+ * quiescence, release or Native qualification receipt. */
+export interface RetiredExecutionSessionRecord extends DomainSession {
+  kind: "retired_execution_binding";
+  version: 1;
+}
+export function isRetiredExecutionSession(value: DomainSession | RetiredExecutionSessionRecord): value is RetiredExecutionSessionRecord {
+  return "kind" in value && value.kind === "retired_execution_binding";
+}
+export function retiredExecutionBinding(session: DomainSession): RetiredExecutionSessionRecord {
+  return Object.freeze({ kind: "retired_execution_binding", version: 1,
+    workspaceScope: Object.freeze({ ...session.workspaceScope }),
+    lease: Object.freeze({ ...session.lease, workspaceScope: Object.freeze({ ...session.lease.workspaceScope }) }),
+    ...(session.executionDomain ? { executionDomain: snapshotExecutionDomain(session.executionDomain) } : {}) });
+}
+
 export function matchesDomainWorkspace(
   binding: ServerExecutionDomainBinding,
   workspace: WorkspaceScope,
@@ -60,7 +76,7 @@ export async function validExecutionDomain(
 /** Existing session rows, including sealed/expired rows, are permanent marked
  * attempt fences. Missing state never authorizes replacement or proves cleanup. */
 export async function assertExecutionDomainAdmission(
-  records: Array<[string, DomainSession]>,
+  records: Array<[string, DomainSession | RetiredExecutionSessionRecord]>,
   key: string,
   incoming: DomainSession,
 ): Promise<void> {
@@ -79,6 +95,16 @@ export async function assertExecutionDomainAdmission(
       stored.workspaceScope.runAttemptId ===
         incoming.workspaceScope.runAttemptId;
     if (existingKey !== key && !sameAttempt) continue;
+    if (isRetiredExecutionSession(stored)) {
+      // Legacy remains unmarked, including its established one-generation
+      // recovery. History still rejects later marked reclassification under
+      // either this key or another key for the same attempt.
+      if (binding || hasExecutionDomain(stored)) throw denied();
+      if (existingKey === key && (!sameWorkspaceScope(stored.workspaceScope, incoming.workspaceScope) ||
+        stored.lease.owner !== incoming.lease.owner || incoming.lease.generation !== stored.lease.generation + 1 ||
+        incoming.lease.generation > 1 || incoming.lease.leaseId === stored.lease.leaseId || incoming.lease.sandboxId === stored.lease.sandboxId)) throw denied();
+      continue;
+    }
     if (!hasExecutionDomain(stored) && !binding) continue; // Legacy remains legacy.
     if (
       existingKey !== key ||
