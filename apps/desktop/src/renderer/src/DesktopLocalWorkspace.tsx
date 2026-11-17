@@ -21,6 +21,7 @@ import type {
 import { DesktopSidebar } from "./DesktopSidebar";
 import { useDesktopWorkspacePicker } from "./useDesktopWorkspacePicker";
 import { acquireDesktopWorkspaceAccess, type DesktopWorkspaceAccessSource } from "./desktop-workspace-access";
+import { desktopWorkspaceAvailability } from "./desktop-workspace-availability";
 import { DesktopSettingsDialog } from "./DesktopSettingsDialog";
 import type { DesktopHostedAccountControls } from "./useDesktopHostedAccount";
 import { DesktopRightPanel } from "./DesktopRightPanel";
@@ -139,6 +140,8 @@ export function DesktopLocalWorkspace({ active = true, onPlacementChange, hosted
     onInitializeError: () => setThreadLoadState("error"),
   });
 
+  const workspaceAvailability = desktopWorkspaceAvailability(environment, workspace, sdkReady);
+
   // An admitted Local metadata selection keeps its original custody when the
   // view is hidden. Placement changes cannot discard its server-side result.
   const workspaceAccessContext = useRef({ client: appServerClient, enabled: sdkReady });
@@ -197,8 +200,7 @@ export function DesktopLocalWorkspace({ active = true, onPlacementChange, hosted
   );
   const savedReview = useDesktopSavedReviewSelection(
     reviewScope,
-    environment?.status === "ready" &&
-      environment.capabilities.includes("artifact-review-v1"),
+    workspaceAvailability.review,
   );
   const reviewSourceKey = JSON.stringify([workspace?.workspaceId, workspace?.grantedAt, selectedThread?.id]);
   const activeReviewSource = reviewSource?.key === reviewSourceKey ? reviewSource.value : "turn-diff";
@@ -708,11 +710,11 @@ export function DesktopLocalWorkspace({ active = true, onPlacementChange, hosted
       branch={workspace?.branch ?? ""}
       readOnlyBranch={Boolean(workspace?.branch)}
       changedFileCount={activeReviewSource === "turn-diff" && savedReview.read.status === "ready" ? savedReview.read.diff?.files.length : undefined}
-      onOpenChanges={savedReview.selection || environment.capabilities.includes("workspace-git-reads-v1") ? onOpenChanges : undefined}
+      onOpenChanges={savedReview.selection || workspaceAvailability.gitReads ? onOpenChanges : undefined}
       onOpenCommit={
         activeReviewSource === "turn-diff" &&
         sdkReady && environment.status === "ready" &&
-        environment.capabilities.includes("artifact-commit-v1") &&
+        workspaceAvailability.commit &&
         savedReview.read.status === "ready" && savedReview.read.diff?.files.length
           ? () => setCommitOpen(true)
           : undefined
@@ -812,7 +814,7 @@ export function DesktopLocalWorkspace({ active = true, onPlacementChange, hosted
                           <DesktopWorkspaceReview
                             client={appServerClient}
                             workspaceId={workspace.workspaceId}
-                            liveAvailable={environment.capabilities.includes("workspace-git-reads-v1")}
+                            liveAvailable={workspaceAvailability.gitReads}
                             controls={controls}
                             scopeControls={{
                               value: activeReviewSource,
@@ -820,7 +822,7 @@ export function DesktopLocalWorkspace({ active = true, onPlacementChange, hosted
                                 setReviewSource({ key: reviewSourceKey, value });
                                 setCommitOpen(false);
                               },
-                              availableScopes: environment.capabilities.includes("workspace-git-reads-v1")
+                              availableScopes: workspaceAvailability.gitReads
                                 ? ["turn-diff", "git-changes"] : ["turn-diff"],
                             }}
                             saved={{
@@ -832,7 +834,7 @@ export function DesktopLocalWorkspace({ active = true, onPlacementChange, hosted
                                 threadId: reviewScope.threadId,
                                 grantGrantedAt: reviewScope.grantedAt,
                               } : null,
-                              availability: environment.capabilities.includes("artifact-review-v1")
+                              availability: workspaceAvailability.review
                                 ? { available: true }
                                 : {
                                     available: false,
@@ -863,9 +865,7 @@ export function DesktopLocalWorkspace({ active = true, onPlacementChange, hosted
                             grantedAt={workspace.grantedAt}
                             readiness={workspace.readiness}
                             availability={
-                              environment.capabilities.includes(
-                                "workspace-files-v1",
-                              )
+                              workspaceAvailability.files
                                 ? { available: true }
                                 : {
                                     available: false,
@@ -908,20 +908,11 @@ export function DesktopLocalWorkspace({ active = true, onPlacementChange, hosted
               draftHandoff={drafts.handoffFor(selectedThread)}
               providerReady={sdkReady}
               workspaceGrantAt={workspace.grantedAt}
-              fileAvailability={environment.status === "ready" && environment.capabilities.includes("workspace-files-v1") ? { available: true } : { available: false, reason: "Workspace file suggestions are unavailable in this environment." }}
+              fileAvailability={workspaceAvailability.files ? { available: true } : { available: false, reason: "Workspace file suggestions are unavailable in this environment." }}
               projectName={workspace.displayName}
               projectChangeUnavailableReason={projectChangeUnavailableReason}
               onProjectClick={() => void chooseWorkspace()}
-              execution={
-                environment.status === "ready" &&
-                environment.capabilities.includes("turn-execution-v1")
-                  ? { available: true }
-                  : {
-                      available: false,
-                      reason:
-                        "Local execution is unavailable in this environment.",
-                    }
-              }
+              execution={workspaceAvailability.execution}
               onConnectProvider={() => setSettingsTarget("connect-only")}
               onManageModels={() => setSettingsTarget("manage-models-only")}
               providerRevision={providerRevision}
@@ -977,7 +968,9 @@ export function DesktopLocalWorkspace({ active = true, onPlacementChange, hosted
                 busy={false}
                 layout="hero"
                 submissionUnavailableReason={workspace?.readiness === "ready"
-                  ? "Open or create a task to send your message."
+                  ? workspaceAvailability.execution.available
+                    ? "Open or create a task to send your message."
+                    : workspaceAvailability.execution.reason
                   : "Choose or restore a project to send your message."}
                 onConnectProvider={() => setSettingsTarget("connect-only")}
                 onManageModels={() => setSettingsTarget("manage-models-only")}
@@ -1006,7 +999,7 @@ export function DesktopLocalWorkspace({ active = true, onPlacementChange, hosted
           scope={reviewScope}
           availability={
             sdkReady && environment.status === "ready" &&
-            environment.capabilities.includes("artifact-commit-v1")
+            workspaceAvailability.commit
               ? { available: true }
               : { available: false, reason: "Committing saved changes is unavailable in this Desktop runtime." }
           }
