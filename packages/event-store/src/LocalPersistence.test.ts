@@ -170,6 +170,10 @@ describe("LocalPersistence", () => {
     await expect(persistence.events.listAll()).resolves.toEqual([]);
 
     const candidate = admission("first");
+    await persistence.workspaceGrants.write({ version: 1, path: persistenceDirectory(persistence),
+      grant: { workspaceId: candidate.run.workspaceId, displayName: "Admission workspace", repositoryIdentity: "git:admission:repo",
+        branch: "main", readiness: "ready", capabilities: ["filesystem", "git"], reason: null,
+        grantedAt: "2026-06-15T00:00:00.000Z" } });
     const retry = admission("retry");
     await expect(persistence.turnAdmissions.admit(candidate)).rejects.toMatchObject({ code: "idempotency_conflict" });
     await expect(persistence.turnAdmissions.findByRequest(candidate.run.threadId, candidate.clientRequestId)).resolves.toBeNull();
@@ -537,6 +541,10 @@ describe("LocalPersistence", () => {
     } });
     stores.push(atomic);
     const candidate = admission("atomic");
+    await atomic.workspaceGrants.write({ version: 1, path: idDirectory,
+      grant: { workspaceId: candidate.run.workspaceId, displayName: "Admission workspace", repositoryIdentity: "git:admission:repo",
+        branch: "main", readiness: "ready", capabilities: ["filesystem", "git"], reason: null,
+        grantedAt: "2026-06-15T00:00:00.000Z" } });
     const threadCreated = await atomic.events.append(createThreadInput("atomic:thread", candidate.run.threadId));
     await expect(atomic.turnAdmissions.admit(candidate)).rejects.toMatchObject({ code: "event_id_conflict" });
     await expect(atomic.events.listAll()).resolves.toEqual([threadCreated]);

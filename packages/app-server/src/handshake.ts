@@ -1,5 +1,6 @@
 import {
   APP_SERVER_PROTOCOL_VERSION,
+  AppServerEnvironmentIdSchema,
   AppServerInitializeRequestSchema,
   LOCAL_APP_SERVER_CAPABILITIES,
   LOCAL_APP_SERVER_UNAVAILABLE_CAPABILITIES,
@@ -22,6 +23,7 @@ export function initializeAppServer(
     environment: AppServerHandshakeEnvironment;
     serverId: string;
     serverVersion: string;
+    environmentId?: string | null;
     localWorkspaceFilesAvailable?: boolean;
     localWorkspaceGitReadsAvailable?: boolean;
     localTurnExecutionAvailable?: boolean;
@@ -50,12 +52,17 @@ export function initializeAppServer(
     };
   }
 
+  const environmentId = options.environmentId == null ? null : AppServerEnvironmentIdSchema.safeParse(options.environmentId);
+  if (environmentId !== null && !environmentId.success)
+    return { statusCode: 400, payload: { code: "invalid_request", message: "App Server environment configuration is invalid" } };
+
   return {
     statusCode: 200,
     payload: {
       protocolVersion: APP_SERVER_PROTOCOL_VERSION,
       server: { id: options.serverId, version: options.serverVersion },
       environment: options.environment,
+      environmentId: environmentId === null ? null : environmentId.data,
       ...(options.environment === "local" && options.localTurnConfiguration
         ? { localTurnConfiguration: options.localTurnConfiguration }
         : {}),

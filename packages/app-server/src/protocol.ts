@@ -1,3 +1,4 @@
+import { HarnessSetupRequestSchema, HarnessSetupResponseSchema, HarnessStatusRequestSchema, HarnessStatusResponseSchema, HarnessModelsRequestSchema, HarnessModelsResponseSchema, HarnessSelectionReadRequestSchema, HarnessSelectionResponseSchema, HarnessSelectRequestSchema } from "@repo/platform-protocol";
 import { BYOKPreferenceSchema, BYOKPreferencesUpdateRequestSchema, BYOKResolutionSchema, BYOKResolveRequestSchema } from "@repo/shared-types";
 import { BYOKCredentialSchema, BYOKCredentialConnectRequestSchema, BYOKCredentialUpdateRequestSchema, BYOKCredentialValidateRequestSchema, BYOKCredentialValidateResponseSchema } from "@repo/shared-types";
 import {
@@ -497,6 +498,11 @@ const GitPullRequestParamsSchema = GitRequestContextSchema.extend({
 }).strict();
 
 export const AppServerMethodSchema = z.enum([
+  "harness/setup",
+  "harness/status",
+  "harness/models",
+  "harness/selection/read",
+  "harness/selection/select",
   "initialize",
   "session/history",
   "session/list",
@@ -596,6 +602,11 @@ const AppServerRequestShape = {
 };
 
 export const AppServerRequestSchema = z.discriminatedUnion("method", [
+  z.object({ ...AppServerRequestShape, method: z.literal("harness/setup"), params: HarnessSetupRequestSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("harness/status"), params: HarnessStatusRequestSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("harness/models"), params: HarnessModelsRequestSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("harness/selection/read"), params: HarnessSelectionReadRequestSchema }).strict(),
+  z.object({ ...AppServerRequestShape, method: z.literal("harness/selection/select"), params: HarnessSelectRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/configuration/read"), params: HostedWorkspaceConfigurationReadRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/configuration/update"), params: HostedWorkspaceConfigurationUpdateRequestSchema }).strict(),
   z.object({ ...AppServerRequestShape, method: z.literal("workspace/list"), params: EmptyParamsSchema }).strict(),
@@ -691,6 +702,11 @@ export type AppServerRequest = z.infer<typeof AppServerRequestSchema>;
 export type AppServerMethod = z.infer<typeof AppServerMethodSchema>;
 
 export const AppServerResultSchemas = {
+  "harness/setup": HarnessSetupResponseSchema,
+  "harness/status": HarnessStatusResponseSchema,
+  "harness/models": HarnessModelsResponseSchema,
+  "harness/selection/read": HarnessSelectionResponseSchema,
+  "harness/selection/select": HarnessSelectionResponseSchema,
   "workspace/configuration/read": HostedWorkspaceConfigurationSchema,
   "workspace/configuration/update": HostedWorkspaceConfigurationSchema,
   "workspace/list": HostedWorkspaceListResponseSchema,
@@ -786,6 +802,11 @@ export const AppServerResultSchemas = {
 } as const;
 
 export const AppServerSuccessResponseSchema = z.discriminatedUnion("method", [
+  success("harness/setup", AppServerResultSchemas["harness/setup"]),
+  success("harness/status", AppServerResultSchemas["harness/status"]),
+  success("harness/models", AppServerResultSchemas["harness/models"]),
+  success("harness/selection/read", AppServerResultSchemas["harness/selection/read"]),
+  success("harness/selection/select", AppServerResultSchemas["harness/selection/select"]),
   success("workspace/configuration/read", AppServerResultSchemas["workspace/configuration/read"]),
   success("workspace/configuration/update", AppServerResultSchemas["workspace/configuration/update"]),
   success("workspace/list", AppServerResultSchemas["workspace/list"]),
@@ -889,7 +910,10 @@ export const AppServerFailureResponseSchema = z
   })
   .strict();
 
-export const AppServerResponseSchema = z.union([
+export const AppServerResponseSchema: z.ZodUnion<[
+  typeof AppServerSuccessResponseSchema,
+  typeof AppServerFailureResponseSchema,
+]> = z.union([
   AppServerSuccessResponseSchema,
   AppServerFailureResponseSchema,
 ]);
@@ -901,13 +925,17 @@ export type AppServerFailureResponse = z.infer<
   typeof AppServerFailureResponseSchema
 >;
 
-function success<
-  const Method extends AppServerMethod,
-  Schema extends z.ZodTypeAny,
->(
+type SuccessResponseSchema<Method extends AppServerMethod> = z.ZodObject<{
+  protocolVersion: z.ZodLiteral<typeof APP_SERVER_PROTOCOL_VERSION>;
+  method: z.ZodLiteral<Method>;
+  ok: z.ZodLiteral<true>;
+  result: (typeof AppServerResultSchemas)[Method];
+}, "strict">;
+
+function success<const Method extends AppServerMethod>(
   method: Method,
-  result: Schema,
-) {
+  result: (typeof AppServerResultSchemas)[Method],
+): SuccessResponseSchema<Method> {
   return z
     .object({
       protocolVersion: z.literal(APP_SERVER_PROTOCOL_VERSION),
