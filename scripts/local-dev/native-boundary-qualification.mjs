@@ -185,7 +185,12 @@ async function providerInventory(config, configPath, identity = cliIdentity()) {
   const matching = containers.value.filter(value => object(value) && value.name === config.containers[0].name);
   if (matching.length !== 1) throw unavailable("CONTAINER_IDENTITY_AMBIGUOUS");
   const container = matching[0];
-  if (container.account_id !== config.account_id || container.scheduling_policy !== "default" || container.max_instances !== 1 || container.configuration?.image !== config.containers[0].image || container.configuration?.memory_mib !== 1024 || container.configuration?.vcpu !== 0.25) throw unavailable("CONTAINER_ACCOUNT_IMAGE_OR_RESOURCE_MISMATCH");
+  const configuration = container.configuration;
+  if (container.account_id !== config.account_id || container.scheduling_policy !== "default" || container.max_instances !== 1 ||
+      !object(configuration) || configuration.image !== config.containers[0].image || config.containers[0].instance_type !== "basic" ||
+      configuration.instance_type !== config.containers[0].instance_type ||
+      (Object.hasOwn(configuration, "memory_mib") && configuration.memory_mib !== 1024) ||
+      (Object.hasOwn(configuration, "vcpu") && configuration.vcpu !== 0.25)) throw unavailable("CONTAINER_ACCOUNT_IMAGE_OR_RESOURCE_MISMATCH");
   const bindings = version.value.resources.bindings;
   const runtime = version.value.resources.script_runtime;
   if (!object(runtime) || runtime.migration_tag !== "native-qualification-v1" || runtime.compatibility_date !== config.compatibility_date || !same(runtime.compatibility_flags, config.compatibility_flags)) throw unavailable("PROVIDER_RUNTIME_MIGRATION_METADATA_UNAVAILABLE");
