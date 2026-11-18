@@ -1,3 +1,6 @@
+import { toPersistedReference, validateNativeOriginalSessionReference } from "../../services/secure-execution/SecureExecutionSessionClient";
+import { nativeCheckoutBootstrapIntent, bootstrapNativeCheckoutBeforeReady } from "./NativeCheckoutBootstrap";
+import type { NativeCheckoutBootstrapIntent } from "@repo/worker-protocol/private/native-checkout-bootstrap";
 import {
   snapshotExecutionDomain,
   serializeExecutionDomain,
@@ -66,6 +69,7 @@ export type SecureExecutionSessionFactory = (input: {
   readonly workspaceScope: SecureExecutionWorkspaceScope;
   readonly persistedReference?: PersistedSecureExecutionSessionReference;
   readonly executionDomain?: ServerExecutionDomainBinding;
+  readonly nativeCheckoutIntent?: NativeCheckoutBootstrapIntent;
 }) => SecureExecutionSessionPort;
 
 export interface BeforeTaskCheckoutSessionAcquireInput {
@@ -112,6 +116,7 @@ export class TaskCheckoutIssuer {
         input.workspaceScope,
         input.persistedReference,
         input.executionDomain,
+        input.nativeCheckoutIntent,
       );
     },
   ) {}
@@ -358,7 +363,10 @@ export class TaskCheckoutIssuer {
           }),
         );
       }
+      const bootstrapIntent = executionDomain?.domain === "legioncode_native"
+        ? nativeCheckoutBootstrapIntent(snapshot, checkoutId, filesystemRoot) : undefined;
       executionSession = this.sessionFactory({
+        nativeCheckoutIntent: bootstrapIntent,
         sessionId: payload.sessionId,
         runId: payload.runId,
         workspaceScope,
@@ -368,6 +376,16 @@ export class TaskCheckoutIssuer {
       if (session.lease.executionDomainDigest !== digest) {
         throw new Error("EXECUTION_DOMAIN_BINDING_UNAVAILABLE");
       }
+      if (bootstrapIntent) {
+        if (!reservation) throw new Error("NATIVE_ISSUANCE_RESERVATION_REQUIRED");
+        const original = toPersistedReference(session);
+        if (!original.nativeSandboxBinding) throw new Error("NATIVE_SANDBOX_ORIGINAL_BINDING_UNAVAILABLE");
+        await this.withIssuance(repository => {
+          if (!repository.freezeIssuanceOriginalReference) throw new Error("NATIVE_ORIGINAL_REFERENCE_OWNER_REQUIRED");
+          return repository.freezeIssuanceOriginalReference(checkoutId, reservation.issuanceToken, JSON.parse(JSON.stringify(original)));
+        });
+      }
+      if (bootstrapIntent) await bootstrapNativeCheckoutBeforeReady(this.env, payload, workspaceScope, executionSession, bootstrapIntent);
       const checkout = TaskCheckoutSchema.parse({
         kind: "task_checkout",
         checkoutId,
@@ -829,12 +847,19 @@ export class TaskCheckoutIssuer {
         payload.correlationId,
       );
     }
+    const originalReference = executionDomain?.domain === "legioncode_native"
+      ? validateNativeOriginalSessionReference(await this.withIssuance(repository => {
+        if (!repository.getCheckoutOriginalReference) throw new Error("NATIVE_ORIGINAL_REFERENCE_OWNER_REQUIRED");
+        return repository.getCheckoutOriginalReference(checkout.checkoutId);
+      }), { secureSessionId: checkout.secureSessionId, leaseId: checkout.leaseId,
+        sandboxId: checkout.sandboxId, generation: checkout.generation, executionDomainDigest: persistedDomain!.digest })
+      : undefined;
     const executionSession = this.sessionFactory({
       sessionId: payload.sessionId,
       runId: payload.runId,
       workspaceScope,
       executionDomain,
-      persistedReference: {
+      persistedReference: originalReference ?? {
         secureSessionId: checkout.secureSessionId,
         leaseId: checkout.leaseId,
         sandboxId: checkout.sandboxId,
@@ -872,6 +897,10 @@ export class TaskCheckoutIssuer {
         false,
         payload.correlationId,
       );
+    }
+    if (executionDomain?.domain === "legioncode_native") {
+      if (!executionSession.verifyNativeCheckoutReady) throw new Error("NATIVE_BOOTSTRAP_OWNER_REQUIRED");
+      await executionSession.verifyNativeCheckoutReady(nativeCheckoutBootstrapIntent(snapshot, checkout.checkoutId, checkout.filesystemRoot));
     }
     // The unmarked response must also remain unmarked; never adopt a marked
     // response just because a legacy caller omitted the domain expectation.

@@ -1,3 +1,4 @@
+import { snapshotNativeSandboxPhysicalBinding, type NativeSandboxPhysicalBinding } from "@repo/worker-protocol/private/native-sandbox-binding";
 import {
   executionDomainDigest,
   sameExecutionDomain,
@@ -13,6 +14,7 @@ import {
 
 export interface ExecutionDomainSessionFields {
   executionDomain?: ServerExecutionDomainBinding;
+  nativeSandboxBinding?: NativeSandboxPhysicalBinding;
 }
 export interface DomainSession extends ExecutionDomainSessionFields {
   workspaceScope: WorkspaceScope;
@@ -32,7 +34,8 @@ export function retiredExecutionBinding(session: DomainSession): RetiredExecutio
   return Object.freeze({ kind: "retired_execution_binding", version: 1,
     workspaceScope: Object.freeze({ ...session.workspaceScope }),
     lease: Object.freeze({ ...session.lease, workspaceScope: Object.freeze({ ...session.lease.workspaceScope }) }),
-    ...(session.executionDomain ? { executionDomain: snapshotExecutionDomain(session.executionDomain) } : {}) });
+    ...(session.executionDomain ? { executionDomain: snapshotExecutionDomain(session.executionDomain) } : {}),
+    ...(session.nativeSandboxBinding ? { nativeSandboxBinding: snapshotNativeSandboxPhysicalBinding(session.nativeSandboxBinding) } : {}) });
 }
 
 export function matchesDomainWorkspace(

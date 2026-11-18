@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Sandbox } from "@cloudflare/sandbox";
 import { RustPlugin } from "./RustPlugin";
 import type { PluginExecutionContext } from "../interfaces/types";
+import type { NativeCommandCapability } from "../toolbox/contracts/OwnedSandboxCommand";
 
 interface ExecResult {
   exitCode: number;
@@ -10,7 +11,8 @@ interface ExecResult {
 }
 
 interface SandboxMock {
-  execCalls: string[];
+  execCalls: string[][];
+  nativeCommands: NativeCommandCapability;
   execOptions: Array<{ cwd?: string; env?: Record<string, string | undefined> }>;
   writeFileCalls: Array<{ fileName: string; content: string }>;
   exec: (
@@ -21,7 +23,7 @@ interface SandboxMock {
 }
 
 function createSandboxMock(responses: ExecResult[]): SandboxMock {
-  const execCalls: string[] = [];
+  const execCalls: string[][] = [];
   const execOptions: Array<{
     cwd?: string;
     env?: Record<string, string | undefined>;
@@ -32,19 +34,16 @@ function createSandboxMock(responses: ExecResult[]): SandboxMock {
     execCalls,
     execOptions,
     writeFileCalls,
-    async exec(
-      command: string,
-      options?: { cwd?: string; env?: Record<string, string | undefined> },
-    ): Promise<ExecResult> {
-      execCalls.push(command);
-      execOptions.push(options ?? {});
-      return (
-        responses.shift() ?? {
-          exitCode: 0,
-          stdout: "",
-          stderr: "",
-        }
-      );
+    async exec(): Promise<ExecResult> { throw new Error("Unowned SDK execution is forbidden"); },
+    nativeCommands: {
+      async execute(spec) {
+        execCalls.push(spec.argv);
+        execOptions.push({ cwd: spec.cwd, env: spec.env });
+        return responses.shift() ?? { exitCode: 0, stdout: "", stderr: "" };
+      },
+      async prepareWorkspace() { throw new Error("Not a provisioning fixture"); },
+      async stop() { return true; },
+      async awaitClosure() { return true; },
     },
     async writeFile(fileName: string, content: string): Promise<void> {
       writeFileCalls.push({ fileName, content });
@@ -56,8 +55,9 @@ function asSandbox(mock: SandboxMock): Sandbox {
   return mock as unknown as Sandbox;
 }
 
-function testExecutionContext(runId: string): PluginExecutionContext {
+function testExecutionContext(sandbox: SandboxMock, runId: string): PluginExecutionContext {
   return {
+    nativeCommands: sandbox.nativeCommands,
     workspaceScope: {
       runId,
       workspaceId: "workspace-test",
@@ -85,17 +85,17 @@ describe("RustPlugin", () => {
         callId: "task-rust-1",
         toolName: "rust.execute",
       },
-    } as { code: string }, undefined, testExecutionContext("run_rust_1"));
+    } as { code: string }, undefined, testExecutionContext(sandbox, "run_rust_1"));
 
     expect(result.success).toBe(true);
     expect(sandbox.writeFileCalls[0]?.fileName).toBe(
       "/home/sandbox/checkouts/run_rust_1/main.rs",
     );
-    expect(sandbox.execCalls[1]).toBe("'rustc' 'main.rs' '-o' 'main_bin'");
+    expect(sandbox.execCalls[1]).toEqual(["rustc", "main.rs", "-o", "main_bin"]);
     expect(sandbox.execOptions[1]?.cwd).toBe(
       "/home/sandbox/checkouts/run_rust_1",
     );
-    expect(sandbox.execCalls[2]).toBe("'./main_bin'");
+    expect(sandbox.execCalls[2]).toEqual(["./main_bin"]);
     expect(sandbox.execOptions[2]?.cwd).toBe(
       "/home/sandbox/checkouts/run_rust_1",
     );

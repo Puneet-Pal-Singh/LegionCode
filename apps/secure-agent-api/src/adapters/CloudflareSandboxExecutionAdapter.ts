@@ -15,6 +15,8 @@ import {
   type SandboxExecutionLease,
   type SandboxExecutionLeaseRequest,
 } from "../ports/SandboxExecutionLease";
+import { parseNativeCommandClosure, type NativeCommandClosure } from "@repo/shared-types/native-command-closure";
+import { nativeCommandScope } from "../core/OwnedNativeCommandSession";
 import { sanitizeLogText } from "../core/security/LogSanitizer";
 
 interface TaskActionMapping {
@@ -29,6 +31,7 @@ const SANDBOX_DESTROY_TIMEOUT_MS = 15_000;
 interface ActiveTaskExecution {
   leaseId: string;
   taskId: string;
+  readonly lease: SandboxExecutionLease;
   abortController: AbortController;
   terminationReason?: TerminationReason;
   readonly quiescence: Promise<void>;
@@ -36,6 +39,14 @@ interface ActiveTaskExecution {
   pluginSettled: boolean;
   executionSettled: boolean;
   pluginOperation?: Promise<unknown>;
+  readonly nativeCommands?: TaskExecutionInput["nativeCommands"];
+  nativeClosure?: NativeCommandClosure;
+}
+
+interface LeaseRegistration {
+  readonly lease: SandboxExecutionLease;
+  release?: Promise<LeaseReleaseResult>;
+  destruction?: Promise<void>;
 }
 
 interface ToolboxPayloadContext {
@@ -64,9 +75,9 @@ export class SandboxLeaseError extends Error {
 export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
   private readonly activeExecutions = new Map<string, ActiveTaskExecution>();
   private readonly taskTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
-  private readonly leases = new Map<string, SandboxExecutionLease>();
-  // Revocation is sticky on this existing owner; it is not release evidence.
-  private readonly fencedMarkedLeases = new Set<string>();
+  private readonly leases = new Map<string, LeaseRegistration>();
+  private sandboxClosing = false;
+  private readonly fencedLeases = new Set<string>();
   private readonly mutationTails = new Map<string, Promise<void>>();
 
   constructor(
@@ -78,11 +89,8 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
   }
 
   registerLease(lease: SandboxExecutionLease): void {
-    if (this.fencedMarkedLeases.has(lease.leaseId)) throw new SandboxLeaseError(
-      "SANDBOX_LEASE_FENCED", "The original marked lease is closed to creators", false, lease.correlationId);
     const existing = this.leases.get(lease.leaseId);
-    if (existing && (workspaceLeaseKey(existing) !== workspaceLeaseKey(lease) ||
-      ((existing.executionDomainDigest !== undefined || lease.executionDomainDigest !== undefined) && !sameSandboxExecutionLease(existing, lease)))) {
+    if (this.sandboxClosing || this.fencedLeases.has(lease.leaseId) || (existing && !sameRegisteredLease(existing.lease, lease))) {
       throw new SandboxLeaseError(
         "SANDBOX_LEASE_COLLISION",
         "A lease id cannot be rebound to a different workspace run-attempt",
@@ -90,8 +98,7 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
         lease.correlationId,
       );
     }
-    this.leases.set(lease.leaseId, lease.executionDomainDigest !== undefined
-      ? Object.freeze({ ...lease, workspaceScope: Object.freeze({ ...lease.workspaceScope }) }) : lease);
+    if (!existing) this.leases.set(lease.leaseId, { lease: Object.freeze({ ...lease, workspaceScope: Object.freeze({ ...lease.workspaceScope }) }) });
   }
 
   async acquireLease(
@@ -107,10 +114,49 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
     input: TaskExecutionInput,
     hooks?: TaskExecutionHooks,
   ): Promise<TaskExecutionResult> {
+    // Capture all caller-owned dispatch data before the queue can yield. The
+    // private server capability is deliberately retained by reference, not cloned.
+    input = snapshotTaskInput(input);
+    hooks = hooks ? Object.freeze({ onLog: hooks.onLog }) : undefined;
     if (leaseId !== input.lease.leaseId || !this.isActiveLease(input.lease)) {
       return this.leaseFailure(input);
     }
-    const execute = () => this.executeTaskWithLease(input, hooks);
+    const key = this.executionKey(leaseId, input.taskId);
+    if (this.activeExecutions.has(key)) {
+      return this.failure(input, "SANDBOX_TASK_ALREADY_OWNED", "The original task is already owned; reconcile it without redispatching.");
+    }
+    let resolveQuiescence!: () => void;
+    const quiescence = new Promise<void>(resolve => { resolveQuiescence = resolve; });
+    const active: ActiveTaskExecution = {
+      leaseId, taskId: input.taskId, lease: input.lease, abortController: new AbortController(),
+      quiescence, resolveQuiescence, pluginSettled: false, executionSettled: false,
+      nativeCommands: input.nativeCommands,
+    };
+    // This same map reserves queued and running originals. Never overwrite an
+    // original loan with a duplicate read-only or borrowed task.
+    this.activeExecutions.set(key, active);
+    const execute = async () => {
+      let result: TaskExecutionResult;
+      try { result = await this.executeTaskWithLease(input, active, hooks); }
+      finally {
+        active.executionSettled = true;
+        if (!active.pluginOperation) this.markPluginSettled(key, active);
+        if (active.nativeCommands) await this.refreshNativeClosure(active);
+        // A settled plugin alone is not Native physical proof. Keep the exact
+        // original entry and its receipt until positive lease release.
+        if (!active.pluginSettled || (active.nativeCommands && active.nativeClosure?.state !== "settled")) {
+          this.fenceLease(leaseId);
+        }
+        if (this.activeExecutions.get(key) === active) {
+          const timeout = this.taskTimeouts.get(key);
+          if (timeout) clearTimeout(timeout);
+          this.taskTimeouts.delete(key);
+        }
+      }
+      // The immutable original A receipt crosses the return boundary even if
+      // task B reserves the current session slot as soon as this tail releases.
+      return { ...result, ...(active.nativeClosure ? { nativeCommandClosure: active.nativeClosure } : {}) };
+    };
     return input.lease.mutationMode === "serialized"
       ? this.withWorkspaceMutationLock(input.lease, execute)
       : execute();
@@ -118,7 +164,7 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
 
   async cancelTask(leaseId: string, taskId: string): Promise<boolean> {
     const active = this.activeExecutions.get(this.executionKey(leaseId, taskId));
-    if (!active || active.terminationReason === "timeout") return false;
+    if (!active || active.pluginSettled || active.terminationReason === "timeout") return false;
     active.terminationReason = "cancelled";
     active.abortController.abort();
     return await waitForQuiescence(active, 2_000);
@@ -129,39 +175,93 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
   }
 
   async cleanup(leaseId: string): Promise<void> {
-    // Synchronous before all closing awaits; queued dispatch checks it again.
-    if (this.leases.get(leaseId)?.executionDomainDigest !== undefined) this.fencedMarkedLeases.add(leaseId);
+    this.fenceLease(leaseId);
+    const originals: Promise<unknown>[] = [];
     for (const [key, active] of this.activeExecutions) {
       if (active.leaseId !== leaseId) continue;
+      if (active.pluginOperation) originals.push(active.pluginOperation);
       active.terminationReason = "cancelled";
       active.abortController.abort();
       const timeout = this.taskTimeouts.get(key);
       if (timeout) clearTimeout(timeout);
       this.taskTimeouts.delete(key);
     }
+    // Only actual original plugin operations, never this wrapper, queue tail or
+    // executionSettled: self-release from a rejected plugin cannot deadlock.
+    await Promise.allSettled(originals);
   }
 
   async releaseLease(
     leaseId: string,
     options: { destroySandbox?: boolean } = {},
   ): Promise<LeaseReleaseResult> {
-    const lease = this.leases.get(leaseId);
-    if (!lease) return { released: false, sandboxReleased: false };
-    if (lease.executionDomainDigest !== undefined) {
+    const registration = this.leases.get(leaseId);
+    if (!registration) return { released: false, sandboxReleased: false };
+    if (registration.release) return registration.release;
+    // Retain the original release loan in this same owner registration before
+    // cleanup can await. Concurrent release cannot destroy or drop it twice.
+    const operation = Promise.resolve().then(() => this.releaseRegisteredLease(leaseId, registration, options.destroySandbox !== false));
+    registration.release = operation;
+    try { return await operation; }
+    finally { if (registration.release === operation) registration.release = undefined; }
+  }
+
+  private async releaseRegisteredLease(
+    leaseId: string, registration: LeaseRegistration, destroy: boolean,
+  ): Promise<LeaseReleaseResult> {
+    // Creator eligibility and physical reference ownership are separate. A
+    // fenced registration still counts while its original work is closing.
+    if (registration.lease.executionDomainDigest !== undefined && ![...this.activeExecutions.values()].some(active => active.leaseId === leaseId && active.nativeCommands)) {
       await this.cleanup(leaseId);
       return { released: false, sandboxReleased: false };
     }
     await this.cleanup(leaseId);
+    const owned = [...this.activeExecutions.entries()].filter(([, active]) => active.leaseId === leaseId);
+    for (const [, active] of owned) {
+      if (active.nativeCommands) {
+        await this.refreshNativeClosure(active);
+        if (active.nativeClosure?.state !== "settled") return { released: false, sandboxReleased: false };
+      }
+    }
+    if (this.leases.get(leaseId) !== registration) return { released: false, sandboxReleased: false };
+    const sandboxReleased = this.leases.size === 1;
+    if (sandboxReleased && destroy) {
+      // Close admission synchronously before physical destruction can yield.
+      // A failed destroy retains this fenced owner for exact retry/reconciliation.
+      this.sandboxClosing = true;
+      registration.destruction ??= Promise.resolve().then(() => this.sandbox.destroy());
+      await destroySandbox(registration.destruction);
+    }
     this.leases.delete(leaseId);
-    const sandboxReleased = this.leases.size === 0;
-    if (sandboxReleased && options.destroySandbox !== false) {
-      await destroySandbox(this.sandbox);
+    for (const [key, active] of owned) {
+      if (this.activeExecutions.get(key) === active) this.activeExecutions.delete(key);
     }
     return { released: true, sandboxReleased };
   }
 
+  async getNativeCommandClosure(sessionId: string, lease: SandboxExecutionLease, taskId: string) {
+    const active = this.activeExecutions.get(this.executionKey(lease.leaseId, taskId));
+    if (!active || lease.owner !== sessionId || !sameRegisteredLease(active.lease, lease)) return undefined;
+    await this.refreshNativeClosure(active);
+    return active.nativeClosure;
+  }
+
+  private async refreshNativeClosure(active: ActiveTaskExecution): Promise<void> {
+    if (active.nativeClosure?.state === "settled" || !active.pluginSettled) return;
+    try {
+      // Seal the captured task's actual creator before reading evidence. The
+      // stop boolean is ignored; only the typed physical receipt can release.
+      await active.nativeCommands?.stop();
+      const value = await active.nativeCommands?.closureEvidence?.();
+      const scope = nativeCommandScope(active.lease.owner, active.lease, active.taskId);
+      const receipt = scope ? parseNativeCommandClosure(value, scope) : null;
+      if (receipt?.state === "settled") active.nativeClosure = freezeDispatchData(receipt);
+    } catch { /* Missing/corrupt/originally unknown evidence remains owned. */ }
+  }
+
   private async executeTaskWithLease(
     input: TaskExecutionInput,
+    active: ActiveTaskExecution,
     hooks?: TaskExecutionHooks,
   ): Promise<TaskExecutionResult> {
     const { lease } = input;
@@ -170,21 +270,8 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
     // again after the queue wait and immediately before dispatching the plugin.
     if (!this.isActiveLease(lease)) return this.leaseFailure(input);
     const startedAt = Date.now();
-    let resolveQuiescence!: () => void;
-    const quiescence = new Promise<void>((resolve) => {
-      resolveQuiescence = resolve;
-    });
-    const active: ActiveTaskExecution = {
-      leaseId: lease.leaseId,
-      taskId: input.taskId,
-      abortController: new AbortController(),
-      quiescence,
-      resolveQuiescence,
-      pluginSettled: false,
-      executionSettled: false,
-    };
     const key = this.executionKey(lease.leaseId, input.taskId);
-    this.activeExecutions.set(key, active);
+    if (this.activeExecutions.get(key) !== active) return this.leaseFailure(input);
     const timeoutMs = input.timeout ?? 30_000;
     this.taskTimeouts.set(
       key,
@@ -199,18 +286,25 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
       if (!mapping) return this.failure(input, "UNKNOWN_ACTION", `Unknown task action: ${input.action}`);
       const plugin = this.plugins.get(mapping.pluginName);
       if (!plugin) return this.failure(input, "PLUGIN_NOT_FOUND", `Plugin not found: ${mapping.pluginName}`);
-      const pluginOperation = this.invokePlugin(
-        plugin,
-        mapping,
-        input,
-        active.abortController.signal,
-        hooks,
-      );
+      let launch!: () => void;
+      const pluginOperation = new Promise<unknown>((resolve, reject) => {
+        launch = () => {
+          if (!this.isActiveLease(lease) || this.activeExecutions.get(key) !== active) {
+            reject(new Error("Sandbox lease was fenced before dispatch")); return;
+          }
+          if (active.abortController.signal.aborted) {
+            reject(new TaskInterruptedError(active.terminationReason ?? "cancelled")); return;
+          }
+          void this.invokePlugin(plugin, mapping, input, active.abortController.signal, hooks).then(resolve, reject);
+        };
+      });
+      // Register the original promise before invokePlugin can produce effects.
       active.pluginOperation = pluginOperation;
       void pluginOperation.then(
         () => this.markPluginSettled(key, active),
         () => this.markPluginSettled(key, active),
       );
+      launch();
       const output = await raceWithAbort(
         pluginOperation,
         active.abortController.signal,
@@ -269,35 +363,28 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
         error: normalized,
         metrics: { duration },
       };
-    } finally {
-      active.executionSettled = true;
-      if (!active.pluginOperation) this.markPluginSettled(key, active);
-      if (active.pluginSettled) this.activeExecutions.delete(key);
-      const timeout = this.taskTimeouts.get(key);
-      if (timeout) clearTimeout(timeout);
-      this.taskTimeouts.delete(key);
     }
   }
 
   private markPluginSettled(key: string, active: ActiveTaskExecution): void {
-    if (active.pluginSettled) return;
+    if (this.activeExecutions.get(key) !== active || active.pluginSettled) return;
     active.pluginSettled = true;
     active.resolveQuiescence();
-    if (active.executionSettled) this.activeExecutions.delete(key);
+  }
+
+  private fenceLease(leaseId: string): void {
+    // Keep its registration counted until the exact original owner releases it.
+    this.fencedLeases.add(leaseId);
   }
 
   private isActiveLease(lease: SandboxExecutionLease): boolean {
-    if (this.fencedMarkedLeases.has(lease.leaseId)) return false;
     const stored = this.leases.get(lease.leaseId);
     return (
       stored !== undefined &&
-      ((stored.executionDomainDigest === undefined && lease.executionDomainDigest === undefined) || sameSandboxExecutionLease(stored, lease)) &&
-      stored.owner === lease.owner &&
-      stored.correlationId === lease.correlationId &&
-      stored.expiresAt === lease.expiresAt &&
-      stored.generation === lease.generation &&
-      workspaceLeaseKey(stored) === workspaceLeaseKey(lease) &&
-      !isLeaseExpired(stored)
+      !this.fencedLeases.has(lease.leaseId) &&
+      sameRegisteredLease(stored.lease, lease) &&
+      !this.sandboxClosing &&
+      !isLeaseExpired(stored.lease)
     );
   }
 
@@ -379,6 +466,7 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
       const pluginContext: PluginExecutionContext = {
         workspaceScope: input.lease.workspaceScope,
         ...(input.borrowedLease ? { borrowedLease: true } : {}),
+        ...(input.nativeCommands ? { nativeCommands: input.nativeCommands } : {}),
       };
       let logDrain = Promise.resolve();
       const result = await plugin.execute(
@@ -443,11 +531,11 @@ async function waitForQuiescence(
   }
 }
 
-async function destroySandbox(sandbox: Sandbox): Promise<void> {
+async function destroySandbox(original: Promise<void>): Promise<void> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
-      sandbox.destroy(),
+      original,
       new Promise<never>((_, reject) => {
         timeout = setTimeout(
           () => reject(new Error("Sandbox cleanup timed out")),
@@ -504,4 +592,28 @@ function isSandboxUnavailable(error: unknown, normalized: { code: string; messag
   if (normalized.code === "SANDBOX_UNAVAILABLE" || normalized.code === "CONTAINER_EXITED") return true;
   if (error && typeof error === "object" && "exitCode" in error && error.exitCode === 137) return true;
   return /(?:exit|status|code)[ =:]*(?:137)\b/i.test(normalized.message);
+}
+
+function sameRegisteredLease(a: SandboxExecutionLease, b: SandboxExecutionLease): boolean {
+  return a.leaseId === b.leaseId && a.sandboxId === b.sandboxId && a.owner === b.owner &&
+    a.correlationId === b.correlationId && a.expiresAt === b.expiresAt && a.generation === b.generation &&
+    a.executionDomainDigest === b.executionDomainDigest && a.mutationMode === b.mutationMode &&
+    Object.keys(a.workspaceScope).every(key => a.workspaceScope[key as keyof typeof a.workspaceScope] === b.workspaceScope[key as keyof typeof b.workspaceScope]);
+}
+
+function snapshotTaskInput(input: TaskExecutionInput): TaskExecutionInput {
+  return Object.freeze({ ...input,
+    params: freezeDispatchData(structuredClone(input.params)),
+    lease: Object.freeze({ ...input.lease, workspaceScope: Object.freeze({ ...input.lease.workspaceScope }) }),
+    nativeCommands: input.nativeCommands,
+  });
+}
+
+function freezeDispatchData<T>(value: T, seen = new WeakSet<object>()): T {
+  if (value !== null && typeof value === "object" && !seen.has(value)) {
+    seen.add(value);
+    for (const nested of Object.values(value)) freezeDispatchData(nested, seen);
+    Object.freeze(value);
+  }
+  return value;
 }

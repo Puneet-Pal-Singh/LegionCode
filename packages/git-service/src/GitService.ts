@@ -2,6 +2,7 @@ import { RunIdSchema } from "@repo/platform-protocol";
 
 import type { GitCommandExecutor } from "./executor.js";
 import { readGitRepositoryHead } from "./repository-head.js";
+import { readGitRepositoryMetadataPaths } from "./repository-metadata.js";
 import { DEFAULT_GIT_COMMAND_TIMEOUT_MS } from "./executor.js";
 import { createGitCommandFailedError, GitServiceError } from "./errors.js";
 import {
@@ -45,6 +46,7 @@ import type {
   GitRepositoryProbeInput,
   GitRepositoryProbeResult,
   GitRepositoryHead,
+  GitRepositoryMetadataPaths,
   GitSnapshotDiffInput,
   GitSnapshotInput,
   GitSnapshotPatchInput,
@@ -78,6 +80,10 @@ export class DefaultGitService {
 
   readRepositoryHead(input: GitStatusInput): Promise<GitRepositoryHead> {
     return readGitRepositoryHead(this.executor, input);
+  }
+
+  readRepositoryMetadataPaths(input: GitRepositoryProbeInput): Promise<GitRepositoryMetadataPaths> {
+    return readGitRepositoryMetadataPaths(this.executor, input);
   }
 
   async getStatus(input: GitReadStatusInput): Promise<GitStatusResult> {

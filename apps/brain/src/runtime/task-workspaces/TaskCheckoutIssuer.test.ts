@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
+import { describe, expect, it, vi } from "vitest";
 import type {
+  TaskWorkspaceRepository,
   TaskCheckoutIssuanceRepository,
+  TaskCheckoutIssuanceReservation,
   PersistedTaskCheckoutExecutionDomain,
 } from "@repo/persistence";
-import { describe, expect, it, vi } from "vitest";
-import type { TaskWorkspaceRepository } from "@repo/persistence";
+import type { JsonValue } from "@repo/shared-types";
 import {
   TaskCheckoutSchema,
   RunAttemptIdSchema,
@@ -17,6 +19,7 @@ import type { Env } from "../../types/ai";
 import {
   TaskCheckoutIssuer,
   type SecureExecutionSessionFactory,
+  type TaskCheckoutIssueOptions,
   type BeforeTaskCheckoutSessionAcquire,
 } from "./TaskCheckoutIssuer";
 
@@ -44,6 +47,11 @@ const snapshot = WorkspaceSnapshotSchema.parse({
   },
 });
 
+const nativeSandboxBinding = {
+  version: 1, backend: "cloudflareSandbox", binding: "NativeSandbox",
+  profile: "basic", schedulingPolicy: "default", sandboxObjectId: "a".repeat(64),
+} as const;
+
 describe("TaskCheckoutIssuer", () => {
   it("issues three same-model chats with distinct checkout and lease roots", async () => {
     const repository = createRepository();
@@ -67,6 +75,10 @@ describe("TaskCheckoutIssuer", () => {
       ({ workspaceScope, executionDomain }) => ({
         acquire: vi.fn(async () => ({
           sessionId: `sess_${workspaceScope.runAttemptId}`,
+          nativeSandboxBinding: {
+            ...nativeSandboxBinding,
+            sandboxObjectId: workspaceScope.runAttemptId.slice(-1).repeat(64),
+          },
           token: "secret-test-token",
           expiresAt: Date.now() + 60_000,
           lease: {
@@ -78,6 +90,8 @@ describe("TaskCheckoutIssuer", () => {
               : {}),
           },
         })),
+        bootstrapNativeCheckout: vi.fn(async () => undefined),
+        verifyNativeCheckoutReady: vi.fn(async () => undefined),
         recoverAfterSandboxLoss: vi.fn(async () => {
           throw new Error("not expected");
         }),
@@ -133,6 +147,7 @@ describe("TaskCheckoutIssuer", () => {
         acquire: vi.fn(async () => ({
           sessionId: "sess_secure001",
           token: "secret-test-token",
+          nativeSandboxBinding,
           expiresAt: Date.now() + 60_000,
           lease: {
             leaseId: "lease_secure01",
@@ -143,6 +158,8 @@ describe("TaskCheckoutIssuer", () => {
               : {}),
           },
         })),
+        bootstrapNativeCheckout: vi.fn(async () => undefined),
+        verifyNativeCheckoutReady: vi.fn(async () => undefined),
         recoverAfterSandboxLoss: vi.fn(async () => {
           throw new Error("not expected");
         }),
@@ -225,6 +242,7 @@ describe("TaskCheckoutIssuer", () => {
         acquire: vi.fn(async () => ({
           sessionId: "sess_secure001",
           token: "rotated-token",
+          nativeSandboxBinding,
           expiresAt: Date.now() + 60_000,
           lease: {
             leaseId: "lease_secure01",
@@ -233,6 +251,8 @@ describe("TaskCheckoutIssuer", () => {
             executionDomainDigest: await digestFor(input.executionDomain!),
           },
         })),
+        bootstrapNativeCheckout: vi.fn(async () => undefined),
+        verifyNativeCheckoutReady: vi.fn(async () => undefined),
         recoverAfterSandboxLoss: vi.fn(async () => {
           throw new Error("not expected");
         }),
@@ -262,7 +282,12 @@ describe("TaskCheckoutIssuer", () => {
           leaseId: first.checkout.leaseId,
           sandboxId: first.checkout.sandboxId,
           generation: first.checkout.generation,
-          executionDomainDigest: await digestFor(domainFor(payload())),
+          nativeSandboxBinding,
+          executionDomainDigest: (
+            await repository.getCheckoutExecutionDomain(
+              first.checkout.checkoutId,
+            )
+          ).digest,
         },
       }),
     );
@@ -286,6 +311,7 @@ describe("TaskCheckoutIssuer", () => {
       .mockResolvedValueOnce({
         sessionId: "sess_secure001",
         token: "initial-token",
+        nativeSandboxBinding,
         expiresAt: Date.now() + 60_000,
         lease: {
           leaseId: "lease_secure01",
@@ -297,6 +323,7 @@ describe("TaskCheckoutIssuer", () => {
       .mockResolvedValueOnce({
         sessionId: "sess_secure001",
         token: "replacement-token",
+        nativeSandboxBinding,
         expiresAt: Date.now() + 60_000,
         lease: {
           leaseId: "lease_secure02",
@@ -309,8 +336,13 @@ describe("TaskCheckoutIssuer", () => {
       {} as Env,
       { capture: vi.fn(async () => snapshot) },
       repository,
-      () => ({
-        acquire,
+      ({ workspaceScope }) => ({
+        acquire: async () => {
+          const handle = await acquire();
+          return handle;
+        },
+        bootstrapNativeCheckout: vi.fn(async () => undefined),
+        verifyNativeCheckoutReady: vi.fn(async () => undefined),
         recoverAfterSandboxLoss: vi.fn(async () => {
           throw new Error("not expected");
         }),
@@ -394,6 +426,10 @@ describe("TaskCheckoutIssuer", () => {
       nextSandboxId: "sb-legacy02",
       nextGeneration: 1,
     });
+    expect(legacyFirst.checkout.checkoutId).toBe(replacedCheckout.checkoutId);
+    expect(legacyFirst.checkout.snapshotId).toBe(replacedCheckout.snapshotId);
+    expect(legacyFirst.checkout.filesystemRoot).toBe(replacedCheckout.filesystemRoot);
+    expect(repository.replaceLease).toHaveBeenCalledOnce();
   });
 
   it("releases only the acquired secure session when atomic issuance fails", async () => {
@@ -407,10 +443,11 @@ describe("TaskCheckoutIssuer", () => {
       {} as Env,
       { capture: vi.fn(async () => snapshot) },
       repository,
-      ({ executionDomain }) => ({
+      ({ workspaceScope, executionDomain }) => ({
         acquire: vi.fn(async () => ({
           sessionId: "sess_secure001",
           token: "secret-test-token",
+          nativeSandboxBinding,
           expiresAt: Date.now() + 60_000,
           lease: {
             leaseId: "lease_secure01",
@@ -421,6 +458,8 @@ describe("TaskCheckoutIssuer", () => {
               : {}),
           },
         })),
+        bootstrapNativeCheckout: vi.fn(async () => undefined),
+        verifyNativeCheckoutReady: vi.fn(async () => undefined),
         recoverAfterSandboxLoss: vi.fn(async () => {
           throw new Error("not expected");
         }),
@@ -460,6 +499,8 @@ describe("TaskCheckoutIssuer", () => {
         acquire: async () => {
           throw new Error("acquire response lost");
         },
+        bootstrapNativeCheckout: vi.fn(async () => undefined),
+        verifyNativeCheckoutReady: vi.fn(async () => undefined),
         recoverAfterSandboxLoss: async () => {
           throw new Error("not expected");
         },
@@ -483,10 +524,11 @@ describe("TaskCheckoutIssuer", () => {
       {} as Env,
       { capture: vi.fn(async () => snapshot) },
       repository,
-      ({ executionDomain }) => ({
+      ({ workspaceScope, executionDomain }) => ({
         acquire: vi.fn(async () => ({
           sessionId: "sess_secure001",
           token: "secret-test-token",
+          nativeSandboxBinding,
           expiresAt: Date.now() + 60_000,
           lease: {
             leaseId: "lease_secure01",
@@ -497,6 +539,8 @@ describe("TaskCheckoutIssuer", () => {
               : {}),
           },
         })),
+        bootstrapNativeCheckout: vi.fn(async () => undefined),
+        verifyNativeCheckoutReady: vi.fn(async () => undefined),
         recoverAfterSandboxLoss: vi.fn(async () => {
           throw new Error("not expected");
         }),
@@ -583,7 +627,15 @@ function payloadFor(index: number, modelId: string): ExecuteRunPayload {
 }
 
 function createRepository() {
-  let domain: PersistedTaskCheckoutExecutionDomain;
+  const reservations = new Map<
+    string,
+    {
+      snapshot: WorkspaceSnapshot;
+      reservation: TaskCheckoutIssuanceReservation;
+    }
+  >();
+  const domains = new Map<string, PersistedTaskCheckoutExecutionDomain>();
+  const originalReferences = new Map<string, JsonValue>();
   const issueSnapshotCheckout = vi.fn(
     async (issuedSnapshot: WorkspaceSnapshot, checkout: TaskCheckout) => ({
       snapshot: issuedSnapshot,
@@ -592,20 +644,46 @@ function createRepository() {
   );
   return {
     issueSnapshotCheckout,
-    reserveIssuance: vi.fn(async () => undefined),
-    beginIssuanceCallback: vi.fn(async () => undefined),
-    freezeIssuanceDomain: vi.fn(async (_id, _token, value) => {
-      domain = value;
+    freezeIssuanceOriginalReference: vi.fn(async (checkoutId: string, _token: string, reference: JsonValue) => {
+      originalReferences.set(checkoutId, reference);
     }),
+    getCheckoutOriginalReference: vi.fn(async (checkoutId: string) => originalReferences.get(checkoutId)!),
+    reserveIssuance: vi.fn(
+      async (
+        issuedSnapshot: WorkspaceSnapshot,
+        reservation: TaskCheckoutIssuanceReservation,
+      ) => {
+        reservations.set(reservation.checkoutId, {
+          snapshot: issuedSnapshot,
+          reservation,
+        });
+      },
+    ),
+    beginIssuanceCallback: vi.fn(async () => undefined),
+    freezeIssuanceDomain: vi.fn(
+      async (
+        checkoutId: string,
+        _token: string,
+        domain: PersistedTaskCheckoutExecutionDomain,
+      ) => {
+        domains.set(checkoutId, domain);
+      },
+    ),
     completeIssuance: vi.fn(
-      async (checkout: TaskCheckout, _token: string) => checkout,
+      async (checkout: TaskCheckout) =>
+        (
+          await issueSnapshotCheckout(
+            reservations.get(checkout.checkoutId)!.snapshot,
+            checkout,
+          )
+        ).checkout,
     ),
     markIssuanceUnknown: vi.fn(async () => undefined),
-    getCheckoutExecutionDomain: vi.fn(async () => domain),
+    getCheckoutExecutionDomain: vi.fn(
+      async (checkoutId: string) => domains.get(checkoutId)!,
+    ),
     getCheckoutExecutionDomainState: vi.fn(
-      async (): ReturnType<
-        TaskCheckoutIssuanceRepository["getCheckoutExecutionDomainState"]
-      > => ({ kind: "marked", domain }),
+      async (checkoutId: string): ReturnType<TaskCheckoutIssuanceRepository["getCheckoutExecutionDomainState"]> => ({ kind: "marked", domain: domains.get(checkoutId)! }),
     ),
     createSnapshot: vi.fn(),
     getBySnapshotId: vi.fn(),
@@ -637,7 +715,7 @@ function domainFor(
     },
   };
 }
-function issueOptions(value: ExecuteRunPayload) {
+function issueOptions(value: ExecuteRunPayload = payload()) {
   return {
     beforeSessionAcquire: (async () =>
       domainFor(value)) satisfies BeforeTaskCheckoutSessionAcquire,

@@ -117,6 +117,8 @@ export type TaskCheckoutExecutionDomainState =
     };
 
 export interface TaskCheckoutIssuanceRepository {
+  freezeIssuanceOriginalReference?(checkoutId: TaskCheckoutId, issuanceToken: string, reference: JsonValue): Promise<void>;
+  getCheckoutOriginalReference?(checkoutId: TaskCheckoutId): Promise<JsonValue>;
   reserveIssuance(
     snapshot: WorkspaceSnapshot,
     reservation: TaskCheckoutIssuanceReservation,

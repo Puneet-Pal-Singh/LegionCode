@@ -27,6 +27,14 @@ RUN git init \
     && git checkout --detach FETCH_HEAD
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o redis-binary ./cmd/redis-server/
 
+FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS native-command-builder
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+WORKDIR /command-supervisor
+COPY container-native/command-supervisor/ ./
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GO111MODULE=off \
+    go build -trimpath -ldflags="-s -w" -o /legioncode-command-supervisor .
+
 # ==========================================
 # Stage 2: Final Runtime Image
 # ==========================================
@@ -70,5 +78,16 @@ RUN python3 -m pip install --no-cache-dir --only-binary=:all: --require-hashes \
 # 4. Copy Pre-compiled Go Binary from Stage 1
 COPY --from=go-builder /app/redis-binary /usr/local/bin/my-redis-server
 RUN chmod +x /usr/local/bin/my-redis-server && mkdir -p /data
+
+COPY --from=native-command-builder /legioncode-command-supervisor /usr/local/libexec/legioncode-command-supervisor
+# A collision fails the build; the external harness UID remains independently owned.
+RUN ! getent passwd 65533 && ! getent group 65533 \
+    && ! getent passwd legion-native && ! getent group legion-native \
+    && groupadd --gid 65533 legion-native \
+    && useradd --no-log-init --uid 65533 --gid 65533 --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin legion-native \
+    && chmod 0755 /usr/local/libexec/legioncode-command-supervisor \
+    && install -d -m 0700 -o root -g root /run/legioncode/native-commands
+# Local Wrangler routing only. No public preview/exposePort is used for control.
+EXPOSE 3101
 
 WORKDIR /root

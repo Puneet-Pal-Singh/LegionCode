@@ -67,6 +67,7 @@ interface TaskCheckoutRow extends SqlRow {
   issuance_state?: string | null;
   execution_domain_json?: unknown;
   execution_domain_digest?: string | null;
+  original_session_reference_json?: unknown;
 }
 
 /**
@@ -192,6 +193,27 @@ export class PostgresTaskWorkspaceRepository
       ],
     );
     if (result.rowCount !== 1) throw issuanceRecovery(checkoutId);
+  }
+
+  async freezeIssuanceOriginalReference(checkoutId: TaskCheckoutId, issuanceToken: string, reference: import("@repo/shared-types").JsonValue): Promise<void> {
+    if (!reference || typeof reference !== "object" || Array.isArray(reference)) throw issuanceRecovery(checkoutId);
+    const serialized = stringifyJsonColumn(reference);
+    const result = await this.client.query<TaskCheckoutRow>(
+      `UPDATE task_checkouts SET original_session_reference_json=$3::jsonb
+       WHERE checkout_id=$1 AND issuance_token=$2 AND status='issuing' AND issuance_state='domain_frozen'
+         AND execution_domain_json->>'domain'='legioncode_native' AND original_session_reference_json IS NULL
+       RETURNING checkout_id`, [TaskCheckoutIdSchema.parse(checkoutId), issuanceToken, serialized]);
+    if (result.rowCount !== 1) throw issuanceRecovery(checkoutId);
+  }
+
+  async getCheckoutOriginalReference(checkoutId: TaskCheckoutId): Promise<import("@repo/shared-types").JsonValue> {
+    const result = await this.client.query<TaskCheckoutRow>(
+      `SELECT original_session_reference_json,status,issuance_state FROM task_checkouts WHERE checkout_id=$1`,
+      [TaskCheckoutIdSchema.parse(checkoutId)]);
+    const row = result.rows[0];
+    if (!row || !["ready", "active", "settled"].includes(row.status ?? "") || row.issuance_state !== "ready" || !row.original_session_reference_json)
+      throw issuanceRecovery(checkoutId);
+    return parseJsonColumn(row.original_session_reference_json, "original session reference") as import("@repo/shared-types").JsonValue;
   }
 
   async completeIssuance(

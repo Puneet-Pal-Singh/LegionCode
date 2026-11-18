@@ -2,6 +2,8 @@ import type {
   SandboxExecutionLease,
   SandboxExecutionLeaseRequest,
 } from "./SandboxExecutionLease";
+import type { NativeCommandCapability } from "../toolbox/contracts/OwnedSandboxCommand";
+import type { NativeCommandClosure } from "@repo/shared-types/native-command-closure";
 
 export interface TaskExecutionInput {
   taskId: string;
@@ -11,6 +13,8 @@ export interface TaskExecutionInput {
   timeout?: number;
   retryable?: boolean;
   borrowedLease?: boolean;
+  /** Internal server capability; never populated from an HTTP/tool payload. */
+  nativeCommands?: NativeCommandCapability;
 }
 
 export interface TaskExecutionError {
@@ -25,6 +29,7 @@ export interface TaskExecutionResult {
   correlationId: string;
   status: "success" | "failure" | "timeout" | "cancelled" | "sandbox_unavailable";
   retryable: boolean;
+  nativeCommandClosure?: NativeCommandClosure;
   output?: string;
   error?: TaskExecutionError;
   metrics?: {
@@ -46,6 +51,7 @@ export interface LeaseReleaseResult {
 }
 
 export interface SandboxExecutionPort {
+  getNativeCommandClosure?(sessionId: string, lease: SandboxExecutionLease, taskId: string): Promise<NativeCommandClosure | undefined>;
   acquireLease(
     request: SandboxExecutionLeaseRequest,
   ): Promise<SandboxExecutionLease>;

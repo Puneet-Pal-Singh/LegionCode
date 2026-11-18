@@ -1,6 +1,8 @@
 import { Sandbox } from "@cloudflare/sandbox";
 import { CloudflareToolboxAdapter } from "../../toolbox/adapters/CloudflareToolboxAdapter";
 import { ToolboxSessionService } from "../../toolbox/services/ToolboxSessionService";
+import { OwnedSandboxCommand } from "../../toolbox/adapters/OwnedSandboxCommand";
+import type { NativeCommandCapability } from "../../toolbox/contracts/OwnedSandboxCommand";
 
 export interface SafeCommandSpec {
   command: string;
@@ -12,6 +14,7 @@ export interface SafeCommandSpec {
   callId?: string;
   timeoutMs?: number;
   borrowedLease?: boolean;
+  nativeCommands?: NativeCommandCapability;
 }
 
 interface CommandResult {
@@ -32,7 +35,9 @@ export async function runSafeCommand(
   allowlist: readonly string[],
 ): Promise<CommandResult> {
   const service = new ToolboxSessionService(
-    new CloudflareToolboxAdapter(sandbox),
+    spec.nativeCommands ? new OwnedSandboxCommand(spec.nativeCommands, {
+      argv: [spec.command, ...(spec.args ?? [])], cwd: spec.cwd, env: spec.env, timeoutMs: spec.timeoutMs,
+    }) : new CloudflareToolboxAdapter(sandbox),
   );
   const result = await service.execute(
     {
@@ -43,7 +48,8 @@ export async function runSafeCommand(
       args: spec.args,
       env: spec.env,
       cwd: spec.cwd,
-      timeoutMs: spec.timeoutMs,
+      // Native owns the real deadline, scope Stop and original transport drain.
+      timeoutMs: spec.nativeCommands ? undefined : spec.timeoutMs,
       borrowedLease: spec.borrowedLease,
     },
     allowlist,

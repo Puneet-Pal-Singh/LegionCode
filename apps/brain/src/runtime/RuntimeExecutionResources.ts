@@ -1,3 +1,4 @@
+import { snapshotExecutionDomain } from "@repo/worker-protocol/private/execution-domain";
 import type {
   IAgent,
   RunEngineDependencies,
@@ -78,6 +79,7 @@ async function prepareOwnedRuntimeResources(
   // its private context names that same tuple. Context echoes grant no authority.
   parseNativeProviderBindingForAdmission(nativeCredentials.binding, expectedScope);
   parseNativeProviderBindingForAdmission(nativeCredentials.binding, nativeCredentials.scope);
+  const claimedExecutionScope = Object.freeze({ ...nativeCredentials.scope });
   const session = await withTranscriptRepository(
     env,
     async (repository) =>
@@ -130,11 +132,47 @@ async function prepareOwnedRuntimeResources(
       payload.correlationId,
     );
   }
+  // Classification is not physical qualification. No trusted Native acquire
+  // producer currently proves per-attempt bootstrap/provenance before Ready.
+  // Keep this gate before issuance and paid dependencies until that owner joins.
+  rejectUnavailableNativePhysicalPreparation(payload.correlationId);
   const orchestrator = new TaskCheckoutExecutionOrchestrator(env);
   ownership.expose();
-  const issued = await new TaskCheckoutIssuer(env).issue(payload, {
+  const issued = await new TaskCheckoutIssuer(env).issueAdmitted(payload, {
     resumeSnapshot: payload.resumeSnapshotRef,
     failureCleanup: ownership.closed,
+    beforeSessionAcquire: async ({ snapshot, workspaceScope }) => {
+      const claimed = claimedExecutionScope;
+      if (
+        snapshot.workspaceId !== workspaceScope.workspaceId ||
+        workspaceScope.workspaceId !==
+          workspaceIdFromExternalId(claimed.workspaceId) ||
+        workspaceScope.threadId !== claimed.threadId ||
+        workspaceScope.turnId !== claimed.turnId ||
+        workspaceScope.runAttemptId !== claimed.runAttemptId
+      ) {
+        throw new DomainError(
+          "RUN_SCOPE_MISMATCH",
+          "The claimed Native execution does not own this checkout.",
+          409,
+          false,
+          payload.correlationId,
+        );
+      }
+      return snapshotExecutionDomain({
+        version: 1,
+        domain: "legioncode_native",
+        scope: {
+          userId: claimed.userId,
+          brainSessionId: claimed.sessionId,
+          workspaceId: workspaceScope.workspaceId,
+          runId: claimed.runId,
+          threadId: claimed.threadId,
+          turnId: claimed.turnId,
+          runAttemptId: claimed.runAttemptId,
+        },
+      });
+    },
   });
   let checkout;
   try {
@@ -245,4 +283,14 @@ async function prepareOwnedRuntimeResources(
     // an exact physical closure receipt, failed exposed preparation stays unknown.
     throw error;
   }
+}
+
+function rejectUnavailableNativePhysicalPreparation(correlationId: string): void {
+  throw new DomainError(
+    "NATIVE_PHYSICAL_PREPARATION_UNAVAILABLE",
+    "Qualified Native cloud workspace preparation is unavailable.",
+    503,
+    false,
+    correlationId,
+  );
 }

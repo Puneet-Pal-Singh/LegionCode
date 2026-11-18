@@ -36,7 +36,8 @@ export class NodePlugin implements IPlugin {
     context?: PluginExecutionContext,
   ): Promise<PluginResult> {
     try {
-      const toolboxContext = readToolboxCommandContext(payload);
+      if (!context?.nativeCommands) throw new Error("Native command ownership is required");
+      const toolboxContext = readToolboxCommandContext(payload, context);
       if (isRunActionPayload(payload)) {
         return await this.executeRunCommand(
           sandbox,
@@ -138,7 +139,8 @@ export class NodePlugin implements IPlugin {
     const ext = parsed.isTypeScript ? "ts" : "js";
     const fileName = `${workspaceRoot}/index.${ext}`;
     const runner = parsed.isTypeScript ? "tsx" : "node";
-    await sandbox.writeFile(fileName, parsed.code);
+    if (!toolboxContext.nativeCommands?.writeFile) throw new Error("Native workspace writing is unavailable");
+    await toolboxContext.nativeCommands.writeFile(fileName, parsed.code);
 
     if (onLog) {
       onLog(`[node/plugin] Running ${runner} index.${ext}\n`);

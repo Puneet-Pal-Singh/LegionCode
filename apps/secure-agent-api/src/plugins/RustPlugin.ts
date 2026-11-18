@@ -19,7 +19,8 @@ export class RustPlugin implements IPlugin {
     onLog?: LogCallback,
     context?: PluginExecutionContext,
   ): Promise<PluginResult> {
-    const toolboxContext = readToolboxCommandContext(payload);
+    if (!context?.nativeCommands) throw new Error("Native command ownership is required");
+    const toolboxContext = readToolboxCommandContext(payload, context);
     const runId = normalizeRunId(toolboxContext.runId);
     const workspaceRoot = resolveScopedWorkspaceRoot(context, runId);
     const fileName = "main.rs";
@@ -35,7 +36,8 @@ export class RustPlugin implements IPlugin {
       ["mkdir"],
     );
 
-    await sandbox.writeFile(`${workspaceRoot}/${fileName}`, payload.code);
+    if (!toolboxContext.nativeCommands?.writeFile) throw new Error("Native workspace writing is unavailable");
+    await toolboxContext.nativeCommands.writeFile(`${workspaceRoot}/${fileName}`, payload.code);
 
     // 1. Compile Phase
     if (onLog) onLog(`[Rust] Compiling ${fileName}...\n`);

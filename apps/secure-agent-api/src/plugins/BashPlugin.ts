@@ -42,7 +42,8 @@ export class BashPlugin implements IPlugin {
     context?: PluginExecutionContext,
   ): Promise<PluginResult> {
     try {
-      const toolboxContext = readToolboxCommandContext(payload);
+      if (!context?.nativeCommands) throw new Error("Native command ownership is required");
+      const toolboxContext = readToolboxCommandContext(payload, context);
       const parsed = BashPayloadSchema.parse(payload);
       validateBashCommand(parsed.command);
 

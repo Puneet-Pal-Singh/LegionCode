@@ -72,14 +72,21 @@ export class TaskCheckoutLeaseCoordinator {
  * a Secure API replacement. ExecutionService depends only on the narrow
  * session port and does not reach into persistence.
  */
-export class TaskCheckoutBoundExecutionSession
-  implements SecureExecutionSessionPort
-{
+export class TaskCheckoutBoundExecutionSession implements SecureExecutionSessionPort {
+  readonly parseNativeClosure: SecureExecutionSessionPort["parseNativeClosure"];
+  readonly cancelTaskWithNativeClosure: SecureExecutionSessionPort["cancelTaskWithNativeClosure"];
+
   constructor(
     private readonly delegate: SecureExecutionSessionPort,
     private checkout: TaskCheckout,
     private readonly coordinator: TaskCheckoutLeaseCoordinator,
-  ) {}
+  ) {
+    // Preserve the same authenticated instance and its retained original
+    // transport/proof owner. Missing legacy ports remain missing, never proof.
+    this.parseNativeClosure = delegate.parseNativeClosure?.bind(delegate);
+    this.cancelTaskWithNativeClosure =
+      delegate.cancelTaskWithNativeClosure?.bind(delegate);
+  }
 
   async acquire(): Promise<SecureExecutionSessionHandle> {
     return await this.delegate.acquire();

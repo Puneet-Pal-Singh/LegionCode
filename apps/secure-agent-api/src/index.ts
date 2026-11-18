@@ -124,10 +124,12 @@
 // solid compliant
 // apps/secure-agent-api/src/index.ts
 import { AgentRuntime } from "./core/AgentRuntime";
-import { Sandbox } from "@cloudflare/sandbox";
+import { Sandbox } from "./core/OwnedNativeSandbox";
+import { NativeSandbox } from "./core/NativeSandbox";
 import { LaunchRateLimiter } from "./runtime/LaunchRateLimiter";
 import {
   handleCreateSession,
+  handleNativeCheckoutBootstrap,
   handleBorrowSession,
   handleResumeSession,
   handleExecuteTask,
@@ -160,7 +162,7 @@ import {
 import { InternalRuntimeEventClient } from "./services/runtime-events/InternalRuntimeEventClient";
 import { StorageService } from "./services/StorageService";
 
-export { Sandbox, AgentRuntime, LaunchRateLimiter, composeRuntime };
+export { Sandbox, NativeSandbox, AgentRuntime, LaunchRateLimiter, composeRuntime };
 
 /**
  * SRP: Separate Environment definition
@@ -168,6 +170,12 @@ export { Sandbox, AgentRuntime, LaunchRateLimiter, composeRuntime };
 export interface Env {
   AGENT_RUNTIME: DurableObjectNamespace<AgentRuntime>;
   Sandbox: DurableObjectNamespace<Sandbox>;
+  NativeSandbox?: DurableObjectNamespace<NativeSandbox>;
+  CF_VERSION_METADATA?: WorkerVersionMetadata;
+  /** Server-only account-scoped Workers Containers Read credential/config. */
+  NATIVE_PLACEMENT_READ_TOKEN?: string;
+  NATIVE_PLACEMENT_ACCOUNT_ID?: string;
+  NATIVE_PLACEMENT_APPLICATION_ID?: string;
   ARTIFACTS: R2Bucket;
   CORS_ALLOWED_ORIGINS?: string;
   CORS_ALLOW_DEV_ORIGINS?: "true" | "false";
@@ -273,6 +281,10 @@ export default {
             response = await handleCreateSession(request, stub);
           }
         }
+      } else if (url.pathname === "/api/v1/session/native-bootstrap" && request.method === "POST") {
+        const authResponse = enforceInternalServiceBinding(request, env);
+        const safetyResponse = authResponse ?? await enforceLaunchSafetyForRoute(request, env, "execute_task");
+        response = safetyResponse ?? await handleNativeCheckoutBootstrap(request, stub);
       } else if (
         /^\/api\/v1\/session\/[^/]+\/borrow$/u.test(url.pathname) &&
         request.method === "POST"

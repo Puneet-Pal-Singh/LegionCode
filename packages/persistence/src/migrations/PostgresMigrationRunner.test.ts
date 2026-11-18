@@ -4,6 +4,7 @@ import { providerConnectionCustodyMigration } from "./0037-provider-connection-c
 import { workspaceConfigurationVersionMigration } from "./0041-workspace-configuration-version.js";
 import { nativeProviderAdmissionBindingMigration } from "./0042-native-provider-admission-binding.js";
 import { taskCheckoutIssuanceMigration } from "./0043-task-checkout-issuance.js";
+import { taskCheckoutOriginalReferenceMigration } from "./0044-task-checkout-original-reference.js";
 import { harnessBindingsMigration } from "./0045-harness-bindings.js";
 import { harnessControlPlaneMigration } from "./0046-harness-control-plane.js";
 
@@ -94,6 +95,7 @@ describe("PostgresMigrationRunner", () => {
       workspaceConfigurationVersionMigration,
       nativeProviderAdmissionBindingMigration,
       taskCheckoutIssuanceMigration,
+      taskCheckoutOriginalReferenceMigration,
       harnessBindingsMigration,
       harnessControlPlaneMigration,
     ]);
@@ -107,6 +109,7 @@ describe("PostgresMigrationRunner", () => {
         "0041_workspace_configuration_version",
         "0042_native_provider_admission_binding",
         "0043_task_checkout_issuance",
+        "0044_task_checkout_original_reference",
         "0045_harness_bindings",
         "0046_harness_control_plane",
       ],
@@ -121,6 +124,7 @@ describe("PostgresMigrationRunner", () => {
       ...workspaceConfigurationVersionMigration.statements,
       ...nativeProviderAdmissionBindingMigration.statements,
       ...taskCheckoutIssuanceMigration.statements,
+      ...taskCheckoutOriginalReferenceMigration.statements,
       ...harnessBindingsMigration.statements,
       ...harnessControlPlaneMigration.statements,
 
@@ -133,6 +137,7 @@ describe("PostgresMigrationRunner", () => {
       "0041_workspace_configuration_version",
       "0042_native_provider_admission_binding",
       "0043_task_checkout_issuance",
+      "0044_task_checkout_original_reference",
       "0045_harness_bindings",
       "0046_harness_control_plane",
     ]);
@@ -163,6 +168,7 @@ describe("PostgresMigrationRunner", () => {
         workspaceConfigurationVersionMigration,
         nativeProviderAdmissionBindingMigration,
         taskCheckoutIssuanceMigration,
+        taskCheckoutOriginalReferenceMigration,
         harnessBindingsMigration,
         harnessControlPlaneMigration,
       ]),
@@ -174,6 +180,7 @@ describe("PostgresMigrationRunner", () => {
         "0041_workspace_configuration_version",
         "0042_native_provider_admission_binding",
         "0043_task_checkout_issuance",
+        "0044_task_checkout_original_reference",
         "0045_harness_bindings",
         "0046_harness_control_plane",
       ],

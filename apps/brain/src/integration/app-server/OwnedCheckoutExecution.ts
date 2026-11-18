@@ -1,11 +1,12 @@
+import { snapshotExecutionDomain, executionDomainDigest } from "@repo/worker-protocol/private/execution-domain";
 import { AppServerOperationError } from "@legioncode/app-server/server";
 import { RunAttemptIdSchema, RunIdSchema, workspaceIdFromExternalId } from "@repo/platform-protocol";
-import { PostgresTaskWorkspaceRepository } from "@repo/persistence";
+import { PostgresTaskWorkspaceRepository, type TaskCheckoutIssuanceRepository } from "@repo/persistence";
 import { resolveExecutionScope } from "../../controllers/chat-runtime-helpers";
 import { withRunRepository } from "../../services/runs/RunPersistenceFactory";
 import { withTurnAdmissionRepository } from "../../services/turn-admissions/TurnAdmissionPersistenceFactory";
 import { withBrainPersistenceRepository } from "../../services/persistence/BrainPersistenceRepositoryFactory";
-import { SecureExecutionSessionClient, type SecureExecutionSessionHandle } from "../../services/secure-execution/SecureExecutionSessionClient";
+import { SecureExecutionSessionClient, validateNativeOriginalSessionReference, type SecureExecutionSessionHandle } from "../../services/secure-execution/SecureExecutionSessionClient";
 import { SecureTaskCheckoutRootCapability } from "../../runtime/task-workspaces/TaskCheckoutExecutionOrchestrator";
 import { toSecureExecutionWorkspaceScope, type SecureExecutionWorkspaceScope } from "../../runtime/RuntimeWorkspaceScope";
 import type { Env } from "../../types/ai";
@@ -24,12 +25,15 @@ export async function resolveOwnedCheckoutExecution(
   userId: string,
   params: { runId: string; sessionId?: string; turnId?: string; runAttemptId?: string },
 ): Promise<OwnedCheckoutExecution> {
+  // Request-owned strings must not change while authorization/persistence yield.
+  const { runId: requestedRunId, sessionId: requestedSessionId, turnId: requestedTurnId,
+    runAttemptId: requestedRunAttemptId } = params;
   const correlationId = request.headers.get("X-Correlation-Id") ?? crypto.randomUUID();
-  const scope = await resolveExecutionScope(request, env, params.runId, correlationId);
+  const scope = await resolveExecutionScope(request, env, requestedRunId, correlationId);
   if (scope.userId !== userId) throw checkoutNotFound("Run not found");
 
-  const run = await withRunRepository(env, (repository) => repository.getRun(params.runId, userId));
-  if (!run || (params.sessionId && params.sessionId !== run.sessionId)) {
+  const run = await withRunRepository(env, (repository) => repository.getRun(requestedRunId, userId));
+  if (!run || run.id !== requestedRunId || (requestedSessionId !== undefined && requestedSessionId !== run.sessionId)) {
     throw checkoutNotFound("Run not found for owned conversation");
   }
   if (!run.workspaceId || run.workspaceId !== scope.workspaceId) {
@@ -37,11 +41,12 @@ export async function resolveOwnedCheckoutExecution(
   }
 
   const admission = await withTurnAdmissionRepository(env, (repository) =>
-    params.turnId ? repository.getByTurnId(params.turnId) : repository.getBySessionAndRunId(run.sessionId, run.id),
+    requestedTurnId ? repository.getByTurnId(requestedTurnId) : repository.getBySessionAndRunId(run.sessionId, run.id),
   );
   if (
     !admission || admission.userId !== userId || admission.runId !== run.id || admission.sessionId !== run.sessionId ||
-    (params.runAttemptId !== undefined && admission.runAttemptId !== params.runAttemptId) ||
+    (requestedTurnId !== undefined && admission.turnId !== requestedTurnId) ||
+    (requestedRunAttemptId !== undefined && admission.runAttemptId !== requestedRunAttemptId) ||
     admission.workspaceId !== scope.workspaceId || admission.state !== "admitted"
   ) {
     throw checkoutNotFound("No owned turn checkout exists for this run");
@@ -78,19 +83,60 @@ export async function resolveOwnedCheckoutExecution(
     workspaceId: checkout.workspaceId,
     root: checkout.filesystemRoot,
   });
-  const sessionClient = new SecureExecutionSessionClient(
-    env,
-    run.sessionId,
-    run.id,
-    workspaceScope,
-    {
-      secureSessionId: checkout.secureSessionId,
-      leaseId: checkout.leaseId,
-      sandboxId: checkout.sandboxId,
-      generation: checkout.generation,
-    },
-  );
   try {
+    const domainState = await withBrainPersistenceRepository(
+      env,
+      env.AUTH_TASK_WORKSPACE_REPOSITORY,
+      (client) => new PostgresTaskWorkspaceRepository(client),
+      async (repository) => {
+        const custody = repository as typeof repository &
+          Partial<TaskCheckoutIssuanceRepository>;
+        if (!custody.getCheckoutExecutionDomainState)
+          throw checkoutUnavailable(
+            "The original checkout execution binding is unavailable.",
+          );
+        return await custody.getCheckoutExecutionDomainState(checkout.checkoutId);
+      },
+    );
+    if (domainState.kind !== "legacy" && domainState.kind !== "marked") throw checkoutUnavailable(
+      "The original checkout execution binding is unavailable.",
+    );
+    if (domainState.kind === "marked" && !domainState.domain) throw checkoutUnavailable(
+      "The original checkout execution binding is unavailable.",
+    );
+    const persistedDomain = domainState.kind === "marked" ? domainState.domain : undefined;
+    const executionDomain = persistedDomain ? snapshotExecutionDomain(persistedDomain.value) : undefined;
+    if (executionDomain) {
+      const domainScope = executionDomain.scope;
+      if ((await executionDomainDigest(executionDomain)) !== persistedDomain?.digest ||
+        domainScope.userId !== userId || domainScope.brainSessionId !== run.sessionId || domainScope.runId !== run.id ||
+        domainScope.workspaceId !== expectedWorkspaceId || domainScope.threadId !== admission.threadId ||
+        domainScope.turnId !== admission.turnId || domainScope.runAttemptId !== admission.runAttemptId) {
+        throw checkoutUnavailable("The original checkout execution binding is unavailable.");
+      }
+    }
+    const expectedOriginal = { secureSessionId: checkout.secureSessionId, leaseId: checkout.leaseId,
+      sandboxId: checkout.sandboxId, generation: checkout.generation };
+    const originalReference = executionDomain?.domain === "legioncode_native"
+      ? validateNativeOriginalSessionReference(await withBrainPersistenceRepository(
+          env, env.AUTH_TASK_WORKSPACE_REPOSITORY, (client) => new PostgresTaskWorkspaceRepository(client),
+          async (repository) => {
+            const custody = repository as typeof repository & Partial<TaskCheckoutIssuanceRepository>;
+            if (!custody.getCheckoutOriginalReference) throw checkoutUnavailable(
+              "The original checkout execution binding is unavailable.",
+            );
+            return await custody.getCheckoutOriginalReference(checkout.checkoutId);
+          },
+        ), { ...expectedOriginal, executionDomainDigest: persistedDomain!.digest })
+      : { ...expectedOriginal, ...(persistedDomain ? { executionDomainDigest: persistedDomain.digest } : {}) };
+    const sessionClient = new SecureExecutionSessionClient(
+      env,
+      run.sessionId,
+      run.id,
+      workspaceScope,
+      originalReference,
+      executionDomain,
+    );
     return {
       runId,
       brainSessionId: run.sessionId,

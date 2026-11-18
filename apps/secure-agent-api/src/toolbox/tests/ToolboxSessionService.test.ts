@@ -8,6 +8,11 @@ import type {
 import type { ToolboxEvent } from "../events/ToolboxEventFactory";
 import type { ToolboxEventPublisher } from "../events/ToolboxEventPublisher";
 import { ToolboxSessionService } from "../services/ToolboxSessionService";
+import { OwnedNativeCommandSession, hasUnsettledNativeCommand, type NativeSessionFields } from "../../core/OwnedNativeCommandSession";
+import type { ArtifactStorePort } from "../../ports/ArtifactStorePort";
+import type { SandboxExecutionLease } from "../../ports/SandboxExecutionLease";
+import { executionDomainDigest, snapshotExecutionDomain } from "@repo/worker-protocol/private/execution-domain";
+import { NativeCommandReceiptSchema, type NativeCommandOriginal, type NativeCommandRequest, type OwnedNativeSandboxPort } from "../contracts/OwnedSandboxCommand";
 
 interface ExecutorMock extends ToolboxCommandExecutor {
   execCalls: string[];
@@ -168,6 +173,7 @@ describe("ToolboxSessionService", () => {
       expect(execIfRunning).toHaveBeenCalledWith("git status", options);
       expect(exec).toHaveBeenCalledTimes(1);
     }
+    await assertNativeOriginalOwnership();
   });
 
   it("returns a failed result when policy denies the command", async () => {
@@ -215,3 +221,114 @@ describe("ToolboxSessionService", () => {
     expect(result.exitCode).toBe(124);
   });
 });
+
+async function assertNativeOriginalOwnership() {
+  const executionDomain = snapshotExecutionDomain({
+    version: 1, domain: "legioncode_native",
+    scope: { userId: "user-1", brainSessionId: "brain-session-1", workspaceId: "workspace-1",
+      runId: "run-1", threadId: "thread-1", turnId: "turn-1", runAttemptId: "attempt-1" },
+  });
+  const lease: SandboxExecutionLease = {
+    executionDomainDigest: await executionDomainDigest(executionDomain),
+    leaseId: "lease-1", sandboxId: "sandbox-1", generation: 0, owner: "session-1",
+    correlationId: "correlation-1", expiresAt: Date.now() + 60_000, mutationMode: "serialized",
+    workspaceScope: { root: "/home/sandbox/checkouts/fixture", workspaceId: "workspace-1", runId: "run-1", threadId: "thread-1", turnId: "turn-1", runAttemptId: "attempt-1" },
+  };
+  const root = { device: "1", inode: "9007199254740993" };
+  const metadata = { identity: "linux-git-metadata-v1:"+"d".repeat(64),
+    paths: { version: 1 as const, workspaceRoot: lease.workspaceScope.root, gitEntry: `${lease.workspaceScope.root}/.git`, gitDirectory: `${lease.workspaceScope.root}/.git`, commonDirectory: `${lease.workspaceScope.root}/.git`, backlinkPath: null, backlinkRecordPath: null },
+    entries: [{ path: `${lease.workspaceScope.root}/.git`, device: "1", inode: "3", kind: "directory" as const }] };
+  const records = new Map<string, unknown>([["execution:session:session-1", { lease, executionDomain, workspaceScope: lease.workspaceScope, nativeWorkspace: { root, metadata, sandboxBootId: "123e4567-e89b-42d3-a456-426614174000" } }]]);
+  const state = {
+    blockConcurrencyWhile: async <T>(operation: () => Promise<T>) => await operation(),
+    storage: {
+      get: async <T>(key: string) => structuredClone(records.get(key)) as T,
+      put: async (key: string, value: unknown) => { records.set(key, structuredClone(value)); },
+      list: async ({ prefix }: { prefix: string }) => new Map([...records].filter(([key]) => key.startsWith(prefix))),
+    },
+  } as unknown as DurableObjectState;
+  const read = () => records.get("execution:session:session-1") as NativeSessionFields;
+  let request: NativeCommandRequest;
+  let finish!: (value: NativeCommandOriginal) => void;
+  const original = new Promise<NativeCommandOriginal>(resolve => { finish = resolve; });
+  let acknowledged!: () => void;
+  const ack = new Promise<void>(resolve => { acknowledged = resolve; });
+  let phase = "prepared", launches = 0, starts = 0;
+  const receipt = () => NativeCommandReceiptSchema.parse({
+    version: 1, binding: request.binding, state: phase,
+    identity: { bootId: "123e4567-e89b-42d3-a456-426614174000", namespaceDevice: "4", namespaceInode: "5", initHostPid: 6,
+      root, cgroup: { device: "7", inode: "8" }, limits: request.limits, metadataIdentity: metadata.identity },
+    gateClosed: phase === "closed", admission: phase === "closed", outputLimited: false,
+    ...(phase === "closed" ? { exitCode: 0, stdout: btoa("native output") } : {}),
+  });
+  const sandbox: OwnedNativeSandboxPort = {
+    executeNativeCommand: async input => {
+      launches++; request = input;
+      expect(read().nativeCommand?.phase).toBe("dispatching");
+      expect(read().nativeCommand?.binding).toEqual(input.binding);
+      return await original;
+    },
+    controlNativeCommand: async input => {
+      expect(input.binding).toEqual(request.binding);
+      if (input.action === "start") {
+        starts++;
+        expect(read().nativeCommand?.phase).toBe("gate_dispatching");
+        expect(read().nativeCommand?.identity).toEqual(receipt().identity);
+        phase = "closed";
+      }
+      if (input.action === "ack") {
+        expect(read().nativeCommand?.phase).toBe("scope_closed");
+        expect(read().nativeCommand?.receiptArtifact?.sha256).toMatch(/^[a-f0-9]{64}$/);
+        acknowledged();
+      }
+      return receipt();
+    },
+    prepareNativeWorkspace: async () => { throw new Error("Not a provisioning fixture"); },
+  };
+  let artifact: Uint8Array | undefined;
+  const artifacts = {
+    upload: async ({ data }: { data: Uint8Array }) => {
+      artifact = data;
+      expect(new TextDecoder().decode(data)).not.toContain(read().nativeCommand!.controlToken);
+      return { id: "artifacts/session-1/receipt.json" };
+    },
+    download: async () => artifact,
+  } as unknown as ArtifactStorePort;
+  const owner = new OwnedNativeCommandSession({ state, sessionId: "session-1", lease, taskId: "task-1", sandbox, artifacts });
+  const execution = owner.execute({ argv: ["npm", "test"] });
+  await ack;
+  expect(await owner.awaitClosure()).toBe(false);
+  expect(hasUnsettledNativeCommand(read())).toBe(true);
+  expect(read().nativeCommand?.originalTransportSettled).toBeUndefined();
+  await expect(owner.execute({ argv: ["npm", "test"] })).rejects.toThrow("CLOSURE_UNAVAILABLE");
+  expect(launches).toBe(1);
+  expect(starts).toBe(1);
+  finish({ stdout: JSON.stringify(receipt()), stderr: "", exitCode: 0 });
+  await expect(execution).resolves.toEqual({ exitCode: 0, stdout: "native output", stderr: "" });
+  await owner.drainOriginalOperations();
+  expect(await owner.awaitClosure()).toBe(true);
+  expect(hasUnsettledNativeCommand(read())).toBe(false);
+  expect(read().nativeCommand?.originalTransportSettled).toBe(true);
+  const evidence = await owner.closureEvidence();
+  expect(evidence?.state).toBe("settled");
+  if (evidence?.state !== "settled") throw new Error("Expected exact native closure");
+  expect(evidence.root.inode).toBe("9007199254740993");
+  expect(evidence.scope).toMatchObject({ sessionId: "session-1", taskId: "task-1", generation: 0, runAttemptId: "attempt-1" });
+  expect(JSON.stringify(evidence)).not.toContain(read().nativeCommand!.controlToken);
+
+  const settledSession = records.get("execution:session:session-1") as NativeSessionFields;
+  settledSession.nativeCommand!.binding.generation = 1;
+  const corruptReplay = new OwnedNativeCommandSession({ state, sessionId: "session-1", lease, taskId: "task-1", sandbox, artifacts });
+  expect(hasUnsettledNativeCommand(settledSession)).toBe(true);
+  expect((await corruptReplay.closureEvidence())?.state).toBe("unknown");
+  settledSession.nativeCommand!.binding.generation = 0;
+
+  // A reconstructed session cannot recreate a lost original transport handle.
+  const saved = records.get("execution:session:session-1") as NativeSessionFields;
+  saved.nativeCommand!.phase = "unknown";
+  delete saved.nativeCommand!.originalTransportSettled;
+  const restored = new OwnedNativeCommandSession({ state, sessionId: "session-1", lease, taskId: "task-1", sandbox, artifacts });
+  expect(await restored.awaitClosure()).toBe(false);
+  await expect(restored.execute({ argv: ["npm", "test"] })).rejects.toThrow("CLOSURE_UNAVAILABLE");
+  expect(launches).toBe(1);
+}

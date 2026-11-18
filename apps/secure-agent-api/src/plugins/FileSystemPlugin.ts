@@ -136,7 +136,8 @@ export class FileSystemPlugin implements IPlugin {
   ): Promise<PluginResult> {
     const startedAt = Date.now();
     try {
-      const toolboxContext = { ...readToolboxCommandContext(payload), borrowedLease: context?.borrowedLease };
+      const toolboxContext = readToolboxCommandContext(payload, context);
+      if (!context?.borrowedLease && !toolboxContext.nativeCommands) throw new Error("Native workspace ownership is required");
       const parsedPayload = FileSystemPayloadSchema.parse(payload);
       const runId = normalizeRunId(parsedPayload.runId ?? toolboxContext.runId);
       const workspaceRoot = resolveScopedWorkspaceRoot(context, runId);

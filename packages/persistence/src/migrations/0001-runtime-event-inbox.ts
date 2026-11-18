@@ -1,3 +1,4 @@
+import { taskCheckoutOriginalReferenceMigration } from "./0044-task-checkout-original-reference.js";
 import { buildRuntimeEventInboxStatusSqlList } from "../runtime-events/types.js";
 import { identitySessionBootstrapMigration } from "./0002-identity-session-bootstrap.js";
 import { workspaceBootstrapMigration } from "./0003-workspace-bootstrap.js";
@@ -124,6 +125,7 @@ export const persistenceMigrations = [
   workspaceConfigurationVersionMigration,
   nativeProviderAdmissionBindingMigration,
   taskCheckoutIssuanceMigration,
+  taskCheckoutOriginalReferenceMigration,
   harnessBindingsMigration,
   harnessControlPlaneMigration,
 ] as const;

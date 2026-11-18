@@ -1,3 +1,6 @@
+import { snapshotNativeSandboxPhysicalBinding, type NativeSandboxPhysicalBinding } from "@repo/worker-protocol/private/native-sandbox-binding";
+import { NativeCheckoutBootstrapIntentSchema, type NativeCheckoutBootstrapIntent } from "@repo/worker-protocol/private/native-checkout-bootstrap";
+import { SessionNativeBootstrapRequestSchema } from "../schemas/http-api";
 /**
  * Session API Handlers
  * HTTP endpoints for the canonical Brain-to-secure-runtime boundary.
@@ -50,6 +53,8 @@ const EXECUTION_NOT_IMPLEMENTED_CODE = "EXECUTION_NOT_IMPLEMENTED";
 
 interface SessionRecord {
   executionDomain?: ServerExecutionDomainBinding;
+  nativeCheckoutIntent?: NativeCheckoutBootstrapIntent;
+  nativeSandboxBinding?: NativeSandboxPhysicalBinding;
   runId: string;
   taskId: string;
   repoPath: string;
@@ -195,10 +200,9 @@ async function storeSession(
   token: string,
   workspaceScope: WorkspaceScope,
   executionDomain?: ServerExecutionDomainBinding,
-): Promise<{ expiresAt: number; lease: SandboxExecutionLease }> {
-  const domain = executionDomain
-    ? snapshotExecutionDomain(executionDomain)
-    : undefined;
+  nativeCheckoutIntent?: NativeCheckoutBootstrapIntent,
+): Promise<{ expiresAt: number; lease: SandboxExecutionLease; nativeSandboxBinding?: NativeSandboxPhysicalBinding }> {
+  const domain = executionDomain ? snapshotExecutionDomain(executionDomain) : undefined;
   const sessionStore = getRuntimeSessionStore(runtime);
   if (!sessionStore) {
     throw new Error("Session storage is unavailable");
@@ -223,8 +227,11 @@ async function storeSession(
     workspaceScope,
     lease,
     ...(domain ? { executionDomain: domain } : {}),
+    ...(nativeCheckoutIntent ? { nativeCheckoutIntent } : {}),
   });
-  return { expiresAt, lease };
+  const nativeSandboxBinding = domain?.domain === "legioncode_native"
+    ? snapshotNativeSandboxPhysicalBinding((await sessionStore.getExecutionSession(sessionId))?.nativeSandboxBinding) : undefined;
+  return { expiresAt, lease, ...(nativeSandboxBinding ? { nativeSandboxBinding } : {}) };
 }
 
 async function getActiveSession(
@@ -335,10 +342,8 @@ async function fetchManifest(runtime: RuntimeStub): Promise<unknown> {
 
 function getRuntimeExecutionPort(
   runtime: RuntimeStub,
-):
-  | (Pick<SandboxExecutionPort, "executeTask"> &
-      Partial<Pick<SandboxExecutionPort, "cancelTask">>)
-  | null {
+): Pick<SandboxExecutionPort, "executeTask"> &
+  Partial<Pick<SandboxExecutionPort, "cancelTask" | "getNativeCommandClosure">> | null {
   const candidate = runtime as Record<string, unknown>;
   const executionPort = candidate.executionPort;
   if (
@@ -347,7 +352,7 @@ function getRuntimeExecutionPort(
     typeof (executionPort as SandboxExecutionPort).executeTask === "function"
   ) {
     return executionPort as Pick<SandboxExecutionPort, "executeTask"> &
-      Partial<Pick<SandboxExecutionPort, "cancelTask">>;
+      Partial<Pick<SandboxExecutionPort, "cancelTask" | "getNativeCommandClosure">>;
   }
 
   const executeTask = candidate.executeTask;
@@ -356,6 +361,11 @@ function getRuntimeExecutionPort(
   }
 
   return {
+    getNativeCommandClosure: async (sessionId, lease, taskId) => {
+      const method = candidate.getNativeCommandClosure;
+      if (typeof method !== "function") return undefined;
+      return await (method as NonNullable<SandboxExecutionPort["getNativeCommandClosure"]>)(sessionId, lease, taskId);
+    },
     executeTask: (sessionId: string, input: TaskExecutionInput) =>
       (
         executeTask as (
@@ -553,15 +563,9 @@ export async function handleCreateSession(
     }
 
     const { runId, taskId, repoPath, workspaceScope } = validation.data;
-    const domain = validation.data.executionDomain
-      ? snapshotExecutionDomain(validation.data.executionDomain)
-      : undefined;
+    const domain = validation.data.executionDomain ? snapshotExecutionDomain(validation.data.executionDomain) : undefined;
     if (domain && !requestMatchesDomain(request, domain, workspaceScope)) {
-      return errorResponse(
-        "Execution domain binding unavailable",
-        "EXECUTION_DOMAIN_BINDING_UNAVAILABLE",
-        409,
-      );
+      return errorResponse("Execution domain binding unavailable", "EXECUTION_DOMAIN_BINDING_UNAVAILABLE", 409);
     }
     const sessionId = generateSessionId();
     const token = generateToken();
@@ -574,6 +578,7 @@ export async function handleCreateSession(
       token,
       workspaceScope,
       domain,
+      validation.data.nativeCheckoutIntent ? NativeCheckoutBootstrapIntentSchema.parse(validation.data.nativeCheckoutIntent) : undefined,
     );
     const manifest = await fetchManifest(runtime);
 
@@ -582,6 +587,7 @@ export async function handleCreateSession(
       token,
       expiresAt: storedSession.expiresAt,
       lease: storedSession.lease,
+      ...(storedSession.nativeSandboxBinding ? { nativeSandboxBinding: storedSession.nativeSandboxBinding } : {}),
     };
     if (manifest) {
       response.manifest = manifest;
@@ -626,15 +632,10 @@ export async function handleBorrowSession(
       );
     }
     const session = await sessionStore.getExecutionSession(sessionId);
-    const domain = validation.data.executionDomain
-      ? snapshotExecutionDomain(validation.data.executionDomain)
-      : undefined;
-    if (session && !(await matchesStoredDomain(request, session, domain))) {
-      return errorResponse(
-        "Execution domain binding unavailable",
-        "EXECUTION_DOMAIN_BINDING_UNAVAILABLE",
-        409,
-      );
+    const domain = validation.data.executionDomain ? snapshotExecutionDomain(validation.data.executionDomain) : undefined;
+    if (session && (!await matchesStoredDomain(request, session, domain) ||
+      (domain?.domain === "legioncode_native" && !samePhysicalBinding(session.nativeSandboxBinding, validation.data.nativeSandboxBinding)))) {
+      return errorResponse("Execution domain binding unavailable", "EXECUTION_DOMAIN_BINDING_UNAVAILABLE", 409);
     }
     if (!isExactBorrowableSession(session, validation.data)) {
       return errorResponse(
@@ -643,15 +644,22 @@ export async function handleBorrowSession(
         503,
       );
     }
-    return jsonResponse(
-      {
-        sessionId,
-        token: session.token,
-        expiresAt: session.expiresAt,
-        lease: session.lease,
-      },
-      200,
-    );
+    let nativeCheckoutReady: unknown;
+    if (validation.data.requireNativeBootstrap) {
+      const inspect = runtime.getNativeCheckoutReadyEvidence;
+      if (domain?.domain !== "legioncode_native" || typeof inspect !== "function")
+        return errorResponse("Original Native bootstrap evidence unavailable", "NATIVE_BOOTSTRAP_PROVENANCE_REQUIRED", 409);
+      try { nativeCheckoutReady = await inspect.call(runtime, sessionId, session.lease); }
+      catch { return errorResponse("Original Native platform evidence unavailable", "NATIVE_BOOTSTRAP_PROVENANCE_REQUIRED", 409); }
+    }
+    return jsonResponse({
+      ...(nativeCheckoutReady ? { nativeCheckoutReady } : {}),
+      sessionId,
+      token: session.token,
+      expiresAt: session.expiresAt,
+      lease: session.lease,
+      ...(session.nativeSandboxBinding ? { nativeSandboxBinding: session.nativeSandboxBinding } : {}),
+    }, 200);
   } catch (error) {
     const message = sanitizeUnknownError(error);
     console.error(`[api/session/borrow] Failed: ${sanitizeLogText(message)}`);
@@ -679,6 +687,21 @@ function isExactBorrowableSession(
     workspaceScopesEqual(session.workspaceScope, expected.workspaceScope) &&
     workspaceScopesEqual(lease.workspaceScope, expected.workspaceScope)
   );
+}
+
+/** Internal service and exact session bearer are both required by this setup
+ * command. It never accepts provider credentials, environment or proof bytes. */
+export async function handleNativeCheckoutBootstrap(request: Request, runtime: RuntimeStub): Promise<Response> {
+  const validation = await validateRequestBody(request, SessionNativeBootstrapRequestSchema);
+  if (!validation.valid) return errorResponse("Invalid Native bootstrap request", "INVALID_REQUEST", 400);
+  const auth = await authorizeSessionRequest(request, runtime, validation.data.sessionId);
+  if (!auth.ok) return auth.response;
+  if ((await validExecutionDomain(auth.session))?.domain !== "legioncode_native" || typeof runtime.bootstrapNativeCheckout !== "function")
+    return errorResponse("Native bootstrap unavailable", "NATIVE_BOOTSTRAP_UNAVAILABLE", 409);
+  try {
+    const receipt = await runtime.bootstrapNativeCheckout.call(runtime, validation.data.sessionId, auth.session.lease, validation.data.gitToken);
+    return jsonResponse({ receipt }, 200);
+  } catch { return errorResponse("Original Native bootstrap requires reconciliation", "NATIVE_BOOTSTRAP_ORIGINAL_UNKNOWN", 409); }
 }
 
 /**
@@ -724,7 +747,8 @@ export async function handleResumeSession(
       await getRuntimeSessionStore(runtime)?.getExecutionSession(sessionId);
     if (
       rawSession &&
-      !(await matchesStoredDomain(request, rawSession, domain))
+      (!(await matchesStoredDomain(request, rawSession, domain)) ||
+        (domain?.domain === "legioncode_native" && !samePhysicalBinding(rawSession.nativeSandboxBinding, validation.data.nativeSandboxBinding)))
     ) {
       return errorResponse(
         "Execution domain binding unavailable",
@@ -847,6 +871,7 @@ export async function handleResumeSession(
         token,
         expiresAt: resumed.expiresAt,
         lease: resumed.lease,
+        ...(resumed.nativeSandboxBinding ? { nativeSandboxBinding: resumed.nativeSandboxBinding } : {}),
         replaced: pendingReplacement,
       },
       200,
@@ -959,6 +984,8 @@ export async function handleExecuteTask(
         409,
       );
     }
+    // No marked domain may activate ordinary dispatch until its qualified owner
+    // is complete. Schema/artifact evidence cannot lift deployment restrictions.
     if (hasExecutionDomain(auth.session)) {
       return errorResponse(
         "Marked execution requires its actual runtime owner",
@@ -1029,7 +1056,8 @@ export async function handleExecuteTask(
       result: executionResult,
     });
 
-    if (executionResult.status === "sandbox_unavailable" && !borrowedLease) {
+    if (executionResult.status === "sandbox_unavailable" && !borrowedLease &&
+      executionResult.error?.code !== "NATIVE_COMMAND_CLOSURE_UNKNOWN" && executionResult.nativeCommandClosure?.state !== "unknown") {
       await replaceDeadLease(runtime, sessionId, auth.session);
     }
 
@@ -1199,7 +1227,8 @@ export async function handleCancelTask(
     auth.session.lease.leaseId,
     taskId,
   );
-  return jsonResponse({ cancelled, taskId }, 200);
+  const nativeCommandClosure = await executionPort.getNativeCommandClosure?.(sessionId, auth.session.lease, taskId);
+  return jsonResponse({ cancelled, taskId, ...(nativeCommandClosure ? { nativeCommandClosure } : {}) }, 200);
 }
 
 export async function addLog(
@@ -1238,4 +1267,9 @@ export async function isSessionValid(
 ): Promise<boolean> {
   const session = await getActiveSession(runtime, sessionId);
   return session !== null;
+}
+
+function samePhysicalBinding(stored: unknown, supplied: unknown): boolean {
+  try { return JSON.stringify(snapshotNativeSandboxPhysicalBinding(stored)) === JSON.stringify(snapshotNativeSandboxPhysicalBinding(supplied)); }
+  catch { return false; }
 }

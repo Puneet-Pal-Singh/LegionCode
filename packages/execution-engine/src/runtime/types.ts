@@ -433,6 +433,8 @@ export interface RuntimeTask {
 }
 
 export interface RuntimeExecutionService {
+  /** Original execution/body settlement plus exact physical closure, never observer completion. */
+  awaitQuiescence?(input: { readonly turnId: string; readonly timeoutMs: number }): Promise<boolean>;
   execute(
     plugin: string,
     action: string,

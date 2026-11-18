@@ -1,3 +1,6 @@
+import { NativeSandboxPhysicalBindingSchema, snapshotNativeSandboxPhysicalBinding, type NativeSandboxPhysicalBinding } from "@repo/worker-protocol/private/native-sandbox-binding";
+import { NativeCheckoutBootstrapIntentSchema, NativeCheckoutBootstrapReceiptSchema, parseNativeCheckoutReadyEvidence,
+  type NativeCheckoutBootstrapIntent } from "@repo/worker-protocol/private/native-checkout-bootstrap";
 import {
   ExecutionDomainDigestSchema,
   executionDomainDigest,
@@ -18,6 +21,7 @@ import {
   sanitizeUnknownError,
 } from "../../core/security/LogSanitizer";
 import { formatDiagnosticLogLine } from "../../lib/diagnostic-log";
+import { parseNativeCommandClosure, type NativeCommandClosure } from "@repo/shared-types/native-command-closure";
 
 const DEFAULT_EXECUTION_TIMEOUT_MS = 120_000;
 const LOCAL_DEV_SESSION_RETRY_ATTEMPTS = 10;
@@ -26,6 +30,7 @@ const EXECUTION_SESSION_REPO_PATH = ".";
 
 const SecureExecutionSessionResponseSchema = z
   .object({
+    nativeSandboxBinding: NativeSandboxPhysicalBindingSchema.optional(),
     sessionId: z.string().min(1),
     token: z.string().min(1),
     expiresAt: z.number().int().positive(),
@@ -58,6 +63,7 @@ export class SecureExecutionSessionRecoveryError extends Error {
 }
 
 export interface SecureExecutionSessionHandle {
+  readonly nativeSandboxBinding?: NativeSandboxPhysicalBinding;
   readonly sessionId: string;
   readonly token: string;
   readonly expiresAt: number;
@@ -73,10 +79,15 @@ export interface SecureExecutionSessionPort {
   acquire(): Promise<SecureExecutionSessionHandle>;
   recoverAfterSandboxLoss(): Promise<SecureExecutionSessionHandle>;
   cancelTask(taskId: string): Promise<boolean>;
+  cancelTaskWithNativeClosure?(taskId: string): Promise<{ cancelled: boolean; nativeCommandClosure: NativeCommandClosure | null }>;
+  parseNativeClosure?(value: unknown, taskId: string): Promise<NativeCommandClosure | null>;
   release(): Promise<void>;
+  bootstrapNativeCheckout?(gitToken?: string): Promise<void>;
+  verifyNativeCheckoutReady?(intent: NativeCheckoutBootstrapIntent): Promise<void>;
 }
 
 export interface PersistedSecureExecutionSessionReference {
+  readonly nativeSandboxBinding?: NativeSandboxPhysicalBinding;
   readonly secureSessionId: string;
   readonly leaseId: LeaseId;
   readonly sandboxId: string;
@@ -92,9 +103,9 @@ export interface PersistedSecureExecutionSessionReference {
 export class SecureExecutionSessionClient implements SecureExecutionSessionPort {
   private sessionPromise: Promise<SecureExecutionSessionHandle> | null = null;
   private originalPromise: Promise<SecureExecutionSessionHandle> | null = null;
-  private readonly executionDomain: ServerExecutionDomainBinding | undefined;
   private releasePromise: Promise<void> | null = null;
   private reference: PersistedSecureExecutionSessionReference | undefined;
+  private readonly executionDomain: ServerExecutionDomainBinding | undefined;
 
   constructor(
     private readonly env: Env,
@@ -103,7 +114,9 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
     private readonly workspaceScope: SecureExecutionWorkspaceScope,
     persistedReference?: PersistedSecureExecutionSessionReference,
     executionDomain?: ServerExecutionDomainBinding,
+    private readonly nativeCheckoutIntent?: NativeCheckoutBootstrapIntent,
   ) {
+    this.nativeCheckoutIntent = nativeCheckoutIntent ? Object.freeze(NativeCheckoutBootstrapIntentSchema.parse(nativeCheckoutIntent)) : undefined;
     this.reference = persistedReference
       ? snapshotPersistedSecureExecutionSessionReference(persistedReference)
       : undefined;
@@ -111,6 +124,8 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
     this.executionDomain = executionDomain
       ? snapshotExecutionDomain(executionDomain)
       : undefined;
+    if (this.executionDomain?.domain === "legioncode_native" && this.reference && !this.reference.nativeSandboxBinding)
+      throw new Error("NATIVE_SANDBOX_ORIGINAL_BINDING_UNAVAILABLE");
     const scope = this.executionDomain?.scope;
     if (
       (this.reference &&
@@ -134,24 +149,28 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
     }
     try {
       const session = await this.sessionPromise;
+      await this.validateDomainHandle(session);
       this.reference = toPersistedReference(session);
       return session;
     } catch (error) {
-      if (!this.executionDomain && !this.originalPromise)
-        this.sessionPromise = null;
+      // A bound or explicitly borrowed original cannot be recreated after an
+      // observer failure. Its original rejected operation remains retained.
+      if (!this.executionDomain && !this.originalPromise) this.sessionPromise = null;
       throw error;
     }
   }
 
   async borrowOriginal(): Promise<SecureExecutionSessionHandle> {
     if (!this.originalPromise) this.originalPromise = this.readOriginal();
+    // Seed before awaiting so tools/cancel cannot enter replacement-capable
+    // acquisition while the exact original borrow is still in flight.
     if (!this.sessionPromise) this.sessionPromise = this.originalPromise;
     const handle = await this.originalPromise;
     this.reference = toPersistedReference(handle);
     return handle;
   }
 
-  private async readOriginal(): Promise<SecureExecutionSessionHandle> {
+  private async readOriginal(requireNativeBootstrap = false): Promise<SecureExecutionSessionHandle & { nativeCheckoutReady?: unknown }> {
     const reference = this.reference;
     if (!reference) {
       throw new Error(
@@ -170,10 +189,10 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
         },
         body: JSON.stringify({
           runId: this.runId,
-          ...(this.executionDomain
-            ? { executionDomain: this.executionDomain }
-            : {}),
+          ...(requireNativeBootstrap ? { requireNativeBootstrap: true } : {}),
           workspaceScope: this.workspaceScope,
+          ...(reference.nativeSandboxBinding ? { nativeSandboxBinding: reference.nativeSandboxBinding } : {}),
+          ...(this.executionDomain ? { executionDomain: this.executionDomain } : {}),
           lease: {
             leaseId: reference.leaseId,
             sandboxId: reference.sandboxId,
@@ -188,12 +207,12 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
         "The original secure checkout session is unavailable for Git borrowing",
       );
     }
-    const handle = SecureExecutionSessionResponseSchema.parse(
-      await parseJsonResponse(response),
-    );
+    const body = await parseJsonResponse(response);
+    const handle = SecureExecutionSessionResponseSchema.parse(body);
+    const nativeCheckoutReady = requireNativeBootstrap && body && typeof body === "object" && "nativeCheckoutReady" in body
+      ? body.nativeCheckoutReady : undefined;
     await this.validateDomainHandle(handle);
-    const exactLease =
-      handle.sessionId === reference.secureSessionId &&
+    const exactLease = handle.sessionId === reference.secureSessionId &&
       handle.lease.leaseId === reference.leaseId &&
       handle.lease.sandboxId === reference.sandboxId &&
       handle.lease.generation === reference.generation;
@@ -209,6 +228,7 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
     }
     return Object.freeze({
       ...handle,
+      ...(requireNativeBootstrap ? { nativeCheckoutReady } : {}),
       lease: Object.freeze({ ...handle.lease }),
     });
   }
@@ -243,20 +263,26 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
   }
 
   async cancelTask(taskId: string): Promise<boolean> {
+    return (await this.cancelTaskRequest(taskId, "observed")).cancelled;
+  }
+
+  async cancelTaskWithNativeClosure(taskId: string): Promise<{ cancelled: boolean; nativeCommandClosure: NativeCommandClosure | null }> {
+    return await this.cancelTaskRequest(taskId, "retained");
+  }
+
+  private async cancelTaskRequest(taskId: string, lifetime: "observed" | "retained"): Promise<{ cancelled: boolean; nativeCommandClosure: NativeCommandClosure | null }> {
     const session = await this.acquire();
-    const response = await fetchWithTimeout(
-      this.env.SECURE_API,
-      `http://internal/api/v1/cancel?session=${encodeURIComponent(this.brainSessionId)}`,
-      {
+    const url = `http://internal/api/v1/cancel?session=${encodeURIComponent(this.brainSessionId)}`;
+    const init = {
         method: "POST",
         headers: {
           Authorization: `Bearer ${session.token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ sessionId: session.sessionId, taskId }),
-      },
-      DEFAULT_EXECUTION_TIMEOUT_MS,
-    );
+    };
+    const response = lifetime === "retained" ? await this.env.SECURE_API.fetch(url, init)
+      : await fetchWithTimeout(this.env.SECURE_API, url, init, DEFAULT_EXECUTION_TIMEOUT_MS);
     const body = await parseJsonResponse(response);
     if (!response.ok) {
       const error = SecureExecutionSessionErrorResponseSchema.safeParse(body);
@@ -266,7 +292,64 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
         ),
       );
     }
-    return z.object({ cancelled: z.boolean() }).parse(body).cancelled;
+    const parsed = z.object({ cancelled: z.boolean(), nativeCommandClosure: z.unknown().optional() }).parse(body);
+    return { cancelled: parsed.cancelled, nativeCommandClosure: await this.parseNativeClosure(parsed.nativeCommandClosure, taskId) };
+  }
+
+  /** Private evidence is checked against the originally acquired authenticated
+   * session. Reading a response never provisions or recovers a replacement. */
+  async parseNativeClosure(value: unknown, taskId: string): Promise<NativeCommandClosure | null> {
+    if (this.executionDomain?.domain !== "legioncode_native") return null;
+    const pending = this.sessionPromise;
+    if (!pending) return null;
+    const session = await pending;
+    const reference = this.reference;
+    if (!reference || reference.secureSessionId !== session.sessionId || reference.leaseId !== session.lease.leaseId ||
+      reference.sandboxId !== session.lease.sandboxId || reference.generation !== session.lease.generation) return null;
+    return parseNativeCommandClosure(value, {
+      executionDomainDigest: await executionDomainDigest(this.executionDomain),
+      sessionId: session.sessionId, leaseId: session.lease.leaseId, sandboxId: session.lease.sandboxId,
+      generation: session.lease.generation, taskId, workspaceId: this.workspaceScope.workspaceId,
+      workspaceRoot: this.workspaceScope.root, runId: this.runId, threadId: this.workspaceScope.threadId,
+      turnId: this.workspaceScope.turnId, runAttemptId: this.workspaceScope.runAttemptId,
+    });
+  }
+
+  async bootstrapNativeCheckout(gitToken?: string): Promise<void> {
+    const pending = this.sessionPromise;
+    if (!pending || !this.nativeCheckoutIntent || this.executionDomain?.domain !== "legioncode_native") throw new Error("NATIVE_BOOTSTRAP_SCOPE_REQUIRED");
+    const session = await pending;
+    await this.validateDomainHandle(session);
+    // No observer retry and no recursive acquire: the issuance owner already
+    // awaited this original handle before entering its Git credential owner.
+    const response = await this.env.SECURE_API.fetch(
+      `http://internal/api/v1/session/native-bootstrap?session=${encodeURIComponent(this.brainSessionId)}`, {
+        method: "POST", headers: { Authorization: `Bearer ${session.token}`, "Content-Type": "application/json",
+          "X-Internal-Runtime-Secret": this.requireInternalSecret() },
+        body: JSON.stringify({ sessionId: session.sessionId, ...(gitToken ? { gitToken } : {}) }),
+      });
+    const text = await response.text(); // Retain the original body through EOF even on failure.
+    if (!response.ok) throw new Error("NATIVE_BOOTSTRAP_ORIGINAL_UNKNOWN");
+    const body = JSON.parse(text) as { receipt?: unknown };
+    const receipt = NativeCheckoutBootstrapReceiptSchema.parse(body.receipt);
+    const binding = receipt.observation.binding;
+    if (JSON.stringify(receipt.physicalBinding) !== JSON.stringify(session.nativeSandboxBinding) || JSON.stringify(receipt.intent) !== JSON.stringify(this.nativeCheckoutIntent) || binding.sessionId !== session.sessionId ||
+      binding.leaseId !== session.lease.leaseId || binding.sandboxId !== session.lease.sandboxId || binding.generation !== session.lease.generation ||
+      binding.executionDomainDigest !== await executionDomainDigest(this.executionDomain)) throw new Error("NATIVE_BOOTSTRAP_RECEIPT_MISMATCH");
+  }
+
+  async verifyNativeCheckoutReady(intent: NativeCheckoutBootstrapIntent): Promise<void> {
+    if (this.executionDomain?.domain !== "legioncode_native") throw new Error("NATIVE_BOOTSTRAP_SCOPE_REQUIRED");
+    // Fresh read; the original borrowed handle cache is not a readiness cache.
+    const original = await this.readOriginal(true);
+    const evidence = parseNativeCheckoutReadyEvidence(original.nativeCheckoutReady);
+    const binding = evidence.bootstrap.observation.binding;
+    if (JSON.stringify(evidence.bootstrap.physicalBinding) !== JSON.stringify(original.nativeSandboxBinding) || JSON.stringify(evidence.bootstrap.intent) !== JSON.stringify(NativeCheckoutBootstrapIntentSchema.parse(intent)) ||
+      binding.sessionId !== original.sessionId || binding.leaseId !== original.lease.leaseId || binding.sandboxId !== original.lease.sandboxId ||
+      binding.generation !== original.lease.generation || binding.executionDomainDigest !== await executionDomainDigest(this.executionDomain) ||
+      binding.workspaceId !== this.workspaceScope.workspaceId || binding.runId !== this.runId || binding.threadId !== this.workspaceScope.threadId ||
+      binding.turnId !== this.workspaceScope.turnId || binding.runAttemptId !== this.workspaceScope.runAttemptId)
+      throw new Error("NATIVE_BOOTSTRAP_PROVENANCE_MISMATCH");
   }
 
   private async validateReferenceDomain(): Promise<string | undefined> {
@@ -282,6 +365,11 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
   private async validateDomainHandle(
     session: SecureExecutionSessionHandle,
   ): Promise<void> {
+    if (this.executionDomain?.domain === "legioncode_native") {
+      const selected = snapshotNativeSandboxPhysicalBinding(session.nativeSandboxBinding);
+      if (this.reference && JSON.stringify(selected) !== JSON.stringify(this.reference.nativeSandboxBinding))
+        throw new Error("NATIVE_SANDBOX_ORIGINAL_BINDING_UNAVAILABLE");
+    } else if (session.nativeSandboxBinding) throw new Error("NATIVE_SANDBOX_ORIGINAL_BINDING_UNAVAILABLE");
     if (
       session.lease.executionDomainDigest !==
       (await this.validateReferenceDomain())
@@ -324,9 +412,8 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
             taskId: `brain-session-${this.brainSessionId}`,
             repoPath: EXECUTION_SESSION_REPO_PATH,
             workspaceScope: this.workspaceScope,
-            ...(this.executionDomain
-              ? { executionDomain: this.executionDomain }
-              : {}),
+            ...(this.executionDomain ? { executionDomain: this.executionDomain } : {}),
+            ...(this.nativeCheckoutIntent ? { nativeCheckoutIntent: this.nativeCheckoutIntent } : {}),
           }),
         },
         DEFAULT_EXECUTION_TIMEOUT_MS,
@@ -370,6 +457,8 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
         },
         body: JSON.stringify({
           workspaceScope: this.workspaceScope,
+          ...(reference.nativeSandboxBinding ? { nativeSandboxBinding: reference.nativeSandboxBinding } : {}),
+          ...(this.executionDomain ? { executionDomain: this.executionDomain } : {}),
           lease: {
             leaseId: reference.leaseId,
             sandboxId: reference.sandboxId,
@@ -491,6 +580,7 @@ export function toPersistedReference(
   session: SecureExecutionSessionHandle,
 ): PersistedSecureExecutionSessionReference {
   return {
+    ...(session.nativeSandboxBinding ? { nativeSandboxBinding: snapshotNativeSandboxPhysicalBinding(session.nativeSandboxBinding) } : {}),
     secureSessionId: session.sessionId,
     leaseId: session.lease.leaseId,
     sandboxId: session.lease.sandboxId,
@@ -561,19 +651,27 @@ async function sleep(durationMs: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, durationMs));
 }
 
-export function snapshotPersistedSecureExecutionSessionReference(
+export function snapshotPersistedSecureExecutionSessionReference(value: unknown): PersistedSecureExecutionSessionReference {
+  const parsed = z.object({ secureSessionId: z.string().min(1), leaseId: LeaseIdSchema, sandboxId: z.string().min(1),
+    generation: z.number().int().nonnegative().safe(), executionDomainDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    nativeSandboxBinding: NativeSandboxPhysicalBindingSchema.optional() }).strict().parse(value);
+  return Object.freeze({ ...parsed, ...(parsed.nativeSandboxBinding ? { nativeSandboxBinding: snapshotNativeSandboxPhysicalBinding(parsed.nativeSandboxBinding) } : {}) });
+}
+
+/** Validate PG original-reference custody against the canonical checkout tuple.
+ * Parsing alone cannot establish this association or derive a physical binding. */
+export function validateNativeOriginalSessionReference(
   value: unknown,
+  expected: Pick<PersistedSecureExecutionSessionReference, "secureSessionId" | "leaseId" | "sandboxId" | "generation"> & {
+    readonly executionDomainDigest: string;
+  },
 ): PersistedSecureExecutionSessionReference {
-  return Object.freeze(
-    z
-      .object({
-        secureSessionId: z.string().min(1),
-        leaseId: LeaseIdSchema,
-        sandboxId: z.string().min(1),
-        generation: z.number().int().nonnegative().safe(),
-        executionDomainDigest: ExecutionDomainDigestSchema.optional(),
-      })
-      .strict()
-      .parse(value),
-  );
+  const original = snapshotPersistedSecureExecutionSessionReference(value);
+  if (!original.nativeSandboxBinding || original.secureSessionId !== expected.secureSessionId ||
+    original.leaseId !== expected.leaseId || original.sandboxId !== expected.sandboxId ||
+    original.generation !== expected.generation || original.executionDomainDigest === undefined ||
+    original.executionDomainDigest !== expected.executionDomainDigest) {
+    throw new Error("NATIVE_SANDBOX_ORIGINAL_BINDING_UNAVAILABLE");
+  }
+  return original;
 }

@@ -93,6 +93,36 @@ describe("DefaultGitService", () => {
       isDirty: false,
     });
     expect(executor.calls.every((call) => call.runId === undefined)).toBe(true);
+
+    const paths = ["/workspace/repository", "/workspace/repository/.git",
+      "/workspace/repository/.git", "/workspace/repository/.git"];
+    const result = (path: string): GitCommandExecutionResult => ({ exitCode: 0, stdout: `${path}\n`, stderr: "" });
+    const metadataExecutor = new QueueGitExecutor([...paths, ...paths].map(result));
+    await expect(new DefaultGitService(metadataExecutor).readRepositoryMetadataPaths({
+      workspaceRoot: "/workspace/repository",
+    })).resolves.toEqual({ version: 1, workspaceRoot: "/workspace/repository",
+      gitEntry: "/workspace/repository/.git", gitDirectory: "/workspace/repository/.git",
+      commonDirectory: "/workspace/repository/.git", backlinkPath: null, backlinkRecordPath: null });
+    expect(metadataExecutor.calls.every(call => call.runId === undefined && call.readOnlyProbe === true)).toBe(true);
+
+    const linked = ["/workspace/repository", "/repos/main/.git/worktrees/task",
+      "/repos/main/.git", "/repos/main/.git/worktrees/task"];
+    await expect(new DefaultGitService(new QueueGitExecutor([...linked, ...linked].map(result)))
+      .readRepositoryMetadataPaths({ workspaceRoot: "/workspace/repository" }))
+      .resolves.toMatchObject({ backlinkPath: "/workspace/repository/.git",
+        backlinkRecordPath: "/repos/main/.git/worktrees/task/gitdir" });
+    for (const malformed of ["/workspace/repository\n/foreign", "/workspace/../repository", "relative", "/workspace/repository/"]) {
+      await expect(new DefaultGitService(new QueueGitExecutor([result(malformed)]))
+        .readRepositoryMetadataPaths({ workspaceRoot: "/workspace/repository" })).rejects.toMatchObject({ code: "git_command_failed" });
+    }
+    await expect(new DefaultGitService(new QueueGitExecutor([
+      ...paths.map(result), ...linked.map(result),
+    ])).readRepositoryMetadataPaths({ workspaceRoot: "/workspace/repository" }))
+      .rejects.toMatchObject({ code: "git_command_failed" });
+    await expect(new DefaultGitService(new QueueGitExecutor([
+      ...paths.slice(0, 3).map(result), result("/foreign/.git"),
+    ])).readRepositoryMetadataPaths({ workspaceRoot: "/workspace/repository" }))
+      .rejects.toMatchObject({ code: "git_command_failed" });
   });
 
   it("rejects missing workspace roots instead of using a default", async () => {
